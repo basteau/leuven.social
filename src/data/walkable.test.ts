@@ -24,6 +24,14 @@ describe('WalkGrid', () => {
     expect(grid.buildingHeight(50, 47)).toBe(0);
   });
 
+  test('clearance keeps a body off walls but not off the edge of a path', () => {
+    expect(grid.walkable(50, 45.2)).toBe(true);
+    expect(grid.walkable(50, 45.2, 0.5)).toBe(false);
+    expect(grid.walkable(50, 46.5, 0.5)).toBe(true);
+    expect(grid.walkable(20.6, 25, 0.5)).toBe(true);
+    expect(grid.walkable(30, 25, 0.5)).toBe(false);
+  });
+
   test('a narrow path is still a ribbon at least a cell and a half wide', () => {
     expect(grid.walkable(19.4, 25)).toBe(true);
     expect(grid.walkable(20.6, 25)).toBe(true);

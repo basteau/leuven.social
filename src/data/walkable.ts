@@ -119,8 +119,19 @@ export class WalkGrid {
     return this.value(cell) === OPEN;
   }
 
-  walkable(x: number, z: number): boolean {
-    return this.open(this.cellAt(x, z));
+  /**
+   * Whether (x, z) is walkable, with no building within `clearance` metres along either axis.
+   * Narrow paths stay walkable: only walls keep a body at a distance, not kerbs or hedges.
+   */
+  walkable(x: number, z: number, clearance = 0): boolean {
+    if (!this.open(this.cellAt(x, z))) return false;
+    if (clearance <= 0) return true;
+    return (
+      !this.buildingHeight(x + clearance, z) &&
+      !this.buildingHeight(x - clearance, z) &&
+      !this.buildingHeight(x, z + clearance) &&
+      !this.buildingHeight(x, z - clearance)
+    );
   }
 
   /** Roof height of the building over (x, z), or 0 where there is none. */
