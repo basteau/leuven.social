@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+
+# Raw and intermediate geodata (231 MB). Rebuild with tools/ and research/ docs; the app only needs public/data/.
+data/grb/
+data/elevation/
+data/osm/raw_*.json
+data/derived/*.geojson
+data/derived/*.json
+research/slop-newyork/repo/
+.artifacts/
+data/derived/*.png

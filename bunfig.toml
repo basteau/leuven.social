@@ -1,0 +1,9 @@
+[fmt]
+printWidth = 100
+singleQuote = true
+
+[test]
+root = "src"
+coverageSkipTestFiles = true
+# Pure modules stay fully tested; browser-only modules are covered by `bun run smoke`.
+coverageThreshold = { lines = 0.95, functions = 0.95 }
