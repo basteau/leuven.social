@@ -32,6 +32,8 @@ Prefer reading the world over guessing it. Each of these replaced a rule of thum
 | Paths                     | OSM footways, paths, cycleways, tracks and steps of their own, with width and surface | `pathFromOsm` in `src/data/city.ts`         |
 | Where you can walk        | Road surfaces, squares and paths, minus every building footprint and its courtyards   | `WalkGrid` in `src/data/walkable.ts`        |
 
+Walkability is an allow-list with no hand-placed exceptions: only roads, squares and paths open ground, and buildings close it again. A new layer (rails, platforms, water) is closed unless `WalkGrid` is taught otherwise. Where tracks cross a road at grade, subtract them from the road in `WalkGrid` when the rail layer lands, and test it.
+
 ## Coordinates
 
 | Axis   | Meaning                       |

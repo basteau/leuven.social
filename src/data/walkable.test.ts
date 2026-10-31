@@ -17,6 +17,13 @@ describe('WalkGrid', () => {
     expect(grid.walkable(15, 130)).toBe(false);
   });
 
+  test('only roads, squares and paths open ground: any other layer, rails included, stays closed', () => {
+    const tracks = Float32Array.of(100, 0, 110, 0, 110, 120, 100, 120);
+    const withRails = new WalkGrid({ ...town, rails: [tracks] } as typeof town);
+    expect(withRails.walkable(105, 20)).toBe(false);
+    expect(withRails.walkable(105, 45)).toBe(true); // the street it crosses is still the street
+  });
+
   test('a building closes the road under it and keeps its height', () => {
     expect(grid.walkable(50, 42)).toBe(false);
     expect(grid.buildingHeight(50, 42)).toBe(16);
