@@ -27,8 +27,12 @@ const city: City = {
   // The second house starts in the first cell and overhangs into the second.
   buildings: [house(1, box(10, 10, 8, 8)), house(2, box(S - 4, 10, 8, 8))],
   roads: [box(S - 50, 100, 100, 10)],
-  carriageways: [],
-  markings: [],
+  carriageways: [{ kind: 'street', ring: box(S - 50, 100, 100, 10) }],
+  markings: [
+    // A lane line across the seam, and a crossing that straddles it.
+    { kind: 'dashed', line: new Float32Array([S - 30, 105, S + 30, 105]) },
+    { kind: 'zebra', line: new Float32Array([S - 1, 100, S + 1, 110]) },
+  ],
   plazas: [],
   green: [box(10, 200, 20, 20)],
   water: [],
@@ -56,13 +60,26 @@ test('the area is cut into cells, and each thing goes to one', () => {
   expect(west.ground.roads).toHaveLength(1);
   expect(east.ground.roads).toHaveLength(1);
   expect(Math.max(...east.ground.roads[0]!.filter((_, i) => i % 2 === 0))).toBe(S + 50);
+  expect(east.ground.carriageways.map((r) => r.kind)).toEqual(['street']);
+  // Lane lines are cut at the seam; a crossing stays whole in the cell of its start.
+  expect(west.ground.markings.map((m) => [m.kind, Array.from(m.line)])).toEqual([
+    ['dashed', [S - 30, 105, S, 105]],
+    ['zebra', [S - 1, 100, S + 1, 110]],
+  ]);
+  expect(east.ground.markings.map((m) => [m.kind, Array.from(m.line)])).toEqual([
+    ['dashed', [S, 105, S + 30, 105]],
+  ]);
   expect(west.ground.green[0]).toEqual(city.green[0]!);
 });
 
 test('a cell builds into one mesh and one set of outlines', () => {
   const [west] = partition(city);
-  const { mesh, lines } = buildCell(west!, city.area, partyWalls(city.buildings));
+  const { mesh, lines, fineVertices } = buildCell(west!, city.area, partyWalls(city.buildings));
   const g = mesh.build({ facade: true });
+  const p = g.getAttribute('position');
+  // Fine paint comes last: the lane line's dash and the zebra's bars, just over the road.
+  expect(fineVertices).toBeLessThan(p.count);
+  for (let i = fineVertices; i < p.count; i++) expect(p.getY(i)).toBeCloseTo(0.17);
   g.computeBoundingBox();
   expect(g.boundingBox!.min.y).toBeLessThan(0); // the slab
   expect(g.boundingBox!.max.y).toBeGreaterThanOrEqual(10); // the houses

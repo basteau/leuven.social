@@ -25,8 +25,9 @@ import { clampToArea } from '../data/geometry.ts';
 import { partyWalls } from './buildings.ts';
 import { buildCell, partition } from './cells.ts';
 import type { Cell } from './cells.ts';
-import { createFacadeMaterial } from './facade-material.ts';
+import { createFacadeMaterial, setPixelSize } from './facade-material.ts';
 import { SLAB_DEPTH } from './ground.ts';
+import { LINE_LOD } from './paint.ts';
 import type { V3 } from './mesh-builder.ts';
 import { BOUNCE_LIGHT, OUTLINE, SKY_LIGHT, SUN } from './palette.ts';
 import {
@@ -79,6 +80,8 @@ interface CellEntry {
   box: Box3;
   /** Its mesh and outlines once built; empty until then. */
   objects: Object3D[];
+  /** Where the fine road paint starts in its mesh (see buildCell). */
+  fineVertices: number;
 }
 
 /** Golden hour from the south-west, low enough for long shadows. */
@@ -124,7 +127,7 @@ export function createViewer(options: ViewerOptions): Viewer {
 
   const scene = new Scene();
   const gradientMap = toonGradient();
-  // One material for every cell: ground and trees carry no facade, so they get no windows.
+  // One material for every cell: walls get windows, roads their texture and paint (paint.ts).
   const material = createFacadeMaterial(gradientMap);
   const ink = new LineBasicMaterial({ color: OUTLINE });
 
@@ -140,13 +143,15 @@ export function createViewer(options: ViewerOptions): Viewer {
       new Vector3(cell.bounds.maxX + 60, MAX_HEIGHT, cell.bounds.maxZ + 60),
     ),
     objects: [],
+    fineVertices: 0,
   }));
 
   function build(entry: CellEntry): void {
-    const { mesh, lines } = buildCell(entry.cell, city.area, walls);
+    const { mesh, lines, fineVertices } = buildCell(entry.cell, city.area, walls);
     const surfaces = new Mesh(mesh.build({ facade: true }), material);
     surfaces.castShadow = true;
     surfaces.receiveShadow = true;
+    entry.fineVertices = fineVertices;
     const outlines = new LineSegments(lines.build(), ink);
     // Cells are culled by their boxes below: three's bounding spheres are far looser.
     entry.objects = [surfaces, outlines];
@@ -335,12 +340,20 @@ export function createViewer(options: ViewerOptions): Viewer {
   function render(): void {
     // Snap the camera to whole game pixels so edges don't shimmer while panning.
     saved.copy(camera.position);
+    const unit =
+      (camera.top - camera.bottom) / camera.zoom / renderer.getDrawingBufferSize(buffer).y;
+    setPixelSize(material, unit);
+    // Fine road paint is drawn last in each cell, so a view too far out to see it can stop short.
+    for (const { objects, fineVertices } of cells) {
+      (objects[0] as Mesh | undefined)?.geometry.setDrawRange(
+        0,
+        unit > LINE_LOD ? fineVertices : Infinity,
+      );
+    }
     if (pixelated) {
       camera.updateMatrixWorld();
       right.setFromMatrixColumn(camera.matrixWorld, 0);
       up.setFromMatrixColumn(camera.matrixWorld, 1);
-      const unit =
-        (camera.top - camera.bottom) / camera.zoom / renderer.getDrawingBufferSize(buffer).y;
       const r = camera.position.dot(right);
       const u = camera.position.dot(up);
       camera.position
