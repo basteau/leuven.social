@@ -33,10 +33,10 @@ Leuven as a tiny city you could hold in your hands: a warm, crisp, pixel-art dio
 
 ### Landmarks and squares
 
-- **Hero landmarks get their real silhouette.** Low-poly halls, towers and spires fitted to the LiDAR: the Stadhuis' steep roof with dormers and six turrets, Sint-Pieterskerk's cross, flèche and squat west work, the Universiteitsbibliotheek's tower. Enough to recognise at zoom 2–4, never sculpted detail.
+- **Hero landmarks get their real silhouette.** Low-poly halls, towers and spires fitted to the LiDAR: the Stadhuis' steep roof with dormers and six turrets, Sint-Pieterskerk's cross, flèche and squat west work, the Universiteitsbibliotheek's tower, Station Leuven's gabled middle and pavilions, Arenbergkasteel's corner towers, the Abdij van Park church tower. Enough to recognise at zoom 2–4, never sculpted detail.
 - **Stepped gables say "Flemish town".** Nearly half the gables in the hero squares are stepped, a fifth elsewhere in the centre, none on the fringe. Narrow gables stay plain, since the steps would be smaller than a game pixel.
 - **Squares show what happens on them.** Oude Markt gets rows of café parasols along its facades; the middle stays open.
-- To add a landmark, fit parts in `src/scene/landmark-models.ts` against a LiDAR height plot of its footprint, then check it from all four rotations.
+- To add a landmark, fit parts in `src/scene/landmark-models.ts` against a LiDAR height plot of its footprint, list the footprint in `LANDMARK_FOOTPRINTS` (`src/data/area.ts`), rebake, then check it from all four rotations.
 
 ### Palette
 
