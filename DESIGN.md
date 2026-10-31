@@ -42,18 +42,20 @@ Leuven as a tiny city you could hold in your hands: a warm, crisp, pixel-art dio
 
 Values live in `src/scene/palette.ts`; change them there only. Each building's colour is picked deterministically from its id, so it never changes between reloads.
 
-| Element                | Colours                                                                        | Why                                                                            |
-| ---------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------ |
-| House walls            | Brick reds, warm plaster creams                                                | Leuven's streets: red-brown brick next to whitewashed and pastel fronts        |
-| Civic and church walls | Sandstone and limestone                                                        | The Gothic Stadhuis, Sint-Pieterskerk and the university halls                 |
-| Landmarks              | Warm sandstone, pale limestone, red brick with cream trim, dark slate spires   | Each hero reads as its own building, a step darker and richer than the streets |
-| Café parasols          | Cream, brick red, mustard, orange, sage                                        | A few warm dots of life on the squares                                         |
-| Pitched roofs          | Slate blue-grey and terracotta                                                 | The two roof families of Flemish towns                                         |
-| Flat roofs             | Light warm greys                                                               | Read as quiet backdrop, never darker than the streets                          |
-| Windows                | Deep blue-grey glass, ~7% lit warm (`#f3c873`)                                 | The sun catching a few panes; reads as life without noise                      |
-| Ground                 | Garden green-beige base, warm grey roads, sand cobbles for squares, river blue | Squares should glow slightly against the roads                                 |
-| Diorama slab           | Earth brown sides                                                              | Frames the city as an object                                                   |
-| Outlines               | `#2b2420` warm ink                                                             | Ties scene and HUD together (same ink as the panels)                           |
+| Element                | Colours                                                                                                            | Why                                                                                  |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
+| House walls            | Brick reds, warm plaster creams                                                                                    | Leuven's streets: red-brown brick next to whitewashed and pastel fronts              |
+| Civic and church walls | Sandstone and limestone                                                                                            | The Gothic Stadhuis, Sint-Pieterskerk and the university halls                       |
+| Landmarks              | Warm sandstone, pale limestone, red brick with cream trim, dark slate spires                                       | Each hero reads as its own building, a step darker and richer than the streets       |
+| Café parasols          | Cream, brick red, mustard, orange, sage                                                                            | A few warm dots of life on the squares                                               |
+| Pitched roofs          | Their real colour from the air, snapped to ten swatches: slate, black glazed and red tiles, terracotta, zinc, moss | Leuven is mostly slate with red tiles between; the aerial photo knows which is which |
+| Flat roofs             | Light warm greys, picked by the same swatches                                                                      | Read as quiet backdrop, never darker than the streets                                |
+| Paths                  | Pale slabs when paved, sand for gravel trails                                                                      | Parks and the Dijle walks read as places to walk, not as roads                       |
+| Trees                  | One low-poly tree, scaled to the LiDAR height of each one                                                          | Parks and gardens are as wooded as they really are                                   |
+| Windows                | Deep blue-grey glass, ~7% lit warm (`#f3c873`)                                                                     | The sun catching a few panes; reads as life without noise                            |
+| Ground                 | Garden green-beige base, warm grey roads, sand cobbles for squares, river blue                                     | Squares should glow slightly against the roads                                       |
+| Diorama slab           | Earth brown sides                                                                                                  | Frames the city as an object                                                         |
+| Outlines               | `#2b2420` warm ink                                                                                                 | Ties scene and HUD together (same ink as the panels)                                 |
 
 ## HUD
 
