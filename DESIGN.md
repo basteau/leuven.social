@@ -1,0 +1,128 @@
+# Design
+
+Leuven as a tiny city you could hold in your hands: a warm, crisp, pixel-art diorama at golden hour, with a calm, game-like HUD that stays out of the way.
+
+## Principles
+
+1. **The city is the interface.** The map fills the screen. HUD panels are small, few, and float at the edges. Every new control has to justify covering the city.
+2. **Recognisable, not literal.** Real footprints and real heights make it unmistakably Leuven. Simplified shapes and a limited palette make it charming. Spend detail where people look: hero landmarks first.
+3. **Crisp over smooth.**
+   - Hard pixels, hard shadows, a 3-step toon ramp, dark ink outlines.
+   - No blur, no glows, no soft gradients inside the scene.
+   - Smoothness belongs to motion, not to surfaces.
+4. **Fast is a feature.** It opens instantly and costs nothing when idle. A visual idea that breaks a budget in docs/RENDERING.md needs a cheaper version.
+5. **Works by hand and by thumb.** Everything works with mouse, touch and keyboard, from a 320 px phone to a desktop.
+
+## Scene
+
+### Camera
+
+- True isometric view (35.26° pitch).
+- Rotation snaps to 90° steps, which keeps the pixel grid stable.
+- The camera snaps to whole game pixels.
+
+### Pixel mode
+
+- On by default: at least 2× game pixels, about 420 rows on a desktop window, scaled up with nearest-neighbour.
+- Crisp mode renders at device resolution, for screenshots and reading labels.
+
+### Light
+
+- Golden hour: a warm sun (`#ffe2b8`) from the south-west, long shadows.
+- A cool sky fill (`#cfe3ff`) and a warm ground bounce.
+
+### Palette
+
+Values live in `src/scene/palette.ts`; change them there only. Each building's colour is picked deterministically from its id, so it never changes between reloads.
+
+| Element                | Colours                                                                        | Why                                                                     |
+| ---------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| House walls            | Brick reds, warm plaster creams                                                | Leuven's streets: red-brown brick next to whitewashed and pastel fronts |
+| Civic and church walls | Sandstone and limestone                                                        | The Gothic Stadhuis, Sint-Pieterskerk and the university halls          |
+| Pitched roofs          | Slate blue-grey and terracotta                                                 | The two roof families of Flemish towns                                  |
+| Flat roofs             | Light warm greys                                                               | Read as quiet backdrop, never darker than the streets                   |
+| Windows                | Deep blue-grey glass, ~7% lit warm (`#f3c873`)                                 | The sun catching a few panes; reads as life without noise               |
+| Ground                 | Garden green-beige base, warm grey roads, sand cobbles for squares, river blue | Squares should glow slightly against the roads                          |
+| Diorama slab           | Earth brown sides                                                              | Frames the city as an object                                            |
+| Outlines               | `#2b2420` warm ink                                                             | Ties scene and HUD together (same ink as the panels)                    |
+
+## HUD
+
+### Tokens
+
+Tokens are oklch, in `src/app/app.css`:
+
+| Token      | Use                                                             |
+| ---------- | --------------------------------------------------------------- |
+| `--ink`    | Text, borders, hard shadows. Same family as the scene outlines. |
+| `--paper`  | Panel fill, a warm cream                                        |
+| `--accent` | KU Leuven-ish blue, only for the selected state of a toggle     |
+| `--muted`  | Secondary text                                                  |
+
+### Panels
+
+- 2 px ink border, 8 px radius.
+- A **hard 3 px drop shadow** with no blur. It's a nod to pixel UI and needs no transparency.
+- Inner radii are concentric (outer radius minus padding).
+
+### Type
+
+- System UI font, no web fonts, so nothing to download and no layout shift.
+- Weights 600–700 for controls, sizes from 0.625 rem (credits) to 1.25 rem (title).
+- Shortcut hints use the monospace stack.
+
+### Controls
+
+- At least 44 px tall.
+- Icon plus a visible text label.
+- A keyboard shortcut is shown on devices that have hover.
+- Below 30 rem of width the toolbar becomes a tab bar: icon above label, no shortcut hints.
+
+### States
+
+| State    | Treatment                                                                                                                            |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Loading  | A small centred panel ("Building Leuven…") in one persistent `<output>` that also carries errors. Controls are disabled until ready. |
+| Error    | A centred panel with a plain-language cause and a **Try again** button. Never a blank screen.                                        |
+| Selected | Accent fill, with `aria-pressed`.                                                                                                    |
+
+### Credits
+
+- The data licences (ODbL for OpenStreetMap, GRB terms) require visible credit, so it never goes away.
+- It's kept as quiet as it can be while staying legible: one line of 10 px muted text under the toolbar, a paper halo instead of a panel, and links to the licence pages.
+
+### Labels on the map
+
+- Small ink-bordered tags anchored above landmarks.
+- Their order in `LANDMARKS` is their priority: a label that would overlap an earlier one, or cross the screen edge, is hidden.
+- They're decorative: the map has a text description for screen readers.
+
+### Keyboard
+
+- The map is one focusable widget (`role="application"`, focused on load without a ring).
+- Arrow keys pan, `+`/`-` zoom, Q/E turn, P toggles pixels, R resets.
+- Shortcuts only act while focus is inside the app.
+
+## Motion
+
+- **Rotation:** 280 ms ease-out. Instant with `prefers-reduced-motion`.
+- **Press feedback:** scale 0.97 over 140 ms ease-out.
+- **Hover:** only on devices with hover. Nothing else animates.
+- **Future motion:** anything new (traffic, people, day-night) goes through Emil Kowalski's animation skills. It must also respect reduced motion.
+
+## Mobile and PWA
+
+| Concern       | Rule                                                                                                               |
+| ------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Viewport      | `100dvh` app shell, `viewport-fit=cover`, safe-area insets on every edge-pinned panel                              |
+| Overscroll    | No pull-to-refresh on the map                                                                                      |
+| Tap highlight | None. Every control has its own `:active` state.                                                                   |
+| Install       | Installable as a standalone app with a pixel-art stepped-gable icon                                                |
+| Offline       | Works once loaded (service worker in production builds only)                                                       |
+| Verification  | Check on a real phone before calling a touch change done. Emulation misses sticky hover, tap delay and safe areas. |
+
+## Writing
+
+- Short, plain and friendly.
+- Use Dutch place names (Grote Markt, Oude Markt, Sint-Pieterskerk); the UI language is English.
+- Errors say what happened and what to do next.
