@@ -13,6 +13,7 @@ const city: City = {
   green: [square],
   water: [square],
   trees: new Float32Array(),
+  treeHeights: new Float32Array(),
 };
 
 test('the diorama is a slab plus one face-up layer per ground type', () => {

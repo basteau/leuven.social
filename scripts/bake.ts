@@ -6,11 +6,12 @@
  */
 
 import { LANDMARKS, VIEW_AREA } from '../src/data/area.ts';
-import { kindFromOsm, roofFromOsm } from '../src/data/city.ts';
+import { kindFromOsm, roofFromSurvey } from '../src/data/city.ts';
 import type { Building, City, Tier } from '../src/data/city.ts';
 import { packCity } from '../src/data/format.ts';
-import { clipRing, normalizeRing, ringInside } from '../src/data/geometry.ts';
+import { clipRing, normalizeRing, ringInside, signedArea } from '../src/data/geometry.ts';
 import { toLocal } from '../src/data/projection.ts';
+import { mergeTrees } from '../src/data/trees.ts';
 
 const root = new URL('../', import.meta.url);
 const read = async <T>(path: string): Promise<T> => {
@@ -32,10 +33,16 @@ interface Collection {
 interface LocalBuilding {
   id: number;
   h: number;
+  /** LiDAR p15 height and the share of pitched roof pixels (see tools/build_leuven_data.py). */
+  eave?: number;
+  pitch?: number;
+  /** Orthophoto roof colour, white-balanced. */
+  rgb?: [number, number, number] | null;
   kind: string;
   roof: string | null;
   tier: Tier;
   ring: [number, number][];
+  holes?: [number, number][][];
 }
 
 /** Outer ring of a GeoJSON polygon (or a closed line) in local metres, clipped to the area. */
@@ -62,8 +69,12 @@ const layer = (features: Feature[], keep: (p: Props) => boolean) =>
 const GREEN_LEISURE = new Set(['park', 'garden', 'playground', 'pitch']);
 const GREEN_LANDUSE = new Set(['grass', 'meadow', 'cemetery', 'forest', 'recreation_ground']);
 
-const [local, wbn, wtz, osmAreas, osmRoads, osmPoints] = await Promise.all([
+/** Courtyards smaller than this are light wells: below a game pixel, and not worth the walls. */
+const MIN_COURTYARD = 12;
+
+const [local, crowns, wbn, wtz, osmAreas, osmRoads, osmPoints] = await Promise.all([
   read<{ buildings: LocalBuilding[] }>('data/derived/leuven_buildings_local.json'),
+  read<{ trees: [number, number, number][] }>('data/derived/lidar_trees.json'),
   read<Collection>('data/grb/grb_WBN.geojson'),
   read<Collection>('data/grb/grb_WTZ.geojson'),
   read<Collection>('data/derived/osm_areas.geojson'),
@@ -75,24 +86,40 @@ const buildings: Building[] = [];
 for (const b of local.buildings) {
   const ring = normalizeRing(b.ring.flat());
   if (ring.length < 6 || !ringInside(ring, VIEW_AREA)) continue;
+  const height = Math.max(2.5, Math.min(b.h, 90));
+  const holes = (b.holes ?? [])
+    .map((hole) => normalizeRing(hole.flat()))
+    .filter((hole) => hole.length >= 6 && signedArea(hole) >= MIN_COURTYARD)
+    .map((hole) => {
+      const cw: number[] = [];
+      for (let i = hole.length - 2; i >= 0; i -= 2) cw.push(hole[i]!, hole[i + 1]!);
+      return new Float32Array(cw);
+    });
   buildings.push({
     id: b.id,
     tier: b.tier,
     kind: kindFromOsm(b.kind),
-    roof: roofFromOsm(b.roof),
-    height: Math.max(2.5, Math.min(b.h, 90)),
+    roof: roofFromSurvey(b.roof, b.pitch),
+    height,
+    eave: Math.min(height, Math.max(2.5, b.eave ?? height)),
+    roofColor: b.rgb ? (b.rgb[0] << 16) | (b.rgb[1] << 8) | b.rgb[2] : null,
     ring: new Float32Array(ring),
+    holes,
   });
 }
 
 const closedPedestrianArea = (p: Props) =>
   (p.highway === 'pedestrian' || p.highway === 'footway') && p.area === 'yes';
 
-const trees = osmPoints.features
+const osmTrees = osmPoints.features
   .filter((f) => f.properties.natural === 'tree')
   .map((f) => toLocal(...(f.geometry.coordinates as [number, number])))
   .filter(([x, z]) => ringInside([x, z], VIEW_AREA))
   .flat();
+const trees = mergeTrees(
+  osmTrees,
+  crowns.trees.filter(([x, z]) => ringInside([x, z], VIEW_AREA)),
+);
 
 const city: City = {
   bounds: VIEW_AREA,
@@ -114,7 +141,8 @@ const city: City = {
     ...layer(wtz.features, () => true),
     ...layer(osmAreas.features, (p) => p.natural === 'water'),
   ],
-  trees: new Float32Array(trees),
+  trees: new Float32Array(trees.positions),
+  treeHeights: new Float32Array(trees.heights),
 };
 
 const bytes = await packCity(city);
@@ -125,7 +153,8 @@ console.log(
   [
     `buildings ${buildings.length} (hero ${tiers.hero?.length ?? 0}, core ${tiers.core?.length ?? 0})`,
     `roads ${city.roads.length}, plazas ${city.plazas.length}, green ${city.green.length}, water ${city.water.length}`,
-    `trees ${trees.length / 2}, labels ${city.labels.length}`,
+    `trees ${trees.heights.length} (${osmTrees.length / 2} mapped), labels ${city.labels.length}`,
+    `roofs ${buildings.filter((b) => b.roof === 'flat').length} flat, ${buildings.filter((b) => b.roofColor !== null).length} with a sampled colour, ${buildings.filter((b) => b.holes.length).length} with courtyards`,
     `public/data/city.bin ${(bytes.length / 1024).toFixed(0)} KB gzipped`,
   ].join('\n'),
 );

@@ -13,7 +13,11 @@ const building = (over: Partial<Building>): Building => ({
   kind: 'house',
   roof: 'auto',
   height: 10,
+  // No survey by default: the eave sits at the roof top, so the roof shape is guessed.
+  eave: over.height ?? 10,
+  roofColor: null,
   ring: box(6, 12),
+  holes: [],
   ...over,
 });
 

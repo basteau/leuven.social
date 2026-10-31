@@ -20,7 +20,13 @@ export interface Building {
   roof: Roof;
   /** Roof top above ground in metres (LiDAR p90). */
   height: number;
+  /** Where the roof starts (LiDAR p15), at most `height`; equal to it on flat roofs. */
+  eave: number;
+  /** Roof colour sampled from orthophotos as 0xRRGGBB, or null where none was sampled. */
+  roofColor: number | null;
   ring: Float32Array;
+  /** Courtyards: inner rings, clockwise in (x, z). */
+  holes: Float32Array[];
 }
 
 export interface Label {
@@ -46,6 +52,8 @@ export interface City {
   water: Float32Array[];
   /** Flat [x0, z0, x1, z1, …] tree positions. */
   trees: Float32Array;
+  /** Height of each tree in metres, from the LiDAR canopy. */
+  treeHeights: Float32Array;
 }
 
 const KIND_BY_OSM: Record<string, Kind> = {
@@ -98,4 +106,21 @@ export function kindFromOsm(value: string | null | undefined): Kind {
 /** Maps an OSM `roof:shape=*` value to the roofs the renderer can draw. */
 export function roofFromOsm(value: string | null | undefined): Roof {
   return (value && Object.hasOwn(ROOF_BY_OSM, value) && ROOF_BY_OSM[value]) || 'auto';
+}
+
+/**
+ * Share of a roof's LiDAR pixels sloped 15–60° above which it counts as pitched. Real flat
+ * roofs stay under ~0.25 (parapets, rooftop plant); real pitched ones are mostly above 0.5.
+ */
+export const PITCHED_SHARE = 0.4;
+
+/**
+ * The roof to draw: an OSM `roof:shape` tag wins, then the LiDAR slope survey decides between
+ * flat and pitched ('gabled' here; the renderer picks gable or hip from the footprint).
+ * Without either, 'auto' lets the renderer guess from the building kind.
+ */
+export function roofFromSurvey(osm: string | null | undefined, pitchedShare?: number | null): Roof {
+  const tagged = roofFromOsm(osm);
+  if (tagged !== 'auto' || pitchedShare === null || pitchedShare === undefined) return tagged;
+  return pitchedShare >= PITCHED_SHARE ? 'gabled' : 'flat';
 }

@@ -3,7 +3,9 @@
  *
  * Layout: magic "LVN1", version, bounds, labels, buildings, four polygon layers, trees.
  * Coordinates are decimetres, zigzag varints, delta-encoded within each ring.
- * A building packs tier (2 bits), kind (4 bits) and roof (2 bits) into one byte.
+ * A building packs tier (2 bits), kind (4 bits) and roof (2 bits) into one byte, then its
+ * height, roof rise and roof colour (0 = none, else 0xRRGGBB + 1), outer ring and courtyards.
+ * Trees are a ring of positions followed by their heights in decimetres.
  */
 
 import * as Binary from '@portable/binary';
@@ -13,7 +15,7 @@ import { KINDS, ROOFS, TIERS } from './city.ts';
 import type { Building, City } from './city.ts';
 
 const MAGIC = 'LVN1';
-const VERSION = 1;
+const VERSION = 2;
 const DM = 10; // units per metre
 const ZIGZAG = { encoding: 'zigzag' } as const;
 /** Refuse anything larger after decompression: the whole city must stay small. */
@@ -74,8 +76,13 @@ export function encodeCity(city: City): Uint8Array {
   for (const b of city.buildings) {
     w.varint(b.id);
     w.uint8(TIERS.indexOf(b.tier) | (KINDS.indexOf(b.kind) << 2) | (ROOFS.indexOf(b.roof) << 6));
-    w.varint(Math.round(b.height * DM));
+    const height = Math.round(b.height * DM);
+    w.varint(height);
+    w.varint(Math.max(0, height - Math.round(b.eave * DM)));
+    w.varint(b.roofColor === null ? 0 : b.roofColor + 1);
     writeRing(w, b.ring);
+    w.varint(b.holes.length);
+    for (const hole of b.holes) writeRing(w, hole);
   }
 
   for (const layer of [city.roads, city.plazas, city.green, city.water]) {
@@ -84,6 +91,7 @@ export function encodeCity(city: City): Uint8Array {
   }
 
   writeRing(w, city.trees);
+  for (const h of city.treeHeights) w.varint(Math.round(h * DM));
   return w.toBytes();
 }
 
@@ -111,7 +119,22 @@ export function decodeCity(bytes: Uint8Array): City {
     const kind = KINDS[(packed >> 2) & 0b1111];
     const roof = ROOFS[packed >> 6];
     if (!tier || !kind || !roof) throw new CityFormatError(`Bad building flags ${packed}.`);
-    return { id, tier, kind, roof, height: r.varint() / DM, ring: readRing(r) };
+    const height = r.varint();
+    const eave = (height - r.varint()) / DM;
+    const color = r.varint();
+    const ring = readRing(r);
+    const holes = Array.from({ length: r.varint() }, () => readRing(r));
+    return {
+      id,
+      tier,
+      kind,
+      roof,
+      height: height / DM,
+      eave,
+      roofColor: color === 0 ? null : color - 1,
+      ring,
+      holes,
+    };
   });
 
   const [roads, plazas, green, water] = [0, 1, 2, 3].map(() =>
@@ -119,6 +142,7 @@ export function decodeCity(bytes: Uint8Array): City {
   ) as [Float32Array[], Float32Array[], Float32Array[], Float32Array[]];
 
   const trees = readRing(r);
+  const treeHeights = Float32Array.from({ length: trees.length / 2 }, () => r.varint() / DM);
   if (r.remaining !== 0) throw new CityFormatError(`${r.remaining} trailing bytes.`);
   return {
     bounds: { minX, minZ, maxX, maxZ },
@@ -129,6 +153,7 @@ export function decodeCity(bytes: Uint8Array): City {
     green,
     water,
     trees,
+    treeHeights,
   };
 }
 
