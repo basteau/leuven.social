@@ -20,6 +20,15 @@ The aim is a city that opens instantly and costs nothing while you look at it, o
   - The camera snaps to whole game pixels, so edges don't shimmer while panning.
   - Pixel mode draws 4–9× fewer pixels than the crisp mode.
 
+## Walking
+
+Walk mode puts a figure on the streets (`character.ts`) and follows it with the camera. It must cost next to nothing on top of the map:
+
+- **Walkability is built on demand.** `WalkGrid` (`src/data/walkable.ts`) rasterises roads, squares and paths at 1 m, minus building footprints, in 64 m tiles the first time something asks about them. A click costs one A* search (`route.ts`) inside a window around both ends, a few milliseconds, then string-pulling into a handful of straight legs.
+- **Two draw calls for the figure.** It's a few boxes on a seven-bone `SkinnedMesh`. The ink outline is an inverted hull in the same geometry, and the blob shadow is dithered by the shader instead of blended, so figure, outline and shadow are one call. Its x-ray twin, a checkerboard silhouette drawn only where a building hides it, is the second. The route hint is one more while a walk is under way; dots behind the walker drop off by moving its draw range.
+- **Animate only while something moves.** The walk loop runs while the walker moves, turns or idles (four seconds after stopping, none with reduced motion), and while the camera eases. Then it stops, and the map is back to rendering on demand. Nothing is allocated per frame.
+- **The figure doesn't cast into the static shadow map**, but it receives it, so it darkens in the shade of the houses it passes.
+
 ## Budgets
 
 The size and render budgets are enforced by `bun run verify`; if one is exceeded, the run fails:
@@ -40,7 +49,7 @@ Shadow-redraw frames draw the casting cells a second time, but happen only on lo
 
 The three.js chunk loads in parallel with the city data, so the HUD paints before the engine arrives.
 
-The smoke test checks the first frame (which also draws the shadow map) and the latest frame at every step: default view, after the controls, zoomed in, zoomed all the way out, and on a phone. Each visible cell is two draw calls, and a frame that redraws shadows adds one per casting cell; draw calls are cheap here because every cell shares one material and program, so the budget watches triangles first. Typical numbers for the whole ring plus Heverlee: 34 calls and 184k triangles at the default view, 12 and 84k zoomed in, 92 and 385k zoomed out, 78 and 531k for the first frame.
+The smoke test checks the first frame (which also draws the shadow map) and the latest frame at every step: default view, after the controls, zoomed in, zoomed all the way out, walking a few steps, back on the map, and on a phone. Each visible cell is two draw calls, and a frame that redraws shadows adds one per casting cell; draw calls are cheap here because every cell shares one material and program, so the budget watches triangles first. Typical numbers for the whole ring plus Heverlee: 34 calls and 184k triangles at the default view, 12 and 84k zoomed in, 92 and 385k zoomed out, 78 and 531k for the first frame, 10 and 65k walking.
 
 ## Growing the city
 

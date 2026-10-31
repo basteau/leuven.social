@@ -38,6 +38,14 @@ Leuven as a tiny city you could hold in your hands: a warm, crisp, pixel-art dio
 - **Squares show what happens on them.** Oude Markt gets rows of café parasols along its facades; the middle stays open.
 - To add a landmark, fit parts in `src/scene/landmark-models.ts` against a LiDAR height plot of its footprint, list the footprint in `LANDMARK_FOOTPRINTS` (`src/data/area.ts`), rebake, then check it from all four rotations.
 
+### Walking
+
+- **A Leuven student**, a little larger than life (2.2×) so they read at walking zoom: a coat in the HUD's accent blue, a mustard scarf, a brick-red backpack. Boxy, outlined in ink, toon-shaded like the city.
+- **Walk mode zooms to 7** and follows them, still isometric; Q/E still turn the view.
+- **Walkable** means road surfaces, squares and footpaths. Never inside buildings or their courtyards, gardens, green or water without a path across.
+- **Hidden behind a building**, the figure shows as a checkerboard silhouette in coat blue.
+- **A picked destination** gets ink-ringed pale dots along the way and a square target, Street View style.
+
 ### Palette
 
 Values live in `src/scene/palette.ts`; change them there only. Each building's colour is picked deterministically from its id, so it never changes between reloads.
@@ -56,6 +64,7 @@ Values live in `src/scene/palette.ts`; change them there only. Each building's c
 | Ground                 | Garden green-beige base, warm grey roads, sand cobbles for squares, river blue                                     | Squares should glow slightly against the roads                                       |
 | Diorama slab           | Earth brown sides                                                                                                  | Frames the city as an object                                                         |
 | Outlines               | `#2b2420` warm ink                                                                                                 | Ties scene and HUD together (same ink as the panels)                                 |
+| Walker                 | Coat `#2f62a8`, scarf `#e8b94a`, backpack `#b84c36`, hair `#7a4a2c`                                                | Reads against grey streets, sandy squares and green parks; the coat matches the HUD  |
 
 ## HUD
 
@@ -88,6 +97,8 @@ Tokens are oklch, in `src/app/app.css`:
 - Icon plus a visible text label.
 - A keyboard shortcut is shown on devices that have hover.
 - Below 30 rem of width the toolbar becomes a tab bar: icon above label, no shortcut hints.
+- **Walk** sits in its own panel beside the view toolbar and wraps above it when the row runs out. Picking a start shows a one-line hint, a reticle in the middle of the view, and **Start here** / **Cancel**. Walking swaps the toolbar for **Map** (back to the map view), **Turn left** and **Turn right**, under a one-line hint that names the keys only on devices with a fine pointer.
+- A spot that can't be walked to says so in the hint ("Can’t walk there. Pick a street or square.") for a few seconds.
 
 ### States
 
@@ -112,7 +123,9 @@ Tokens are oklch, in `src/app/app.css`:
 ### Keyboard
 
 - The map is one focusable widget (`role="application"`, focused on load without a ring).
-- Arrow keys pan, `+`/`-` zoom, Q/E turn, P toggles pixels, R resets.
+- Arrow keys pan, `+`/`-` zoom, Q/E turn, P toggles pixels, R resets, W starts a walk.
+- Picking a start: Enter starts in the middle of the view, Escape cancels.
+- Walking: W A S D or the arrow keys walk relative to the screen, Escape returns to the map. Clicking or tapping a street walks there along a route.
 - Shortcuts only act while focus is inside the app.
 
 ## Motion
@@ -120,6 +133,7 @@ Tokens are oklch, in `src/app/app.css`:
 - **Rotation:** 280 ms ease-out. Instant with `prefers-reduced-motion`.
 - **Press feedback:** scale 0.97 over 140 ms ease-out.
 - **Hover:** only on devices with hover. Nothing else animates.
+- **Walking:** a procedural cycle. Legs and arms swing against each other, the hips drop as the legs spread so the soles stay down, with a little spring as they pass, a slight lean and a turn toward the heading. Standing still, the walker breathes and glances about for four seconds, then rests. The camera eases after the walker and into walk zoom. With `prefers-reduced-motion` the camera follows and zooms without easing, the figure appears without its pop, and there is no idle fidgeting; the walk cycle itself stays, since the user is moving the figure.
 - **Future motion:** anything new (traffic, people, day-night) goes through Emil Kowalski's animation skills. It must also respect reduced motion.
 
 ## Mobile and PWA

@@ -30,6 +30,7 @@ Prefer reading the world over guessing it. Each of these replaced a rule of thum
 | Courtyards                | GRB polygon holes                                                                     | walls and roofs in `src/scene/buildings.ts` |
 | Trees and their heights   | OSM's mapped trees plus LiDAR canopy crowns outside every building                    | `mergeTrees` in `src/data/trees.ts`         |
 | Paths                     | OSM footways, paths, cycleways, tracks and steps of their own, with width and surface | `pathFromOsm` in `src/data/city.ts`         |
+| Where you can walk        | Road surfaces, squares and paths, minus every building footprint and its courtyards   | `WalkGrid` in `src/data/walkable.ts`        |
 
 ## Coordinates
 
