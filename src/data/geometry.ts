@@ -37,6 +37,137 @@ export function pointInRing(ring: ArrayLike<number>, x: number, z: number): bool
   return inside;
 }
 
+/** The smallest rectangle around all of them. */
+export function boundsOf(rects: readonly Bounds[]): Bounds {
+  return {
+    minX: Math.min(...rects.map((r) => r.minX)),
+    minZ: Math.min(...rects.map((r) => r.minZ)),
+    maxX: Math.max(...rects.map((r) => r.maxX)),
+    maxZ: Math.max(...rects.map((r) => r.maxZ)),
+  };
+}
+
+const inBounds = (x: number, z: number, b: Bounds) =>
+  x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ;
+
+/** Index of the area rectangle that holds (x, z), or -1. */
+export function areaIndex(area: readonly Bounds[], x: number, z: number): number {
+  return area.findIndex((b) => inBounds(x, z, b));
+}
+
+/** Whether every vertex lies in one of the area's rectangles. */
+export function ringInArea(ring: ArrayLike<number>, area: readonly Bounds[]): boolean {
+  for (let i = 0; i < ring.length; i += 2) {
+    if (areaIndex(area, ring[i]!, ring[i + 1]!) < 0) return false;
+  }
+  return true;
+}
+
+/** Clips a ring to an area of abutting rectangles: one piece per rectangle it reaches. */
+export function clipRingToArea(ring: readonly number[], area: readonly Bounds[]): number[][] {
+  return area.map((b) => clipRing(ring, b)).filter((piece) => piece.length >= 6);
+}
+
+/** The point of the area closest to (x, z): where the camera may look. */
+export function clampToArea(area: readonly Bounds[], x: number, z: number): [number, number] {
+  let best: [number, number] = [x, z];
+  let bestDistance = Infinity;
+  for (const b of area) {
+    const cx = Math.min(Math.max(x, b.minX), b.maxX);
+    const cz = Math.min(Math.max(z, b.minZ), b.maxZ);
+    const d = Math.hypot(cx - x, cz - z);
+    if (d < bestDistance) [best, bestDistance] = [[cx, cz], d];
+  }
+  return best;
+}
+
+export interface OutlineEdge {
+  x0: number;
+  z0: number;
+  x1: number;
+  z1: number;
+  /** Outward normal: one of (±1, 0) or (0, ±1). */
+  nx: number;
+  nz: number;
+}
+
+/**
+ * The outer boundary of an area of abutting, non-overlapping rectangles: each rectangle side
+ * minus the stretches where a neighbour continues the area. The diorama's earth sides hang here.
+ */
+export function areaOutline(area: readonly Bounds[]): OutlineEdge[] {
+  const edges: OutlineEdge[] = [];
+  for (const b of area) {
+    const sides = [
+      { fixed: b.maxZ, from: b.minX, to: b.maxX, nx: 0, nz: 1 },
+      { fixed: b.minZ, from: b.minX, to: b.maxX, nx: 0, nz: -1 },
+      { fixed: b.maxX, from: b.minZ, to: b.maxZ, nx: 1, nz: 0 },
+      { fixed: b.minX, from: b.minZ, to: b.maxZ, nx: -1, nz: 0 },
+    ];
+    for (const { fixed, from, to, nx, nz } of sides) {
+      // Stretches of this side that a neighbour across it covers.
+      const covered = area
+        .filter((o) =>
+          nz === 1
+            ? o.minZ === fixed
+            : nz === -1
+              ? o.maxZ === fixed
+              : nx === 1
+                ? o.minX === fixed
+                : o.maxX === fixed,
+        )
+        .map((o) => (nz !== 0 ? [o.minX, o.maxX] : [o.minZ, o.maxZ]) as [number, number])
+        .toSorted((p, q) => p[0] - q[0]);
+      let at = from;
+      const open: [number, number][] = [];
+      for (const [lo, hi] of covered) {
+        if (hi <= at || lo >= to) continue;
+        if (lo > at) open.push([at, lo]);
+        at = Math.max(at, hi);
+      }
+      if (at < to) open.push([at, to]);
+      for (const [lo, hi] of open) {
+        edges.push(
+          nz !== 0
+            ? { x0: lo, z0: fixed, x1: hi, z1: fixed, nx, nz }
+            : { x0: fixed, z0: lo, x1: fixed, z1: hi, nx, nz },
+        );
+      }
+    }
+  }
+  return edges;
+}
+
+/**
+ * Drops vertices that sit within `tolerance` of the straight line through their neighbours.
+ * Survey footprints are full of them, and each costs two wall triangles and a roof triangle.
+ */
+export function simplifyRing(ring: readonly number[], tolerance: number): number[] {
+  let pts = ring.slice();
+  for (let changed = true; changed && pts.length > 6;) {
+    changed = false;
+    const n = pts.length / 2;
+    const kept: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const [px, pz] = kept.length
+        ? [kept.at(-2)!, kept.at(-1)!]
+        : [pts[((i + n - 1) % n) * 2]!, pts[((i + n - 1) % n) * 2 + 1]!];
+      const [x, z] = [pts[i * 2]!, pts[i * 2 + 1]!];
+      const [qx, qz] = [pts[((i + 1) % n) * 2]!, pts[((i + 1) % n) * 2 + 1]!];
+      const length = Math.hypot(qx - px, qz - pz);
+      const offset =
+        length > 0 ? Math.abs((qx - px) * (z - pz) - (qz - pz) * (x - px)) / length : 0;
+      if (offset < tolerance && kept.length / 2 + (n - i - 1) >= 3) {
+        changed = true;
+        continue;
+      }
+      kept.push(x, z);
+    }
+    pts = kept;
+  }
+  return pts;
+}
+
 export function ringInside(ring: ArrayLike<number>, b: Bounds): boolean {
   for (let i = 0; i < ring.length; i += 2) {
     const x = ring[i]!;
