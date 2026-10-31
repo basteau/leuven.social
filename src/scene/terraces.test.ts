@@ -17,6 +17,7 @@ const city = (over: Partial<City> = {}): City => ({
   plazas: [SQUARE],
   green: [],
   water: [],
+  paths: [],
   trees: new Float32Array(),
   treeHeights: new Float32Array(),
   ...over,

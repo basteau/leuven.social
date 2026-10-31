@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { kindFromOsm, roofFromOsm, roofFromSurvey } from './city.ts';
+import { pathFromOsm, kindFromOsm, roofFromOsm, roofFromSurvey } from './city.ts';
 
 test('OSM building values collapse into the kinds the renderer styles', () => {
   expect(kindFromOsm('terrace')).toBe('house');
@@ -32,4 +32,28 @@ test('the LiDAR slope survey decides the roof unless OSM tags it', () => {
   expect(roofFromSurvey('hipped', 0)).toBe('hipped');
   expect(roofFromSurvey(null, null)).toBe('auto');
   expect(roofFromSurvey('dome')).toBe('auto');
+});
+
+test('paths of their own are drawn, sidewalks, crossings and tunnels are not', () => {
+  expect(pathFromOsm({ highway: 'footway', surface: 'paving_stones' })).toEqual({
+    width: 2,
+    paved: true,
+  });
+  expect(pathFromOsm({ highway: 'path' })).toEqual({ width: 1.5, paved: false });
+  expect(pathFromOsm({ highway: 'cycleway', width: '3.5', surface: 'asphalt' })).toEqual({
+    width: 3.5,
+    paved: true,
+  });
+  expect(pathFromOsm({ highway: 'track', width: 'narrow', surface: 'gravel' })).toEqual({
+    width: 3,
+    paved: false,
+  });
+  expect(pathFromOsm({ highway: 'footway', footway: 'sidewalk' })).toBeNull();
+  expect(pathFromOsm({ highway: 'footway', footway: 'crossing' })).toBeNull();
+  expect(pathFromOsm({ highway: 'cycleway', cycleway: 'crossing' })).toBeNull();
+  expect(pathFromOsm({ highway: 'footway', tunnel: 'yes' })).toBeNull();
+  expect(pathFromOsm({ highway: 'steps', layer: '-1' })).toBeNull();
+  expect(pathFromOsm({ highway: 'pedestrian', area: 'yes' })).toBeNull();
+  expect(pathFromOsm({ highway: 'residential' })).toBeNull();
+  expect(pathFromOsm({})).toBeNull();
 });

@@ -29,6 +29,16 @@ export interface Building {
   holes: Float32Array[];
 }
 
+/** A footpath, cycle path or park path, drawn as a ribbon on the ground. */
+export interface Path {
+  /** Full width in metres. */
+  width: number;
+  /** Paved (asphalt, setts, slabs) or a gravel or earth trail. */
+  paved: boolean;
+  /** Centre line as flat [x0, z0, x1, z1, …]. */
+  line: Float32Array;
+}
+
 export interface Label {
   name: string;
   x: number;
@@ -50,6 +60,7 @@ export interface City {
   plazas: Float32Array[];
   green: Float32Array[];
   water: Float32Array[];
+  paths: Path[];
   /** Flat [x0, z0, x1, z1, …] tree positions. */
   trees: Float32Array;
   /** Height of each tree in metres, from the LiDAR canopy. */
@@ -123,4 +134,47 @@ export function roofFromSurvey(osm: string | null | undefined, pitchedShare?: nu
   const tagged = roofFromOsm(osm);
   if (tagged !== 'auto' || pitchedShare === null || pitchedShare === undefined) return tagged;
   return pitchedShare >= PITCHED_SHARE ? 'gabled' : 'flat';
+}
+
+/** Path widths by OSM `highway=*` where the way has no usable `width` tag (m). */
+const PATH_WIDTH: Record<string, number> = {
+  pedestrian: 4,
+  track: 3,
+  cycleway: 2.5,
+  bridleway: 2.5,
+  footway: 2,
+  steps: 2,
+  path: 1.5,
+};
+const UNPAVED = new Set([
+  'unpaved',
+  'compacted',
+  'gravel',
+  'fine_gravel',
+  'pebblestone',
+  'dirt',
+  'earth',
+  'ground',
+  'grass',
+  'sand',
+  'mud',
+  'woodchips',
+]);
+
+/**
+ * Which OSM ways are paths worth drawing, and how. Roads are already GRB road surfaces, and
+ * sidewalks and crossings lie inside them, so only paths of their own count: through parks,
+ * along the Dijle, between blocks. Tunnels and indoor corridors stay hidden.
+ */
+export function pathFromOsm(tags: Record<string, string | undefined>): Omit<Path, 'line'> | null {
+  const highway = tags.highway ?? '';
+  if (!Object.hasOwn(PATH_WIDTH, highway)) return null;
+  if (tags.area === 'yes' || tags.indoor === 'yes' || tags.tunnel === 'yes') return null;
+  if (tags.footway === 'sidewalk' || tags.footway === 'crossing') return null;
+  if (tags.cycleway === 'crossing' || Number(tags.layer) < 0) return null;
+  const tagged = Number.parseFloat(tags.width ?? '');
+  const width = tagged > 0.5 && tagged < 12 ? tagged : PATH_WIDTH[highway]!;
+  // Untagged paths: a park path is a trail, a footway in town is paved.
+  const surface = tags.surface ?? (highway === 'path' || highway === 'track' ? 'ground' : 'paved');
+  return { width, paved: !UNPAVED.has(surface) };
 }

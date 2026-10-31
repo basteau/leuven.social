@@ -12,6 +12,7 @@ const city: City = {
   plazas: [square],
   green: [square],
   water: [square],
+  paths: [],
   trees: new Float32Array(),
   treeHeights: new Float32Array(),
 };

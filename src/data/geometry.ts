@@ -184,3 +184,53 @@ export function simplifyRing(ring: ArrayLike<number>, tolerance: number): number
   }
   return pts.flat();
 }
+
+/**
+ * Clips a polyline (flat [x0, z0, …]) to a rectangle. A line that leaves and re-enters comes
+ * back as several pieces; pieces shorter than one segment are dropped.
+ */
+export function clipLine(line: ArrayLike<number>, b: Bounds): number[][] {
+  const pieces: number[][] = [];
+  let current: number[] = [];
+  const flush = () => {
+    if (current.length >= 4) pieces.push(current);
+    current = [];
+  };
+  for (let i = 0; i + 3 < line.length; i += 2) {
+    const [ax, az, bx, bz] = [line[i]!, line[i + 1]!, line[i + 2]!, line[i + 3]!];
+    // Liang–Barsky: the part of a→b inside, as parameters t0..t1.
+    let t0 = 0;
+    let t1 = 1;
+    const dx = bx - ax;
+    const dz = bz - az;
+    const sides: [number, number][] = [
+      [-dx, ax - b.minX],
+      [dx, b.maxX - ax],
+      [-dz, az - b.minZ],
+      [dz, b.maxZ - az],
+    ];
+    let outside = false;
+    for (const [p, q] of sides) {
+      if (p === 0) {
+        if (q < 0) outside = true;
+        continue;
+      }
+      const t = q / p;
+      if (p < 0) t0 = Math.max(t0, t);
+      else t1 = Math.min(t1, t);
+    }
+    if (outside || t0 > t1) {
+      flush();
+      continue;
+    }
+    const [sx, sz] = [ax + dx * t0, az + dz * t0];
+    if (t0 > 0 || current.length === 0) {
+      flush();
+      current.push(sx, sz);
+    }
+    current.push(ax + dx * t1, az + dz * t1);
+    if (t1 < 1) flush();
+  }
+  flush();
+  return pieces;
+}

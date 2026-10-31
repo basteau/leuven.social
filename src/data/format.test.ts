@@ -39,6 +39,7 @@ const city: City = {
   plazas: [],
   green: [square(-200, 100, 30)],
   water: [square(-300, -300, 12.5)],
+  paths: [{ width: 2.5, paved: false, line: new Float32Array([0, 0, 10, 5, 20, 5]) }],
   trees: new Float32Array([1.5, 2.5, -40, 60.1]),
   treeHeights: new Float32Array([8, 21.5]),
 };
@@ -58,6 +59,7 @@ describe('city format', () => {
     }
     expect(decoded.roads).toHaveLength(1);
     expect(decoded.plazas).toHaveLength(0);
+    expect(decoded.paths).toEqual(city.paths);
     expect([...decoded.trees]).toEqual([1.5, 2.5, -40, 60.1].map((v) => Math.fround(v)));
     expect([...decoded.treeHeights]).toEqual([8, 21.5]);
   });

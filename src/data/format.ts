@@ -5,6 +5,7 @@
  * Coordinates are decimetres, zigzag varints, delta-encoded within each ring.
  * A building packs tier (2 bits), kind (4 bits) and roof (2 bits) into one byte, then its
  * height, roof rise and roof colour (0 = none, else 0xRRGGBB + 1), outer ring and courtyards.
+ * Paths are a width in decimetres shifted left one bit over a paved flag, then a centre line.
  * Trees are a ring of positions followed by their heights in decimetres.
  */
 
@@ -15,7 +16,7 @@ import { KINDS, ROOFS, TIERS } from './city.ts';
 import type { Building, City } from './city.ts';
 
 const MAGIC = 'LVN1';
-const VERSION = 2;
+const VERSION = 3;
 const DM = 10; // units per metre
 const ZIGZAG = { encoding: 'zigzag' } as const;
 /** Refuse anything larger after decompression: the whole city must stay small. */
@@ -90,6 +91,12 @@ export function encodeCity(city: City): Uint8Array {
     for (const ring of layer) writeRing(w, ring);
   }
 
+  w.varint(city.paths.length);
+  for (const p of city.paths) {
+    w.varint((Math.round(p.width * DM) << 1) | (p.paved ? 1 : 0));
+    writeRing(w, p.line);
+  }
+
   writeRing(w, city.trees);
   for (const h of city.treeHeights) w.varint(Math.round(h * DM));
   return w.toBytes();
@@ -141,6 +148,11 @@ export function decodeCity(bytes: Uint8Array): City {
     Array.from({ length: r.varint() }, () => readRing(r)),
   ) as [Float32Array[], Float32Array[], Float32Array[], Float32Array[]];
 
+  const paths = Array.from({ length: r.varint() }, () => {
+    const packed = r.varint();
+    return { width: (packed >> 1) / DM, paved: (packed & 1) === 1, line: readRing(r) };
+  });
+
   const trees = readRing(r);
   const treeHeights = Float32Array.from({ length: trees.length / 2 }, () => r.varint() / DM);
   if (r.remaining !== 0) throw new CityFormatError(`${r.remaining} trailing bytes.`);
@@ -152,6 +164,7 @@ export function decodeCity(bytes: Uint8Array): City {
     plazas,
     green,
     water,
+    paths,
     trees,
     treeHeights,
   };

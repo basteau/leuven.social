@@ -6,10 +6,10 @@
  */
 
 import { LANDMARKS, VIEW_AREA } from '../src/data/area.ts';
-import { kindFromOsm, roofFromSurvey } from '../src/data/city.ts';
-import type { Building, City, Tier } from '../src/data/city.ts';
+import { kindFromOsm, pathFromOsm, roofFromSurvey } from '../src/data/city.ts';
+import type { Building, City, Path, Tier } from '../src/data/city.ts';
 import { packCity } from '../src/data/format.ts';
-import { clipRing, normalizeRing, ringInside, signedArea } from '../src/data/geometry.ts';
+import { clipLine, clipRing, normalizeRing, ringInside, signedArea } from '../src/data/geometry.ts';
 import { toLocal } from '../src/data/projection.ts';
 import { mergeTrees } from '../src/data/trees.ts';
 
@@ -116,6 +116,17 @@ const osmTrees = osmPoints.features
   .map((f) => toLocal(...(f.geometry.coordinates as [number, number])))
   .filter(([x, z]) => ringInside([x, z], VIEW_AREA))
   .flat();
+const paths: Path[] = osmRoads.features.flatMap((f) => {
+  const style = pathFromOsm(f.properties);
+  if (!style || f.geometry.type !== 'LineString') return [];
+  const line = (f.geometry.coordinates as [number, number][]).flatMap(([lon, lat]) =>
+    toLocal(lon, lat),
+  );
+  return clipLine(line, VIEW_AREA).map((piece) =>
+    Object.assign({ line: new Float32Array(piece) }, style),
+  );
+});
+
 const trees = mergeTrees(
   osmTrees,
   crowns.trees.filter(([x, z]) => ringInside([x, z], VIEW_AREA)),
@@ -141,6 +152,7 @@ const city: City = {
     ...layer(wtz.features, () => true),
     ...layer(osmAreas.features, (p) => p.natural === 'water'),
   ],
+  paths,
   trees: new Float32Array(trees.positions),
   treeHeights: new Float32Array(trees.heights),
 };
@@ -153,6 +165,7 @@ console.log(
   [
     `buildings ${buildings.length} (hero ${tiers.hero?.length ?? 0}, core ${tiers.core?.length ?? 0})`,
     `roads ${city.roads.length}, plazas ${city.plazas.length}, green ${city.green.length}, water ${city.water.length}`,
+    `paths ${paths.length} (${paths.filter((p) => !p.paved).length} unpaved)`,
     `trees ${trees.heights.length} (${osmTrees.length / 2} mapped), labels ${city.labels.length}`,
     `roofs ${buildings.filter((b) => b.roof === 'flat').length} flat, ${buildings.filter((b) => b.roofColor !== null).length} with a sampled colour, ${buildings.filter((b) => b.holes.length).length} with courtyards`,
     `public/data/city.bin ${(bytes.length / 1024).toFixed(0)} KB gzipped`,

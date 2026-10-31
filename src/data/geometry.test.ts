@@ -8,6 +8,7 @@ import {
   ringInside,
   signedArea,
   simplifyRing,
+  clipLine,
 } from './geometry.ts';
 
 const bounds = { minX: 0, minZ: 0, maxX: 10, maxZ: 10 };
@@ -75,4 +76,16 @@ test('simplifyRing drops kinks and doubled points but keeps corners', () => {
   const ring = [0, 0, 5, 0.05, 10, 0, 10, 0, 10, 10, 0, 10];
   expect(simplifyRing(ring, 0.2)).toEqual([0, 0, 10, 0, 10, 10, 0, 10]);
   expect(simplifyRing([0, 0, 1, 0, 0, 1], 5)).toHaveLength(6);
+});
+
+test('clipLine keeps the parts of a line inside the area, split where it leaves', () => {
+  const area = { minX: 0, minZ: 0, maxX: 10, maxZ: 10 };
+  expect(clipLine([2, 2, 8, 2], area)).toEqual([[2, 2, 8, 2]]);
+  expect(clipLine([-5, 5, 5, 5, 5, 15], area)).toEqual([[0, 5, 5, 5, 5, 10]]);
+  expect(clipLine([2, 2, 2, 20, 8, 20, 8, 2], area)).toEqual([
+    [2, 2, 2, 10],
+    [8, 10, 8, 2],
+  ]);
+  expect(clipLine([-5, -5, -1, 20], area)).toEqual([]);
+  expect(clipLine([20, 5, 30, 5], area)).toEqual([]);
 });
