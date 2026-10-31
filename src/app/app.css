@@ -147,6 +147,7 @@ button {
 }
 
 .hud-top {
+  container-type: inline-size;
   inset-block-start: 0;
   padding-block-start: calc(var(--space-l) + env(safe-area-inset-top, 0px));
 }
@@ -296,18 +297,43 @@ button {
 }
 
 .credits {
+  /* Out of the flow, in the top-end corner: it never pushes or squeezes the HUD. */
+  position: absolute;
+  inset-block-start: calc(var(--space-l) + env(safe-area-inset-top, 0px));
+  inset-inline-end: max(var(--space-l), env(safe-area-inset-right, 0px));
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-xs);
+}
+
+/* Narrow headers: the credit tucks under its button, so it stays clear of the brand panel. */
+@container (inline-size < 26rem) {
+  .credits {
+    flex-direction: column-reverse;
+    align-items: flex-end;
+  }
+}
+
+/* Only the links and the button take pointer events: the rest of the corner stays draggable map. */
+.credits a,
+.credits-toggle {
+  pointer-events: auto;
+}
+
+.credits p {
+  display: grid;
+  justify-items: end;
   margin: 0;
   color: color-mix(in oklch, var(--ink) 85%, var(--paper));
   font-size: 0.625rem;
   font-weight: 600;
-  line-height: 1.4;
-  /* A tight paper halo instead of a pill: small and quiet, still legible over busy streets. */
+  line-height: 1.5;
+  /* A tight paper halo instead of a panel: small and quiet, still legible over busy streets. */
   text-shadow:
     0 0 1px var(--paper),
     0 0 1px var(--paper),
     0 0 3px var(--paper),
     0 0 3px var(--paper);
-  pointer-events: auto;
 }
 
 .credits a {
@@ -315,8 +341,38 @@ button {
   text-decoration: none;
 }
 
+.credits-toggle {
+  position: relative;
+  display: grid;
+  place-items: center;
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in oklch, var(--paper) 85%, transparent);
+  color: var(--ink);
+  font: 600 1rem / 1 var(--font-ui);
+  cursor: pointer;
+}
+
+/* 44px hit area around the 20px visual. */
+.credits-toggle::before {
+  content: '';
+  position: absolute;
+  inset: -12px;
+}
+
+.credits-toggle:active {
+  transform: scale(0.94);
+}
+
 @media (hover: hover) and (pointer: fine) {
   .credits a:hover {
     text-decoration: underline;
+  }
+
+  .credits-toggle:hover {
+    background: var(--paper);
   }
 }

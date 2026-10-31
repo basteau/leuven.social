@@ -38,7 +38,7 @@ Bump `VERSION` in `format.ts` and the cache name in `public/sw.js` together. The
 
 ## Attribution
 
-The city data must be credited wherever it is shown. The HUD footer does this as a short linked line ("© OpenStreetMap · © Digitaal Vlaanderen"). Make it quieter if you like, but don't remove it.
+The city data must be credited wherever it is shown. The HUD shows "© OpenStreetMap" and "© Digitaal Vlaanderen" in the top-end corner at start, then collapses them to a © button (DESIGN.md has the rules, and the smoke test checks it). Don't remove it or start it collapsed.
 
 - **GRB and DHMV II:** "Bron: Grootschalig Referentie Bestand Vlaanderen, Digitaal Vlaanderen".
 - **OpenStreetMap:** "© OpenStreetMap contributors", ODbL. The combined building data is an ODbL derivative, so it stays open.

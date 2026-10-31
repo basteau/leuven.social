@@ -88,8 +88,9 @@ Tokens are oklch, in `src/app/app.css`:
 
 ### Credits
 
-- The data licences (ODbL for OpenStreetMap, GRB terms) require visible credit, so it never goes away.
-- It's kept as quiet as it can be while staying legible: one line of 10 px muted text under the toolbar, a paper halo instead of a panel, and links to the licence pages.
+- The data licences (ODbL for OpenStreetMap, GRB terms) require visible credit. OSM's attribution guidelines allow it to collapse only after it was shown.
+- It sits in the top-end corner, out of the layout flow, so it never pushes the HUD: "© OpenStreetMap" and "© Digitaal Vlaanderen" as two 10 px linked lines with a paper halo, beside (or, on narrow headers, under) a 20 px © button with a 44 px hit area.
+- It collapses to just the © after 5 seconds or on the first pan, zoom or click; the © brings it back. The smoke test fails if the credit isn't visible at start.
 
 ### Labels on the map
 

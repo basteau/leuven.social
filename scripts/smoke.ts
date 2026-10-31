@@ -78,6 +78,17 @@ async function expectHealthyPage(viewport: string): Promise<void> {
   console.log(`ok  ${viewport}: ${calls} draw calls, ${triangles.toLocaleString()} triangles`);
 }
 
+/** The data licences require the credit to be visible at start (it may collapse later). */
+async function expectCreditsShown(): Promise<void> {
+  const credits = await evalJson<{ visible: boolean; text: string }>(
+    'JSON.stringify({ visible: !document.getElementById("credits-text")?.hidden, text: document.getElementById("credits-text")?.textContent ?? "" })',
+  );
+  if (!credits.visible || !credits.text.includes('OpenStreetMap')) {
+    throw new Error('the OpenStreetMap credit is not visible at start (ODbL attribution)');
+  }
+  console.log('ok  credits visible at start');
+}
+
 async function waitForServer(): Promise<void> {
   for (let i = 0; i < 100; i++) {
     if (server.exitCode !== null) {
@@ -108,6 +119,7 @@ try {
   await browser('set', 'viewport', '1280', '800');
   await openFresh(BASE);
   await expectHealthyPage('desktop 1280×800');
+  await expectCreditsShown();
   // Exercise every control once, then check nothing broke.
   await browser('press', 'e');
   await browser('press', 'p');

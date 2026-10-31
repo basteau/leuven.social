@@ -10,6 +10,8 @@ type Status = { state: 'loading' } | { state: 'ready' } | { state: 'error'; mess
 /** A stalled network must end in the retry state, never in an endless "Building Leuven…". */
 const LOAD_TIMEOUT_MS = 20_000;
 
+const CREDITS_VISIBLE_MS = 5_000;
+
 const reducedMotion = () => globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 /** Publishes app state on <html> for CSS, the smoke test and anyone debugging. */
@@ -133,6 +135,22 @@ export function App() {
 
   const ready = status.state === 'ready';
 
+  // OSM's attribution guidelines: show the credit at start, then it may collapse to a button
+  // after five seconds or once the map is used.
+  const [creditsOpen, setCreditsOpen] = useState(true);
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map) return;
+    const collapse = () => setCreditsOpen(false);
+    const timer = setTimeout(collapse, CREDITS_VISIBLE_MS);
+    const events = ['pointerdown', 'wheel', 'keydown'] as const;
+    for (const type of events) map.addEventListener(type, collapse, { passive: true });
+    return () => {
+      clearTimeout(timer);
+      for (const type of events) map.removeEventListener(type, collapse);
+    };
+  }, [ready]);
+
   return (
     <main ref={appRef} className="app" data-pixelated={pixelated}>
       <div
@@ -152,6 +170,7 @@ export function App() {
           <h1>Leuven</h1>
           <p>Grote Markt · prototype</p>
         </div>
+        <Credits open={creditsOpen} onToggle={() => setCreditsOpen((open) => !open)} />
       </header>
 
       {/* One region for loading and errors, so screen readers hear every change. */}
@@ -210,13 +229,6 @@ export function App() {
             <ResetIcon />
           </ToolButton>
         </fieldset>
-        {/* Required by the data licences (ODbL, GRB): kept, but as quiet as stays legible. */}
-        <p className="credits">
-          <a href="https://www.openstreetmap.org/copyright">©&nbsp;OpenStreetMap</a> ·{' '}
-          <a href="https://www.vlaanderen.be/digitaal-vlaanderen">
-            ©&nbsp;Digitaal&nbsp;Vlaanderen
-          </a>
-        </p>
       </footer>
     </main>
   );
@@ -243,5 +255,27 @@ function ToolButton(props: {
       <span>{props.label}</span>
       <kbd aria-hidden="true">{props.shortcut}</kbd>
     </button>
+  );
+}
+
+/** Data credits required by the licences (ODbL, GRB), in the least space that stays legible. */
+function Credits(props: { open: boolean; onToggle: () => void }) {
+  return (
+    <div className="credits">
+      <p id="credits-text" hidden={!props.open}>
+        <a href="https://www.openstreetmap.org/copyright">©&nbsp;OpenStreetMap</a>
+        <a href="https://www.vlaanderen.be/digitaal-vlaanderen">©&nbsp;Digitaal&nbsp;Vlaanderen</a>
+      </p>
+      <button
+        type="button"
+        className="credits-toggle"
+        aria-expanded={props.open}
+        aria-controls="credits-text"
+        aria-label="Map data credits"
+        onClick={props.onToggle}
+      >
+        ©
+      </button>
+    </div>
   );
 }
