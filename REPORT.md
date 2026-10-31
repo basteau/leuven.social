@@ -29,7 +29,7 @@ _The map above was built from the data in this folder: 20,967 real building foot
 
 ## 1. Slop New York teardown
 
-**Links:** [repo](https://github.com/mrdoob/slop-newyork) · [live](https://mrdoob.github.io/slop-newyork/). A local clone is in [`research/slop-newyork/repo`](research/slop-newyork/repo), at commit `e35c06c`, 2026-10-29. The same folder holds the [Slop Cities list](research/slop-newyork/slop-cities-cities.yml).
+**Links:** [repo](https://github.com/mrdoob/slop-newyork) · [live](https://mrdoob.github.io/slop-newyork/). It was studied from a local clone at commit `e35c06c` (2026-10-29), along with the [Slop Cities list](https://github.com/zz85/slop-cities/blob/gh-pages/cities.yml). Neither is part of this repo.
 
 ### 1.1 What it is
 
@@ -362,23 +362,22 @@ Full landscape, with versions and licences checked live on 2026-10-31: **[resear
 
 ## 9. Folder map
 
+Folders marked _local_ are gitignored: they hold large raw downloads or third-party material that is fetched, not published.
+
 ```
 leuven.social/
 ├── REPORT.md                       ← this file
 ├── tools/build_leuven_data.py      ← GRB × LiDAR × OSM → game data (+ preview)
 ├── data/
 │   ├── README.md                   ← contents, licences, rebuild command
-│   ├── grb/        (27 MB)         ← GRB footprints, annexes, roads, water, structures (GeoJSON)
-│   ├── elevation/  (119 MB)        ← DHMV II DTM + DSM 1 m tiles, hillshade (GeoTIFF, EPSG:31370)
-│   ├── osm/        (36 MB)         ← Overpass raw dumps + the queries
-│   └── derived/    (26 MB)         ← leuven_buildings(.geojson | _local.json), osm_*.geojson, preview_heights.png
+│   ├── grb/        (local, 27 MB)  ← GRB footprints, annexes, roads, water, structures (GeoJSON)
+│   ├── elevation/  (local, 119 MB) ← DHMV II DTM + DSM 1 m tiles, hillshade (GeoTIFF, EPSG:31370)
+│   ├── osm/        (dumps local)   ← Overpass raw dumps (local) + the queries (tracked)
+│   └── derived/    (local, 26 MB)  ← leuven_buildings(.geojson | _local.json), osm_*.geojson, preview_heights.png
 └── research/
     ├── leuven-data-sources.md      ← every data source: endpoints, licences, gotchas, 25 POIs with coordinates
     ├── foss-tooling.md             ← FOSS landscape (versions verified 2026-10-31) + stack options
-    └── slop-newyork/
-        ├── repo/                   ← shallow clone of mrdoob/slop-newyork (MIT) for reference
-        ├── slop-cities-README.md   ← Awesome Slop Cities list
-        └── slop-cities-cities.yml  ← all ~40 remixes with links
+    └── slop-newyork/   (local)     ← clone of mrdoob/slop-newyork and the Slop Cities list, for reference
 ```
 
 _Attribution: GRB and DHMV II © Digitaal Vlaanderen ("Bron: Grootschalig Referentie Bestand Vlaanderen, Digitaal Vlaanderen"). Map data © OpenStreetMap contributors (ODbL). Slop New York © mrdoob et al. (MIT)._
