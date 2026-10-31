@@ -5,11 +5,18 @@
  *   bun run bake
  */
 
-import { LANDMARKS, VIEW_AREA } from '../src/data/area.ts';
+import { AREA, LANDMARK_FOOTPRINTS, LANDMARKS, VIEW_AREA } from '../src/data/area.ts';
 import { kindFromOsm, roofFromOsm } from '../src/data/city.ts';
 import type { Building, City, Tier } from '../src/data/city.ts';
 import { packCity } from '../src/data/format.ts';
-import { clipRing, normalizeRing, ringInside } from '../src/data/geometry.ts';
+import {
+  areaIndex,
+  clipRingToArea,
+  normalizeRing,
+  ringInArea,
+  signedArea,
+  simplifyRing,
+} from '../src/data/geometry.ts';
 import { toLocal } from '../src/data/projection.ts';
 
 const root = new URL('../', import.meta.url);
@@ -38,8 +45,18 @@ interface LocalBuilding {
   ring: [number, number][];
 }
 
+/**
+ * How far a footprint vertex may sit off the line through its neighbours and still be dropped.
+ * Survey footprints carry many near-collinear points; each one costs three triangles. Hero
+ * footprints keep theirs: landmark models are fitted to them.
+ */
+const SIMPLIFY: Record<Tier, number> = { hero: 0, core: 0.25, fringe: 0.5 };
+/** Ground polygons are flat, so they can lose more. Specks of green smaller than this go. */
+const GROUND_SIMPLIFY = 0.3;
+const MIN_GREEN_AREA = 25;
+
 /** Outer ring of a GeoJSON polygon (or a closed line) in local metres, clipped to the area. */
-function areaRing(f: Feature): number[] {
+function areaRings(f: Feature): number[][] {
   const g = f.geometry;
   const coords =
     g.type === 'Polygon'
@@ -49,14 +66,14 @@ function areaRing(f: Feature): number[] {
         : undefined;
   if (!coords || coords.length < 4) return [];
   const ring = normalizeRing(coords.flatMap(([lon, lat]) => toLocal(lon, lat)));
-  return clipRing(ring, VIEW_AREA);
+  return clipRingToArea(simplifyRing(ring, GROUND_SIMPLIFY), AREA);
 }
 
-const layer = (features: Feature[], keep: (p: Props) => boolean) =>
+const layer = (features: Feature[], keep: (p: Props) => boolean, minArea = 0) =>
   features
     .filter((f) => keep(f.properties))
-    .map(areaRing)
-    .filter((r) => r.length >= 6)
+    .flatMap(areaRings)
+    .filter((r) => r.length >= 6 && Math.abs(signedArea(r)) >= minArea)
     .map((r) => new Float32Array(r));
 
 const GREEN_LEISURE = new Set(['park', 'garden', 'playground', 'pitch']);
@@ -73,11 +90,12 @@ const [local, wbn, wtz, osmAreas, osmRoads, osmPoints] = await Promise.all([
 
 const buildings: Building[] = [];
 for (const b of local.buildings) {
-  const ring = normalizeRing(b.ring.flat());
-  if (ring.length < 6 || !ringInside(ring, VIEW_AREA)) continue;
+  const tier = LANDMARK_FOOTPRINTS.includes(b.id) ? 'hero' : b.tier;
+  const ring = simplifyRing(normalizeRing(b.ring.flat()), SIMPLIFY[tier]);
+  if (ring.length < 6 || !ringInArea(ring, AREA)) continue;
   buildings.push({
     id: b.id,
-    tier: b.tier,
+    tier,
     kind: kindFromOsm(b.kind),
     roof: roofFromOsm(b.roof),
     height: Math.max(2.5, Math.min(b.h, 90)),
@@ -91,10 +109,11 @@ const closedPedestrianArea = (p: Props) =>
 const trees = osmPoints.features
   .filter((f) => f.properties.natural === 'tree')
   .map((f) => toLocal(...(f.geometry.coordinates as [number, number])))
-  .filter(([x, z]) => ringInside([x, z], VIEW_AREA))
+  .filter(([x, z]) => areaIndex(AREA, x, z) >= 0)
   .flat();
 
 const city: City = {
+  area: [...AREA],
   bounds: VIEW_AREA,
   labels: LANDMARKS.map(({ name, lon, lat }) => {
     const [x, z] = toLocal(lon, lat);
@@ -109,6 +128,7 @@ const city: City = {
   green: layer(
     osmAreas.features,
     (p) => GREEN_LEISURE.has(p.leisure ?? '') || GREEN_LANDUSE.has(p.landuse ?? ''),
+    MIN_GREEN_AREA,
   ),
   water: [
     ...layer(wtz.features, () => true),

@@ -7,7 +7,11 @@ const square = (x: number, z: number, s: number) =>
   new Float32Array([x, z, x + s, z, x + s, z + s, x, z + s]);
 
 const city: City = {
-  bounds: { minX: -600, minZ: -400, maxX: 600, maxZ: 450 },
+  area: [
+    { minX: -600, minZ: -400, maxX: 600, maxZ: 450 },
+    { minX: -650, minZ: 450, maxX: 0, maxZ: 900 },
+  ],
+  bounds: { minX: -650, minZ: -400, maxX: 600, maxZ: 900 },
   labels: [{ name: 'Grote Markt', x: 0, z: 0 }],
   buildings: [
     { id: 7, tier: 'hero', kind: 'church', roof: 'auto', height: 35.4, ring: square(-10, -5, 20) },
@@ -23,6 +27,7 @@ const city: City = {
 describe('city format', () => {
   test('round-trips every field at decimetre precision', () => {
     const decoded = decodeCity(encodeCity(city));
+    expect(decoded.area).toEqual(city.area);
     expect(decoded.bounds).toEqual(city.bounds);
     expect(decoded.labels).toEqual(city.labels);
     expect(decoded.buildings.map(({ ring: _, ...b }) => b)).toEqual(
@@ -45,6 +50,7 @@ describe('city format', () => {
 
   test('rejects foreign or truncated data', () => {
     expect(() => decodeCity(new TextEncoder().encode('nope'))).toThrow(CityFormatError);
+    expect(() => decodeCity(encodeCity({ ...city, area: [] }))).toThrow(CityFormatError);
     const bytes = encodeCity(city);
     expect(() => decodeCity(bytes.subarray(0, bytes.length - 3))).toThrow();
     const trailing = new Uint8Array(bytes.length + 1);

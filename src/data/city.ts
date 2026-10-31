@@ -37,6 +37,8 @@ export interface Bounds {
 }
 
 export interface City {
+  /** Abutting rectangles that make up the map (see area.ts); `bounds` surrounds them. */
+  area: Bounds[];
   bounds: Bounds;
   labels: Label[];
   buildings: Building[];

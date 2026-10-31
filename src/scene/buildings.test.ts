@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { Building } from '../data/city.ts';
-import { buildingsGeometry, planRoof } from './buildings.ts';
+import { addBuilding, buildingsGeometry, partyWalls, planRoof } from './buildings.ts';
 import { LANDMARK_MODELS } from './landmark-models.ts';
+import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
 import { pick } from './palette.ts';
 
 const box = (w: number, d: number): Float32Array => new Float32Array([0, 0, w, 0, w, d, 0, d]);
@@ -136,8 +137,8 @@ describe('stepped gables', () => {
     const { surfaces, outlines } = buildingsGeometry([b]);
     surfaces.computeBoundingBox();
     expect(surfaces.boundingBox!.max.y).toBeGreaterThan(14);
-    // 3 steps a side, 4 quads each, on both sides of both ends; plus walls and slopes.
-    expect(surfaces.getAttribute('position').count).toBe((4 * 2 + 2 * 2 + 2 * 2 * 3 * 4 * 2) * 3);
+    // 3 steps a side, a front and a back quad each, on both sides of both ends; walls, slopes.
+    expect(surfaces.getAttribute('position').count).toBe((4 * 2 + 2 * 2 + 2 * 2 * 3 * 2 * 2) * 3);
     // Base, eave tops, corners, two eaves, ridge, then a riser and a tread per step.
     expect(outlines.getAttribute('position').count / 2).toBe(12 + 2 + 1 + 2 * 2 * 3 * 2);
   });
@@ -154,6 +155,39 @@ describe('landmarks', () => {
     expect(g.boundingBox!.max.y).toBeGreaterThan(model.base + 10);
     const facade = g.getAttribute('facade');
     expect(Array.from({ length: facade.count }, (_, i) => facade.getX(i))).toContain(model.base);
+  });
+});
+
+describe('party walls', () => {
+  // Two flat houses back to back along x = 6; the second is lower.
+  const left = building({ id: 1, roof: 'flat', height: 10, ring: box(6, 12) });
+  const right = building({
+    id: 2,
+    roof: 'flat',
+    height: 6,
+    ring: new Float32Array([6, 0, 12, 0, 12, 12, 6, 12]),
+  });
+
+  test('a wall shared with a lower neighbour only shows above it', () => {
+    const walls = partyWalls([left, right]);
+    const mesh = new MeshBuilder();
+    addBuilding(mesh, new LineBuilder(), left, walls);
+    const p = mesh.build().getAttribute('position');
+    // Triangles lying in the seam's plane, x = 6.
+    const seam = Array.from({ length: p.count / 3 }, (_, t) => [t * 3, t * 3 + 1, t * 3 + 2])
+      .filter((tri) => tri.every((i) => p.getX(i) === 6))
+      .flat();
+    expect(seam.length).toBe(6);
+    expect(Math.min(...seam.map((i) => p.getY(i)))).toBe(6);
+  });
+
+  test('a wall shared with a taller neighbour is not drawn at all', () => {
+    const together = buildingsGeometry([left, right]).surfaces.getAttribute('position').count;
+    const apart =
+      buildingsGeometry([left]).surfaces.getAttribute('position').count +
+      buildingsGeometry([right]).surfaces.getAttribute('position').count;
+    // The lower house loses its whole seam wall, the taller one keeps a strip: one quad less.
+    expect(together).toBe(apart - 6);
   });
 });
 
