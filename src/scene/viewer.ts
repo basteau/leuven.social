@@ -147,10 +147,18 @@ export function createViewer(options: ViewerOptions): Viewer {
   }));
 
   function build(entry: CellEntry): void {
-    const { mesh, lines, fineVertices } = buildCell(entry.cell, city.area, walls);
+    const { mesh, lines, groundVertices, fineVertices } = buildCell(entry.cell, city.area, walls);
     const surfaces = new Mesh(mesh.build({ facade: true }), material);
     surfaces.castShadow = true;
     surfaces.receiveShadow = true;
+    // The flat ground and its paint can't shade anything: the shadow pass draws what stands on it.
+    const { geometry } = surfaces;
+    let view = 0;
+    surfaces.onBeforeShadow = () => {
+      view = geometry.drawRange.count;
+      geometry.setDrawRange(groundVertices, fineVertices - groundVertices);
+    };
+    surfaces.onAfterShadow = () => geometry.setDrawRange(0, view);
     entry.fineVertices = fineVertices;
     const outlines = new LineSegments(lines.build(), ink);
     // Cells are culled by their boxes below: three's bounding spheres are far looser.

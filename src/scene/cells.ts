@@ -119,17 +119,19 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
 }
 
 /**
- * Everything in one cell as one mesh and one set of outlines: two draw calls. The fine road paint
- * comes last (from `fineVertices`), so a zoomed-out view can leave it out.
+ * Everything in one cell as one mesh and one set of outlines: two draw calls. The flat ground
+ * comes first (up to `groundVertices`) so the shadow pass can skip it, and the fine road paint
+ * last (from `fineVertices`) so a zoomed-out view can.
  */
 export function buildCell(
   cell: Cell,
   area: readonly Bounds[],
   walls: PartyWalls,
-): { mesh: MeshBuilder; lines: LineBuilder; fineVertices: number } {
+): { mesh: MeshBuilder; lines: LineBuilder; groundVertices: number; fineVertices: number } {
   const mesh = new MeshBuilder();
   const lines = new LineBuilder();
   addGround(mesh, area, cell.bounds, cell.ground);
+  const groundVertices = mesh.vertices;
   for (const b of cell.buildings) addBuilding(mesh, lines, b, walls);
   for (let i = 0; i < cell.trees.length; i += 4) {
     addTree(mesh, cell.trees[i]!, cell.trees[i + 1]!, cell.trees[i + 2]!, cell.trees[i + 3]!);
@@ -137,5 +139,5 @@ export function buildCell(
   for (const p of cell.parasols) addParasol(mesh, lines, p);
   const fineVertices = mesh.vertices;
   addFinePaint(mesh, cell.ground.markings);
-  return { mesh, lines, fineVertices };
+  return { mesh, lines, groundVertices, fineVertices };
 }

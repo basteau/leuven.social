@@ -74,12 +74,24 @@ test('the area is cut into cells, and each thing goes to one', () => {
 
 test('a cell builds into one mesh and one set of outlines', () => {
   const [west] = partition(city);
-  const { mesh, lines, fineVertices } = buildCell(west!, city.area, partyWalls(city.buildings));
+  const { mesh, lines, groundVertices, fineVertices } = buildCell(
+    west!,
+    city.area,
+    partyWalls(city.buildings),
+  );
   const g = mesh.build({ facade: true });
   const p = g.getAttribute('position');
   // Fine paint comes last: the lane line's dash and the zebra's bars, just over the road.
   expect(fineVertices).toBeLessThan(p.count);
   for (let i = fineVertices; i < p.count; i++) expect(p.getY(i)).toBeCloseTo(0.17);
+  // The ground comes first: everything after it stands above the squares.
+  expect(groundVertices).toBeGreaterThan(0);
+  for (let i = 0; i < groundVertices; i++) expect(p.getY(i)).toBeLessThanOrEqual(0.2);
+  expect(
+    Math.max(
+      ...Array.from({ length: p.count - groundVertices }, (_, i) => p.getY(groundVertices + i)),
+    ),
+  ).toBeGreaterThan(5);
   g.computeBoundingBox();
   expect(g.boundingBox!.min.y).toBeLessThan(0); // the slab
   expect(g.boundingBox!.max.y).toBeGreaterThanOrEqual(10); // the houses
