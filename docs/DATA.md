@@ -1,6 +1,6 @@
 # City data
 
-The app loads a single file, `public/data/city.bin`, which is about 660 KB gzipped for the whole R23 ring plus Heverlee. It's committed, so a fresh clone runs without the raw data.
+The app loads a single file, `public/data/city.bin`, which is about 690 KB gzipped for the whole R23 ring plus Heverlee. It's committed, so a fresh clone runs without the raw data.
 
 ## Pipeline
 
@@ -46,7 +46,7 @@ Prefer reading the world over guessing it. Each of these replaced a rule of thum
 
 ## The area
 
-`AREA` is a few abutting, non-overlapping rectangles, so the diorama can follow the city instead of a single box: today the R23 ring with the station, and a band through Heverlee from Arenbergpark and its castle to the Abdij van Park. The slab's earth sides hang from the outline of their union, and the camera's target stays inside it.
+`AREA` is a few abutting, non-overlapping rectangles, so the diorama can follow the city instead of a single box: today the R23 ring with the station and its whole track bundle, and a band through Heverlee from Arenbergpark and its castle to the Abdij van Park. The slab's earth sides hang from the outline of their union, and the camera's target stays inside it.
 
 ## Growing the map
 

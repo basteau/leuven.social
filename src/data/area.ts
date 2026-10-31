@@ -7,11 +7,12 @@ import type { Bounds } from './city.ts';
 import { boundsOf } from './geometry.ts';
 
 /**
- * Abutting rectangles, never overlapping: everything inside the R23 ring with the station,
- * then Heverlee from Arenbergpark and its castle across to the Abdij van Park. About 8.5 km² in all.
+ * Abutting rectangles, never overlapping: everything inside the R23 ring with the station and
+ * its whole track bundle and platform roof, then Heverlee from Arenbergpark and its castle
+ * across to the Abdij van Park. About 8.9 km² in all.
  */
 export const AREA: readonly Bounds[] = [
-  { minX: -1400, minZ: -1220, maxX: 1150, maxZ: 1250 },
+  { minX: -1400, minZ: -1220, maxX: 1300, maxZ: 1250 },
   { minX: -1500, minZ: 1250, maxX: 1450, maxZ: 2000 },
 ];
 
