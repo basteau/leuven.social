@@ -35,7 +35,7 @@ Leuven as a tiny city you could hold in your hands: a warm, crisp, low-poly dior
 
 ### Railways
 
-- **Tracks read at every zoom, detail arrives as you zoom in.** Far out, a track is a light band (running lines) or a brown one (yards). From zoom 1.5 the catenary masts appear, from 2.5 both rails as ink lines, and at the closest zoom the sleepers.
+- **Tracks read at every zoom, detail arrives as you zoom in.** Far out, a track is a light band (running lines) or a brown one (yards). As pixels get smaller than 0.9 m the catenary masts appear, under 0.5 m both rails as ink lines, and at the closest zoom the sleepers.
 - **Masts only where they'd stand.** Every 60 m along electrified running lines, on the side with room, so a yard's inner tracks stay clear.
 - Tunnels and covered tracks aren't drawn. Bridges get a parapet on each open side; the ground is flat, so roads just pass underneath.
 

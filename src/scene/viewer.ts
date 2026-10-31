@@ -91,12 +91,13 @@ const SHADOW_LAYER = 1 << 1;
 /** Time the idle builder may take per slice before handing the main thread back (ms). */
 const IDLE_SLICE_MS = 8;
 /**
- * Zooms from which rails and catenary masts show. Further out, a track's two rails are under
- * two game pixels apart and a yard's tracks would merge into one dark hatch; the sleeper band
- * alone reads as the track there.
+ * The largest screen pixel, in metres, at which rails and catenary masts show. Any bigger and
+ * a track's two rails come under two pixels apart, so a yard's tracks merge into one dark
+ * hatch; the sleeper band alone reads as the track there. In pixels rather than zoom levels,
+ * so a dense phone screen gets the detail sooner than a standard one.
  */
-const RAIL_ZOOM = 2.5;
-const MAST_ZOOM = 1.5;
+const RAIL_PIXEL = 0.5;
+const MAST_PIXEL = 0.9;
 
 /** requestIdleCallback where there is one (not in Safari), else the next frame or so. */
 const idle = (run: () => void) =>
@@ -306,11 +307,11 @@ export function createViewer(options: ViewerOptions): Viewer {
    */
   function cull(): void {
     const shadowPass = renderer.shadowMap.needsUpdate;
-    const zoom = camera.zoom;
+    const pixel = (camera.top - camera.bottom) / camera.zoom / buffer.y;
     for (const { box, objects, detail } of cells) {
       const [surfaces, outlines] = objects as [Mesh?, LineSegments?];
       if (!surfaces || !outlines) continue;
-      const skip = zoom < MAST_ZOOM ? detail.masts : zoom < RAIL_ZOOM ? detail.rails : 0;
+      const skip = pixel > MAST_PIXEL ? detail.masts : pixel > RAIL_PIXEL ? detail.rails : 0;
       outlines.geometry.setDrawRange(skip * 2, Infinity);
       const inView = frustum.intersectsBox(box);
       const casts = shadowPass && shadowFrustum.intersectsBox(box);

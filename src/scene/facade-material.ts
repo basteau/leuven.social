@@ -44,8 +44,8 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
         varying vec3 vWorld;
         varying vec2 vWallNormal;
         const vec2 CELL = vec2(2.6, 3.2); // window bay width, floor height (m)
-        // Sleepers: one per metre, drawn wider apart than the real 0.6 m so they survive as
-        // whole pixels at the closest zoom.
+        // Sleepers: one per metre, wider apart than the real 0.6 m so a standard screen still
+        // resolves them at the closest zoom.
         const float SLEEPER_PITCH = 1.0;`,
       )
       .replace(
