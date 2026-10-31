@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 
 import { CITY_URL, loadCity } from '../data/load.ts';
 import type { Viewer } from '../scene/viewer.ts';
-import { PixelIcon, ResetIcon, RotateLeftIcon, RotateRightIcon } from './icons.tsx';
+import { ResetIcon, RotateLeftIcon, RotateRightIcon } from './icons.tsx';
 
 type Status = { state: 'loading' } | { state: 'ready' } | { state: 'error'; message: string };
 
@@ -46,8 +46,6 @@ export function App() {
   const labelsRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
   const [status, setStatus] = useState<Status>({ state: 'loading' });
-  const [pixelated, setPixelated] = useState(true);
-  const pixelatedRef = useRef(pixelated);
   const [attempt, setAttempt] = useState(0);
   const retryRef = useRef<HTMLButtonElement>(null);
 
@@ -72,7 +70,6 @@ export function App() {
           keyTarget: map,
           labelLayer,
           city,
-          pixelated: pixelatedRef.current,
           reducedMotion: reducedMotion() ?? false,
         });
         viewerRef.current = viewer;
@@ -102,11 +99,6 @@ export function App() {
   }, [attempt]);
 
   useEffect(() => {
-    pixelatedRef.current = pixelated;
-    viewerRef.current?.setPixelated(pixelated);
-  }, [pixelated]);
-
-  useEffect(() => {
     if (status.state === 'error') retryRef.current?.focus();
   }, [status.state]);
 
@@ -121,7 +113,6 @@ export function App() {
       const actions: Record<string, () => void> = {
         q: () => viewer.rotate(-1),
         e: () => viewer.rotate(1),
-        p: () => setPixelated((on) => !on),
         r: () => viewer.resetView(),
         '+': () => viewer.zoomBy(1.25),
         '=': () => viewer.zoomBy(1.25),
@@ -152,7 +143,7 @@ export function App() {
   }, [ready]);
 
   return (
-    <main ref={appRef} className="app" data-pixelated={pixelated}>
+    <main ref={appRef} className="app">
       <div
         ref={mapRef}
         className="map"
@@ -212,15 +203,6 @@ export function App() {
             <RotateRightIcon />
           </ToolButton>
           <ToolButton
-            label="Pixels"
-            shortcut="P"
-            pressed={pixelated}
-            disabled={!ready}
-            onPress={() => setPixelated((on) => !on)}
-          >
-            <PixelIcon />
-          </ToolButton>
-          <ToolButton
             label="Reset"
             shortcut="R"
             disabled={!ready}
@@ -237,7 +219,6 @@ export function App() {
 function ToolButton(props: {
   label: string;
   shortcut: string;
-  pressed?: boolean;
   disabled: boolean;
   onPress: () => void;
   children: ReactNode;
@@ -246,7 +227,6 @@ function ToolButton(props: {
     <button
       type="button"
       className="button"
-      aria-pressed={props.pressed}
       aria-keyshortcuts={props.shortcut}
       disabled={props.disabled}
       onClick={props.onPress}

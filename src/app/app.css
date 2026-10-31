@@ -6,7 +6,6 @@
   --paper: oklch(97% 0.015 85);
   --paper-press: color-mix(in oklch, var(--paper), var(--ink) 9%);
   --accent: oklch(47% 0.12 252);
-  --accent-press: color-mix(in oklch, var(--accent), black 15%);
   --muted: color-mix(in oklch, var(--ink) 72%, var(--paper));
   --sky-top: oklch(83% 0.06 235);
   --sky-horizon: oklch(93% 0.05 75);
@@ -107,10 +106,6 @@ button {
   inline-size: 100%;
   block-size: 100%;
   touch-action: none;
-}
-
-.app[data-pixelated='true'] .city {
-  image-rendering: pixelated;
 }
 
 .label-layer {
@@ -229,18 +224,9 @@ button {
   border: var(--border) solid var(--ink);
 }
 
-.button[aria-pressed='true'] {
-  background: var(--accent);
-  color: var(--paper);
-}
-
 .button:active:not(:disabled) {
   transform: scale(0.97);
   background: var(--paper-press);
-}
-
-.button[aria-pressed='true']:active:not(:disabled) {
-  background: var(--accent-press);
 }
 
 .button:disabled {
@@ -264,10 +250,6 @@ button {
 @media (hover: hover) and (pointer: fine) {
   .button:hover:not(:disabled) {
     background: var(--paper-press);
-  }
-
-  .button[aria-pressed='true']:hover:not(:disabled) {
-    background: var(--accent-press);
   }
 }
 

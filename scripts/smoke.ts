@@ -141,12 +141,9 @@ try {
   await expectCreditsShown();
   // Exercise every control once, then check nothing broke.
   await browser('press', 'e');
-  await browser('press', 'p');
   await browser('press', 'r');
   await browser('wait', '400');
-  await expectHealthyPage('desktop after rotate, pixel toggle, reset');
-  await browser('press', 'p');
-  await browser('wait', '200');
+  await expectHealthyPage('desktop after rotate and reset');
   await browser('screenshot', `${ARTIFACTS}smoke-desktop.png`);
   for (let i = 0; i < 6; i++) await browser('press', '+');
   await browser('wait', '200');
