@@ -15,6 +15,16 @@ export const WALLS: Record<Kind, readonly number[]> = {
   other: [0xd6cbb8, 0xc7b8a0, 0xb8a58c],
 };
 
+/** Hero landmarks: their own stones and dark slate, so they stand out from the streets. */
+export const LANDMARK = {
+  sandstone: 0xe4cf9f,
+  limestone: 0xd8cba8,
+  brick: 0xb35a40,
+  trim: 0xeee3c9,
+  slate: 0x4a5161,
+  spire: 0x3b4150,
+} as const;
+
 export const PITCHED_ROOFS = [0x4f5664, 0x5b6170, 0x46505e, 0xa9553e, 0xb8613f, 0x9b4a36];
 export const FLAT_ROOFS = [0xb3aa9c, 0xa89f92, 0xbfb6a6];
 
