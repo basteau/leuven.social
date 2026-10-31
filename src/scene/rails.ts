@@ -1,6 +1,6 @@
 import { ShapeUtils, Vector2 } from 'three';
 
-import type { Rail } from '../data/city.ts';
+import type { Bounds, Rail } from '../data/city.ts';
 import type { LineBuilder, MeshBuilder, V3 } from './mesh-builder.ts';
 import { RAIL } from './palette.ts';
 
@@ -244,8 +244,22 @@ export function addParapet(mesh: MeshBuilder, lines: LineBuilder, p: Parapet): v
 
 const top = (v: Vector2): V3 => [v.x, PLATFORM_HEIGHT, v.y];
 
-/** A platform: its outline raised to train-floor height, with an ink edge along the top. */
-export function addPlatform(mesh: MeshBuilder, lines: LineBuilder, ring: Float32Array): void {
+const SEAM = 1e-3;
+/** Whether a→b runs along an edge of `cut`, where a platform was cut at a cell border. */
+const onSeam = (a: Vector2, b: Vector2, cut: Bounds) =>
+  [cut.minX, cut.maxX].some((x) => Math.abs(a.x - x) < SEAM && Math.abs(b.x - x) < SEAM) ||
+  [cut.minZ, cut.maxZ].some((z) => Math.abs(a.y - z) < SEAM && Math.abs(b.y - z) < SEAM);
+
+/**
+ * A platform: its outline raised to train-floor height, with an ink edge along the top. Edges
+ * along the cell's border are where the platform was cut, so they get no wall or ink.
+ */
+export function addPlatform(
+  mesh: MeshBuilder,
+  lines: LineBuilder,
+  ring: Float32Array,
+  cell: Bounds,
+): void {
   const contour = Array.from(
     { length: ring.length / 2 },
     (_, i) => new Vector2(ring[i * 2]!, ring[i * 2 + 1]!),
@@ -255,6 +269,7 @@ export function addPlatform(mesh: MeshBuilder, lines: LineBuilder, ring: Float32
   }
   for (const [i, a] of contour.entries()) {
     const b = contour[(i + 1) % contour.length]!;
+    if (onSeam(a, b, cell)) continue;
     // Counter-clockwise ring: the outward normal of edge a→b is (dz, -dx).
     const hint: V3 = [b.y - a.y, 0, a.x - b.x];
     mesh.quad([a.x, 0, a.y], [b.x, 0, b.y], top(b), top(a), RAIL.platformSide, hint);

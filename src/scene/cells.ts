@@ -79,11 +79,17 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
   const { masts, parapets } = planRailway(city.rails);
   for (const m of masts) at(m.x, m.z)?.masts.push(m);
   for (const p of parapets) at(p.ax, p.az)?.parapets.push(p);
-  for (const ring of city.platforms) at(ring[0]!, ring[1]!)?.platforms.push(ring);
 
   // Ground polygons are flat, so they can be cut along cell edges without a visible seam.
-  for (const layer of ['green', 'water', 'roads', 'plazas'] as const) {
-    for (const ring of city[layer]) {
+  // Platforms too: their walls and edges are left out along a cut (see `addPlatform`).
+  const layers = [
+    ...(['green', 'water', 'roads', 'plazas'] as const).map(
+      (layer) => [city[layer], (c: Cell) => c.ground[layer]] as const,
+    ),
+    [city.platforms, (c: Cell) => c.platforms] as const,
+  ];
+  for (const [rings, into] of layers) {
+    for (const ring of rings) {
       let [minX, minZ, maxX, maxZ] = [Infinity, Infinity, -Infinity, -Infinity];
       for (let k = 0; k < ring.length; k += 2) {
         [minX, maxX] = [Math.min(minX, ring[k]!), Math.max(maxX, ring[k]!)];
@@ -95,7 +101,7 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
           const cell = cells.get(`${i},${j}`);
           if (!cell) continue;
           const piece = whole ? ring : clipRing(Array.from(ring), cell.bounds);
-          if (piece.length >= 6) cell.ground[layer].push(Float32Array.from(piece));
+          if (piece.length >= 6) into(cell).push(Float32Array.from(piece));
         }
       }
     }
@@ -149,7 +155,7 @@ export function buildCell(
   addMasts(lines, cell.masts);
   const detail = { rails, masts: lines.segments };
   for (const p of cell.parapets) addParapet(mesh, lines, p);
-  for (const ring of cell.platforms) addPlatform(mesh, lines, ring);
+  for (const ring of cell.platforms) addPlatform(mesh, lines, ring, cell.bounds);
   for (const b of cell.buildings) addBuilding(mesh, lines, b, walls);
   for (let i = 0; i < cell.trees.length; i += 4) {
     addTree(mesh, cell.trees[i]!, cell.trees[i + 1]!, cell.trees[i + 2]!, cell.trees[i + 3]!);

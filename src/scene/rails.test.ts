@@ -99,9 +99,22 @@ test('a parapet is a low wall with its top outlined', () => {
   expect(lines.segments).toBe(2);
 });
 
+const far = { minX: -100, minZ: -100, maxX: 100, maxZ: 100 };
+
+test('a platform cut at a cell border gets no wall or edge along the cut', () => {
+  const [mesh, lines] = [new MeshBuilder(), new LineBuilder()];
+  const cell = { minX: -100, minZ: -100, maxX: 10, maxZ: 100 };
+  addPlatform(mesh, lines, new Float32Array([0, 0, 10, 0, 10, 4, 0, 4]), cell);
+  expect(mesh.build().getAttribute('position').count).toBe((2 + 3 * 2) * 3);
+  expect(lines.segments).toBe(3);
+  const bottom = { minX: -100, minZ: -100, maxX: 100, maxZ: 4 };
+  addPlatform(mesh, lines, new Float32Array([0, 0, 10, 0, 10, 4, 0, 4]), bottom);
+  expect(lines.segments).toBe(6);
+});
+
 test('a platform is its outline raised to train-floor height, walls facing out', () => {
   const [mesh, lines] = [new MeshBuilder(), new LineBuilder()];
-  addPlatform(mesh, lines, new Float32Array([0, 0, 10, 0, 10, 4, 0, 4]));
+  addPlatform(mesh, lines, new Float32Array([0, 0, 10, 0, 10, 4, 0, 4]), far);
   const g = mesh.build();
   expect(g.getAttribute('position').count).toBe((2 + 4 * 2) * 3);
   g.computeBoundingBox();

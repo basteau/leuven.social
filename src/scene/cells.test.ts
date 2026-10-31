@@ -32,7 +32,7 @@ const city: City = {
   water: [],
   // A path from one cell into the other.
   paths: [{ width: 2, paved: true, line: new Float32Array([S - 20, 50, S + 20, 50]) }],
-  // An electrified track across both cells, and a platform beside it in the first.
+  // An electrified track across both cells, and a platform beside it across the seam.
   rails: [
     {
       kind: 'main',
@@ -41,7 +41,7 @@ const city: City = {
       line: new Float32Array([S - 100, 150, S + 100, 150]),
     },
   ],
-  platforms: [box(S - 90, 154, 60, 6)],
+  platforms: [box(S - 90, 154, 120, 6)],
   trees: new Float32Array([20, 300, S + 20, 300]),
   treeHeights: new Float32Array([9, 0]),
 };
@@ -70,6 +70,7 @@ test('the area is cut into cells, and each thing goes to one', () => {
   expect(east.rails[0]!).toMatchObject({ kind: 'main', electrified: true });
   expect(west.masts.length + east.masts.length).toBe(3);
   expect(west.platforms).toHaveLength(1);
+  expect(Math.min(...east.platforms[0]!.filter((_, i) => i % 2 === 0))).toBe(S);
 });
 
 test('a cell builds into one mesh and one set of outlines', () => {
