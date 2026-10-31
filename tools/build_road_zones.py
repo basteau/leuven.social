@@ -94,6 +94,8 @@ def without_holes(poly):
 
 
 def lane_count(t):
+    if t.get('lane_markings') == 'no':
+        return 0
     lanes = t.get('lanes', '')
     if lanes.isdigit() and int(lanes) > 0:
         return int(lanes)
@@ -108,7 +110,11 @@ def lane_layout(t, width):
     flip = -1 if t.get('oneway') == '-1' else 1
     cyc = lambda side: t.get(f'cycleway:{side}') == 'lane' or t.get('cycleway:both') == 'lane' or (
         t.get('cycleway') == 'lane' and (side == 'right' or not oneway))
-    sides = {'right': flip, 'left': -flip}
+    # cycleway:left/right follow the way's drawing direction; a plain cycleway=lane on a one-way road
+    # runs on the traffic's right, which oneway=-1 turns around.
+    sides = {'right': 1, 'left': -1}
+    if t.get('cycleway') == 'lane' and oneway and not any(t.get(f'cycleway:{s}') for s in ('left', 'right', 'both')):
+        sides = {'right': flip, 'left': -flip}
     cycle = [(width / 2 - CYCLE_LANE / 2) * sides[s] for s in sides if cyc(s)]
     if n < 2:
         return [], cycle
