@@ -1,0 +1,247 @@
+"""Build game-ready Leuven data from the raw downloads in ../data.
+
+uv run --with numpy --with tifffile --with shapely --with pyproj --with matplotlib \
+    python -I tools/build_leuven_data.py data
+
+Inputs (see data/README.md):
+  grb/grb_GBG.geojson                GRB main buildings (EPSG:4326)
+  elevation/leuven_{DTM,DSM}_1m_tile{1-8}.tif   DHMV II 1 m rasters (EPSG:31370)
+  osm/raw_*.json                     Overpass dumps (out geom)
+Outputs (data/derived/):
+  leuven_buildings.geojson   footprint + ground (m TAW) + height (m) + OSM tags
+  leuven_buildings_local.json  compact game format: local metres, origin Grote Markt, x=east, z=south
+  osm_roads.geojson, osm_areas.geojson, osm_points.geojson
+  preview_heights.png
+"""
+import json
+import math
+import sys
+from pathlib import Path
+
+import numpy as np
+import shapely
+import tifffile
+from pyproj import Transformer
+from shapely import STRtree, contains_xy, make_valid
+from shapely.geometry import LineString, Point, Polygon, mapping, shape
+
+DATA = Path(sys.argv[1] if len(sys.argv) > 1 else 'data')
+OUT = DATA / 'derived'
+OUT.mkdir(exist_ok=True)
+ORIGIN = (4.70139, 50.87917)  # Grote Markt (lon, lat)
+to_lambert = Transformer.from_crs('EPSG:4326', 'EPSG:31370', always_xy=True).transform
+
+
+# --- Rasters: mosaic the four 1500x1300 tiles using their GeoTIFF tie points -----------------------------------------
+def load_mosaic(kind):
+    tiles = []
+    for path in sorted(DATA.glob(f'elevation/leuven_{kind}_1m_tile*.tif')):
+        with tifffile.TiffFile(path) as tif:
+            page = tif.pages[0]
+            tie = page.tags['ModelTiepointTag'].value  # (i, j, k, x, y, z)
+            scale = page.tags['ModelPixelScaleTag'].value
+            tiles.append((tie[3], tie[4], scale[0], page.asarray().astype(np.float32)))
+    x0 = min(t[0] for t in tiles)
+    y1 = max(t[1] for t in tiles)
+    res = tiles[0][2]
+    w = int(round((max(t[0] + t[3].shape[1] * res for t in tiles) - x0) / res))
+    h = int(round((y1 - min(t[1] - t[3].shape[0] * res for t in tiles)) / res))
+    out = np.full((h, w), np.nan, np.float32)
+    for tx, ty, _, a in tiles:
+        c, r = int(round((tx - x0) / res)), int(round((y1 - ty) / res))
+        out[r:r + a.shape[0], c:c + a.shape[1]] = a
+    out[out < -1000] = np.nan
+    return out, x0, y1, res
+
+
+dtm, X0, Y1, RES = load_mosaic('DTM')
+dsm, *_ = load_mosaic('DSM')
+ndsm = dsm - dtm
+print(f'raster {dtm.shape}, origin {X0},{Y1}, res {RES}, DTM {np.nanmin(dtm):.1f}..{np.nanmax(dtm):.1f} m TAW')
+
+
+def sample(poly_l72):
+    minx, miny, maxx, maxy = poly_l72.bounds
+    c0, c1 = max(0, int((minx - X0) / RES)), min(dtm.shape[1], int((maxx - X0) / RES) + 1)
+    r0, r1 = max(0, int((Y1 - maxy) / RES)), min(dtm.shape[0], int((Y1 - miny) / RES) + 1)
+    if c1 <= c0 or r1 <= r0:
+        return None
+    cs, rs = np.meshgrid(np.arange(c0, c1), np.arange(r0, r1))
+    xs, ys = X0 + (cs + 0.5) * RES, Y1 - (rs + 0.5) * RES
+    m = contains_xy(poly_l72, xs, ys)
+    if not m.any():  # tiny footprint: nearest pixel to the centroid
+        p = poly_l72.representative_point()
+        r, c = int((Y1 - p.y) / RES), int((p.x - X0) / RES)
+        m = np.zeros_like(cs, bool)
+        if 0 <= r - r0 < m.shape[0] and 0 <= c - c0 < m.shape[1]:
+            m[r - r0, c - c0] = True
+    g, h = dtm[r0:r1, c0:c1][m], ndsm[r0:r1, c0:c1][m]
+    g, h = g[~np.isnan(g)], h[~np.isnan(h)]
+    if not len(g) or not len(h):
+        return None
+    return float(np.median(g)), float(np.percentile(h, 90)), float(np.median(h)), float(h.max())
+
+
+# --- OSM building tags, joined by representative point -------------------------------------------------------------
+def osm_elements(name):
+    files = sorted(DATA.glob(f'osm/raw_{name}*.json'))
+    seen = {}
+    for f in files:
+        for e in json.load(open(f))['elements']:
+            seen[(e['type'], e['id'])] = e
+    return list(seen.values())
+
+
+def way_geom(e):
+    pts = [(p['lon'], p['lat']) for p in e.get('geometry', []) if p]
+    if len(pts) < 2:
+        return None
+    if len(pts) >= 4 and pts[0] == pts[-1]:
+        return make_valid(Polygon(pts))
+    return LineString(pts)
+
+
+osm_b = [(e, way_geom(e)) for e in osm_elements('buildings') if e['type'] == 'way' and 'building' in e.get('tags', {})]
+osm_b = [(e, g) for e, g in osm_b if g is not None and g.geom_type in ('Polygon', 'MultiPolygon')]
+osm_pts = [g.representative_point() for _, g in osm_b]
+KEEP = ['building', 'name', 'building:levels', 'roof:shape', 'roof:levels', 'amenity', 'shop', 'historic', 'building:colour', 'roof:colour']
+
+# --- Detail tiers: hand-built hero zones > generic but faithful core inside R23 > cheap fringe outside it ---------------
+HERO_ZONES = {  # name: (lon, lat, radius m)
+    'Grote Markt (Stadhuis, Sint-Pieterskerk)': (4.70139, 50.87917, 170),
+    'Oude Markt': (4.69944, 50.87806, 120),
+    'Ladeuzeplein (Universiteitsbibliotheek)': (4.70690, 50.87820, 140),
+    'Martelarenplein (station)': (4.71560, 50.88100, 150),
+    'Groot Begijnhof': (4.69694, 50.87167, 170),
+    'Kasteel van Arenberg (Heverlee)': (4.68306, 50.86333, 220),
+}
+ring_pts = [(p['lon'], p['lat']) for e in osm_elements('ring_r23') for p in e.get('geometry', []) if p]
+RING = make_valid(Polygon(ring_pts).convex_hull)  # R23 is close to convex; hull is fine for tiering
+
+# --- Buildings ------------------------------------------------------------------------------------------------------
+grb = json.load(open(DATA / 'grb/grb_GBG.geojson'))['features']
+geoms = [make_valid(shape(f['geometry'])) for f in grb]
+tree = STRtree(geoms)
+osm_for = {}
+for idx in range(len(osm_pts)):
+    hits = tree.query(osm_pts[idx], predicate='within')
+    for h in hits:
+        osm_for.setdefault(int(h), osm_b[idx][0]['tags'])
+
+lat0 = math.radians(ORIGIN[1])
+kx, kz = 111320 * math.cos(lat0), 110574  # metres per degree: good to ~0.1% over 3 km
+feats, local, skipped = [], [], 0
+for i, (f, g) in enumerate(zip(grb, geoms)):
+    s = sample(shapely.transform(g, lambda a: np.column_stack(to_lambert(a[:, 0], a[:, 1]))))
+    if s is None:
+        skipped += 1
+        continue
+    ground, h90, hmed, hmax = s
+    tags = osm_for.get(i, {})
+    props = {
+        'oidn': f['properties']['OIDN'], 'grb_type': f['properties']['LBLTYPE'],
+        'ground_taw': round(ground, 2), 'height': round(max(h90, 2.5), 1),
+        'height_median': round(hmed, 1), 'height_max': round(hmax, 1),
+        **{k: tags[k] for k in KEEP if k in tags},
+    }
+    if 'height' in tags:
+        props['osm_height'] = tags['height']
+    c = g.representative_point()
+    hero = next((n for n, (lo, la, r) in HERO_ZONES.items() if math.hypot((c.x - lo) * kx, (c.y - la) * kz) < r), None)
+    props['tier'] = 'hero' if hero else 'core' if RING.contains(c) else 'fringe'
+    if hero:
+        props['zone'] = hero
+    feats.append({'type': 'Feature', 'properties': props, 'geometry': mapping(g)})
+    polys = [g] if g.geom_type == 'Polygon' else [p for p in getattr(g, 'geoms', []) if p.geom_type == 'Polygon']
+    for p in polys:
+        ring = [[round((x - ORIGIN[0]) * kx, 1), round(-(y - ORIGIN[1]) * kz, 1)] for x, y in p.exterior.coords[:-1]]
+        local.append({'id': props['oidn'], 'h': props['height'], 'g': props['ground_taw'], 'kind': tags.get('building', 'yes'),
+                      'roof': tags.get('roof:shape'), 'name': tags.get('name'), 'tier': props['tier'], 'ring': ring})
+
+json.dump({'type': 'FeatureCollection', 'features': feats}, open(OUT / 'leuven_buildings.geojson', 'w'), separators=(',', ':'))
+json.dump({'origin_lonlat': ORIGIN, 'units': 'm', 'axes': 'x=east, z=south (three.js: north = -z)',
+           'height': 'p90 of DHMV II DSM-DTM inside footprint (LiDAR 2013-15)', 'ground': 'median DTM, m TAW',
+           'attribution': 'GRB & DHMV II (c) Digitaal Vlaanderen; tags (c) OpenStreetMap contributors (ODbL)',
+           'hero_zones': {n: [round((lo - ORIGIN[0]) * kx), round(-(la - ORIGIN[1]) * kz), r] for n, (lo, la, r) in HERO_ZONES.items()},
+           'buildings': local}, open(OUT / 'leuven_buildings_local.json', 'w'), separators=(',', ':'))
+hs = np.array([f['properties']['height'] for f in feats])
+print(f'buildings: {len(feats)} (skipped {skipped}), with OSM tags: {len(osm_for)}; height median {np.median(hs):.1f} m, p99 {np.percentile(hs, 99):.1f} m, max {hs.max():.1f} m')
+tallest = sorted(feats, key=lambda f: -f['properties']['height_max'])[:12]
+for f in tallest:
+    p = f['properties']
+    print(f"  {p['height_max']:5.1f} m max / {p['height']:5.1f} p90  {p.get('name') or p.get('building') or p['grb_type']}")
+for t in ('hero', 'core', 'fringe'):
+    sel = [f['properties'] for f in feats if f['properties']['tier'] == t]
+    print(f'  tier {t}: {len(sel)} buildings, median height {np.median([p["height"] for p in sel]):.1f} m')
+
+# --- Other OSM layers -----------------------------------------------------------------------------------------------
+roads = [{'type': 'Feature', 'properties': e['tags'], 'geometry': mapping(LineString([(p['lon'], p['lat']) for p in e['geometry']]))}
+         for e in osm_elements('roads') + osm_elements('ring_r23') if e['type'] == 'way' and len(e.get('geometry', [])) >= 2]
+json.dump({'type': 'FeatureCollection', 'features': roads}, open(OUT / 'osm_roads.geojson', 'w'), separators=(',', ':'))
+areas = []
+for e in osm_elements('water_landuse'):
+    if e['type'] == 'way':
+        g = way_geom(e)
+        if g is not None:
+            areas.append({'type': 'Feature', 'properties': e.get('tags', {}), 'geometry': mapping(g)})
+    elif e['type'] == 'relation':  # outer members only: good enough for parks/water at game scale
+        for m in e.get('members', []):
+            if m.get('role') == 'outer' and m.get('geometry'):
+                g = way_geom(m)
+                if g is not None:
+                    areas.append({'type': 'Feature', 'properties': {**e.get('tags', {}), '_relation': e['id']}, 'geometry': mapping(g)})
+json.dump({'type': 'FeatureCollection', 'features': areas}, open(OUT / 'osm_areas.geojson', 'w'), separators=(',', ':'))
+pts = []
+for e in osm_elements('trees_pois'):
+    ll = (e['lon'], e['lat']) if 'lon' in e else (e['center']['lon'], e['center']['lat']) if 'center' in e else None
+    if ll:
+        pts.append({'type': 'Feature', 'properties': {**e.get('tags', {}), '_osm': f"{e['type']}/{e['id']}"}, 'geometry': mapping(Point(ll))})
+json.dump({'type': 'FeatureCollection', 'features': pts}, open(OUT / 'osm_points.geojson', 'w'), separators=(',', ':'))
+cnt = lambda k, v=None: sum(1 for p in pts if (k in p['properties']) and (v is None or p['properties'][k] in v))
+print(f'roads {len(roads)}, areas {len(areas)}, points {len(pts)}: trees {cnt("natural", ["tree"])}, '
+      f'bars/pubs/cafes {cnt("amenity", ["bar", "pub", "cafe"])}, restaurants {cnt("amenity", ["restaurant", "fast_food"])}, '
+      f'bike parkings {cnt("amenity", ["bicycle_parking"])}, historic {cnt("historic")}, tourism {cnt("tourism")}')
+
+# --- Preview --------------------------------------------------------------------------------------------------------
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from matplotlib.collections import PolyCollection, LineCollection
+
+fig, ax = plt.subplots(figsize=(12, 12), dpi=130)
+fig.patch.set_facecolor('#f4efe6')
+ax.set_facecolor('#f4efe6')
+for a in areas:
+    t = a['properties']
+    col = '#9cc9e6' if t.get('natural') == 'water' or 'waterway' in t else '#c8dcb0' if t.get('leisure') in ('park', 'garden') or t.get('landuse') in ('grass', 'forest', 'meadow', 'cemetery') else None
+    g = shape(a['geometry'])
+    if col and g.geom_type == 'Polygon':
+        xs, ys = g.exterior.xy
+        ax.fill([(x - ORIGIN[0]) * kx for x in xs], [(y - ORIGIN[1]) * kz for y in ys], color=col, lw=0, zorder=1)
+segs, widths = [], []
+for r in roads:
+    hw = r['properties'].get('highway')
+    if hw in ('primary', 'secondary', 'tertiary', 'residential', 'pedestrian', 'living_street', 'unclassified', 'trunk', 'cycleway'):
+        segs.append([((x - ORIGIN[0]) * kx, (y - ORIGIN[1]) * kz) for x, y in r['geometry']['coordinates']])
+        widths.append(2.2 if hw in ('primary', 'trunk', 'secondary') else 1.0)
+ax.add_collection(LineCollection(segs, colors='#d9cfbf', linewidths=widths, zorder=2))
+polys = [[(x, -z) for x, z in b['ring']] for b in local]
+pc = PolyCollection(polys, array=np.clip([b['h'] for b in local], 0, 40), cmap='magma_r', linewidths=0, zorder=3)
+ax.add_collection(pc)
+cb = fig.colorbar(pc, ax=ax, shrink=0.6, pad=0.01)
+cb.set_label('building height (m, DSM−DTM p90), capped at 40')
+ax.set_aspect('equal')
+rx, ry = RING.exterior.xy
+ax.plot([(x - ORIGIN[0]) * kx for x in rx], [(y - ORIGIN[1]) * kz for y in ry], color='#3a6ea5', lw=1.2, ls='--', zorder=4)
+for n, (lo, la, r) in HERO_ZONES.items():
+    cx, cy = (lo - ORIGIN[0]) * kx, (la - ORIGIN[1]) * kz
+    ax.add_patch(plt.Circle((cx, cy), r, fill=False, ec='#1f8a4c', lw=1.6, zorder=5))
+    ax.text(cx + r * 0.75, cy + r * 0.75, n.split(' (')[0], fontsize=8, color='#1f8a4c', zorder=6)
+ax.set_xlim(-1790, 1450)
+ax.set_ylim(-2460, 1430)
+ax.set_title('Leuven: R23 ring (dashed) + Heverlee — GRB footprints × DHMV II heights; green = hero zones', fontsize=12)
+ax.set_xlabel('metres east of Grote Markt')
+ax.set_ylabel('metres north of Grote Markt')
+fig.text(0.01, 0.005, 'GRB & DHMV II © Digitaal Vlaanderen · © OpenStreetMap contributors (ODbL)', fontsize=7, color='#666')
+fig.savefig(OUT / 'preview_heights.png', bbox_inches='tight', facecolor=fig.get_facecolor())
+print('wrote', sorted(p.name for p in OUT.iterdir()))
