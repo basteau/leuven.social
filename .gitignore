@@ -7,6 +7,7 @@ dist/
 data/grb/
 data/elevation/
 data/osm/raw_*.json
+data/ortho/
 data/derived/*.geojson
 data/derived/*.json
 research/slop-newyork/repo/

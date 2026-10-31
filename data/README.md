@@ -22,8 +22,10 @@ Raw downloads and derived, game-ready files for **Leuven inside the R23 ring plu
 | `elevation/leuven_hillshade_2m.tif` | Multidirectional hillshade, 8-bit, 2 m | DHMV II WCS | same |
 | `osm/raw_*.json` | Overpass dumps (`out geom`): buildings, roads, water/landuse/rail, trees & POIs, R23 ring | Overpass API | © OpenStreetMap contributors, ODbL |
 | `osm/queries/*.overpassql` | The exact queries | — | — |
-| `derived/leuven_buildings.geojson` | Each GRB footprint with **height**, ground level, OSM tags and **detail tier** | built by `tools/build_leuven_data.py` | GRB + DHMV II + OSM (ODbL applies to the combined database) |
-| `derived/leuven_buildings_local.json` | Same buildings in a compact **game format**: local metres, origin at Grote Markt, x = east, z = south (three.js convention) | same | same |
+| `ortho/z18/{x}_{y}.png` | 150 orthophoto tiles (z18, ~0.37 m/px) over the map area, for roof colours | Digitaal Vlaanderen WMTS `omwrgbmrvl` (most recent winter mosaic) | [Modellicentie Gratis Hergebruik v1.0](https://data.vlaanderen.be/id/licentie/modellicentie-gratis-hergebruik/v1.0); "Bron: Luchtopnamen Digitaal Vlaanderen" |
+| `derived/leuven_buildings.geojson` | Each GRB footprint with **height**, eave, roof pitch, roof colour, ground level, OSM tags and **detail tier** | built by `tools/build_leuven_data.py` | GRB + DHMV II + orthophotos + OSM (ODbL applies to the combined database) |
+| `derived/leuven_buildings_local.json` | Same buildings in a compact **game format**: local metres, origin at Grote Markt, x = east, z = south (three.js convention), courtyards as `holes` | same | same |
+| `derived/lidar_trees.json` | 51k tree crowns found in the LiDAR canopy, with their heights | same | © Digitaal Vlaanderen |
 | `derived/osm_roads.geojson`, `osm_areas.geojson`, `osm_points.geojson` | OSM layers converted to GeoJSON (10,359 roads, 9,477 areas, 11,710 points) | same | ODbL |
 | `derived/preview_heights.png` | Top-down preview map | same | — |
 
@@ -36,6 +38,16 @@ For every GRB footprint, the script samples the 1 m pixels inside it and compute
 | `height` | **p90** of (DSM − DTM), so roof ridges count but antennas and cranes don't |
 | `height_median` | Median of (DSM − DTM) |
 | `height_max` | Maximum of (DSM − DTM) |
+
+It also reads the roof itself:
+
+| Field | Meaning |
+|---|---|
+| `eave` | p15 of (DSM − DTM): where the roof starts. Equal to `height` on a flat roof |
+| `roof_pitch` | Share of pixels, 1 m in from the walls, whose DSM slope is 15–60°. Above 0.4 the roof counts as pitched (`PITCHED_SHARE` in `src/data/city.ts`) |
+| `roof_rgb` | Median colour of the brighter half of the roof's orthophoto pixels, 1 m in from the walls (shadows and gutters drop out), then grey-world white-balanced over all roofs |
+
+And the trees nobody mapped: local maxima of the canopy (DSM − DTM, 4–35 m) within 3 m, at least 1.5 m clear of any GRB building or annex, on rough surfaces only (a crown, not a flat shed), spaced by their height. `bun run bake` merges them with OSM's mapped trees.
 
 Caveats:
 - The LiDAR is from **2013–2015**. Buildings that are newer or demolished since then get wrong heights. Override those by hand.
@@ -52,7 +64,12 @@ Edit `HERO_ZONES` in the script to change them.
 
 ## Rebuild
 ```bash
-uv run --with numpy --with tifffile --with shapely --with pyproj --with matplotlib python -I tools/build_leuven_data.py data
+uv run --with numpy --with tifffile --with shapely --with pyproj --with matplotlib --with pillow python -I tools/build_leuven_data.py data
+```
+
+The orthophoto tiles are optional (without them roofs get no sampled colour). Fetch the z18 tiles over the map area, x 134488–134502 and y 87895–87904:
+```bash
+mkdir -p data/ortho/z18 && for x in $(seq 134488 134502); do for y in $(seq 87895 87904); do curl -sf -o data/ortho/z18/${x}_${y}.png "https://geo.api.vlaanderen.be/OMWRGBMRVL/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=omwrgbmrvl&STYLE=&FORMAT=image/png&TILEMATRIXSET=GoogleMapsVL&TILEMATRIX=18&TILEROW=${y}&TILECOL=${x}"; done; done
 ```
 The download commands (WFS paging, WCS tiling, Overpass with mirror failover) are documented in [`../research/leuven-data-sources.md`](../research/leuven-data-sources.md).
 
@@ -61,7 +78,6 @@ The download commands (WFS paging, WCS tiling, Overpass with mirror failover) ar
 |---|---|---|
 | De Lijn GTFS | ~186 MB | §5 of the sources doc |
 | NMBS GTFS | ~44 MB | §5 of the sources doc |
-| Orthophoto tiles | — | §3 of the sources doc |
 | 3D GRB shapefile | Needs a login | §1b of the sources doc |
 | Blue-bike GBFS | Live feed; fetch it at runtime | §5 of the sources doc |
 | Fonske Sketchfab model | Needs a Sketchfab account | §3 of the sources doc |

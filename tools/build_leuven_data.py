@@ -7,9 +7,11 @@ Inputs (see data/README.md):
   grb/grb_GBG.geojson                GRB main buildings (EPSG:4326)
   elevation/leuven_{DTM,DSM}_1m_tile{1-8}.tif   DHMV II 1 m rasters (EPSG:31370)
   osm/raw_*.json                     Overpass dumps (out geom)
+  ortho/z18/{x}_{y}.png              optional: orthophoto tiles for roof colours (data/README.md)
 Outputs (data/derived/):
-  leuven_buildings.geojson   footprint + ground (m TAW) + height (m) + OSM tags
+  leuven_buildings.geojson   footprint + ground (m TAW) + height (m) + roof shape and colour + OSM tags
   leuven_buildings_local.json  compact game format: local metres, origin Grote Markt, x=east, z=south
+  lidar_trees.json           tree crowns found in the LiDAR canopy, with their heights
   osm_roads.geojson, osm_areas.geojson, osm_points.geojson
   preview_heights.png
 """
@@ -57,10 +59,16 @@ def load_mosaic(kind):
 dtm, X0, Y1, RES = load_mosaic('DTM')
 dsm, *_ = load_mosaic('DSM')
 ndsm = dsm - dtm
+# Roof slope from the surface model: pitched roofs sit at 15-60 degrees, flat ones under ~8.
+_gy, _gx = np.gradient(dsm, RES)
+slope = np.degrees(np.arctan(np.hypot(_gx, _gy)))
+# Pixels covered by a building (grown later, footprint by footprint): trees are what's left.
+built = np.zeros(dtm.shape, bool)
 print(f'raster {dtm.shape}, origin {X0},{Y1}, res {RES}, DTM {np.nanmin(dtm):.1f}..{np.nanmax(dtm):.1f} m TAW')
 
 
 def sample(poly_l72):
+    """Ground, height percentiles, eave and the share of pitched roof pixels inside a footprint."""
     minx, miny, maxx, maxy = poly_l72.bounds
     c0, c1 = max(0, int((minx - X0) / RES)), min(dtm.shape[1], int((maxx - X0) / RES) + 1)
     r0, r1 = max(0, int((Y1 - maxy) / RES)), min(dtm.shape[0], int((Y1 - miny) / RES) + 1)
@@ -75,11 +83,67 @@ def sample(poly_l72):
         m = np.zeros_like(cs, bool)
         if 0 <= r - r0 < m.shape[0] and 0 <= c - c0 < m.shape[1]:
             m[r - r0, c - c0] = True
+    grown = contains_xy(poly_l72.buffer(1.5), xs, ys)
+    built[r0:r1, c0:c1] |= grown
     g, h = dtm[r0:r1, c0:c1][m], ndsm[r0:r1, c0:c1][m]
     g, h = g[~np.isnan(g)], h[~np.isnan(h)]
     if not len(g) or not len(h):
         return None
-    return float(np.median(g)), float(np.percentile(h, 90)), float(np.median(h)), float(h.max())
+    # Slopes 1 m in from the walls, so the drop off the eaves doesn't count as roof.
+    inner = poly_l72.buffer(-1.0)
+    mi = contains_xy(inner, xs, ys) if not inner.is_empty else m
+    s = slope[r0:r1, c0:c1][mi if mi.sum() >= 3 else m]
+    s = s[~np.isnan(s)]
+    pitch = float(((s > 15) & (s < 60)).mean()) if len(s) else 0.0
+    return (float(np.median(g)), float(np.percentile(h, 90)), float(np.median(h)), float(h.max()),
+            float(np.percentile(h, 15)), pitch)
+
+
+# --- Orthophoto roof colours: the median of each roof's sunlit pixels -------------------------------------------------
+ORTHO_Z = 18
+ortho_tiles = {}
+for path in sorted(DATA.glob(f'ortho/z{ORTHO_Z}/*_*.png')):
+    tx, ty = map(int, path.stem.split('_'))
+    ortho_tiles[(tx, ty)] = path
+if ortho_tiles:
+    from PIL import Image
+    tx0, tx1 = min(k[0] for k in ortho_tiles), max(k[0] for k in ortho_tiles)
+    ty0, ty1 = min(k[1] for k in ortho_tiles), max(k[1] for k in ortho_tiles)
+    ortho = np.zeros(((ty1 - ty0 + 1) * 256, (tx1 - tx0 + 1) * 256, 3), np.uint8)
+    for (tx, ty), path in ortho_tiles.items():
+        ortho[(ty - ty0) * 256:(ty - ty0 + 1) * 256, (tx - tx0) * 256:(tx - tx0 + 1) * 256] = np.asarray(Image.open(path).convert('RGB'))
+    print(f'orthophoto {ortho.shape[1]}x{ortho.shape[0]} px from {len(ortho_tiles)} tiles')
+
+
+def to_ortho_px(lon, lat):
+    n = 2 ** ORTHO_Z * 256
+    lat = np.radians(lat)
+    return (lon + 180) / 360 * n - tx0 * 256, (1 - np.arcsinh(np.tan(lat)) / np.pi) / 2 * n - ty0 * 256
+
+
+def roof_colour(poly_ll):
+    """Median colour of the brighter half of a roof's orthophoto pixels: shadows and dark
+    gutters drop out, so a slope in shade doesn't turn a red roof brown."""
+    if not ortho_tiles:
+        return None
+    px = shapely.transform(poly_ll, lambda a: np.column_stack(to_ortho_px(a[:, 0], a[:, 1])))
+    inner = px.buffer(-2.5)  # ~1 m: walls, gutters and the lean of tall buildings
+    if inner.is_empty or inner.area < 12:
+        inner = px
+    minx, miny, maxx, maxy = inner.bounds
+    c0, c1 = max(0, int(minx)), min(ortho.shape[1], int(maxx) + 1)
+    r0, r1 = max(0, int(miny)), min(ortho.shape[0], int(maxy) + 1)
+    if c1 <= c0 or r1 <= r0:
+        return None
+    cs, rs = np.meshgrid(np.arange(c0, c1), np.arange(r0, r1))
+    m = contains_xy(inner, cs + 0.5, rs + 0.5)
+    rgb = ortho[r0:r1, c0:c1][m].astype(np.float32)
+    rgb = rgb[rgb.sum(1) > 0]  # outside the downloaded tiles
+    if len(rgb) < 6:
+        return None
+    lum = rgb @ np.array([0.299, 0.587, 0.114], np.float32)
+    bright = rgb[lum >= np.median(lum)]
+    return [int(round(v)) for v in np.median(bright, axis=0)]
 
 
 # --- OSM building tags, joined by representative point -------------------------------------------------------------
@@ -136,12 +200,15 @@ for i, (f, g) in enumerate(zip(grb, geoms)):
     if s is None:
         skipped += 1
         continue
-    ground, h90, hmed, hmax = s
+    ground, h90, hmed, hmax, h15, pitch = s
     tags = osm_for.get(i, {})
+    rgb = roof_colour(g)
     props = {
         'oidn': f['properties']['OIDN'], 'grb_type': f['properties']['LBLTYPE'],
         'ground_taw': round(ground, 2), 'height': round(max(h90, 2.5), 1),
         'height_median': round(hmed, 1), 'height_max': round(hmax, 1),
+        'eave': round(max(min(h15, h90), 2.5), 1), 'roof_pitch': round(pitch, 2),
+        **({'roof_rgb': rgb} if rgb else {}),
         **{k: tags[k] for k in KEEP if k in tags},
     }
     if 'height' in tags:
@@ -153,17 +220,83 @@ for i, (f, g) in enumerate(zip(grb, geoms)):
         props['zone'] = hero
     feats.append({'type': 'Feature', 'properties': props, 'geometry': mapping(g)})
     polys = [g] if g.geom_type == 'Polygon' else [p for p in getattr(g, 'geoms', []) if p.geom_type == 'Polygon']
+    to_local = lambda coords: [[round((x - ORIGIN[0]) * kx, 1), round(-(y - ORIGIN[1]) * kz, 1)] for x, y in coords[:-1]]
     for p in polys:
-        ring = [[round((x - ORIGIN[0]) * kx, 1), round(-(y - ORIGIN[1]) * kz, 1)] for x, y in p.exterior.coords[:-1]]
-        local.append({'id': props['oidn'], 'h': props['height'], 'g': props['ground_taw'], 'kind': tags.get('building', 'yes'),
-                      'roof': tags.get('roof:shape'), 'name': tags.get('name'), 'tier': props['tier'], 'ring': ring})
+        local.append({'id': props['oidn'], 'h': props['height'], 'eave': props['eave'], 'pitch': props['roof_pitch'],
+                      'rgb': props.get('roof_rgb'), 'g': props['ground_taw'], 'kind': tags.get('building', 'yes'),
+                      'roof': tags.get('roof:shape'), 'name': tags.get('name'), 'tier': props['tier'],
+                      'ring': to_local(p.exterior.coords), 'holes': [to_local(h.coords) for h in p.interiors]})
 
+# Annexes (GRB GBA: garages, sheds, extensions) are not drawn, but they aren't trees either.
+for f in json.load(open(DATA / 'grb/grb_GBA.geojson'))['features']:
+    g = make_valid(shape(f['geometry']))
+    pl = shapely.transform(g, lambda a: np.column_stack(to_lambert(a[:, 0], a[:, 1])))
+    minx, miny, maxx, maxy = pl.bounds
+    c0, c1 = max(0, int((minx - X0) / RES) - 2), min(dtm.shape[1], int((maxx - X0) / RES) + 3)
+    r0, r1 = max(0, int((Y1 - maxy) / RES) - 2), min(dtm.shape[0], int((Y1 - miny) / RES) + 3)
+    if c1 > c0 and r1 > r0:
+        cs, rs = np.meshgrid(np.arange(c0, c1), np.arange(r0, r1))
+        built[r0:r1, c0:c1] |= contains_xy(pl.buffer(1.0), X0 + (cs + 0.5) * RES, Y1 - (rs + 0.5) * RES)
+
+# Grey-world white balance over all sampled roofs: the winter mosaic has a cool cast, and the
+# viewer snaps these colours to its palette, which expects neutral slate to come out neutral.
+rgbs = np.array([f['properties']['roof_rgb'] for f in feats if 'roof_rgb' in f['properties']], np.float32)
+if len(rgbs):
+    balance = rgbs.mean(0).mean() / rgbs.mean(0)
+    for f in feats:
+        rgb = f['properties'].get('roof_rgb')
+        if rgb:  # the same list object sits in `local`, so both outputs get it
+            rgb[:] = [int(min(255, round(v * k))) for v, k in zip(rgb, balance)]
+    print(f'roof colours: {len(rgbs)} sampled, white balance {np.round(balance, 3).tolist()}')
 json.dump({'type': 'FeatureCollection', 'features': feats}, open(OUT / 'leuven_buildings.geojson', 'w'), separators=(',', ':'))
 json.dump({'origin_lonlat': ORIGIN, 'units': 'm', 'axes': 'x=east, z=south (three.js: north = -z)',
            'height': 'p90 of DHMV II DSM-DTM inside footprint (LiDAR 2013-15)', 'ground': 'median DTM, m TAW',
            'attribution': 'GRB & DHMV II (c) Digitaal Vlaanderen; tags (c) OpenStreetMap contributors (ODbL)',
            'hero_zones': {n: [round((lo - ORIGIN[0]) * kx), round(-(la - ORIGIN[1]) * kz), r] for n, (lo, la, r) in HERO_ZONES.items()},
            'buildings': local}, open(OUT / 'leuven_buildings_local.json', 'w'), separators=(',', ':'))
+# --- Trees from the LiDAR canopy: local maxima of what stands tall outside every building -------------------------
+def lidar_trees(min_height=4.0, max_height=35.0):
+    """Crown tops: pixels that are the highest within 3 m, at least 4 m tall and off any building.
+    A crown claims room in proportion to its height, so one big tree isn't counted three times."""
+    canopy = np.where(built | np.isnan(ndsm), 0, ndsm)
+    canopy[canopy > max_height] = 0  # cranes, masts and LiDAR noise
+    r = 3
+    pad = np.pad(canopy, r, constant_values=0)
+    peak = np.ones(canopy.shape, bool)
+    for dy in range(-r, r + 1):
+        for dx in range(-r, r + 1):
+            if dx * dx + dy * dy <= r * r and (dx or dy):
+                peak &= canopy >= pad[r + dy:r + dy + canopy.shape[0], r + dx:r + dx + canopy.shape[1]]
+    # A crown is rough: a smooth peak is more likely a wall, a shed or a bus shelter missing from GRB.
+    rough = slope > 25
+    rough_near = sum(np.roll(np.roll(rough, dy, 0), dx, 1) for dy in (-1, 0, 1) for dx in (-1, 0, 1)) >= 3
+    rows, cols = np.nonzero(peak & (canopy >= min_height) & rough_near)
+    order = np.argsort(-canopy[rows, cols])
+    kept, grid = [], {}
+    for k in order:
+        r_, c_ = int(rows[k]), int(cols[k])
+        h = float(canopy[r_, c_])
+        room = max(3.0, 0.22 * h)
+        cell = (r_ // 8, c_ // 8)
+        clash = any(math.hypot(r_ - r2, c_ - c2) * RES < max(room, room2)
+                    for dy in (-1, 0, 1) for dx in (-1, 0, 1) for r2, c2, room2 in grid.get((cell[0] + dy, cell[1] + dx), ()))
+        if clash:
+            continue
+        grid.setdefault(cell, []).append((r_, c_, room))
+        kept.append((X0 + (c_ + 0.5) * RES, Y1 - (r_ + 0.5) * RES, h))
+    return kept
+
+
+to_wgs = Transformer.from_crs('EPSG:31370', 'EPSG:4326', always_xy=True).transform
+crowns = lidar_trees()
+trees_local = []
+for x, y, h in crowns:
+    lon, lat = to_wgs(x, y)
+    trees_local.append([round((lon - ORIGIN[0]) * kx, 1), round(-(lat - ORIGIN[1]) * kz, 1), round(h, 1)])
+json.dump({'units': 'm', 'axes': 'x=east, z=south', 'source': 'DHMV II DSM-DTM local maxima outside GRB buildings',
+           'trees': trees_local}, open(OUT / 'lidar_trees.json', 'w'), separators=(',', ':'))
+print(f'lidar trees: {len(trees_local)}')
+
 hs = np.array([f['properties']['height'] for f in feats])
 print(f'buildings: {len(feats)} (skipped {skipped}), with OSM tags: {len(osm_for)}; height median {np.median(hs):.1f} m, p99 {np.percentile(hs, 99):.1f} m, max {hs.max():.1f} m')
 tallest = sorted(feats, key=lambda f: -f['properties']['height_max'])[:12]
