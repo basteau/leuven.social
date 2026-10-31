@@ -1,10 +1,16 @@
 #!/bin/sh
 # Back pressure: nothing is committed unless formatting, lint, types and tests pass.
-# Quiet when green; the full report when something fails.
-if output=$(bun run verify:quick 2>&1); then
-  echo "verify:quick ✓"
+# It checks the staged snapshot, not the working tree: unfinished files you aren't committing
+# can't block the commit, and can't hide a broken one.
+root=$(git rev-parse --show-toplevel)
+snapshot=$(mktemp -d "${TMPDIR:-/tmp}/leuven-precommit.XXXXXX")
+trap 'rm -rf "$snapshot"' EXIT
+git checkout-index --all --prefix="$snapshot/"
+ln -s "$root/node_modules" "$snapshot/node_modules"
+if output=$(cd "$snapshot" && bun run verify:quick 2>&1); then
+  echo "verify:quick ✓ (staged snapshot)"
 else
   printf '%s\n' "$output"
-  echo "\nCommit blocked: fix the above (bun run fix handles formatting and autofixable lint)." >&2
+  echo "\nCommit blocked: the staged snapshot fails the checks above." >&2
   exit 1
 fi
