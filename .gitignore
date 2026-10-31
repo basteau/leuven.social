@@ -1,5 +1,5 @@
 # Dependencies and build output
-node_modules/
+node_modules
 dist/
 
 # Local artefacts: smoke-test and review screenshots, OS and editor noise
