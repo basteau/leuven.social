@@ -160,3 +160,27 @@ export function orientedRect(ring: ArrayLike<number>): OrientedRect {
   best.fill = bestArea > 0 ? Math.abs(signedArea(ring)) / bestArea : 0;
   return best;
 }
+
+/**
+ * Drops corners that stand less than `tolerance` off the line through their neighbours: survey
+ * noise, kinks in curved walls and doubled points. Keeps at least a triangle.
+ */
+export function simplifyRing(ring: ArrayLike<number>, tolerance: number): number[] {
+  const pts: [number, number][] = [];
+  for (let i = 0; i < ring.length; i += 2) pts.push([ring[i]!, ring[i + 1]!]);
+  for (let changed = true; changed && pts.length > 3;) {
+    changed = false;
+    for (let i = 0; i < pts.length && pts.length > 3; i++) {
+      const [px, pz] = pts[(i + pts.length - 1) % pts.length]!;
+      const [x, z] = pts[i]!;
+      const [nx, nz] = pts[(i + 1) % pts.length]!;
+      const len = Math.hypot(nx - px, nz - pz);
+      const off = len > 1e-9 ? Math.abs((nx - px) * (z - pz) - (nz - pz) * (x - px)) / len : 0;
+      if (off < tolerance || Math.hypot(x - px, z - pz) < tolerance / 4) {
+        pts.splice(i, 1);
+        changed = true;
+      }
+    }
+  }
+  return pts.flat();
+}

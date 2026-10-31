@@ -7,6 +7,7 @@ import {
   pointInRing,
   ringInside,
   signedArea,
+  simplifyRing,
 } from './geometry.ts';
 
 const bounds = { minX: 0, minZ: 0, maxX: 10, maxZ: 10 };
@@ -68,4 +69,10 @@ test('pointInRing works for concave rings', () => {
   expect(pointInRing(ell, 1, 8)).toBe(true);
   expect(pointInRing(ell, 6, 6)).toBe(false);
   expect(pointInRing(ell, -1, 1)).toBe(false);
+});
+
+test('simplifyRing drops kinks and doubled points but keeps corners', () => {
+  const ring = [0, 0, 5, 0.05, 10, 0, 10, 0, 10, 10, 0, 10];
+  expect(simplifyRing(ring, 0.2)).toEqual([0, 0, 10, 0, 10, 10, 0, 10]);
+  expect(simplifyRing([0, 0, 1, 0, 0, 1], 5)).toHaveLength(6);
 });
