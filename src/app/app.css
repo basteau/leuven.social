@@ -285,7 +285,7 @@ button {
     flex-direction: column;
     justify-content: center;
     gap: 2px;
-    min-inline-size: 4rem;
+    min-inline-size: 3.75rem;
     padding-block: var(--space-xs);
     padding-inline: var(--space-xs);
     font-size: 0.6875rem;
@@ -294,6 +294,51 @@ button {
   .button kbd {
     display: none;
   }
+}
+
+/* The walk button and the view toolbar share a row, and stack where the row runs out. */
+.dock {
+  display: flex;
+  flex-wrap: wrap-reverse;
+  justify-content: center;
+  gap: var(--space-s);
+}
+
+.hint {
+  display: block;
+  max-inline-size: 100%;
+  margin: 0 0 var(--space-s);
+  padding-block: var(--space-xs);
+  padding-inline: var(--space-m);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: center;
+}
+
+/* Keyboard walking is only worth mentioning where there is likely a keyboard. */
+.hint-keys {
+  display: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .hint-keys {
+    display: inline;
+  }
+}
+
+/* Marks where "Start here" begins: ink on a paper halo, readable over any street. */
+.reticle {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  translate: -50% -50%;
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 2;
+  stroke-linecap: square;
+  filter: drop-shadow(0 0 1px var(--paper)) drop-shadow(0 0 1px var(--paper));
+  pointer-events: none;
 }
 
 .credits {

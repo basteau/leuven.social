@@ -2,8 +2,17 @@ import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { CITY_URL, loadCity } from '../data/load.ts';
-import type { Viewer } from '../scene/viewer.ts';
-import { PixelIcon, ResetIcon, RotateLeftIcon, RotateRightIcon } from './icons.tsx';
+import type { Viewer, WalkMode } from '../scene/viewer.ts';
+import {
+  CloseIcon,
+  MapIcon,
+  PinIcon,
+  PixelIcon,
+  ResetIcon,
+  RotateLeftIcon,
+  RotateRightIcon,
+  WalkIcon,
+} from './icons.tsx';
 
 type Status = { state: 'loading' } | { state: 'ready' } | { state: 'error'; message: string };
 
@@ -11,6 +20,28 @@ type Status = { state: 'loading' } | { state: 'ready' } | { state: 'error'; mess
 const LOAD_TIMEOUT_MS = 20_000;
 
 const CREDITS_VISIBLE_MS = 5_000;
+/** How long "Can't walk there" stays before the hint comes back. */
+const BLOCKED_MS = 2_500;
+
+/** Keys that walk, as screen directions: right and up. */
+const WALK_KEYS: Record<string, readonly [number, number]> = {
+  w: [0, 1],
+  arrowup: [0, 1],
+  s: [0, -1],
+  arrowdown: [0, -1],
+  a: [-1, 0],
+  arrowleft: [-1, 0],
+  d: [1, 0],
+  arrowright: [1, 0],
+};
+
+const MAP_LABEL =
+  'Map of Leuven’s centre around Grote Markt, Oude Markt and Ladeuzeplein. Drag or use the arrow keys to pan; scroll, pinch or press plus and minus to zoom; Q and E turn the view; W starts a walk.';
+const MAP_LABELS: Record<WalkMode, string> = {
+  map: MAP_LABEL,
+  pick: 'Map of Leuven. Click or tap a street to start walking there, or press Enter to start in the middle of the view. Escape cancels.',
+  walk: 'Walking in Leuven. W, A, S and D or the arrow keys walk; click or tap a street to walk there; Q and E turn the view; Escape returns to the map.',
+};
 
 const reducedMotion = () => globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
@@ -50,6 +81,9 @@ export function App() {
   const pixelatedRef = useRef(pixelated);
   const [attempt, setAttempt] = useState(0);
   const retryRef = useRef<HTMLButtonElement>(null);
+  const [walkMode, setWalkMode] = useState<WalkMode>('map');
+  const walkModeRef = useRef(walkMode);
+  const [blocked, setBlocked] = useState(0);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -74,6 +108,14 @@ export function App() {
           city,
           pixelated: pixelatedRef.current,
           reducedMotion: reducedMotion() ?? false,
+          onWalkModeChange: (mode) => {
+            walkModeRef.current = mode;
+            setWalkMode(mode);
+            setBlocked(0);
+            // The buttons that started or ended the walk are gone: keep the keys working.
+            map.focus({ focusVisible: false } as FocusOptions);
+          },
+          onWalkBlocked: () => setBlocked(performance.now()),
         });
         viewerRef.current = viewer;
         // Keyboard users can pan and use shortcuts at once, without a focus ring flashing up.
@@ -114,24 +156,66 @@ export function App() {
   useEffect(() => {
     const app = appRef.current;
     if (!app) return;
+    const held = new Set<string>();
+    const steer = () => {
+      let [right, up] = [0, 0];
+      for (const key of held) [right, up] = [right + WALK_KEYS[key]![0], up + WALK_KEYS[key]![1]];
+      viewerRef.current?.steer(Math.sign(right), Math.sign(up));
+    };
+    const release = () => {
+      if (!held.size) return;
+      held.clear();
+      steer();
+    };
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const viewer = viewerRef.current;
       if (!viewer) return;
+      const key = event.key.toLowerCase();
+      const mode = walkModeRef.current;
+      if (mode === 'walk' && Object.hasOwn(WALK_KEYS, key)) {
+        event.preventDefault();
+        if (!held.has(key)) {
+          held.add(key);
+          steer();
+        }
+        return;
+      }
+      // Enter on a focused button presses that button instead.
+      const onButton = event.target instanceof HTMLButtonElement;
       const actions: Record<string, () => void> = {
         q: () => viewer.rotate(-1),
         e: () => viewer.rotate(1),
         p: () => setPixelated((on) => !on),
-        r: () => viewer.resetView(),
         '+': () => viewer.zoomBy(1.25),
         '=': () => viewer.zoomBy(1.25),
         '-': () => viewer.zoomBy(0.8),
+        ...(mode === 'map' && { r: () => viewer.resetView(), w: () => viewer.pickWalkStart() }),
+        ...(mode === 'pick' && !onButton && { enter: () => viewer.walkFromCentre() }),
+        ...(mode !== 'map' && { escape: () => viewer.stopWalking() }),
       };
-      actions[event.key.toLowerCase()]?.();
+      actions[key]?.();
+    };
+    const onKeyUp = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase();
+      if (held.delete(key)) steer();
     };
     app.addEventListener('keydown', onKeyDown);
-    return () => app.removeEventListener('keydown', onKeyDown);
+    app.addEventListener('keyup', onKeyUp);
+    // A key released while the window is in the background never sends its keyup.
+    globalThis.addEventListener('blur', release);
+    return () => {
+      app.removeEventListener('keydown', onKeyDown);
+      app.removeEventListener('keyup', onKeyUp);
+      globalThis.removeEventListener('blur', release);
+    };
   }, []);
+
+  useEffect(() => {
+    if (!blocked) return;
+    const timer = setTimeout(() => setBlocked(0), BLOCKED_MS);
+    return () => clearTimeout(timer);
+  }, [blocked]);
 
   const ready = status.state === 'ready';
 
@@ -152,18 +236,19 @@ export function App() {
   }, [ready]);
 
   return (
-    <main ref={appRef} className="app" data-pixelated={pixelated}>
+    <main ref={appRef} className="app" data-pixelated={pixelated} data-walk={walkMode}>
       <div
         ref={mapRef}
         className="map"
         tabIndex={0}
         role="application"
         aria-roledescription="map"
-        aria-label="Map of Leuven’s centre around Grote Markt, Oude Markt and Ladeuzeplein. Drag or use the arrow keys to pan; scroll, pinch or press plus and minus to zoom; Q and E turn the view."
+        aria-label={MAP_LABELS[walkMode]}
       >
         <canvas ref={canvasRef} className="city" />
       </div>
       <div ref={labelsRef} className="label-layer" aria-hidden="true" />
+      {walkMode === 'pick' && <Reticle />}
 
       <header className="hud hud-top">
         <div className="panel brand">
@@ -193,42 +278,121 @@ export function App() {
       </output>
 
       <footer className="hud hud-bottom">
-        <fieldset className="panel toolbar">
-          <legend className="sr-only">View</legend>
-          <ToolButton
-            label="Turn left"
-            shortcut="Q"
-            disabled={!ready}
-            onPress={() => viewerRef.current?.rotate(-1)}
-          >
-            <RotateLeftIcon />
-          </ToolButton>
-          <ToolButton
-            label="Turn right"
-            shortcut="E"
-            disabled={!ready}
-            onPress={() => viewerRef.current?.rotate(1)}
-          >
-            <RotateRightIcon />
-          </ToolButton>
-          <ToolButton
-            label="Pixels"
-            shortcut="P"
-            pressed={pixelated}
-            disabled={!ready}
-            onPress={() => setPixelated((on) => !on)}
-          >
-            <PixelIcon />
-          </ToolButton>
-          <ToolButton
-            label="Reset"
-            shortcut="R"
-            disabled={!ready}
-            onPress={() => viewerRef.current?.resetView()}
-          >
-            <ResetIcon />
-          </ToolButton>
-        </fieldset>
+        {/* Always in the DOM, so screen readers hear the hint change. */}
+        <output className="panel hint" hidden={walkMode === 'map'}>
+          {walkMode === 'map' ? null : blocked ? (
+            'Can’t walk there. Pick a street or square.'
+          ) : walkMode === 'pick' ? (
+            'Pick a street to start walking.'
+          ) : (
+            <>
+              Pick a street to walk there<span className="hint-keys">, or use W A S D</span>.
+            </>
+          )}
+        </output>
+        {walkMode === 'map' && (
+          <div className="dock">
+            <div className="panel toolbar">
+              <ToolButton
+                label="Walk"
+                shortcut="W"
+                disabled={!ready}
+                onPress={() => viewerRef.current?.pickWalkStart()}
+              >
+                <WalkIcon />
+              </ToolButton>
+            </div>
+            <fieldset className="panel toolbar">
+              <legend className="sr-only">View</legend>
+              <ToolButton
+                label="Turn left"
+                shortcut="Q"
+                disabled={!ready}
+                onPress={() => viewerRef.current?.rotate(-1)}
+              >
+                <RotateLeftIcon />
+              </ToolButton>
+              <ToolButton
+                label="Turn right"
+                shortcut="E"
+                disabled={!ready}
+                onPress={() => viewerRef.current?.rotate(1)}
+              >
+                <RotateRightIcon />
+              </ToolButton>
+              <ToolButton
+                label="Pixels"
+                shortcut="P"
+                pressed={pixelated}
+                disabled={!ready}
+                onPress={() => setPixelated((on) => !on)}
+              >
+                <PixelIcon />
+              </ToolButton>
+              <ToolButton
+                label="Reset"
+                shortcut="R"
+                disabled={!ready}
+                onPress={() => viewerRef.current?.resetView()}
+              >
+                <ResetIcon />
+              </ToolButton>
+            </fieldset>
+          </div>
+        )}
+        {walkMode === 'pick' && (
+          <fieldset className="panel toolbar">
+            <legend className="sr-only">Start walking</legend>
+            <ToolButton
+              label="Start here"
+              shortcut="↵"
+              keys="Enter"
+              disabled={!ready}
+              onPress={() => viewerRef.current?.walkFromCentre()}
+            >
+              <PinIcon />
+            </ToolButton>
+            <ToolButton
+              label="Cancel"
+              shortcut="Esc"
+              keys="Escape"
+              disabled={!ready}
+              onPress={() => viewerRef.current?.stopWalking()}
+            >
+              <CloseIcon />
+            </ToolButton>
+          </fieldset>
+        )}
+        {walkMode === 'walk' && (
+          <fieldset className="panel toolbar">
+            <legend className="sr-only">Walking</legend>
+            <ToolButton
+              label="Map"
+              shortcut="Esc"
+              keys="Escape"
+              disabled={!ready}
+              onPress={() => viewerRef.current?.stopWalking()}
+            >
+              <MapIcon />
+            </ToolButton>
+            <ToolButton
+              label="Turn left"
+              shortcut="Q"
+              disabled={!ready}
+              onPress={() => viewerRef.current?.rotate(-1)}
+            >
+              <RotateLeftIcon />
+            </ToolButton>
+            <ToolButton
+              label="Turn right"
+              shortcut="E"
+              disabled={!ready}
+              onPress={() => viewerRef.current?.rotate(1)}
+            >
+              <RotateRightIcon />
+            </ToolButton>
+          </fieldset>
+        )}
       </footer>
     </main>
   );
@@ -236,7 +400,9 @@ export function App() {
 
 function ToolButton(props: {
   label: string;
+  /** The key as shown; `keys` names it for assistive tech when the two differ. */
   shortcut: string;
+  keys?: string;
   pressed?: boolean;
   disabled: boolean;
   onPress: () => void;
@@ -247,7 +413,7 @@ function ToolButton(props: {
       type="button"
       className="button"
       aria-pressed={props.pressed}
-      aria-keyshortcuts={props.shortcut}
+      aria-keyshortcuts={props.keys ?? props.shortcut}
       disabled={props.disabled}
       onClick={props.onPress}
     >
@@ -255,6 +421,15 @@ function ToolButton(props: {
       <span>{props.label}</span>
       <kbd aria-hidden="true">{props.shortcut}</kbd>
     </button>
+  );
+}
+
+/** Marks the middle of the view, where "Start here" begins the walk. Decorative. */
+function Reticle() {
+  return (
+    <svg className="reticle" width="32" height="32" viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M16 3v9M16 20v9M3 16h9M20 16h9" />
+    </svg>
   );
 }
 
