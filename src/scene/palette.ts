@@ -93,6 +93,10 @@ export const GROUND = {
   road: 0x8b8780,
   plaza: 0xd7c6a3,
   water: 0x5f9fc4,
+  /** Paved footpaths: pale slabs, lighter than the roads. */
+  path: 0xb9b0a0,
+  /** Gravel and earth trails through the parks. */
+  trail: 0xd8c79f,
 } as const;
 
 export const TREE = {

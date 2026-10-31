@@ -22,6 +22,31 @@ function addRings(mesh: MeshBuilder, rings: readonly Float32Array[], y: number, 
   }
 }
 
+/**
+ * Paths as flat ribbons along their centre lines. Each segment runs on by half a width at both
+ * ends, so bends need no join geometry: the overlaps share a colour and a height.
+ */
+function addPaths(mesh: MeshBuilder, paths: City['paths'], y: number) {
+  for (const { width, paved, line } of paths) {
+    const half = width / 2;
+    const color = paved ? GROUND.path : GROUND.trail;
+    for (let i = 0; i + 3 < line.length; i += 2) {
+      const [ax, az, bx, bz] = [line[i]!, line[i + 1]!, line[i + 2]!, line[i + 3]!];
+      const len = Math.hypot(bx - ax, bz - az);
+      if (len < 1e-6) continue;
+      const [ux, uz] = [((bx - ax) / len) * half, ((bz - az) / len) * half];
+      mesh.quad(
+        [ax - ux + uz, y, az - uz - ux],
+        [bx + ux + uz, y, bz + uz - ux],
+        [bx + ux - uz, y, bz + uz + ux],
+        [ax - ux - uz, y, az - uz + ux],
+        color,
+        UP,
+      );
+    }
+  }
+}
+
 /** The diorama: an earth slab with garden ground, then water, roads and squares on top. */
 export function groundGeometry(city: City): BufferGeometry {
   const mesh = new MeshBuilder();
@@ -41,6 +66,8 @@ export function groundGeometry(city: City): BufferGeometry {
   // Layers stack a few centimetres apart; the orthographic depth buffer resolves that cleanly.
   addRings(mesh, city.green, 0.05, GROUND.green);
   addRings(mesh, city.water, 0.1, GROUND.water);
+  // Above the water (footbridges), under the road surfaces that already cover their crossings.
+  addPaths(mesh, city.paths, 0.12);
   addRings(mesh, city.roads, 0.15, GROUND.road);
   addRings(mesh, city.plazas, 0.2, GROUND.plaza);
   return mesh.build();

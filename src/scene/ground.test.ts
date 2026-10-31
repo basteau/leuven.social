@@ -27,3 +27,16 @@ test('the diorama is a slab plus one face-up layer per ground type', () => {
   const normals = g.getAttribute('normal');
   for (let i = 10 * 3; i < normals.count; i++) expect(normals.getY(i)).toBe(1);
 });
+
+test('paths are ribbons of their width, running on past their ends', () => {
+  const line = new Float32Array([0, 0, 10, 0, 10, 0, 10, 6]);
+  const g = groundGeometry({ ...city, paths: [{ width: 2, paved: true, line }] });
+  // The zero-length middle segment is skipped: two quads on top of the slab and layers.
+  expect(g.getAttribute('position').count).toBe((10 + 4 * 2 + 2 * 2) * 3);
+  const p = g.getAttribute('position');
+  const xs = Array.from({ length: p.count }, (_, i) =>
+    Math.abs(p.getY(i) - 0.12) < 1e-4 ? p.getX(i) : 5,
+  );
+  expect(Math.min(...xs)).toBeCloseTo(-1);
+  expect(Math.max(...xs)).toBeCloseTo(11);
+});
