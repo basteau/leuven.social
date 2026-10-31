@@ -45,6 +45,33 @@ export interface Label {
   z: number;
 }
 
+/**
+ * Street furniture and small monuments, from OpenStreetMap points (src/data/props.ts). All of
+ * them stand in the way: none is walkable.
+ */
+export const PROP_KINDS = [
+  'lamp',
+  'bench',
+  'bikes',
+  'shelter',
+  'busstop',
+  'statue',
+  'fountain',
+  'pump',
+  'needle',
+] as const;
+export type PropKind = (typeof PROP_KINDS)[number];
+
+export interface Prop {
+  kind: PropKind;
+  x: number;
+  z: number;
+  /** Which way it faces (radians from +x towards +z): towards the nearest kerb, path or wall. */
+  angle: number;
+  /** Stands in a bike rack; a statue's or needle's tagged height (m); else 0. */
+  size: number;
+}
+
 export interface Bounds {
   minX: number;
   minZ: number;
@@ -67,6 +94,7 @@ export interface City {
   trees: Float32Array;
   /** Height of each tree in metres, from the LiDAR canopy. */
   treeHeights: Float32Array;
+  props: Prop[];
 }
 
 const KIND_BY_OSM: Record<string, Kind> = {

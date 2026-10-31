@@ -19,6 +19,7 @@ import {
   simplifyRing,
 } from '../src/data/geometry.ts';
 import { toLocal } from '../src/data/projection.ts';
+import { EdgeIndex, RingIndex, placeProps } from '../src/data/props.ts';
 import { mergeTrees } from '../src/data/trees.ts';
 
 const root = new URL('../', import.meta.url);
@@ -151,6 +152,32 @@ const trees = mergeTrees(
   crowns.trees.filter(([x, z]) => areaIndex(AREA, x, z) >= 0),
 );
 
+const roads = layer(wbn.features, () => true);
+const plazas = [
+  ...layer(osmAreas.features, (p) => p.place === 'square' || p['area:highway'] !== undefined),
+  ...layer(osmRoads.features, closedPedestrianArea),
+];
+const water = [
+  ...layer(wtz.features, () => true),
+  ...layer(osmAreas.features, (p) => p.natural === 'water'),
+];
+
+// Street furniture faces the nearest kerb, path or wall, and never stands in a house or the river.
+const edges = new EdgeIndex();
+for (const ring of [...roads, ...plazas, ...buildings.map((b) => b.ring)]) edges.add(ring);
+for (const p of paths) edges.add(p.line, false);
+const blocked = new RingIndex();
+for (const ring of [...water, ...buildings.map((b) => b.ring)]) blocked.add(ring);
+const STRIP = 50; // sorted in strips, so neighbours are near each other and deltas stay small
+const props = placeProps(
+  osmPoints.features.flatMap((f) => {
+    const [x, z] = toLocal(...(f.geometry.coordinates as [number, number]));
+    return areaIndex(AREA, x, z) >= 0 ? [{ x, z, tags: f.properties }] : [];
+  }),
+  edges,
+  blocked,
+).toSorted((a, b) => Math.floor(a.z / STRIP) - Math.floor(b.z / STRIP) || a.x - b.x);
+
 const city: City = {
   area: [...AREA],
   bounds: VIEW_AREA,
@@ -159,23 +186,18 @@ const city: City = {
     return { name, x, z };
   }),
   buildings,
-  roads: layer(wbn.features, () => true),
-  plazas: [
-    ...layer(osmAreas.features, (p) => p.place === 'square' || p['area:highway'] !== undefined),
-    ...layer(osmRoads.features, closedPedestrianArea),
-  ],
+  roads,
+  plazas,
   green: layer(
     osmAreas.features,
     (p) => GREEN_LEISURE.has(p.leisure ?? '') || GREEN_LANDUSE.has(p.landuse ?? ''),
     MIN_GREEN_AREA,
   ),
-  water: [
-    ...layer(wtz.features, () => true),
-    ...layer(osmAreas.features, (p) => p.natural === 'water'),
-  ],
+  water,
   paths,
   trees: new Float32Array(trees.positions),
   treeHeights: new Float32Array(trees.heights),
+  props,
 };
 
 const bytes = await packCity(city);
@@ -189,6 +211,9 @@ console.log(
     `paths ${paths.length} (${paths.filter((p) => !p.paved).length} unpaved)`,
     `trees ${trees.heights.length} (${osmTrees.length / 2} mapped), labels ${city.labels.length}`,
     `roofs ${buildings.filter((b) => b.roof === 'flat').length} flat, ${buildings.filter((b) => b.roofColor !== null).length} with a sampled colour, ${buildings.filter((b) => b.holes.length).length} with courtyards`,
+    `props ${props.length}: ${Object.entries(Object.groupBy(props, (p) => p.kind))
+      .map(([kind, list]) => `${list!.length} ${kind}`)
+      .join(', ')}`,
     `public/data/city.bin ${(bytes.length / 1024).toFixed(0)} KB gzipped`,
   ].join('\n'),
 );

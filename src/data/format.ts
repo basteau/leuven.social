@@ -8,19 +8,22 @@
  * height, roof rise and roof colour (0 = none, else 0xRRGGBB + 1), outer ring and courtyards.
  * Paths are a width in decimetres shifted left one bit over a paved flag, then a centre line.
  * Trees are a ring of positions followed by their heights in decimetres.
+ * Props are a kind per prop, then their positions as one ring, then a turn (a byte: 256ths of a
+ * full turn) and a size in decimetres each.
  */
 
 import * as Binary from '@portable/binary';
 import * as Compress from '@portable/compress';
 
-import { KINDS, ROOFS, TIERS } from './city.ts';
-import type { Bounds, Building, City } from './city.ts';
+import { KINDS, PROP_KINDS, ROOFS, TIERS } from './city.ts';
+import type { Bounds, Building, City, Prop } from './city.ts';
 import { boundsOf } from './geometry.ts';
 
 const MAGIC = 'LVN1';
-const VERSION = 4;
+const VERSION = 5;
 const DM = 10; // units per metre
 const ZIGZAG = { encoding: 'zigzag' } as const;
+const TURN = Math.PI * 2;
 /** Refuse anything larger after decompression: the whole city must stay small. */
 export const MAX_CITY_BYTES = 16_000_000;
 
@@ -103,6 +106,17 @@ export function encodeCity(city: City): Uint8Array {
 
   writeRing(w, city.trees);
   for (const h of city.treeHeights) w.varint(Math.round(h * DM));
+
+  w.varint(city.props.length);
+  for (const p of city.props) w.uint8(PROP_KINDS.indexOf(p.kind));
+  writeRing(
+    w,
+    city.props.flatMap((p) => [p.x, p.z]),
+  );
+  for (const p of city.props) {
+    w.uint8(Math.round((p.angle / TURN) * 256) & 255);
+    w.varint(Math.round(p.size * DM));
+  }
   return w.toBytes();
 }
 
@@ -163,6 +177,20 @@ export function decodeCity(bytes: Uint8Array): City {
 
   const trees = readRing(r);
   const treeHeights = Float32Array.from({ length: trees.length / 2 }, () => r.varint() / DM);
+
+  const kinds = Array.from({ length: r.varint() }, () => {
+    const kind = PROP_KINDS[r.uint8()];
+    if (!kind) throw new CityFormatError('Bad prop kind.');
+    return kind;
+  });
+  const places = readRing(r);
+  const props = kinds.map((kind, i): Prop => ({
+    kind,
+    x: places[i * 2]!,
+    z: places[i * 2 + 1]!,
+    angle: (r.uint8() / 256) * TURN,
+    size: r.varint() / DM,
+  }));
   if (r.remaining !== 0) throw new CityFormatError(`${r.remaining} trailing bytes.`);
   return {
     area,
@@ -176,6 +204,7 @@ export function decodeCity(bytes: Uint8Array): City {
     paths,
     trees,
     treeHeights,
+    props,
   };
 }
 

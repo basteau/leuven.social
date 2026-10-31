@@ -21,15 +21,16 @@ OpenStreetMap (Overpass) ┘        (Python, via uv)       (GeoJSON, JSON)   (sc
 
 Prefer reading the world over guessing it. Each of these replaced a rule of thumb:
 
-| What                      | From                                                                                  | Where                                       |
-| ------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------- |
-| Pitched or flat roof      | OSM `roof:shape`, else the LiDAR: over 40% of the roof sloped 15–60° is pitched       | `roofFromSurvey` in `src/data/city.ts`      |
-| Roof rise and wall height | LiDAR p90 (ridge) minus p15 (eave), capped by the footprint's width                   | `planRoof` in `src/scene/buildings.ts`      |
-| Roof shape                | Gable on near-rectangles, else a hipped roof over the footprint's straight skeleton   | `src/data/skeleton.ts`                      |
-| Roof colour               | Median of the sunlit orthophoto pixels, snapped to the roof swatches                  | `roofColor` in `src/scene/palette.ts`       |
-| Courtyards                | GRB polygon holes                                                                     | walls and roofs in `src/scene/buildings.ts` |
-| Trees and their heights   | OSM's mapped trees plus LiDAR canopy crowns outside every building                    | `mergeTrees` in `src/data/trees.ts`         |
-| Paths                     | OSM footways, paths, cycleways, tracks and steps of their own, with width and surface | `pathFromOsm` in `src/data/city.ts`         |
+| What                      | From                                                                                                                                                                                         | Where                                              |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| Pitched or flat roof      | OSM `roof:shape`, else the LiDAR: over 40% of the roof sloped 15–60° is pitched                                                                                                              | `roofFromSurvey` in `src/data/city.ts`             |
+| Roof rise and wall height | LiDAR p90 (ridge) minus p15 (eave), capped by the footprint's width                                                                                                                          | `planRoof` in `src/scene/buildings.ts`             |
+| Roof shape                | Gable on near-rectangles, else a hipped roof over the footprint's straight skeleton                                                                                                          | `src/data/skeleton.ts`                             |
+| Roof colour               | Median of the sunlit orthophoto pixels, snapped to the roof swatches                                                                                                                         | `roofColor` in `src/scene/palette.ts`              |
+| Courtyards                | GRB polygon holes                                                                                                                                                                            | walls and roofs in `src/scene/buildings.ts`        |
+| Trees and their heights   | OSM's mapped trees plus LiDAR canopy crowns outside every building                                                                                                                           | `mergeTrees` in `src/data/trees.ts`                |
+| Paths                     | OSM footways, paths, cycleways, tracks and steps of their own, with width and surface                                                                                                        | `pathFromOsm` in `src/data/city.ts`                |
+| Street furniture          | OSM lamps, benches, bike racks (and their capacity), bus stops (and shelters), statues, fountains, pumps; turned to face the nearest kerb, path or wall; none inside a building or the river | `propFromOsm`, `placeProps` in `src/data/props.ts` |
 
 ## Coordinates
 

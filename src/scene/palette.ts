@@ -28,6 +28,27 @@ export const LANDMARK = {
 /** Café parasols on the squares: each café keeps one colour along its stretch of terrace. */
 export const PARASOLS = [0xf6eedc, 0xd2553f, 0xe8b94a, 0xe07b4f, 0x8db36f] as const;
 
+/**
+ * Street furniture: dark lamp posts and shelters that read like the ink outlines, warm wood,
+ * pale stone, bronze, and bikes in the colours Leuven actually rides.
+ */
+export const PROPS = {
+  iron: 0x3b4150,
+  lantern: 0xf3dfa8,
+  wood: 0x9a6a42,
+  stone: 0xd2c6ab,
+  bronze: 0x7a6040,
+  glass: 0xa9c4cf,
+  roof: 0x4a5161,
+  sign: 0xe8b94a,
+  wheel: 0x2b2420,
+  /** Jan Fabre's jewel beetle on the Totem. */
+  beetle: 0x2f8a6e,
+} as const;
+export const BIKES = [
+  0x2f3a4a, 0x2b2420, 0xd2553f, 0xf6eedc, 0x8db36f, 0x5b6170, 0xe8b94a,
+] as const;
+
 export const PITCHED_ROOFS = [0x4f5664, 0x5b6170, 0x46505e, 0xa9553e, 0xb8613f, 0x9b4a36];
 export const FLAT_ROOFS = [0xb3aa9c, 0xa89f92, 0xbfb6a6];
 
