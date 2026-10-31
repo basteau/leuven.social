@@ -39,6 +39,29 @@ export interface Path {
   line: Float32Array;
 }
 
+/**
+ * What lies on the road surface beside the pavement, and what it's made of: the GRB surface cut
+ * along its kerbs (tools/build_road_zones.py), named from the OSM ways on it (src/data/roads.ts).
+ * Pedestrian streets count, by their paving; so do cycle tracks.
+ */
+export const CARRIAGEWAY_KINDS = ['street', 'main', 'sett', 'paving', 'cycleway'] as const;
+export type CarriagewayKind = (typeof CARRIAGEWAY_KINDS)[number];
+
+export interface Carriageway {
+  kind: CarriagewayKind;
+  ring: Float32Array;
+}
+
+/** Paint on the carriageway: lane dividers, painted cycle lanes and crossings. */
+export const MARKING_KINDS = ['dashed', 'solid', 'cycle-lane', 'zebra', 'bike-crossing'] as const;
+export type MarkingKind = (typeof MARKING_KINDS)[number];
+
+export interface Marking {
+  kind: MarkingKind;
+  /** A lane's centre line, or for crossings the line across the carriageway they follow. */
+  line: Float32Array;
+}
+
 export interface Label {
   name: string;
   x: number;
@@ -58,7 +81,13 @@ export interface City {
   bounds: Bounds;
   labels: Label[];
   buildings: Building[];
+  /**
+   * The whole road surface, facade to facade (GRB), all of it walkable. It's pavement wherever no
+   * carriageway lies on it.
+   */
   roads: Float32Array[];
+  carriageways: Carriageway[];
+  markings: Marking[];
   plazas: Float32Array[];
   green: Float32Array[];
   water: Float32Array[];

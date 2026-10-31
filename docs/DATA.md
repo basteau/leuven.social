@@ -1,6 +1,6 @@
 # City data
 
-The app loads a single file, `public/data/city.bin`, which is about 660 KB gzipped for the whole R23 ring plus Heverlee. It's committed, so a fresh clone runs without the raw data.
+The app loads a single file, `public/data/city.bin`, which is about 750 KB gzipped for the whole R23 ring plus Heverlee. It's committed, so a fresh clone runs without the raw data.
 
 ## Pipeline
 
@@ -9,11 +9,13 @@ Flemish GRB footprints  ─┐
 DHMV II LiDAR (DTM/DSM) ─┤
 Orthophotos (WMTS)      ─┼─ tools/build_leuven_data.py ─▶ data/derived/ ─▶ bun run bake ─▶ public/data/city.bin
 OpenStreetMap (Overpass) ┘        (Python, via uv)       (GeoJSON, JSON)   (scripts/bake.ts)
+GRB road surface + OSM  ─── tools/build_road_zones.py ──▶ road_zones.json ─┘
 ```
 
 1. **Raw downloads**, about 230 MB, gitignored. [data/README.md](../data/README.md) lists every source, licence and the exact queries. [research/leuven-data-sources.md](../research/leuven-data-sources.md) has the endpoints and gotchas.
 2. **`tools/build_leuven_data.py`** joins GRB footprints (with their courtyards) with LiDAR heights (DSM − DTM, p90), surveys each roof (eave, share of pitched pixels, orthophoto colour), finds tree crowns in the LiDAR canopy, adds OSM tags and assigns a detail tier.
-3. **`bun run bake`** keeps what lies in `AREA` (`src/data/area.ts`), projects it to local metres, simplifies it and writes the binary `LVN1` format (`src/data/format.ts`).
+3. **`tools/build_road_zones.py`** cuts the GRB road surface (WBN) along its subdivision lines (WGO: kerbs, cycle and pedestrian zones), names each face from the OSM ways running along it, and lays out lane lines, painted cycle lanes and crossings on the carriageways. It needs only GRB and OSM, so it runs in seconds on its own.
+4. **`bun run bake`** keeps what lies in `AREA` (`src/data/area.ts`), projects it to local metres, simplifies it and writes the binary `LVN1` format (`src/data/format.ts`).
    - Buildings are kept whole when every corner is inside the area; ground polygons are clipped to it.
    - Footprint vertices within 0.25 m (core) or 0.5 m (fringe) of the line through their neighbours are dropped; hero footprints keep every vertex, since landmark models are fitted to them. Ground polygons lose vertices within 0.3 m, and patches of green under 25 m² go.
 
@@ -21,15 +23,19 @@ OpenStreetMap (Overpass) ┘        (Python, via uv)       (GeoJSON, JSON)   (sc
 
 Prefer reading the world over guessing it. Each of these replaced a rule of thumb:
 
-| What                      | From                                                                                  | Where                                       |
-| ------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------- |
-| Pitched or flat roof      | OSM `roof:shape`, else the LiDAR: over 40% of the roof sloped 15–60° is pitched       | `roofFromSurvey` in `src/data/city.ts`      |
-| Roof rise and wall height | LiDAR p90 (ridge) minus p15 (eave), capped by the footprint's width                   | `planRoof` in `src/scene/buildings.ts`      |
-| Roof shape                | Gable on near-rectangles, else a hipped roof over the footprint's straight skeleton   | `src/data/skeleton.ts`                      |
-| Roof colour               | Median of the sunlit orthophoto pixels, snapped to the roof swatches                  | `roofColor` in `src/scene/palette.ts`       |
-| Courtyards                | GRB polygon holes                                                                     | walls and roofs in `src/scene/buildings.ts` |
-| Trees and their heights   | OSM's mapped trees plus LiDAR canopy crowns outside every building                    | `mergeTrees` in `src/data/trees.ts`         |
-| Paths                     | OSM footways, paths, cycleways, tracks and steps of their own, with width and surface | `pathFromOsm` in `src/data/city.ts`         |
+| What                      | From                                                                                                                                                      | Where                                        |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| Pitched or flat roof      | OSM `roof:shape`, else the LiDAR: over 40% of the roof sloped 15–60° is pitched                                                                           | `roofFromSurvey` in `src/data/city.ts`       |
+| Roof rise and wall height | LiDAR p90 (ridge) minus p15 (eave), capped by the footprint's width                                                                                       | `planRoof` in `src/scene/buildings.ts`       |
+| Roof shape                | Gable on near-rectangles, else a hipped roof over the footprint's straight skeleton                                                                       | `src/data/skeleton.ts`                       |
+| Roof colour               | Median of the sunlit orthophoto pixels, snapped to the roof swatches                                                                                      | `roofColor` in `src/scene/palette.ts`        |
+| Courtyards                | GRB polygon holes                                                                                                                                         | walls and roofs in `src/scene/buildings.ts`  |
+| Trees and their heights   | OSM's mapped trees plus LiDAR canopy crowns outside every building                                                                                        | `mergeTrees` in `src/data/trees.ts`          |
+| Paths                     | OSM footways, paths, cycleways, tracks and steps of their own, with width and surface                                                                     | `pathFromOsm` in `src/data/city.ts`          |
+| Pavement and carriageway  | GRB kerb lines (WGO) split the road surface; a face is carriageway where an OSM road runs along it, cycle track where a cycleway does, pavement otherwise | `tools/build_road_zones.py`                  |
+| Asphalt, setts or paving  | OSM `surface` of the road along each carriageway; ring and main roads darker                                                                              | `carriagewayKind` in `src/data/roads.ts`     |
+| Lane lines, cycle lanes   | OSM `lanes`, `oneway` and `cycleway:*` on the road, spaced across the carriageway's measured width, stopping at junctions (GRB `kruispuntzone`)           | `lane_layout` in `tools/build_road_zones.py` |
+| Zebras, cyclist crossings | OSM crossing ways and their `crossing` / `crossing:markings` tags, clipped to the carriageway                                                             | `crossingMarking` in `src/data/roads.ts`     |
 
 ## Coordinates
 

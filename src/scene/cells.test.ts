@@ -27,6 +27,8 @@ const city: City = {
   // The second house starts in the first cell and overhangs into the second.
   buildings: [house(1, box(10, 10, 8, 8)), house(2, box(S - 4, 10, 8, 8))],
   roads: [box(S - 50, 100, 100, 10)],
+  carriageways: [],
+  markings: [],
   plazas: [],
   green: [box(10, 200, 20, 20)],
   water: [],

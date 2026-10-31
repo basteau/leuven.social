@@ -40,12 +40,27 @@ const city: City = {
     },
   ],
   roads: [square(0, 0, 100)],
+  carriageways: [
+    { kind: 'main', ring: square(0, 0, 100) },
+    { kind: 'cycleway', ring: square(100, 0, 4) },
+  ],
+  markings: [
+    { kind: 'dashed', line: new Float32Array([0, 50, 100, 50]) },
+    { kind: 'zebra', line: new Float32Array([20, 0, 20, 10]) },
+  ],
   plazas: [],
   green: [square(-200, 100, 30)],
   water: [square(-300, -300, 12.5)],
   paths: [{ width: 2.5, paved: false, line: new Float32Array([0, 0, 10, 5, 20, 5]) }],
   trees: new Float32Array([1.5, 2.5, -40, 60.1]),
   treeHeights: new Float32Array([8, 21.5]),
+};
+
+// A kind byte past the end of its list: find it where two cities differ only in that kind.
+const badKind = (a: City, b: City) => {
+  const [x, y] = [encodeCity(a), encodeCity(b)];
+  x[x.findIndex((v, i) => v !== y[i])] = 200;
+  return x;
 };
 
 describe('city format', () => {
@@ -63,6 +78,11 @@ describe('city format', () => {
       expect(b.holes.map((h) => Array.from(h))).toEqual(original.holes.map(exact));
     }
     expect(decoded.roads).toHaveLength(1);
+    expect(decoded.carriageways.map((r) => r.kind)).toEqual(['main', 'cycleway']);
+    expect(decoded.carriageways.map((r) => [...r.ring])).toEqual(
+      city.carriageways.map((r) => exact(r.ring)),
+    );
+    expect(decoded.markings).toEqual(city.markings);
     expect(decoded.plazas).toHaveLength(0);
     expect(decoded.paths).toEqual(city.paths);
     expect([...decoded.trees]).toEqual([1.5, 2.5, -40, 60.1].map((v) => Math.fround(v)));
@@ -79,6 +99,16 @@ describe('city format', () => {
   test('rejects foreign or truncated data', () => {
     expect(() => decodeCity(new TextEncoder().encode('nope'))).toThrow(CityFormatError);
     expect(() => decodeCity(encodeCity({ ...city, area: [] }))).toThrow(CityFormatError);
+    const road = (kind: 'main' | 'street') => ({
+      ...city,
+      carriageways: [{ ...city.carriageways[0]!, kind }],
+    });
+    expect(() => decodeCity(badKind(road('main'), road('street')))).toThrow(CityFormatError);
+    const mark = (kind: 'solid' | 'zebra') => ({
+      ...city,
+      markings: [{ ...city.markings[0]!, kind }],
+    });
+    expect(() => decodeCity(badKind(mark('solid'), mark('zebra')))).toThrow(CityFormatError);
     const bytes = encodeCity(city);
     expect(() => decodeCity(bytes.subarray(0, bytes.length - 3))).toThrow();
     const trailing = new Uint8Array(bytes.length + 1);
