@@ -373,3 +373,40 @@ export function simplifyLine(line: ArrayLike<number>, tolerance: number): number
   for (let i = 0; i < n; i++) if (keep[i]) out.push(line[i * 2]!, line[i * 2 + 1]!);
   return out;
 }
+
+const meets = (a: readonly number[], i: number, b: readonly number[], j: number) =>
+  a[i] === b[j] && a[i + 1] === b[j + 1];
+const isClosed = (ring: readonly number[]) =>
+  ring.length >= 8 && meets(ring, 0, ring, ring.length - 2);
+
+/**
+ * Joins open polylines that share end points into closed rings, the way an OSM multipolygon's
+ * outer ways chain together. Rings come back without a closing duplicate; chains that never
+ * close are dropped.
+ */
+export function joinRings(lines: readonly (readonly number[])[]): number[][] {
+  const open = lines.filter((line) => line.length >= 4);
+  const rings: number[][] = [];
+  while (open.length) {
+    let ring = Array.from(open.pop()!);
+    for (let grown = true; grown && !isClosed(ring);) {
+      grown = false;
+      for (const [k, line] of open.entries()) {
+        const end = ring.length - 2;
+        let next: readonly number[];
+        if (meets(ring, end, line, 0)) next = line;
+        else if (meets(ring, end, line, line.length - 2)) {
+          const reversed: number[] = [];
+          for (let i = line.length - 2; i >= 0; i -= 2) reversed.push(line[i]!, line[i + 1]!);
+          next = reversed;
+        } else continue;
+        ring = ring.concat(next.slice(2));
+        open.splice(k, 1);
+        grown = true;
+        break;
+      }
+    }
+    if (isClosed(ring)) rings.push(ring.slice(0, -2));
+  }
+  return rings;
+}

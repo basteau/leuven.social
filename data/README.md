@@ -21,6 +21,7 @@ Raw downloads and derived, game-ready files for **Leuven inside the R23 ring plu
 | `elevation/leuven_DSM_1m_tile{1-8}.tif` | Surface (incl. roofs and trees), same grid | DHMV II WCS | same |
 | `elevation/leuven_hillshade_2m.tif` | Multidirectional hillshade, 8-bit, 2 m | DHMV II WCS | same |
 | `osm/raw_*.json` | Overpass dumps (`out geom`): buildings, roads, water/landuse/rail, trees & POIs, R23 ring | Overpass API | © OpenStreetMap contributors, ODbL |
+| `osm/raw_rail_platforms.json` | Railway platforms with their member geometry: Leuven's are multipolygon relations, which the other dumps (`out tags geom`) leave out. Downloaded 2026-10-31 | Overpass API | © OpenStreetMap contributors, ODbL |
 | `osm/queries/*.overpassql` | The exact queries | — | — |
 | `ortho/z18/{x}_{y}.png` | 1016 orthophoto tiles (z18, ~0.37 m/px, 82 MB) over the map area, for roof colours (`tools/fetch_ortho.py`) | Digitaal Vlaanderen WMTS `omwrgbmrvl` (most recent winter mosaic) | [Modellicentie Gratis Hergebruik v1.0](https://data.vlaanderen.be/id/licentie/modellicentie-gratis-hergebruik/v1.0); "Bron: Luchtopnamen Digitaal Vlaanderen" |
 | `derived/leuven_buildings.geojson` | Each GRB footprint with **height**, eave, roof pitch, roof colour, ground level, OSM tags and **detail tier** | built by `tools/build_leuven_data.py` | GRB + DHMV II + orthophotos + OSM (ODbL applies to the combined database) |

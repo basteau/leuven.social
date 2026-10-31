@@ -13,6 +13,7 @@ import {
   areaIndex,
   clipLine,
   clipRingToArea,
+  joinRings,
   normalizeRing,
   ringInArea,
   signedArea,
@@ -38,6 +39,11 @@ interface Feature {
 }
 interface Collection {
   features: Feature[];
+}
+type LatLon = { lat: number; lon: number }[];
+/** An Overpass `out geom` dump: ways with their geometry, relations with their members'. */
+interface Overpass {
+  elements: { type: string; geometry?: LatLon; members?: { role: string; geometry?: LatLon }[] }[];
 }
 interface LocalBuilding {
   id: number;
@@ -93,7 +99,7 @@ const GREEN_LANDUSE = new Set(['grass', 'meadow', 'cemetery', 'forest', 'recreat
 /** Courtyards smaller than this are light wells: below a game pixel, and not worth the walls. */
 const MIN_COURTYARD = 12;
 
-const [local, crowns, wbn, wtz, osmAreas, osmRoads, osmPoints] = await Promise.all([
+const [local, crowns, wbn, wtz, osmAreas, osmRoads, osmPoints, osmPlatforms] = await Promise.all([
   read<{ buildings: LocalBuilding[] }>('data/derived/leuven_buildings_local.json'),
   read<{ trees: [number, number, number][] }>('data/derived/lidar_trees.json'),
   read<Collection>('data/grb/grb_WBN.geojson'),
@@ -101,6 +107,7 @@ const [local, crowns, wbn, wtz, osmAreas, osmRoads, osmPoints] = await Promise.a
   read<Collection>('data/derived/osm_areas.geojson'),
   read<Collection>('data/derived/osm_roads.geojson'),
   read<Collection>('data/derived/osm_points.geojson'),
+  read<Overpass>('data/osm/raw_rail_platforms.json'),
 ]);
 
 const buildings: Building[] = [];
@@ -160,6 +167,20 @@ const rails: Rail[] = osmAreas.features.flatMap((f) => {
   );
 });
 
+// Station platforms are multipolygons, often chained from several open ways.
+const platforms = osmPlatforms.elements
+  .flatMap((e) =>
+    joinRings(
+      (e.type === 'way'
+        ? [e.geometry]
+        : (e.members ?? []).filter((m) => m.role === 'outer').map((m) => m.geometry)
+      ).map((g) => (g ?? []).flatMap(({ lon, lat }) => toLocal(lon, lat))),
+    ),
+  )
+  .flatMap((ring) => clipRingToArea(simplifyRing(normalizeRing(ring), GROUND_SIMPLIFY), AREA))
+  .filter((ring) => ring.length >= 6)
+  .map((ring) => new Float32Array(ring));
+
 const trees = mergeTrees(
   osmTrees,
   crowns.trees.filter(([x, z]) => areaIndex(AREA, x, z) >= 0),
@@ -189,7 +210,7 @@ const city: City = {
   ],
   paths,
   rails,
-  platforms: layer(osmAreas.features, (p) => p.railway === 'platform'),
+  platforms,
   trees: new Float32Array(trees.positions),
   treeHeights: new Float32Array(trees.heights),
 };

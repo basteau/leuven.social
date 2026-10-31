@@ -16,7 +16,7 @@ OpenStreetMap (Overpass) ┘        (Python, via uv)       (GeoJSON, JSON)   (sc
 3. **`bun run bake`** keeps what lies in `AREA` (`src/data/area.ts`), projects it to local metres, simplifies it and writes the binary `LVN1` format (`src/data/format.ts`).
    - Buildings are kept whole when every corner is inside the area; ground polygons are clipped to it.
    - Footprint vertices within 0.25 m (core) or 0.5 m (fringe) of the line through their neighbours are dropped; hero footprints keep every vertex, since landmark models are fitted to them. Ground polygons lose vertices within 0.3 m, and patches of green under 25 m² go.
-   - Railway tracks are stored as centre lines (Douglas–Peucker to 10 cm), not polygons: the gauge is standard everywhere, so the renderer derives the ballast, sleepers and both rails. Tunnels, covered tracks and anything below ground are left out. Rails are their own layer (`City.rails`), so walking can keep off them; platforms (`City.platforms`) are walkable.
+   - Railway tracks are stored as centre lines (Douglas–Peucker to 10 cm), not polygons: the gauge is standard everywhere, so the renderer derives the ballast, sleepers and both rails. Tunnels, covered tracks and anything below ground are left out. Rails are their own layer (`City.rails`), so walking can keep off them; platforms (`City.platforms`, from `data/osm/raw_rail_platforms.json`, multipolygons joined from their outer ways) are walkable.
 
 ## What the data decides
 
