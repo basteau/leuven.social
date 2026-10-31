@@ -1,6 +1,6 @@
 # leuven.social
 
-Leuven's historic centre as a tiny isometric pixel-art city in the browser. It is built from open Flemish geodata and OpenStreetMap, inspired by [Slop New York](https://github.com/mrdoob/slop-newyork).
+Leuven's historic centre as a tiny isometric 3D city in the browser. It is built from open Flemish geodata and OpenStreetMap, inspired by [Slop New York](https://github.com/mrdoob/slop-newyork).
 
 **Live: [leuven.exe.xyz](https://leuven.exe.xyz/)**
 
@@ -11,13 +11,12 @@ bun run dev        # http://localhost:5173
 
 Controls:
 
-| Action               | Mouse or touch  | Keyboard   |
-| -------------------- | --------------- | ---------- |
-| Pan                  | Drag            | Arrow keys |
-| Zoom                 | Scroll or pinch | `+` / `-`  |
-| Rotate               |                 | `Q` / `E`  |
-| Pixel look on or off |                 | `P`        |
-| Reset view           |                 | `R`        |
+| Action     | Mouse or touch  | Keyboard   |
+| ---------- | --------------- | ---------- |
+| Pan        | Drag            | Arrow keys |
+| Zoom       | Scroll or pinch | `+` / `-`  |
+| Rotate     |                 | `Q` / `E`  |
+| Reset view |                 | `R`        |
 
 ## Working on it
 
