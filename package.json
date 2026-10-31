@@ -1,6 +1,13 @@
 {
   "name": "leuven-social",
+  "description": "Leuven's historic centre as a tiny isometric pixel-art city in the browser, built from open data.",
   "private": true,
+  "license": "MIT",
+  "homepage": "https://leuven.exe.xyz/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/basteau/leuven.social.git"
+  },
   "type": "module",
   "packageManager": "bun@1.4.4",
   "scripts": {

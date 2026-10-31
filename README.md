@@ -2,6 +2,8 @@
 
 Leuven's historic centre as a tiny isometric pixel-art city in the browser. It is built from open Flemish geodata and OpenStreetMap, inspired by [Slop New York](https://github.com/mrdoob/slop-newyork).
 
+**Live: [leuven.exe.xyz](https://leuven.exe.xyz/)**
+
 ```bash
 bun install
 bun run dev        # http://localhost:5173
@@ -35,7 +37,10 @@ Read [AGENTS.md](AGENTS.md) first; it links to everything else:
 - [DESIGN.md](DESIGN.md)
 - [REPORT.md](REPORT.md): the research behind it
 
-## Credits
+## Licence and credits
 
 - Map data © OpenStreetMap contributors (ODbL).
 - GRB and DHMV II: "Bron: Grootschalig Referentie Bestand Vlaanderen, Digitaal Vlaanderen".
+- Code: [MIT](LICENSE).
+- City data (`public/data/city.bin`) contains OpenStreetMap data, so it is licensed under the [ODbL](https://opendatacommons.org/licenses/odbl/). It also carries the GRB and DHMV II terms above.
+- Vendored agent skills keep their own licences (see [.agents/skills/README.md](.agents/skills/README.md)).
