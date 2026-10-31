@@ -6,8 +6,8 @@
  */
 
 import { AREA, LANDMARK_FOOTPRINTS, LANDMARKS, VIEW_AREA } from '../src/data/area.ts';
-import { kindFromOsm, pathFromOsm, roofFromSurvey } from '../src/data/city.ts';
-import type { Building, City, Path, Tier } from '../src/data/city.ts';
+import { kindFromOsm, pathFromOsm, railFromOsm, roofFromSurvey } from '../src/data/city.ts';
+import type { Building, City, Path, Rail, Tier } from '../src/data/city.ts';
 import { packCity } from '../src/data/format.ts';
 import {
   areaIndex,
@@ -16,6 +16,7 @@ import {
   normalizeRing,
   ringInArea,
   signedArea,
+  simplifyLine,
   simplifyRing,
 } from '../src/data/geometry.ts';
 import { toLocal } from '../src/data/projection.ts';
@@ -62,6 +63,8 @@ const SIMPLIFY: Record<Tier, number> = { hero: 0, core: 0.25, fringe: 0.5 };
 /** Ground polygons are flat, so they can lose more. Specks of green smaller than this go. */
 const GROUND_SIMPLIFY = 0.3;
 const MIN_GREEN_AREA = 25;
+/** Track curves are long and gentle: 10 cm off is a third of a game pixel at the closest zoom. */
+const RAIL_SIMPLIFY = 0.1;
 
 /** Outer ring of a GeoJSON polygon (or a closed line) in local metres, clipped to the area. */
 function areaRings(f: Feature): number[][] {
@@ -146,6 +149,17 @@ const paths: Path[] = osmRoads.features.flatMap((f) => {
   );
 });
 
+const lineOf = (f: Feature) =>
+  (f.geometry.coordinates as [number, number][]).flatMap(([lon, lat]) => toLocal(lon, lat));
+const rails: Rail[] = osmAreas.features.flatMap((f) => {
+  const style = railFromOsm(f.properties);
+  if (!style || f.geometry.type !== 'LineString') return [];
+  const line = simplifyLine(lineOf(f), RAIL_SIMPLIFY);
+  return AREA.flatMap((rect) => clipLine(line, rect)).map((piece) =>
+    Object.assign({ line: new Float32Array(piece) }, style),
+  );
+});
+
 const trees = mergeTrees(
   osmTrees,
   crowns.trees.filter(([x, z]) => areaIndex(AREA, x, z) >= 0),
@@ -174,6 +188,8 @@ const city: City = {
     ...layer(osmAreas.features, (p) => p.natural === 'water'),
   ],
   paths,
+  rails,
+  platforms: layer(osmAreas.features, (p) => p.railway === 'platform'),
   trees: new Float32Array(trees.positions),
   treeHeights: new Float32Array(trees.heights),
 };
@@ -187,6 +203,7 @@ console.log(
     `buildings ${buildings.length} (hero ${tiers.hero?.length ?? 0}, core ${tiers.core?.length ?? 0})`,
     `roads ${city.roads.length}, plazas ${city.plazas.length}, green ${city.green.length}, water ${city.water.length}`,
     `paths ${paths.length} (${paths.filter((p) => !p.paved).length} unpaved)`,
+    `rails ${rails.length} (${rails.filter((r) => r.bridge).length} on bridges, ${rails.reduce((sum, r) => sum + r.line.length / 2 - 1, 0)} segments), platforms ${city.platforms.length}`,
     `trees ${trees.heights.length} (${osmTrees.length / 2} mapped), labels ${city.labels.length}`,
     `roofs ${buildings.filter((b) => b.roof === 'flat').length} flat, ${buildings.filter((b) => b.roofColor !== null).length} with a sampled colour, ${buildings.filter((b) => b.holes.length).length} with courtyards`,
     `public/data/city.bin ${(bytes.length / 1024).toFixed(0)} KB gzipped`,

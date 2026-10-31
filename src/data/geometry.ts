@@ -341,3 +341,35 @@ export function clipLine(line: ArrayLike<number>, b: Bounds): number[][] {
   flush();
   return pieces;
 }
+
+/**
+ * Douglas–Peucker for an open polyline (flat [x0, z0, …]): keeps both ends and every vertex
+ * that sits more than `tolerance` off the simplified line. Track curves keep their shape.
+ */
+export function simplifyLine(line: ArrayLike<number>, tolerance: number): number[] {
+  const n = line.length / 2;
+  if (n <= 2) return Array.from(line);
+  const keep = new Uint8Array(n);
+  keep[0] = keep[n - 1] = 1;
+  const stack: [number, number][] = [[0, n - 1]];
+  while (stack.length) {
+    const [a, b] = stack.pop()!;
+    const [ax, az, bx, bz] = [line[a * 2]!, line[a * 2 + 1]!, line[b * 2]!, line[b * 2 + 1]!];
+    const length = Math.hypot(bx - ax, bz - az);
+    let [worst, far] = [-1, tolerance];
+    for (let i = a + 1; i < b; i++) {
+      const [x, z] = [line[i * 2]!, line[i * 2 + 1]!];
+      const d =
+        length > 0
+          ? Math.abs((bx - ax) * (z - az) - (bz - az) * (x - ax)) / length
+          : Math.hypot(x - ax, z - az);
+      if (d > far) [worst, far] = [i, d];
+    }
+    if (worst < 0) continue;
+    keep[worst] = 1;
+    stack.push([a, worst], [worst, b]);
+  }
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) if (keep[i]) out.push(line[i * 2]!, line[i * 2 + 1]!);
+  return out;
+}
