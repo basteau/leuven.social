@@ -170,7 +170,9 @@ export const SOURCES: readonly Source[] = [
       'node["highway"~"street_lamp|traffic_signals|bus_stop"];',
     ].join(' '),
     out: 'tags center',
-    tile: 0.025,
+    // Read from Overpass's history, these tag filters over every node, way and relation
+    // run a server out of memory in bigger tiles.
+    tile: 0.012,
     output: 'osm/points.json',
     usedBy: 'bake: mapped trees',
   },

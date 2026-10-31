@@ -29,7 +29,7 @@ public/data/city.bin ◀─ bun run bake ◀─ data/derived/ ◀─ bun run dat
 
 1. **Fetch.** `src/data/sources.ts` declares every source: provider, licence, credit, the request, and where its file lands. Extents are not written anywhere: they are `AREA` (`src/data/area.ts`) plus 100 m, so growing the map grows every download. `scripts/fetch.ts` plans the requests with `src/data/fetch-plan.ts` and downloads them:
    - **OpenStreetMap** through Overpass, as it was at `OSM_DATE` (Overpass answers from its history), tiled, with failover across mirrors. An answer with a `remark` (timeout, out of memory) is a failure, not data. Tiles are merged, deduplicated and sorted by type and id.
-   - **GRB** layers through the WFS, in pages of 2,500 sorted by `OIDN`, checked against the server's match count.
+   - **GRB** layers through the WFS, in boxes small enough to come back whole: a box that returns the 2,500-feature limit is split in four. Not `startIndex` paging: the server doesn't keep its sort order between requests, so pages skip and repeat features at their edges (the hand-paged download of October 2026 had lost 152 buildings that way).
    - **DHMV II** LiDAR through the WCS as GeoTIFF tiles of at most 1650 × 1000 px on the Lambert 72 grid (larger requests fail). Tiles are checked for the TIFF signature, since errors come back as XML with HTTP 200.
    - **Orthophotos** through the WMTS, z18 tiles over each rectangle of `AREA` plus 40 m, checked for the PNG signature.
 

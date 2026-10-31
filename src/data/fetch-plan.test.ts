@@ -16,6 +16,7 @@ import {
   mergeWikidata,
   outputFiles,
   overpassQuery,
+  quarter,
   sha256,
   wcsFile,
   wcsUrl,
@@ -129,15 +130,22 @@ test('mergeOverpass keeps one of each element, in type and id order, whatever th
   expect(merged.osm3s.timestamp_osm_base).toBe('D');
 });
 
-test('wfsUrl asks for one sorted page, with the bbox in lat-lon order', () => {
-  const url = new URL(wfsUrl(wfs, box, 2500, 2500));
+test('wfsUrl asks for one box, sorted, with the bbox in lat-lon order', () => {
+  const url = new URL(wfsUrl(wfs, box));
   expect(url.origin + url.pathname).toBe('https://example.test/wfs');
   const p = url.searchParams;
   expect(p.get('typeNames')).toBe('GRB:GBG');
   expect(p.get('bbox')).toBe('50.8,4.6,50.85,4.7,urn:ogc:def:crs:EPSG::4326');
   expect(p.get('sortBy')).toBe('OIDN');
-  expect(p.get('startIndex')).toBe('2500');
   expect(p.get('count')).toBe('2500');
+  expect(p.has('startIndex')).toBe(false);
+});
+
+test('quarter splits a box into four that cover it exactly', () => {
+  const parts = quarter(box);
+  expect(parts).toHaveLength(4);
+  expect(parts[0]).toEqual({ west: 4.6, south: 50.8, east: 4.65, north: 50.825 });
+  expect(parts[3]).toEqual({ west: 4.65, south: 50.825, east: 4.7, north: 50.85 });
 });
 
 const feature = (id: number, oidn: number): Feature => ({

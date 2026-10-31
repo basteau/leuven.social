@@ -11,7 +11,7 @@
 
 import {
   SourceError,
-  WFS_PAGE,
+  WFS_LIMIT,
   checkOverpass,
   checkWfsPage,
   checkWikidata,
@@ -24,6 +24,7 @@ import {
   mergeWfs,
   mergeWikidata,
   overpassQuery,
+  quarter,
   sha256,
   wcsFile,
   wcsUrl,
@@ -176,19 +177,19 @@ function overpassPlan(source: OverpassSource): Plan {
 
 function wfsPlan(source: WfsSource): Plan {
   return {
-    requests: [wfsUrl(source, box, 0, WFS_PAGE)],
+    requests: [wfsUrl(source, box)],
     files: [source.output],
     run: async () => {
-      const pages: WfsPage[] = [];
-      for (let start = 0; ; start += WFS_PAGE) {
-        const page = await request(wfsUrl(source, box, start, WFS_PAGE), (b) =>
-          checkWfsPage(text(b)),
-        );
-        pages.push(page);
-        console.log(`  ${start + page.features.length} features`);
-        if (page.features.length < WFS_PAGE) break;
+      const answers: WfsPage[] = [];
+      const boxes = [box];
+      for (let b = boxes.shift(); b !== undefined; b = boxes.shift()) {
+        const answer = await request(wfsUrl(source, b), (bytes) => checkWfsPage(text(bytes)));
+        if (answer.features.length >= WFS_LIMIT) boxes.push(...quarter(b));
+        else answers.push(answer);
       }
-      await Bun.write(`${DATA}/${source.output}`, json(mergeWfs(pages, source.sortBy)));
+      const merged = mergeWfs(answers, source.sortBy);
+      console.log(`  ${merged.features.length} features from ${answers.length} boxes`);
+      await Bun.write(`${DATA}/${source.output}`, json(merged));
     },
   };
 }

@@ -95,8 +95,12 @@ export function mergeOverpass(results: readonly OverpassResult[], date: string) 
   };
 }
 
-/** WFS 2.0 GetFeature for one page, in EPSG:4326 (whose axis order is lat, lon). */
-export function wfsUrl(source: WfsSource, box: LonLatBox, startIndex: number, count: number) {
+/**
+ * WFS 2.0 GetFeature for one box, in EPSG:4326 (whose axis order is lat, lon). No paging: the
+ * GRB server doesn't keep its sort order from one request to the next, so `startIndex` pages
+ * skip and repeat features at their edges. A box that comes back full is split instead.
+ */
+export function wfsUrl(source: WfsSource, box: LonLatBox) {
   const params = new URLSearchParams({
     service: 'WFS',
     version: '2.0.0',
@@ -106,8 +110,7 @@ export function wfsUrl(source: WfsSource, box: LonLatBox, startIndex: number, co
     srsName: 'EPSG:4326',
     bbox: `${box.south},${box.west},${box.north},${box.east},urn:ogc:def:crs:EPSG::4326`,
     sortBy: source.sortBy,
-    count: String(count),
-    startIndex: String(startIndex),
+    count: String(WFS_LIMIT),
   });
   return `${source.endpoint}?${params}`;
 }
@@ -133,12 +136,28 @@ export function checkWfsPage(text: string): WfsPage {
   return json as unknown as WfsPage;
 }
 
-/** Pages until one comes back short. Pages of 2,500 are what GRB serves reliably. */
-export const WFS_PAGE = 2500;
+/**
+ * The most features asked for at once: answers of 2,500 come back reliably, 5,000 sometimes
+ * time out. An answer this long may be cut short, so its box is split (`quarter`).
+ */
+export const WFS_LIMIT = 2500;
+
+/** The four quarters of a box, for a WFS answer that came back full. */
+export function quarter(box: LonLatBox): LonLatBox[] {
+  const lon = round((box.west + box.east) / 2);
+  const lat = round((box.south + box.north) / 2);
+  return [
+    { west: box.west, south: box.south, east: lon, north: lat },
+    { west: lon, south: box.south, east: box.east, north: lat },
+    { west: box.west, south: lat, east: lon, north: box.north },
+    { west: lon, south: lat, east: box.east, north: box.north },
+  ];
+}
 
 /**
- * Joins the pages into one FeatureCollection in `sortBy` order, checks none went missing,
- * and drops the server's paging and timestamp fields.
+ * Joins the answers into one FeatureCollection in `sortBy` order, keeping one copy of a
+ * feature that crosses boxes, checks none went missing where the server says how many
+ * matched, and drops the server's paging and timestamp fields.
  */
 export function mergeWfs(pages: readonly WfsPage[], sortBy: string) {
   const byId = new Map<string, Feature>();
