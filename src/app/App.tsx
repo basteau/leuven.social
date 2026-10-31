@@ -158,7 +158,10 @@ export function App() {
       steer();
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.metaKey || event.ctrlKey || event.altKey) {
+        release(); // a shortcut of the browser's own, not a step
+        return;
+      }
       const viewer = viewerRef.current;
       if (!viewer) return;
       const key = event.key.toLowerCase();
@@ -186,17 +189,19 @@ export function App() {
       };
       actions[key]?.();
     };
+    // Releases are heard anywhere: focus may have left the app while a key was down.
     const onKeyUp = (event: KeyboardEvent) => {
-      const key = event.key.toLowerCase();
-      if (held.delete(key)) steer();
+      // macOS sends no keyup for keys released while ⌘ is down.
+      if (event.key === 'Meta') release();
+      else if (held.delete(event.key.toLowerCase())) steer();
     };
     app.addEventListener('keydown', onKeyDown);
-    app.addEventListener('keyup', onKeyUp);
+    globalThis.addEventListener('keyup', onKeyUp);
     // A key released while the window is in the background never sends its keyup.
     globalThis.addEventListener('blur', release);
     return () => {
       app.removeEventListener('keydown', onKeyDown);
-      app.removeEventListener('keyup', onKeyUp);
+      globalThis.removeEventListener('keyup', onKeyUp);
       globalThis.removeEventListener('blur', release);
     };
   }, []);

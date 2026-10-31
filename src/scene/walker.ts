@@ -70,7 +70,8 @@ export function stepWalker(
   dt: number,
   steerX: number,
   steerZ: number,
-  walkable: (x: number, z: number) => boolean,
+  /** Whether a body may stand at (x, z), having moved by (dx, dz) to get there. */
+  walkable: (x: number, z: number, dx: number, dz: number) => boolean,
 ): boolean {
   let want = 0;
   let leg = Infinity;
@@ -113,11 +114,11 @@ export function stepWalker(
   } else if (w.speed > 0) {
     const step = w.speed * dt;
     const [nx, nz] = [w.x + w.dirX * step, w.z + w.dirZ * step];
-    if (walkable(nx, nz)) {
+    if (walkable(nx, nz, nx - w.x, nz - w.z)) {
       [w.x, w.z] = [nx, nz];
-    } else if (Math.abs(w.dirX) > 0.1 && walkable(nx, w.z)) {
+    } else if (Math.abs(w.dirX) > 0.1 && walkable(nx, w.z, nx - w.x, 0)) {
       w.x = nx; // slide along the wall
-    } else if (Math.abs(w.dirZ) > 0.1 && walkable(w.x, nz)) {
+    } else if (Math.abs(w.dirZ) > 0.1 && walkable(w.x, nz, 0, nz - w.z)) {
       w.z = nz;
     } else {
       w.speed = 0;

@@ -370,6 +370,21 @@ export function createViewer(options: ViewerOptions): Viewer {
     }
   }
 
+  const walk = createWalk({
+    scene,
+    camera,
+    controls,
+    canvas,
+    keyTarget,
+    city,
+    gradientMap,
+    reducedMotion,
+    placeCamera,
+    render: renderNow,
+    ...(options.onWalkModeChange && { onModeChange: options.onWalkModeChange }),
+    ...(options.onWalkBlocked && { onBlocked: options.onWalkBlocked }),
+  });
+
   let frame = 0;
   function renderNow(): void {
     cancelAnimationFrame(frame);
@@ -377,7 +392,8 @@ export function createViewer(options: ViewerOptions): Viewer {
     render();
   }
   function invalidate(): void {
-    if (frame) return;
+    // While walking, the walk loop draws every frame itself.
+    if (frame || walk.animating) return;
     frame = requestAnimationFrame(() => {
       frame = 0;
       render();
@@ -417,13 +433,15 @@ export function createViewer(options: ViewerOptions): Viewer {
       const t = Math.min(1, (now - start) / ROTATE_MS);
       yaw = from + (to - from) * (1 - (1 - t) ** 3);
       placeCamera();
-      renderNow(); // already inside a frame: don't wait for the next one
+      // Already inside a frame: don't wait for the next one, unless the walk loop draws it.
+      if (!walk.animating) renderNow();
       spin = t < 1 ? requestAnimationFrame(step) : 0;
     };
     spin = requestAnimationFrame(step);
   }
 
   function zoomBy(factor: number): void {
+    walk.settle();
     camera.zoom = Math.min(controls.maxZoom, Math.max(controls.minZoom, camera.zoom * factor));
     camera.updateProjectionMatrix();
     controls.update();
@@ -432,6 +450,7 @@ export function createViewer(options: ViewerOptions): Viewer {
 
   function resetView(): void {
     cancelAnimationFrame(spin);
+    walk.settle();
     yaw = Math.PI / 4;
     camera.zoom = 1;
     camera.updateProjectionMatrix();
@@ -460,21 +479,6 @@ export function createViewer(options: ViewerOptions): Viewer {
     invalidate();
   };
   canvas.addEventListener('webglcontextrestored', onRestored);
-
-  const walk = createWalk({
-    scene,
-    camera,
-    controls,
-    canvas,
-    keyTarget,
-    city,
-    gradientMap,
-    reducedMotion,
-    placeCamera,
-    render: renderNow,
-    ...(options.onWalkModeChange && { onModeChange: options.onWalkModeChange }),
-    ...(options.onWalkBlocked && { onBlocked: options.onWalkBlocked }),
-  });
 
   resize();
   resetView();

@@ -215,6 +215,8 @@ export function createCharacter(body: Material, xray: Material): Character {
   mesh.renderOrder = 2;
   // It moves every frame and is always on screen while walking: skip the bounds checks.
   mesh.traverse((object) => (object.frustumCulled = false));
+  // It darkens in the static shade of the houses it passes, though it casts none itself.
+  mesh.receiveShadow = true;
   return { mesh, xray: twin, bones };
 }
 

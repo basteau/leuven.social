@@ -64,6 +64,10 @@ export interface WalkHost {
 
 export interface Walk {
   readonly mode: WalkMode;
+  /** Whether a walk frame is already on its way, so the viewer needn't draw one of its own. */
+  readonly animating: boolean;
+  /** Stops an eased zoom where it is, for when the map takes the camera (reset, zoom keys). */
+  settle(): void;
   /** Waits for a click on the map that says where to start. */
   pick(): void;
   /** Starts at the walkable spot nearest the middle of the view. */
@@ -84,7 +88,8 @@ export function createWalk(host: WalkHost): Walk {
   let grid: WalkGrid | undefined;
   let router: Router | undefined;
   /** Keys steer the figure's body clear of facades; routes keep their own distance. */
-  const walkable = (x: number, z: number) => grid!.walkable(x, z, BODY_RADIUS);
+  const walkable = (x: number, z: number, dx: number, dz: number) =>
+    grid!.walkable(x, z, BODY_RADIUS, dx, dz);
   const ensureGrid = () => {
     grid ??= new WalkGrid(host.city);
     router ??= new Router(grid);
@@ -201,7 +206,8 @@ export function createWalk(host: WalkHost): Walk {
   // Taps and clicks, told apart from drags and pinches.
   const press = { id: -1, x: 0, y: 0, time: 0, multi: false };
   const onPointerDown = (event: PointerEvent) => {
-    if (mode === 'map') return;
+    // The main button, a finger or a pen; not a right- or middle-click.
+    if (mode === 'map' || event.button !== 0) return;
     if (press.id !== -1) {
       press.multi = true;
       return;
@@ -301,13 +307,22 @@ export function createWalk(host: WalkHost): Walk {
     get mode() {
       return mode;
     },
+    get animating() {
+      return frame !== 0;
+    },
+    settle() {
+      if (zoomGoal === undefined) return;
+      zoomGoal = undefined;
+      [controls.minZoom, controls.maxZoom] = mode === 'walk' ? WALK_ZOOM_RANGE : mapZoom;
+    },
     pick() {
       ensureGrid();
-      if (mode === 'map') mapZoomBefore = camera.zoom;
+      // Mid-way back from a walk, the map's zoom is where the camera is heading.
+      if (mode === 'map') mapZoomBefore = zoomGoal ?? camera.zoom;
       setMode('pick');
     },
     startAtCentre() {
-      if (mode === 'map') mapZoomBefore = camera.zoom;
+      if (mode === 'map') mapZoomBefore = zoomGoal ?? camera.zoom;
       const spot = spotAt(
         canvas.getBoundingClientRect().left + canvas.clientWidth / 2,
         canvas.getBoundingClientRect().top + canvas.clientHeight / 2,
