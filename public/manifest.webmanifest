@@ -1,7 +1,7 @@
 {
   "name": "Leuven Social",
   "short_name": "Leuven",
-  "description": "Leuven's historic centre as a tiny isometric pixel city, built from open data.",
+  "description": "Leuven's historic centre as a tiny isometric 3D city, built from open data.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
