@@ -28,7 +28,7 @@ type PaintKind = keyof typeof PAINT_KIND;
 export const ANGLES = 512;
 /** How far each kind reaches either side of its middle, across its stored direction (m). */
 export const PAINT_HALF: Record<PaintKind, number> = {
-  line: 0.06,
+  line: 0.06, // lane lines are painted 10–15 cm wide
   stripe: 2,
   block: 0.25,
   patch: 2,
@@ -37,10 +37,14 @@ export const PAINT_HALF: Record<PaintKind, number> = {
 export const LINE_LOD = 1.2;
 export const STRIPE_LOD = 0.22;
 
+/** Lane dashes: 3 m long as on Belgian roads; the 6 m gap is tightened so the ring reads at zoom 1. */
 const DASH = 3;
 const GAP = 6;
+/** Zebra bars and the gaps between them, about half a metre each as in the orthophotos. */
 const ZEBRA_BAR = 0.5;
+/** Half the width of a cyclist crossing's red band: about 2 m across, as in the orthophotos. */
 const BIKE_BAND = 1;
+/** A painted cycle lane, kept equal to CYCLE_LANE in tools/build_road_zones.py. */
 const CYCLE_LANE = 1.5;
 /** Heights above the slab: over the road surface (0.15), under the squares (0.2). */
 const UNDER = 0.16;

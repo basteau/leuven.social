@@ -33,8 +33,8 @@ DATA = Path(sys.argv[1] if len(sys.argv) > 1 else 'data')
 ORIGIN = (4.70139, 50.87917)  # Grote Markt (lon, lat), as in build_leuven_data.py and src/data/projection.ts
 KX, KZ = 111320 * math.cos(math.radians(ORIGIN[1])), 110574
 SIMPLIFY = 0.5  # m; the faces stay a gapless coverage (shapely.coverage_simplify)
-LANE = (2.6, 3.2, 3.6)  # narrowest, default and widest lane (m)
-CYCLE_LANE = 1.5  # painted cycle lane width (m)
+LANE = (2.6, 3.2, 3.6)  # narrowest, default and widest lane (m): the usual span of urban traffic lanes
+CYCLE_LANE = 1.5  # painted cycle lane width (m): the common Flemish width, matches the orthophotos
 KEEP = ('highway', 'surface', 'service', 'cyclestreet', 'bicycle_road', 'surface:colour', 'crossing',
         'crossing:markings', 'footway', 'cycleway', 'name')
 CAR = {'motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link', 'secondary', 'secondary_link',
