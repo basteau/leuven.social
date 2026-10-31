@@ -1,6 +1,6 @@
 # leuven.social
 
-A tiny isometric, pixel-art 3D Leuven in the browser, built from open geodata: a React HUD over a plain three.js scene.
+A tiny isometric 3D Leuven in the browser, built from open geodata: a React HUD over a plain three.js scene.
 
 This project uses Bun for everything: installs, scripts, tests, type checking and formatting. Don't use npm, npx or tsc.
 

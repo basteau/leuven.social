@@ -11,7 +11,7 @@ The code is split by what it is allowed to know about. Lint enforces the arrows,
 | `src/app`   | The React shell: HUD, loading and error states, keyboard shortcuts             | `src/data`, `src/scene`                                              |
 | `scripts/`  | Build-time edges: baking data, icons, budgets, the smoke test, deploys         | `src/data`, plus the `Bun` global for files and processes            |
 
-`src/scene` exposes one entry point, `createViewer()`. It returns a small imperative handle (`rotate`, `resetView`, `setPixelated`, `stats`, `dispose`), so React never touches three.js objects.
+`src/scene` exposes one entry point, `createViewer()`. It returns a small imperative handle (`rotate`, `zoomBy`, `resetView`, `stats`, `dispose`), so React never touches three.js objects.
 
 ## Portable by default
 
