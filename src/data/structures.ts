@@ -8,7 +8,7 @@ import type { RingIndex } from './props.ts';
 
 /** How far outside an edge to look for the water it faces (m). */
 const LOOK = 1;
-/** Shorter stretches of parapet are survey slivers, below a game pixel (m). */
+/** Shorter stretches of parapet are survey slivers, a pixel or two even up close (m). */
 const MIN_PARAPET = 2;
 
 /**
@@ -52,7 +52,7 @@ export function bridgeParapets(ring: ArrayLike<number>, water: RingIndex): numbe
   });
 }
 
-/** Tanks keep at most this many corners: a round one is still round at a game pixel. */
+/** Tanks keep at most this many corners: enough for a round one to look round. */
 export const TANK_CORNERS = 12;
 
 /**
