@@ -27,6 +27,7 @@
     "data": "bun run data:fetch && bun run data:build && bun run bake",
     "data:fetch": "bun scripts/fetch.ts",
     "data:build": "uv run --locked --script tools/build_leuven_data.py data",
+    "data:check": "bun scripts/data-check.ts",
     "bake": "bun scripts/bake.ts",
     "icons": "bun scripts/icons.ts",
     "deploy": "bun scripts/deploy.ts",
