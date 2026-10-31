@@ -34,8 +34,8 @@ export const PAINT_HALF: Record<PaintKind, number> = {
   patch: 2,
 };
 /** Metres per screen pixel above which lines go, and below which stripes replace their patch. */
-export const LINE_LOD = 1.5;
-export const STRIPE_LOD = 0.45;
+export const LINE_LOD = 1.2;
+export const STRIPE_LOD = 0.22;
 
 const DASH = 3;
 const GAP = 6;

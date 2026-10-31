@@ -113,21 +113,25 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
           float wear = noise2(p / 9.0) + 0.35 * noise2(p / 2.3);
           float shade = 1.0 + 0.045 * (step(0.98, wear) - step(wear, 0.5));
           if (surface == ${f(SURFACE.sett)}) {
-            // Setts in staggered rows, each stone a little lighter or darker: a grain that shows
-            // once stones near a pixel, and joints once a stone spans a few.
-            vec2 q = p / vec2(0.6, 0.45);
+            // Setts in staggered rows: each stone a little lighter or darker once it spans a
+            // pixel and a half, and joints, at least a pixel wide, once it spans four.
+            vec2 size = vec2(0.6, 0.45);
+            vec2 q = p / size;
             q.x += 0.5 * mod(floor(q.y), 2.0);
             vec2 g = fract(q);
+            vec2 width = max(vec2(0.12), pixel / size);
+            float joint = 1.0 - step(width.x, g.x) * step(width.y, g.y);
             float stone = hash2(floor(q));
-            float grain = 1.0 - smoothstep(0.7, 1.4, pixel);
-            float joint = (1.0 - step(0.16, g.x) * step(0.2, g.y)) * (1.0 - smoothstep(0.2, 0.35, pixel));
-            shade = 1.0 + 0.08 * (step(0.67, stone) - step(stone, 0.33)) * grain - 0.18 * joint;
+            shade = 1.0 + 0.08 * (step(0.67, stone) - step(stone, 0.33)) * (1.0 - smoothstep(0.3, 0.45, pixel))
+              - 0.15 * joint * (1.0 - smoothstep(0.11, 0.15, pixel));
           } else if (surface == ${f(SURFACE.paving)}) {
-            // Square slabs with thin joints, only where a slab spans a few pixels.
+            // Square slabs, each its own tone, with joints at least a pixel wide once a slab
+            // spans eight.
             vec2 g = fract(p / 1.2);
-            float joint = 1.0 - step(0.06, g.x) * step(0.06, g.y);
-            shade = 1.0 + 0.03 * (hash2(floor(p / 1.2)) - 0.5)
-              - 0.08 * joint * (1.0 - smoothstep(0.15, 0.3, pixel));
+            float width = max(0.04, pixel / 1.2);
+            float joint = 1.0 - step(width, g.x) * step(width, g.y);
+            shade = 1.0 + 0.03 * (hash2(floor(p / 1.2)) - 0.5) * (1.0 - smoothstep(0.3, 0.6, pixel))
+              - 0.07 * joint * (1.0 - smoothstep(0.1, 0.15, pixel));
           }
           diffuseColor.rgb *= shade;
         }`,
