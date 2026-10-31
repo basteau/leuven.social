@@ -39,6 +39,21 @@ describe('WalkGrid', () => {
     expect(grid.walkable(30, 25, 0.5)).toBe(false);
   });
 
+  test('given a move, only the sides it moves toward need room', () => {
+    // The cell centre at the house's west wall, as `nearest` hands out.
+    expect(grid.walkable(39.5, 42.5, 0.5)).toBe(false);
+    expect(grid.walkable(39.5, 42.5, 0.5, 0, 0.1)).toBe(true); // along the wall
+    expect(grid.walkable(39.5, 42.5, 0.5, -0.1, 0)).toBe(true); // away from it
+    expect(grid.walkable(39.5, 42.5, 0.5, 0.1, 0)).toBe(false); // into it
+    expect(grid.walkable(50.5, 45.4, 0.5, 0, -0.1)).toBe(false); // up to the house's front
+  });
+
+  test('nothing off the map is walkable, even where a path spills past its edge', () => {
+    const spill = new WalkGrid({ ...town, area: [{ minX: 0, minZ: 0, maxX: 100, maxZ: 120 }] });
+    expect(spill.walkable(99.5, 45)).toBe(true);
+    expect(spill.walkable(100.5, 45)).toBe(false);
+  });
+
   test('a narrow path is still a ribbon at least a cell and a half wide', () => {
     expect(grid.walkable(19.4, 25)).toBe(true);
     expect(grid.walkable(20.6, 25)).toBe(true);

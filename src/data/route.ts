@@ -77,7 +77,8 @@ export class Router {
       const [dx, dy] = [Math.abs(c - gc), Math.abs(r - gr)];
       return Math.max(dx, dy) + (Math.SQRT2 - 1) * Math.min(dx, dy);
     };
-    const open = (c: number, r: number) => grid.open(r * grid.cols + c);
+    const open = (c: number, r: number) =>
+      c >= 0 && r >= 0 && c < grid.cols && r < grid.rows && grid.open(r * grid.cols + c);
     const nearEdge = (c: number, r: number) =>
       !open(c + 1, r) || !open(c - 1, r) || !open(c, r + 1) || !open(c, r - 1);
 

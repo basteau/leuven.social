@@ -8,6 +8,7 @@
  */
 
 import type { Bounds, City } from './city.ts';
+import { areaIndex } from './geometry.ts';
 
 /** Cell size in metres: narrower than any footpath, so every path stays connected. */
 export const WALK_CELL = 1;
@@ -19,7 +20,7 @@ const MIN_HALF_WIDTH = 0.75;
 const CLOSED = 0;
 const OPEN = 1;
 
-export type WalkLayers = Pick<City, 'bounds' | 'roads' | 'plazas' | 'paths' | 'buildings'>;
+export type WalkLayers = Pick<City, 'area' | 'bounds' | 'roads' | 'plazas' | 'paths' | 'buildings'>;
 
 interface Shape {
   ring: ArrayLike<number>;
@@ -44,6 +45,7 @@ export class WalkGrid {
   readonly cols: number;
   readonly rows: number;
   readonly #origin: [number, number];
+  readonly #area: readonly Bounds[];
   readonly #tilesX: number;
   readonly #tiles: (Uint8Array | undefined)[];
   /** What touches each tile, in drawing order: surfaces and paths first, buildings on top. */
@@ -54,6 +56,7 @@ export class WalkGrid {
   constructor(city: WalkLayers) {
     const { minX, minZ, maxX, maxZ } = city.bounds;
     this.#origin = [minX, minZ];
+    this.#area = city.area;
     this.cols = Math.ceil((maxX - minX) / WALK_CELL);
     this.rows = Math.ceil((maxZ - minZ) / WALK_CELL);
     this.#tilesX = Math.ceil(this.cols / TILE);
@@ -107,7 +110,7 @@ export class WalkGrid {
 
   /** A cell's raw value; cells off the grid are closed. */
   value(cell: number): number {
-    if (cell < 0) return CLOSED;
+    if (cell < 0 || cell >= this.cols * this.rows) return CLOSED;
     const col = cell % this.cols;
     const row = (cell - col) / this.cols;
     const t = Math.floor(row / TILE) * this.#tilesX + Math.floor(col / TILE);
@@ -122,15 +125,19 @@ export class WalkGrid {
   /**
    * Whether (x, z) is walkable, with no building within `clearance` metres along either axis.
    * Narrow paths stay walkable: only walls keep a body at a distance, not kerbs or hedges.
+   * Given the move (dx, dz) that got there, only the sides it moves toward count, so a body
+   * that stands by a wall can still walk along it or away from it.
    */
-  walkable(x: number, z: number, clearance = 0): boolean {
+  walkable(x: number, z: number, clearance = 0, dx = 0, dz = 0): boolean {
     if (!this.open(this.cellAt(x, z))) return false;
     if (clearance <= 0) return true;
-    return (
-      !this.buildingHeight(x + clearance, z) &&
-      !this.buildingHeight(x - clearance, z) &&
-      !this.buildingHeight(x, z + clearance) &&
-      !this.buildingHeight(x, z - clearance)
+    const moving = dx !== 0 || dz !== 0;
+    const blocked = (sx: number, sz: number) => this.buildingHeight(x + sx, z + sz) > 0;
+    return !(
+      ((!moving || dx > 0) && blocked(clearance, 0)) ||
+      ((!moving || dx < 0) && blocked(-clearance, 0)) ||
+      ((!moving || dz > 0) && blocked(0, clearance)) ||
+      ((!moving || dz < 0) && blocked(0, -clearance))
     );
   }
 
@@ -171,6 +178,14 @@ export class WalkGrid {
     for (const s of surfaces) this.#fillRing(tile, s, x0, z0);
     for (const ribbon of this.#ribbons[t]!) this.#fillRibbon(tile, ribbon, x0, z0);
     for (const s of shapes) if (s.value !== OPEN) this.#fillRing(tile, s, x0, z0);
+    // Paths can spill a little past the map's edge: nothing off the slab is walkable.
+    for (let r = 0; r < TILE; r++) {
+      const z = z0 + (r + 0.5) * WALK_CELL;
+      for (let c = 0; c < TILE; c++) {
+        if (tile[r * TILE + c] !== OPEN) continue;
+        if (areaIndex(this.#area, x0 + (c + 0.5) * WALK_CELL, z) < 0) tile[r * TILE + c] = CLOSED;
+      }
+    }
     this.#tiles[t] = tile;
     return tile;
   }
