@@ -86,6 +86,10 @@ export interface City {
   rails: Rail[];
   /** Railway platforms, raised to train-floor height. */
   platforms: Float32Array[];
+  /** Railway land (OSM `landuse=railway`): the gravel and ballast around the tracks. */
+  railLand: Float32Array[];
+  /** Roofs over the platforms (GRB `afdak` on railway land), drawn as vaulted bays. */
+  canopies: Float32Array[];
   /** Flat [x0, z0, x1, z1, …] tree positions. */
   trees: Float32Array;
   /** Height of each tree in metres, from the LiDAR canopy. */

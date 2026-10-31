@@ -49,6 +49,8 @@ const city: City = {
     { kind: 'yard', bridge: false, electrified: false, line: new Float32Array([5, 5, 50, 5]) },
   ],
   platforms: [square(20, 20, 8)],
+  railLand: [square(-20, 20, 40)],
+  canopies: [square(15, 15, 18)],
   trees: new Float32Array([1.5, 2.5, -40, 60.1]),
   treeHeights: new Float32Array([8, 21.5]),
 };
@@ -72,6 +74,8 @@ describe('city format', () => {
     expect(decoded.paths).toEqual(city.paths);
     expect(decoded.rails).toEqual(city.rails);
     expect(decoded.platforms.map((p) => Array.from(p))).toEqual(city.platforms.map(exact));
+    expect(decoded.railLand.map((p) => Array.from(p))).toEqual(city.railLand.map(exact));
+    expect(decoded.canopies.map((p) => Array.from(p))).toEqual(city.canopies.map(exact));
     expect([...decoded.trees]).toEqual([1.5, 2.5, -40, 60.1].map((v) => Math.fround(v)));
     expect([...decoded.treeHeights]).toEqual([8, 21.5]);
   });

@@ -1,7 +1,7 @@
 /**
  * The compact binary city format ("LVN1"), served gzipped from public/data/.
  *
- * Layout: magic "LVN1", version, area rectangles, labels, buildings, five polygon layers, paths,
+ * Layout: magic "LVN1", version, area rectangles, labels, buildings, seven polygon layers, paths,
  * rails, trees.
  * Coordinates are decimetres, zigzag varints, delta-encoded within each ring.
  * A building packs tier (2 bits), kind (4 bits) and roof (2 bits) into one byte, then its
@@ -25,6 +25,8 @@ const DM = 10; // units per metre
 const ZIGZAG = { encoding: 'zigzag' } as const;
 /** Refuse anything larger after decompression: the whole city must stay small. */
 export const MAX_CITY_BYTES = 16_000_000;
+
+type Rings = Float32Array[];
 
 export class CityFormatError extends Error {
   override name = 'CityFormatError';
@@ -92,7 +94,16 @@ export function encodeCity(city: City): Uint8Array {
     for (const hole of b.holes) writeRing(w, hole);
   }
 
-  for (const layer of [city.roads, city.plazas, city.green, city.water, city.platforms]) {
+  const layers = [
+    city.roads,
+    city.plazas,
+    city.green,
+    city.water,
+    city.platforms,
+    city.railLand,
+    city.canopies,
+  ];
+  for (const layer of layers) {
     w.varint(layer.length);
     for (const ring of layer) writeRing(w, ring);
   }
@@ -162,9 +173,10 @@ export function decodeCity(bytes: Uint8Array): City {
     };
   });
 
-  const [roads, plazas, green, water, platforms] = [0, 1, 2, 3, 4].map(() =>
-    Array.from({ length: r.varint() }, () => readRing(r)),
-  ) as [Float32Array[], Float32Array[], Float32Array[], Float32Array[], Float32Array[]];
+  const [roads, plazas, green, water, platforms, railLand, canopies] = Array.from(
+    { length: 7 },
+    () => Array.from({ length: r.varint() }, () => readRing(r)),
+  ) as [Rings, Rings, Rings, Rings, Rings, Rings, Rings];
 
   const paths = Array.from({ length: r.varint() }, () => {
     const packed = r.varint();
@@ -193,6 +205,8 @@ export function decodeCity(bytes: Uint8Array): City {
     paths,
     rails,
     platforms,
+    railLand,
+    canopies,
     trees,
     treeHeights,
   };

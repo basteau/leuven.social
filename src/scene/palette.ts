@@ -97,6 +97,8 @@ export const GROUND = {
   path: 0xb9b0a0,
   /** Gravel and earth trails through the parks. */
   trail: 0xd8c79f,
+  /** Railway land: the gravel between and beside the tracks, paler than their ballast. */
+  railway: 0xaca291,
 } as const;
 
 /**
@@ -109,6 +111,9 @@ export const RAIL = {
   parapet: 0xb7ab95,
   platform: 0xd9d0bd,
   platformSide: 0xa79c88,
+  /** Leuven's platform roof is white steel and glass. */
+  canopy: 0xeeece4,
+  canopyEnd: 0xd3cfc3,
 } as const;
 
 export const TREE = {

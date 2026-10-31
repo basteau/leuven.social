@@ -9,7 +9,9 @@ import {
   addParapet,
   addPlatform,
   addRailLines,
+  addCanopyBay,
   addTracks,
+  canopyBays,
   planRailway,
 } from './rails.ts';
 
@@ -122,4 +124,30 @@ test('a platform is its outline raised to train-floor height, walls facing out',
   // The first wall runs along z = 0, the platform lies at z > 0: it faces -z.
   expect(g.getAttribute('normal').getZ(2 * 3)).toBe(-1);
   expect(lines.segments).toBe(4);
+});
+
+test('a platform roof is cut into bays of about 51 m along its long side', () => {
+  const roof = new Float32Array([0, 0, 60, 0, 60, 204, 0, 204]);
+  const bays = canopyBays(roof);
+  expect(bays).toHaveLength(4);
+  expect(bays.map((b) => Math.round(b.cz))).toEqual([26, 77, 128, 179]);
+  for (const b of bays) {
+    expect(b.halfLength).toBeCloseTo(25.5);
+    expect(b.halfWidth).toBeCloseTo(30);
+    expect(b.cx).toBeCloseTo(30);
+  }
+  expect(canopyBays(new Float32Array([0, 0, 20, 0, 20, 10, 0, 10]))).toHaveLength(1);
+});
+
+test('a bay is a vault from valley to crown, ends filled, outlined, on four posts', () => {
+  const [mesh, lines] = [new MeshBuilder(), new LineBuilder()];
+  addCanopyBay(mesh, lines, { cx: 0, cz: 0, ux: 0, uz: 1, halfLength: 25, halfWidth: 30 });
+  const g = mesh.build();
+  // Four vault strips of two triangles, and four triangles at each end.
+  expect(g.getAttribute('position').count).toBe((4 * 2 + 2 * 4) * 3);
+  g.computeBoundingBox();
+  expect(g.boundingBox!.min.y).toBeCloseTo(9.5);
+  expect(g.boundingBox!.max.y).toBeCloseTo(16);
+  // Two edge profiles of four segments, two valleys, four posts.
+  expect(lines.segments).toBe(8 + 2 + 4);
 });

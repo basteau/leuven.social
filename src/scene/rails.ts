@@ -1,6 +1,7 @@
 import { ShapeUtils, Vector2 } from 'three';
 
 import type { Bounds, Rail } from '../data/city.ts';
+import { orientedRect } from '../data/geometry.ts';
 import type { LineBuilder, MeshBuilder, V3 } from './mesh-builder.ts';
 import { RAIL } from './palette.ts';
 
@@ -31,6 +32,16 @@ const PARAPET_THICKNESS = 0.4;
 /** Nothing stands beside a track if another track runs within this distance of the spot. */
 const CLEARANCE = 3;
 const UP: V3 = [0, 1, 0];
+/**
+ * Platform roofs: vaults across the tracks, one per bay along them. Leuven's wave roof has four
+ * bays of about 51 m, from 9.5 m at the valleys to 16 m at the crowns (DHMV II DSM − DTM, p10
+ * and p97 over GRB annex 672696).
+ */
+const BAY_LENGTH = 51;
+const CANOPY_EAVE = 9.5;
+const CANOPY_CROWN = 16;
+/** Points across a bay's vault, from valley to valley: -1 … 1 along the tracks. */
+const VAULT = [-1, -0.5, 0, 0.5, 1] as const;
 
 /** A catenary mast and the arm that holds the wire over its track. */
 export interface Mast {
@@ -274,5 +285,58 @@ export function addPlatform(
     const hint: V3 = [b.y - a.y, 0, a.x - b.x];
     mesh.quad([a.x, 0, a.y], [b.x, 0, b.y], top(b), top(a), RAIL.platformSide, hint);
     lines.segment(top(a), top(b));
+  }
+}
+
+/** One vaulted bay of a platform roof: centre, unit vector along the tracks, half sizes. */
+export interface CanopyBay {
+  cx: number;
+  cz: number;
+  ux: number;
+  uz: number;
+  halfLength: number;
+  halfWidth: number;
+}
+
+/** Cuts a platform roof's outline into its bays along the tracks (its long side). */
+export function canopyBays(ring: Float32Array): CanopyBay[] {
+  const { cx, cz, ux, uz, halfLength, halfWidth } = orientedRect(ring);
+  const count = Math.max(1, Math.round((2 * halfLength) / BAY_LENGTH));
+  const half = halfLength / count;
+  return Array.from({ length: count }, (_, i) => {
+    const along = -halfLength + half * (2 * i + 1);
+    return { cx: cx + ux * along, cz: cz + uz * along, ux, uz, halfLength: half, halfWidth };
+  });
+}
+
+/**
+ * A bay: a vault rising across the tracks from valley to crown and back, its open ends filled
+ * down to the valleys, outlined in ink, on a post at each corner. Side by side, the bays make
+ * the wave.
+ */
+export function addCanopyBay(mesh: MeshBuilder, lines: LineBuilder, bay: CanopyBay): void {
+  const { cx, cz, ux, uz, halfLength, halfWidth } = bay;
+  const [nx, nz] = [uz, -ux];
+  const at = (
+    t: number,
+    side: number,
+    y = CANOPY_EAVE + (CANOPY_CROWN - CANOPY_EAVE) * (1 - t * t),
+  ): V3 => [
+    cx + ux * halfLength * t + nx * halfWidth * side,
+    y,
+    cz + uz * halfLength * t + nz * halfWidth * side,
+  ];
+  for (let i = 0; i + 1 < VAULT.length; i++) {
+    const [t0, t1] = [VAULT[i]!, VAULT[i + 1]!];
+    mesh.quad(at(t0, -1), at(t1, -1), at(t1, 1), at(t0, 1), RAIL.canopy, UP);
+    for (const side of [-1, 1]) {
+      const hint: V3 = [nx * side, 0, nz * side];
+      mesh.triangle(at(0, side, CANOPY_EAVE), at(t0, side), at(t1, side), RAIL.canopyEnd, hint);
+      lines.segment(at(t0, side), at(t1, side));
+    }
+  }
+  for (const t of [-1, 1]) {
+    lines.segment(at(t, -1), at(t, 1));
+    for (const side of [-1, 1]) lines.segment(at(t, side, 0), at(t, side));
   }
 }

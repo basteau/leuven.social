@@ -42,6 +42,9 @@ const city: City = {
     },
   ],
   platforms: [box(S - 90, 154, 120, 6)],
+  railLand: [box(S - 100, 140, 200, 30)],
+  // A two-bay platform roof straddling the seam: each bay goes to the cell of its centre.
+  canopies: [box(S - 51, 150, 102, 12)],
   trees: new Float32Array([20, 300, S + 20, 300]),
   treeHeights: new Float32Array([9, 0]),
 };
@@ -71,6 +74,8 @@ test('the area is cut into cells, and each thing goes to one', () => {
   expect(west.masts.length + east.masts.length).toBe(3);
   expect(west.platforms).toHaveLength(1);
   expect(Math.min(...east.platforms[0]!.filter((_, i) => i % 2 === 0))).toBe(S);
+  expect([west.ground.railLand.length, east.ground.railLand.length]).toEqual([1, 1]);
+  expect([west.canopies.length, east.canopies.length]).toEqual([1, 1]);
 });
 
 test('a cell builds into one mesh and one set of outlines', () => {

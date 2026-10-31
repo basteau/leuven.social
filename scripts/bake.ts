@@ -15,6 +15,8 @@ import {
   clipRingToArea,
   joinRings,
   normalizeRing,
+  orientedRect,
+  pointInRing,
   ringInArea,
   signedArea,
   simplifyLine,
@@ -99,16 +101,18 @@ const GREEN_LANDUSE = new Set(['grass', 'meadow', 'cemetery', 'forest', 'recreat
 /** Courtyards smaller than this are light wells: below a game pixel, and not worth the walls. */
 const MIN_COURTYARD = 12;
 
-const [local, crowns, wbn, wtz, osmAreas, osmRoads, osmPoints, osmPlatforms] = await Promise.all([
-  read<{ buildings: LocalBuilding[] }>('data/derived/leuven_buildings_local.json'),
-  read<{ trees: [number, number, number][] }>('data/derived/lidar_trees.json'),
-  read<Collection>('data/grb/grb_WBN.geojson'),
-  read<Collection>('data/grb/grb_WTZ.geojson'),
-  read<Collection>('data/derived/osm_areas.geojson'),
-  read<Collection>('data/derived/osm_roads.geojson'),
-  read<Collection>('data/derived/osm_points.geojson'),
-  read<Overpass>('data/osm/raw_rail_platforms.json'),
-]);
+const [local, crowns, wbn, wtz, gba, osmAreas, osmRoads, osmPoints, osmPlatforms] =
+  await Promise.all([
+    read<{ buildings: LocalBuilding[] }>('data/derived/leuven_buildings_local.json'),
+    read<{ trees: [number, number, number][] }>('data/derived/lidar_trees.json'),
+    read<Collection>('data/grb/grb_WBN.geojson'),
+    read<Collection>('data/grb/grb_WTZ.geojson'),
+    read<Collection>('data/grb/grb_GBA.geojson'),
+    read<Collection>('data/derived/osm_areas.geojson'),
+    read<Collection>('data/derived/osm_roads.geojson'),
+    read<Collection>('data/derived/osm_points.geojson'),
+    read<Overpass>('data/osm/raw_rail_platforms.json'),
+  ]);
 
 const buildings: Building[] = [];
 for (const b of local.buildings) {
@@ -181,9 +185,41 @@ const platforms = osmPlatforms.elements
   .filter((ring) => ring.length >= 6)
   .map((ring) => new Float32Array(ring));
 
+const railLand = layer(osmAreas.features, (p) => p.landuse === 'railway');
+/**
+ * Platform roofs: GRB annexes surveyed as an `afdak` (canopy), big enough to span tracks and
+ * standing on railway land. In this area that is Leuven's wave roof, kept whole and unsimplified
+ * since only its oriented rectangle is drawn.
+ */
+const MIN_CANOPY = 2000;
+const canopies = gba.features
+  .filter((f) => f.properties.LBLTYPE === 'afdak')
+  .flatMap(areaRings)
+  .filter((ring) => Math.abs(signedArea(ring)) >= MIN_CANOPY)
+  .filter((ring) => {
+    const n = ring.length / 2;
+    const [x, z] = [0, 1].map(
+      (k) => ring.filter((_, i) => i % 2 === k).reduce((a, b) => a + b) / n,
+    );
+    return railLand.some((land) => pointInRing(land, x!, z!));
+  })
+  .map((ring) => new Float32Array(ring));
+
+// The LiDAR takes a platform roof's ribs and edges for crowns of its height. Mapped trees are
+// real, so only its crowns are dropped under and right beside a roof.
+const ROOF_MARGIN = 6;
+const roofs = canopies.map(orientedRect);
+const underRoof = (x: number, z: number) =>
+  roofs.some(({ cx, cz, ux, uz, halfLength, halfWidth }) => {
+    const [dx, dz] = [x - cx, z - cz];
+    return (
+      Math.abs(dx * ux + dz * uz) < halfLength + ROOF_MARGIN &&
+      Math.abs(dx * uz - dz * ux) < halfWidth + ROOF_MARGIN
+    );
+  });
 const trees = mergeTrees(
   osmTrees,
-  crowns.trees.filter(([x, z]) => areaIndex(AREA, x, z) >= 0),
+  crowns.trees.filter(([x, z]) => areaIndex(AREA, x, z) >= 0 && !underRoof(x, z)),
 );
 
 const city: City = {
@@ -211,6 +247,8 @@ const city: City = {
   paths,
   rails,
   platforms,
+  railLand,
+  canopies,
   trees: new Float32Array(trees.positions),
   treeHeights: new Float32Array(trees.heights),
 };
@@ -224,7 +262,7 @@ console.log(
     `buildings ${buildings.length} (hero ${tiers.hero?.length ?? 0}, core ${tiers.core?.length ?? 0})`,
     `roads ${city.roads.length}, plazas ${city.plazas.length}, green ${city.green.length}, water ${city.water.length}`,
     `paths ${paths.length} (${paths.filter((p) => !p.paved).length} unpaved)`,
-    `rails ${rails.length} (${rails.filter((r) => r.bridge).length} on bridges, ${rails.reduce((sum, r) => sum + r.line.length / 2 - 1, 0)} segments), platforms ${city.platforms.length}`,
+    `rails ${rails.length} (${rails.filter((r) => r.bridge).length} on bridges, ${rails.reduce((sum, r) => sum + r.line.length / 2 - 1, 0)} segments), platforms ${city.platforms.length}, railway land ${railLand.length}, platform roofs ${canopies.length}`,
     `trees ${trees.heights.length} (${osmTrees.length / 2} mapped), labels ${city.labels.length}`,
     `roofs ${buildings.filter((b) => b.roof === 'flat').length} flat, ${buildings.filter((b) => b.roofColor !== null).length} with a sampled colour, ${buildings.filter((b) => b.holes.length).length} with courtyards`,
     `public/data/city.bin ${(bytes.length / 1024).toFixed(0)} KB gzipped`,
