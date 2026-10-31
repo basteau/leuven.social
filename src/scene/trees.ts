@@ -25,9 +25,23 @@ function painted(geometry: BufferGeometry, hex: number): BufferGeometry {
   return flat;
 }
 
-/** One low-poly tree, instanced at every OSM tree: a single draw call for all of them. */
-export function createTrees(positions: Float32Array, material: Material): InstancedMesh {
-  const trunk = painted(new CylinderGeometry(0.3, 0.4, 3, 5).translate(0, 1.5, 0), TREE.trunk);
+/** Height of the model at scale 1, from the ground to the top of the crown (m). */
+const MODEL_HEIGHT = 7.2;
+
+/**
+ * One low-poly tree, instanced at every tree (OSM and the LiDAR canopy) and scaled to its
+ * surveyed height: a single draw call for all of them. The trunk is open-ended, since its
+ * caps are hidden under the crown and in the ground anyway.
+ */
+export function createTrees(
+  positions: Float32Array,
+  heights: Float32Array,
+  material: Material,
+): InstancedMesh {
+  const trunk = painted(
+    new CylinderGeometry(0.3, 0.4, 3, 5, 1, true).translate(0, 1.5, 0),
+    TREE.trunk,
+  );
   const crown = painted(new IcosahedronGeometry(2.6, 0).translate(0, 4.6, 0), TREE.crown);
   const geometry = mergeGeometries([trunk, crown]);
   trunk.dispose();
@@ -42,10 +56,11 @@ export function createTrees(positions: Float32Array, material: Material): Instan
   const up = new Vector3(0, 1, 0);
   const tint = new Color();
   for (let i = 0; i < count; i++) {
-    const scale = 0.8 + pick([0, 0.15, 0.3, 0.45], i);
+    // Tall trees spread less than they grow, so very tall ones get a little narrower.
+    const scale = Math.min(Math.max((heights[i] ?? MODEL_HEIGHT) / MODEL_HEIGHT, 0.7), 2.8);
     p.set(positions[i * 2]!, 0, positions[i * 2 + 1]!);
     q.setFromAxisAngle(up, (i * 2.399) % (Math.PI * 2));
-    s.setScalar(scale);
+    s.set(scale ** 0.8, scale, scale ** 0.8);
     trees.setMatrixAt(i, m.compose(p, q, s));
     // Instance colours multiply the whole tree, so they stay near white: light variety only.
     trees.setColorAt(i, tint.setHex(pick(TREE.tints, i)));

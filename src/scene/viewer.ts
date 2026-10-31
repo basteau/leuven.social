@@ -93,7 +93,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   buildings.castShadow = true;
   buildings.receiveShadow = true;
   const outlines = new LineSegments(blocks.outlines, new LineBasicMaterial({ color: OUTLINE }));
-  const trees = createTrees(city.trees, material);
+  const trees = createTrees(city.trees, city.treeHeights, material);
   scene.add(ground, buildings, outlines, trees);
 
   const { minX, minZ, maxX, maxZ } = city.bounds;
