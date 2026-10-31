@@ -1,0 +1,10 @@
+#!/bin/sh
+# Back pressure for history: every commit message follows Conventional Commits (see AGENTS.md).
+first_line=$(head -n 1 "$1")
+case "$first_line" in Merge\ *|Revert\ *|fixup!\ *|squash!\ *) exit 0 ;; esac
+if ! printf '%s' "$first_line" | grep -Eq '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9-]+\))?!?: [^ ].{0,71}$'; then
+  echo "Commit message must follow Conventional Commits, e.g. 'feat(scene): add window shader'." >&2
+  echo "Types: feat fix docs style refactor perf test build ci chore revert. Summary up to 72 chars." >&2
+  echo "Got: $first_line" >&2
+  exit 1
+fi

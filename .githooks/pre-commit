@@ -1,0 +1,3 @@
+#!/bin/sh
+# Back pressure: nothing is committed unless formatting, lint, types and tests pass.
+exec bun run verify:quick

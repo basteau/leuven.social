@@ -1,0 +1,8 @@
+# Vendored or generated content that bun fmt must leave untouched.
+# Anchored with a leading slash: an unanchored `data/` would also skip src/data/.
+/.agents/
+/research/
+/data/
+/tools/
+/public/data/
+bun.lock
