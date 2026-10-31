@@ -19,6 +19,8 @@ import {
   simplifyRing,
 } from '../src/data/geometry.ts';
 import { toLocal } from '../src/data/projection.ts';
+import { elementCentre, findElement, labelName } from '../src/data/labels.ts';
+import type { OsmElement } from '../src/data/labels.ts';
 import { EdgeIndex, RingIndex, placeProps } from '../src/data/props.ts';
 import { bridgeParapets, tankOutline } from '../src/data/structures.ts';
 import { mergeTrees } from '../src/data/trees.ts';
@@ -50,6 +52,8 @@ interface LocalBuilding {
   rgb?: [number, number, number] | null;
   kind: string;
   roof: string | null;
+  /** OSM's name for the building, joined by point (see tools/build_leuven_data.py). */
+  name?: string | null;
   tier: Tier;
   ring: [number, number][];
   holes?: [number, number][][];
@@ -188,6 +192,40 @@ const parapets = knw.structures
   .flatMap((line) => AREA.flatMap((rect) => clipLine(line, rect)))
   .map((line) => new Float32Array(line));
 
+// Labels: names and places read from the OSM element (or GRB footprint) each one refers to.
+const osmElements = (
+  await Promise.all(
+    [
+      ...new Bun.Glob('data/osm/raw_*.json').scanSync({
+        cwd: Bun.fileURLToPath(root),
+        followSymlinks: true,
+      }),
+    ]
+      .toSorted()
+      .map((path) => read<{ elements: OsmElement[] }>(path)),
+  )
+).flatMap((dump) => dump.elements);
+const labels = LANDMARKS.map((ref) => {
+  const minZoom = ref.minZoom ?? 0;
+  if ('grb' in ref) {
+    const b = local.buildings.find((building) => building.id === ref.grb);
+    if (!b?.name) throw new Error(`Label: GRB footprint ${ref.grb} has no OSM name.`);
+    const xs = b.ring.map(([x]) => x);
+    const zs = b.ring.map(([, z]) => z);
+    const [x, z] = [
+      (Math.min(...xs) + Math.max(...xs)) / 2,
+      (Math.min(...zs) + Math.max(...zs)) / 2,
+    ];
+    return { name: b.name, x, z, minZoom };
+  }
+  const element = findElement(ref, osmElements);
+  const name = element?.tags && labelName(element.tags);
+  const centre = element && elementCentre(element);
+  if (!name || !centre) throw new Error(`Label: no named OSM element for ${JSON.stringify(ref)}.`);
+  const [x, z] = toLocal(...centre);
+  return { name, x, z, minZoom };
+});
+
 const STRIP = 50; // sorted in strips, so neighbours are near each other and deltas stay small
 const props = placeProps(
   osmPoints.features.flatMap((f) => {
@@ -201,10 +239,7 @@ const props = placeProps(
 const city: City = {
   area: [...AREA],
   bounds: VIEW_AREA,
-  labels: LANDMARKS.map(({ name, lon, lat, minZoom = 0 }) => {
-    const [x, z] = toLocal(lon, lat);
-    return { name, x, z, minZoom };
-  }),
+  labels,
   buildings,
   roads,
   plazas,
@@ -237,6 +272,7 @@ console.log(
       .map(([kind, list]) => `${list!.length} ${kind}`)
       .join(', ')}`,
     `tanks ${tanks.length}, bridge parapets ${parapets.length}`,
+    `labels: ${labels.map((l) => l.name).join(', ')}`,
     `public/data/city.bin ${(bytes.length / 1024).toFixed(0)} KB gzipped`,
   ].join('\n'),
 );

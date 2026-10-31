@@ -21,18 +21,38 @@ OpenStreetMap (Overpass) ┘        (Python, via uv)       (GeoJSON, JSON)   (sc
 
 Prefer reading the world over guessing it. Each of these replaced a rule of thumb:
 
-| What                      | From                                                                                                                                                                                         | Where                                                                   |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| Pitched or flat roof      | OSM `roof:shape`, else the LiDAR: over 40% of the roof sloped 15–60° is pitched                                                                                                              | `roofFromSurvey` in `src/data/city.ts`                                  |
-| Roof rise and wall height | LiDAR p90 (ridge) minus p15 (eave), capped by the footprint's width                                                                                                                          | `planRoof` in `src/scene/buildings.ts`                                  |
-| Roof shape                | Gable on near-rectangles, else a hipped roof over the footprint's straight skeleton                                                                                                          | `src/data/skeleton.ts`                                                  |
-| Roof colour               | Median of the sunlit orthophoto pixels, snapped to the roof swatches                                                                                                                         | `roofColor` in `src/scene/palette.ts`                                   |
-| Courtyards                | GRB polygon holes                                                                                                                                                                            | walls and roofs in `src/scene/buildings.ts`                             |
-| Trees and their heights   | OSM's mapped trees plus LiDAR canopy crowns outside every building                                                                                                                           | `mergeTrees` in `src/data/trees.ts`                                     |
-| Paths                     | OSM footways, paths, cycleways, tracks and steps of their own, with width and surface                                                                                                        | `pathFromOsm` in `src/data/city.ts`                                     |
-| Bridge parapets           | GRB structures (KNW) of type bridge: the sides whose outside is water get a low stone wall                                                                                                   | `bridgeParapets` in `src/data/structures.ts`                            |
-| Tanks and silos           | GRB structures (KNW) of type silo/tank and chemical plant, at their LiDAR p90 height; under 2.5 m left out                                                                                   | `tankOutline` in `src/data/structures.ts`, `tools/build_leuven_data.py` |
-| Street furniture          | OSM lamps, benches, bike racks (and their capacity), bus stops (and shelters), statues, fountains, pumps; turned to face the nearest kerb, path or wall; none inside a building or the river | `propFromOsm`, `placeProps` in `src/data/props.ts`                      |
+| What                      | From                                                                                                                                                                                                                     | Where                                                                   |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
+| Pitched or flat roof      | OSM `roof:shape`, else the LiDAR: over 40% of the roof sloped 15–60° is pitched                                                                                                                                          | `roofFromSurvey` in `src/data/city.ts`                                  |
+| Roof rise and wall height | LiDAR p90 (ridge) minus p15 (eave), capped by the footprint's width                                                                                                                                                      | `planRoof` in `src/scene/buildings.ts`                                  |
+| Roof shape                | Gable on near-rectangles, else a hipped roof over the footprint's straight skeleton                                                                                                                                      | `src/data/skeleton.ts`                                                  |
+| Roof colour               | Median of the sunlit orthophoto pixels, snapped to the roof swatches                                                                                                                                                     | `roofColor` in `src/scene/palette.ts`                                   |
+| Courtyards                | GRB polygon holes                                                                                                                                                                                                        | walls and roofs in `src/scene/buildings.ts`                             |
+| Trees and their heights   | OSM's mapped trees plus LiDAR canopy crowns outside every building                                                                                                                                                       | `mergeTrees` in `src/data/trees.ts`                                     |
+| Paths                     | OSM footways, paths, cycleways, tracks and steps of their own, with width and surface                                                                                                                                    | `pathFromOsm` in `src/data/city.ts`                                     |
+| Bridge parapets           | GRB structures (KNW) of type bridge: the sides whose outside is water get a low stone wall                                                                                                                               | `bridgeParapets` in `src/data/structures.ts`                            |
+| Tanks and silos           | GRB structures (KNW) of type silo/tank and chemical plant, at their LiDAR p90 height; under 2.5 m left out                                                                                                               | `tankOutline` in `src/data/structures.ts`, `tools/build_leuven_data.py` |
+| Street furniture          | OSM lamps, benches, bike racks (and their capacity), bus stops (and shelters), statues, fountains, pumps; turned to face the nearest kerb, path or wall; none inside a building or the river                             | `propFromOsm`, `placeProps` in `src/data/props.ts`                      |
+| Labels                    | Which places get one is a list of ids (`LANDMARKS` in `src/data/area.ts`): a Wikidata id on an OSM element, an OSM element, or a GRB footprint. Name (OSM `short_name`, else `name`) and position come from that element | `src/data/labels.ts`, `scripts/bake.ts`                                 |
+
+### Sources for these layers
+
+All of them come from downloads the pipeline already makes ([data/README.md](../data/README.md) has the queries):
+
+- **GRB structures (`GRB:KNW`)**: GRB WFS `https://geo.api.vlaanderen.be/GRB/wfs`, `typeNames=GRB:KNW`, GeoJSON in EPSG:4326 over the raw extent (same paging as `GRB:GBG`, see [research/leuven-data-sources.md](../research/leuven-data-sources.md) §1). Licence: Modellicentie Gratis Hergebruik; credit "Bron: Grootschalig Referentie Bestand Vlaanderen, Digitaal Vlaanderen" (the HUD's "© Digitaal Vlaanderen").
+- **OSM points and their tags** (street furniture) and **every OSM element with its `wikidata` tag** (labels): the Overpass dumps `data/osm/raw_*.json`. ODbL; credit "© OpenStreetMap contributors" (the HUD's "© OpenStreetMap").
+
+### Made by hand
+
+Code, not data, each with its basis in a comment:
+
+| What                                                                   | Basis                                                                                               | Where                       |
+| ---------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- | --------------------------- |
+| Which places are labelled, their order and the zoom each shows from    | A choice of the landmarks, districts, parks and squares worth finding                               | `LANDMARKS` in `area.ts`    |
+| Low-poly models of each kind of street furniture, and their 1.3× scale | Typical Leuven lamps, benches, racks and De Lijn shelters; scaled up so they read at zoom 2–4       | `src/scene/props.ts`        |
+| The Totem's needle and beetle                                          | Jan Fabre's _Totem_ ([Q22446282](https://www.wikidata.org/wiki/Q22446282)); height from its OSM tag | `needle` in `props.ts`      |
+| Bike racks 80% full, 6 stands where OSM has no capacity                | What Leuven's racks look like on a weekday                                                          | `props.ts` (data and scene) |
+| Parapets 1.1 m tall, tanks under 2.5 m left out                        | A typical bridge parapet; tanks built after the 2013–15 LiDAR read as nothing                       | `structures.ts`, `bake.ts`  |
 
 ## Coordinates
 
@@ -51,7 +71,7 @@ Prefer reading the world over guessing it. Each of these replaced a rule of thum
 
 ## Growing the map
 
-1. Change `AREA` in `src/data/area.ts`, and `LANDMARKS` if you want new labels (with the zoom each shows from).
+1. Change `AREA` in `src/data/area.ts`, and `LANDMARKS` if you want new labels: add the place's Wikidata id (as tagged in OSM), with the zoom it shows from.
 2. Run `bun run bake`, then `bun run verify`. The budgets tell you when the city got too heavy.
 
 The raw extent covers lat 50.857–50.892, lon 4.676–4.722; the area already reaches its east edge at the Abdij van Park. Growing past it means downloading more data first.

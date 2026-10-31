@@ -105,7 +105,7 @@ Tokens are oklch, in `src/app/app.css`:
 
 - Small ink-bordered tags anchored above landmarks.
 - Their order in `LANDMARKS` is their priority: a label that would overlap an earlier one, or cross the screen edge, is hidden.
-- Each shows from its own zoom. Landmarks, districts and the big parks show from the start, so the far view can be read across the whole map; churches and squares from zoom 1.5–2, small sights (the Totem) only up close.
+- Names and places come from OpenStreetMap; `LANDMARKS` only lists ids. Each shows from its own zoom. Landmarks and the big parks and sites show from the start, so the far view can be read across the whole map; churches and squares from zoom 1.5–2, small sights (the Totem) only up close.
 - They're decorative: the map has a text description for screen readers.
 
 ### Keyboard
