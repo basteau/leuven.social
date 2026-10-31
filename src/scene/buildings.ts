@@ -180,7 +180,8 @@ type At = (u: number, v: number, y: number) => V3;
 
 /**
  * A stepped gable at u = `end`: a thin wall whose steps climb above the roof slopes, so it
- * reads from the street side and from behind. Replaces the plain gable triangle.
+ * reads from the street side and from behind. Replaces the plain gable triangle. Only its two
+ * faces: treads and risers are a third of a metre, less than a game pixel.
  */
 function steppedGable(
   mesh: MeshBuilder,
@@ -204,11 +205,6 @@ function steppedGable(
       const q1 = side * W * (1 - (i + 1) / steps);
       // Each step stands a little proud of the roof line at its inner edge.
       const top = eave + rise * (i + 1.35);
-      const sideways: V3 = [
-        (at(0, 1, 0)[0] - at(0, 0, 0)[0]) * side,
-        0,
-        (at(0, 1, 0)[2] - at(0, 0, 0)[2]) * side,
-      ];
       mesh.quad(
         at(end, q0, eave),
         at(end, q1, eave),
@@ -225,22 +221,6 @@ function steppedGable(
         wall,
         inward,
       );
-      mesh.quad(
-        at(end, q0, top),
-        at(end, q1, top),
-        at(back, q1, top),
-        at(back, q0, top),
-        wall,
-        [0, 1, 0],
-      );
-      mesh.quad(
-        at(end, q0, below),
-        at(back, q0, below),
-        at(back, q0, top),
-        at(end, q0, top),
-        wall,
-        sideways,
-      );
       lines.segment(at(end, q0, below), at(end, q0, top));
       lines.segment(at(end, q0, top), at(end, q1, top));
       below = top;
@@ -251,6 +231,50 @@ function steppedGable(
 /** Wall corners sharper than this get a vertical outline; gentler bends in curved walls don't. */
 const CREASE = Math.cos((35 * Math.PI) / 180);
 
+const plans = new WeakMap<Building, RoofPlan>();
+/** The roof a building gets; a landmark's footprint is a flat base under its parts. */
+function planOf(b: Building): RoofPlan {
+  let plan = plans.get(b);
+  if (!plan) {
+    const landmark = LANDMARK_MODELS.get(b.id);
+    plan = landmark ? { type: 'flat', eave: landmark.base } : planRoof(b);
+    plans.set(b, plan);
+  }
+  return plan;
+}
+
+/** The rings a building's walls stand on: a hipped roof was fitted to a simplified footprint. */
+function wallRings(b: Building, plan: RoofPlan): readonly ArrayLike<number>[] {
+  return plan.type === 'hip' ? [plan.ring, ...plan.holes] : [b.ring, ...b.holes];
+}
+
+/** Walls keyed by their two end points in decimetres, the precision the city file keeps. */
+const wallKey = (ax: number, az: number, bx: number, bz: number) =>
+  `${Math.round(ax * 10)},${Math.round(az * 10)},${Math.round(bx * 10)},${Math.round(bz * 10)}`;
+
+/**
+ * Party walls: for every footprint edge, the wall-top height of the building on its other side.
+ * Row houses share most of their walls, and a wall between two houses is never seen below the
+ * lower of the two, so `addBuilding` only draws what rises above its neighbour.
+ */
+export type PartyWalls = ReadonlyMap<string, number>;
+
+export function partyWalls(buildings: readonly Building[]): PartyWalls {
+  const walls = new Map<string, number>();
+  for (const b of buildings) {
+    const plan = planOf(b);
+    for (const ring of wallRings(b, plan)) {
+      const n = ring.length / 2;
+      for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n;
+        const key = wallKey(ring[i * 2]!, ring[i * 2 + 1]!, ring[j * 2]!, ring[j * 2 + 1]!);
+        walls.set(key, plan.eave);
+      }
+    }
+  }
+  return walls;
+}
+
 /** Walls along one ring: outer rings counter-clockwise, courtyards clockwise, so both face out. */
 function addWalls(
   mesh: MeshBuilder,
@@ -259,6 +283,7 @@ function addWalls(
   top: number,
   wall: number,
   facade: number,
+  walls: PartyWalls,
 ): void {
   const n = ring.length / 2;
   for (let i = 0; i < n; i++) {
@@ -268,10 +293,23 @@ function addWalls(
     const bz = ring[((i + 1) % n) * 2 + 1]!;
     // Counter-clockwise ring: the outward normal of edge a→b is (dz, -dx).
     const hint: V3 = [bz - az, 0, -(bx - ax)];
-    mesh.quad([ax, 0, az], [bx, 0, bz], [bx, top, bz], [ax, top, az], wall, hint, facade);
+    // The neighbour across this edge walks it the other way round.
+    const neighbour = walls.get(wallKey(bx, bz, ax, az));
+    const bottom = Math.min(neighbour ?? 0, top);
+    if (bottom < top) {
+      mesh.quad(
+        [ax, bottom, az],
+        [bx, bottom, bz],
+        [bx, top, bz],
+        [ax, top, az],
+        wall,
+        hint,
+        facade,
+      );
+    }
 
     // Outlines straight from the footprint: base, wall top, and the corners that are real creases.
-    lines.segment([ax, 0, az], [bx, 0, bz]);
+    if (neighbour === undefined) lines.segment([ax, 0, az], [bx, 0, bz]);
     lines.segment([ax, top, az], [bx, top, bz]);
     const px = ring[((i + n - 1) % n) * 2]!;
     const pz = ring[((i + n - 1) % n) * 2 + 1]!;
@@ -284,18 +322,22 @@ function addWalls(
 const toVectors = (ring: ArrayLike<number>) =>
   Array.from({ length: ring.length / 2 }, (_, i) => new Vector2(ring[i * 2]!, ring[i * 2 + 1]!));
 
-function addBuilding(mesh: MeshBuilder, lines: LineBuilder, b: Building): void {
+export function addBuilding(
+  mesh: MeshBuilder,
+  lines: LineBuilder,
+  b: Building,
+  walls: PartyWalls = new Map(),
+): void {
   // A hero landmark extrudes its footprint to a low base and builds its real shape on top.
   const landmark = LANDMARK_MODELS.get(b.id);
-  const plan: RoofPlan = landmark ? { type: 'flat', eave: landmark.base } : planRoof(b);
+  const plan = planOf(b);
   const wall = landmark?.wall ?? pick(WALLS[b.kind], b.id);
-  // A hipped roof was fitted to the simplified footprint, so its walls follow that one.
-  const [ring, holes] = plan.type === 'hip' ? [plan.ring, plan.holes] : [b.ring, b.holes];
+  const [ring, ...holes] = wallRings(b, plan) as [ArrayLike<number>, ...ArrayLike<number>[]];
 
   const top = plan.eave;
   const windowless = landmark ? !landmark.windows : WINDOWLESS.has(b.kind);
   const facade = windowless ? 0 : top;
-  for (const r of [ring, ...holes]) addWalls(mesh, lines, r, top, wall, facade);
+  for (const r of [ring, ...holes]) addWalls(mesh, lines, r, top, wall, facade, walls);
 
   if (plan.type === 'hip') {
     hipRoof(mesh, lines, plan, b);
@@ -355,7 +397,8 @@ export function buildingsGeometry(
 } {
   const mesh = new MeshBuilder();
   const lines = new LineBuilder();
-  for (const b of buildings) addBuilding(mesh, lines, b);
+  const walls = partyWalls(buildings);
+  for (const b of buildings) addBuilding(mesh, lines, b, walls);
   for (const p of parasols) addParasol(mesh, lines, p);
   return { surfaces: mesh.build({ facade: true }), outlines: lines.build() };
 }

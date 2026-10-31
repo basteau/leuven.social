@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 
+import { LANDMARK_FOOTPRINTS } from '../data/area.ts';
 import { unpackCity } from '../data/format.ts';
 import { orientedRect } from '../data/geometry.ts';
 import { LANDMARK_MODELS } from './landmark-models.ts';
@@ -9,6 +10,8 @@ import { LANDMARK_MODELS } from './landmark-models.ts';
 test('every landmark model sits on a hero building in public/data/city.bin', async () => {
   const response = await fetch(new URL('../../public/data/city.bin', import.meta.url));
   const city = await unpackCity(new Uint8Array(await response.arrayBuffer()));
+  // The bake keeps exactly these footprints whole: the list in area.ts must match the models.
+  expect([...LANDMARK_MODELS.keys()].toSorted()).toEqual([...LANDMARK_FOOTPRINTS].toSorted());
   for (const [id, model] of LANDMARK_MODELS) {
     const building = city.buildings.find((b) => b.id === id);
     expect(building?.tier).toBe('hero');

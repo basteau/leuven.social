@@ -1,10 +1,16 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
+  areaIndex,
+  areaOutline,
+  boundsOf,
+  clampToArea,
   clipRing,
+  clipRingToArea,
   normalizeRing,
   orientedRect,
   pointInRing,
+  ringInArea,
   ringInside,
   signedArea,
   simplifyRing,
@@ -72,10 +78,51 @@ test('pointInRing works for concave rings', () => {
   expect(pointInRing(ell, -1, 1)).toBe(false);
 });
 
-test('simplifyRing drops kinks and doubled points but keeps corners', () => {
-  const ring = [0, 0, 5, 0.05, 10, 0, 10, 0, 10, 10, 0, 10];
-  expect(simplifyRing(ring, 0.2)).toEqual([0, 0, 10, 0, 10, 10, 0, 10]);
-  expect(simplifyRing([0, 0, 1, 0, 0, 1], 5)).toHaveLength(6);
+describe('areas of abutting rectangles', () => {
+  // An L: a 100 m square with a 50 × 50 m square under its left half.
+  const area = [
+    { minX: 0, minZ: 0, maxX: 100, maxZ: 100 },
+    { minX: 0, minZ: 100, maxX: 50, maxZ: 150 },
+  ];
+
+  test('bounds, membership and clamping', () => {
+    expect(boundsOf(area)).toEqual({ minX: 0, minZ: 0, maxX: 100, maxZ: 150 });
+    expect(areaIndex(area, 10, 120)).toBe(1);
+    expect(areaIndex(area, 80, 120)).toBe(-1);
+    expect(ringInArea([10, 90, 40, 90, 40, 140, 10, 140], area)).toBe(true);
+    expect(ringInArea([60, 90, 80, 90, 80, 120, 60, 120], area)).toBe(false);
+    expect(clampToArea(area, 80, 140)).toEqual([50, 140]);
+    expect(clampToArea(area, 120, 20)).toEqual([100, 20]);
+    expect(clampToArea(area, -20, 125)).toEqual([0, 125]);
+  });
+
+  test('a ring across the seam is clipped into one piece per rectangle', () => {
+    const pieces = clipRingToArea([10, 80, 90, 80, 90, 140, 10, 140], area);
+    expect(pieces.map((p) => Math.abs(signedArea(p))).toSorted((a, b) => a - b)).toEqual([
+      1600, 1600,
+    ]);
+  });
+
+  test('the outline leaves out the stretch the two rectangles share', () => {
+    const edges = areaOutline(area);
+    expect(edges).toHaveLength(7);
+    const length = edges.reduce((sum, e) => sum + Math.hypot(e.x1 - e.x0, e.z1 - e.z0), 0);
+    expect(length).toBe(500);
+    // The open half of the big square's bottom side faces south (+z).
+    expect(edges).toContainEqual({ x0: 50, z0: 100, x1: 100, z1: 100, nx: 0, nz: 1 });
+  });
+});
+
+describe('simplifyRing', () => {
+  test('drops near-collinear vertices and keeps real corners', () => {
+    const wobbly = [0, 0, 5, 0.05, 10, 0, 10, 10, 5, 10.1, 0, 10];
+    expect(simplifyRing(wobbly, 0.2)).toEqual([0, 0, 10, 0, 10, 10, 0, 10]);
+    expect(simplifyRing(wobbly, 0)).toEqual(wobbly);
+  });
+
+  test('never collapses below a triangle', () => {
+    expect(simplifyRing([0, 0, 10, 0.01, 20, 0, 10, 0.02], 1).length).toBeGreaterThanOrEqual(6);
+  });
 });
 
 test('clipLine keeps the parts of a line inside the area, split where it leaves', () => {

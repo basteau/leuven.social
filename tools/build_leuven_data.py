@@ -255,9 +255,11 @@ json.dump({'origin_lonlat': ORIGIN, 'units': 'm', 'axes': 'x=east, z=south (thre
            'hero_zones': {n: [round((lo - ORIGIN[0]) * kx), round(-(la - ORIGIN[1]) * kz), r] for n, (lo, la, r) in HERO_ZONES.items()},
            'buildings': local}, open(OUT / 'leuven_buildings_local.json', 'w'), separators=(',', ':'))
 # --- Trees from the LiDAR canopy: local maxima of what stands tall outside every building -------------------------
-def lidar_trees(min_height=4.0, max_height=35.0):
-    """Crown tops: pixels that are the highest within 3 m, at least 4 m tall and off any building.
-    A crown claims room in proportion to its height, so one big tree isn't counted three times."""
+def lidar_trees(min_height=10.0, max_height=35.0):
+    """Crown tops: pixels that are the highest within 3 m, at least 10 m tall and off any building.
+    A crown claims about the room the viewer's tree of that height fills (src/scene/trees.ts: crown
+    radius 2.6 m x 1.2 x (h / 6.8)^0.8), so a canopy reads closed with as few trees as possible:
+    each costs 28 triangles, twice over in the shadow pass."""
     canopy = np.where(built | np.isnan(ndsm), 0, ndsm)
     canopy[canopy > max_height] = 0  # cranes, masts and LiDAR noise
     r = 3
@@ -276,7 +278,7 @@ def lidar_trees(min_height=4.0, max_height=35.0):
     for k in order:
         r_, c_ = int(rows[k]), int(cols[k])
         h = float(canopy[r_, c_])
-        room = max(3.0, 0.22 * h)
+        room = max(6.0, 2.1 * 2.6 * (h / 6.8) ** 0.8)
         cell = (r_ // 8, c_ // 8)
         clash = any(math.hypot(r_ - r2, c_ - c2) * RES < max(room, room2)
                     for dy in (-1, 0, 1) for dx in (-1, 0, 1) for r2, c2, room2 in grid.get((cell[0] + dy, cell[1] + dx), ()))

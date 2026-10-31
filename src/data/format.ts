@@ -1,7 +1,8 @@
 /**
  * The compact binary city format ("LVN1"), served gzipped from public/data/.
  *
- * Layout: magic "LVN1", version, bounds, labels, buildings, four polygon layers, trees.
+ * Layout: magic "LVN1", version, area rectangles, labels, buildings, four polygon layers, paths,
+ * trees.
  * Coordinates are decimetres, zigzag varints, delta-encoded within each ring.
  * A building packs tier (2 bits), kind (4 bits) and roof (2 bits) into one byte, then its
  * height, roof rise and roof colour (0 = none, else 0xRRGGBB + 1), outer ring and courtyards.
@@ -13,10 +14,11 @@ import * as Binary from '@portable/binary';
 import * as Compress from '@portable/compress';
 
 import { KINDS, ROOFS, TIERS } from './city.ts';
-import type { Building, City } from './city.ts';
+import type { Bounds, Building, City } from './city.ts';
+import { boundsOf } from './geometry.ts';
 
 const MAGIC = 'LVN1';
-const VERSION = 3;
+const VERSION = 4;
 const DM = 10; // units per metre
 const ZIGZAG = { encoding: 'zigzag' } as const;
 /** Refuse anything larger after decompression: the whole city must stay small. */
@@ -63,8 +65,10 @@ export function encodeCity(city: City): Uint8Array {
   const w = Binary.createWriter();
   w.string(MAGIC);
   w.varint(VERSION);
-  const { minX, minZ, maxX, maxZ } = city.bounds;
-  for (const v of [minX, minZ, maxX, maxZ]) w.varint(Math.round(v * DM), ZIGZAG);
+  w.varint(city.area.length);
+  for (const { minX, minZ, maxX, maxZ } of city.area) {
+    for (const v of [minX, minZ, maxX, maxZ]) w.varint(Math.round(v * DM), ZIGZAG);
+  }
 
   w.varint(city.labels.length);
   for (const label of city.labels) {
@@ -107,12 +111,16 @@ export function decodeCity(bytes: Uint8Array): City {
   if (bytes.length < 4 || r.string(4) !== MAGIC) throw new CityFormatError('Not a city file.');
   const version = r.varint();
   if (version !== VERSION) throw new CityFormatError(`Unsupported city format v${version}.`);
-  const [minX, minZ, maxX, maxZ] = [0, 0, 0, 0].map(() => r.varint(ZIGZAG) / DM) as [
-    number,
-    number,
-    number,
-    number,
-  ];
+  const area = Array.from({ length: r.varint() }, (): Bounds => {
+    const [minX, minZ, maxX, maxZ] = [0, 0, 0, 0].map(() => r.varint(ZIGZAG) / DM) as [
+      number,
+      number,
+      number,
+      number,
+    ];
+    return { minX, minZ, maxX, maxZ };
+  });
+  if (area.length === 0) throw new CityFormatError('The city covers no area.');
 
   const labels = Array.from({ length: r.varint() }, () => {
     const name = r.string(r.varint());
@@ -157,7 +165,8 @@ export function decodeCity(bytes: Uint8Array): City {
   const treeHeights = Float32Array.from({ length: trees.length / 2 }, () => r.varint() / DM);
   if (r.remaining !== 0) throw new CityFormatError(`${r.remaining} trailing bytes.`);
   return {
-    bounds: { minX, minZ, maxX, maxZ },
+    area,
+    bounds: boundsOf(area),
     labels,
     buildings,
     roads,

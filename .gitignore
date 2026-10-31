@@ -1,15 +1,24 @@
+# Dependencies and build output
 node_modules/
 dist/
+
+# Local artefacts: smoke-test and review screenshots, OS and editor noise
+.artifacts/
 .DS_Store
 *.log
 
-# Raw and intermediate geodata (231 MB). Rebuild with tools/ and research/ docs; the app only needs public/data/.
+# Raw and intermediate geodata (~230 MB): rebuild with tools/ (see data/README.md).
+# The app only needs public/data/city.bin, which is tracked.
 data/grb/
 data/elevation/
 data/osm/raw_*.json
 data/ortho/
 data/derived/*.geojson
 data/derived/*.json
-research/slop-newyork/repo/
-.artifacts/
 data/derived/*.png
+
+# Third-party research material we have no licence to republish
+research/slop-newyork/
+
+# Claude Code worktrees for parallel sessions
+.claude/worktrees/

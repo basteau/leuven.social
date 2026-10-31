@@ -12,7 +12,8 @@ const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[
   { label: 'App shell JS (React + HUD)', pattern: 'assets/index-*.js', limit: 90 * KB, gzip: true },
   { label: '3D engine JS (three.js)', pattern: 'assets/viewer-*.js', limit: 170 * KB, gzip: true },
   { label: 'CSS', pattern: 'assets/*.css', limit: 6 * KB, gzip: true },
-  { label: 'City data (already gzipped)', pattern: 'data/city.bin', limit: 300 * KB, gzip: false },
+  // The whole R23 ring plus Heverlee; the ceiling agreed for the city data is 1 MB.
+  { label: 'City data (already gzipped)', pattern: 'data/city.bin', limit: 1024 * KB, gzip: false },
   { label: 'All JS', pattern: 'assets/*.js', limit: 250 * KB, gzip: true },
 ];
 

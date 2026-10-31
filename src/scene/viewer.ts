@@ -1,12 +1,14 @@
 import {
   BasicShadowMap,
+  Box3,
   DataTexture,
   DirectionalLight,
+  Frustum,
   HemisphereLight,
   LineBasicMaterial,
   LineSegments,
+  Matrix4,
   Mesh,
-  MeshToonMaterial,
   NearestFilter,
   OrthographicCamera,
   RedFormat,
@@ -19,12 +21,24 @@ import type { BufferGeometry, Material, Object3D } from 'three';
 import { MapControls } from 'three/addons/controls/MapControls.js';
 
 import type { City } from '../data/city.ts';
-import { buildingsGeometry } from './buildings.ts';
+import { clampToArea } from '../data/geometry.ts';
+import { partyWalls } from './buildings.ts';
+import { buildCell, partition } from './cells.ts';
+import type { Cell } from './cells.ts';
 import { createFacadeMaterial } from './facade-material.ts';
-import { groundGeometry } from './ground.ts';
+import { SLAB_DEPTH } from './ground.ts';
+import type { V3 } from './mesh-builder.ts';
 import { BOUNCE_LIGHT, OUTLINE, SKY_LIGHT, SUN } from './palette.ts';
+import {
+  depthRange,
+  fitShadow,
+  lightFrame,
+  shadowCovers,
+  shadowNeeds,
+  shadowPoint,
+} from './shadow-fit.ts';
+import type { ShadowSquare } from './shadow-fit.ts';
 import { terraceParasols } from './terraces.ts';
-import { createTrees } from './trees.ts';
 
 export interface ViewerOptions {
   canvas: HTMLCanvasElement;
@@ -60,6 +74,32 @@ const PITCH = Math.atan(1 / Math.SQRT2); // true isometric, ≈ 35.26°
 const CAMERA_DISTANCE = 2000;
 const ROTATE_MS = 280;
 const LABEL_HEIGHT = 28;
+interface CellEntry {
+  cell: Cell;
+  box: Box3;
+  /** Its mesh and outlines once built; empty until then. */
+  objects: Object3D[];
+}
+
+/** Golden hour from the south-west, low enough for long shadows. */
+const SUN_DIRECTION: V3 = [-0.55, 0.62, 0.56];
+const SHADOW_MAP = 2048;
+/** Tallest thing in the city (m), and the margin kept around the view for tall roofs. */
+const MAX_HEIGHT = 90;
+const SHADOW_REACH = 60;
+/** Layer masks: the view draws layer 0, the shadow pass layer 1 (see `cull`). */
+const VIEW_LAYER = 1 << 0;
+const SHADOW_LAYER = 1 << 1;
+/** Time the idle builder may take per slice before handing the main thread back (ms). */
+const IDLE_SLICE_MS = 8;
+
+/** requestIdleCallback where there is one (not in Safari), else the next frame or so. */
+const idle = (run: () => void) =>
+  'requestIdleCallback' in globalThis
+    ? requestIdleCallback(run, { timeout: 500 })
+    : (setTimeout(run, 16) as unknown as number);
+const cancelIdle = (handle: number) =>
+  'cancelIdleCallback' in globalThis ? cancelIdleCallback(handle) : clearTimeout(handle);
 
 function toonGradient(): DataTexture {
   const steps = new Uint8Array([150, 210, 255]);
@@ -84,40 +124,61 @@ export function createViewer(options: ViewerOptions): Viewer {
 
   const scene = new Scene();
   const gradientMap = toonGradient();
-  const material = new MeshToonMaterial({ vertexColors: true, gradientMap });
+  // One material for every cell: ground and trees carry no facade, so they get no windows.
+  const material = createFacadeMaterial(gradientMap);
+  const ink = new LineBasicMaterial({ color: OUTLINE });
 
-  const ground = new Mesh(groundGeometry(city), material);
-  ground.receiveShadow = true;
-  const blocks = buildingsGeometry(city.buildings, terraceParasols(city));
-  const buildings = new Mesh(blocks.surfaces, createFacadeMaterial(gradientMap));
-  buildings.castShadow = true;
-  buildings.receiveShadow = true;
-  const outlines = new LineSegments(blocks.outlines, new LineBasicMaterial({ color: OUTLINE }));
-  const trees = createTrees(city.trees, city.treeHeights, material);
-  scene.add(ground, buildings, outlines, trees);
+  // Cells are built when they first come into view, and the rest while the page is idle, so
+  // the first frame costs what the visible part of the city costs.
+  const walls = partyWalls(city.buildings);
+  const cells: CellEntry[] = partition(city, terraceParasols(city)).map((cell) => ({
+    cell,
+    // Until it's built, a guess: buildings belong to the cell of their first corner and can
+    // overhang it a little.
+    box: new Box3(
+      new Vector3(cell.bounds.minX - 60, -SLAB_DEPTH, cell.bounds.minZ - 60),
+      new Vector3(cell.bounds.maxX + 60, MAX_HEIGHT, cell.bounds.maxZ + 60),
+    ),
+    objects: [],
+  }));
 
-  const { minX, minZ, maxX, maxZ } = city.bounds;
-  const center = new Vector3((minX + maxX) / 2, 0, (minZ + maxZ) / 2);
-  const span = Math.max(maxX - minX, maxZ - minZ);
+  function build(entry: CellEntry): void {
+    const { mesh, lines } = buildCell(entry.cell, city.area, walls);
+    const surfaces = new Mesh(mesh.build({ facade: true }), material);
+    surfaces.castShadow = true;
+    surfaces.receiveShadow = true;
+    const outlines = new LineSegments(lines.build(), ink);
+    // Cells are culled by their boxes below: three's bounding spheres are far looser.
+    entry.objects = [surfaces, outlines];
+    surfaces.geometry.computeBoundingBox();
+    entry.box.copy(surfaces.geometry.boundingBox!);
+    for (const object of entry.objects) object.frustumCulled = false;
+    scene.add(surfaces, outlines);
+  }
 
   scene.add(new HemisphereLight(SKY_LIGHT, BOUNCE_LIGHT, 1.3));
   const sun = new DirectionalLight(SUN, 2.2);
-  // Golden hour from the south-west, low enough for long shadows.
-  sun.position.copy(center).add(new Vector3(-0.55, 0.62, 0.56).multiplyScalar(span));
-  sun.target.position.copy(center);
+  const light = lightFrame(SUN_DIRECTION);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.mapSize.set(SHADOW_MAP, SHADOW_MAP);
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.6;
-  Object.assign(sun.shadow.camera, {
-    left: -span * 0.65,
-    right: span * 0.65,
-    top: span * 0.65,
-    bottom: -span * 0.65,
-    near: 1,
-    far: span * 3,
-  });
+  sun.shadow.camera.layers.set(1);
   scene.add(sun, sun.target);
+  // The shadow camera's depth spans the whole area, from the slab's underside to the rooftops.
+  const [nearest, farthest] = depthRange(
+    light,
+    city.area.flatMap((a) =>
+      [-SLAB_DEPTH, MAX_HEIGHT].flatMap((y): V3[] => [
+        [a.minX, y, a.minZ],
+        [a.maxX, y, a.minZ],
+        [a.minX, y, a.maxZ],
+        [a.maxX, y, a.maxZ],
+      ]),
+    ),
+  );
+  let shadow: ShadowSquare | undefined;
+  const shadowFrustum = new Frustum();
 
   const camera = new OrthographicCamera(-1, 1, 1, -1, 1, CAMERA_DISTANCE * 2);
   const controls = new MapControls(camera, canvas);
@@ -125,7 +186,6 @@ export function createViewer(options: ViewerOptions): Viewer {
   controls.enableDamping = false;
   controls.zoomToCursor = true;
   controls.minZoom = 0.5;
-  // Past 4× the 2048² shadow map shows its texels; a bigger map would cost memory everywhere.
   controls.maxZoom = 4;
   controls.cursorStyle = 'grab';
   controls.listenToKeyEvents(keyTarget); // arrow keys pan while the map has focus
@@ -183,6 +243,92 @@ export function createViewer(options: ViewerOptions): Viewer {
     invalidate();
   }
 
+  const frustum = new Frustum();
+  const viewProjection = new Matrix4();
+  const corner = new Vector3();
+  const forward = new Vector3();
+  /** Builds any cell the camera can see, and fits the shadow map to the view. */
+  function prepare(): void {
+    viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    frustum.setFromProjectionMatrix(viewProjection);
+    for (const entry of cells) {
+      if (!entry.objects.length && frustum.intersectsBox(entry.box)) build(entry);
+    }
+
+    // The ground under the screen's corners, as far as shadows can reach into the view.
+    camera.getWorldDirection(forward);
+    const ground = [
+      [-1, -1],
+      [1, -1],
+      [1, 1],
+      [-1, 1],
+    ].map(([x, y]): V3 => {
+      corner.set(x!, y!, -1).unproject(camera);
+      corner.addScaledVector(forward, -corner.y / forward.y);
+      return [corner.x, 0, corner.z];
+    });
+    const need = shadowNeeds(light, ground);
+    need.half += SHADOW_REACH;
+    if (shadow && shadowCovers(shadow, need)) return;
+    shadow = fitShadow(need, SHADOW_MAP);
+    sun.position.set(...shadowPoint(light, shadow.x, shadow.y, farthest + 10));
+    sun.target.position.set(...shadowPoint(light, shadow.x, shadow.y, 0));
+    sun.target.updateMatrixWorld();
+    Object.assign(sun.shadow.camera, {
+      left: -shadow.half,
+      right: shadow.half,
+      top: shadow.half,
+      bottom: -shadow.half,
+      near: 1,
+      far: farthest - nearest + 20,
+    });
+    sun.shadow.camera.updateProjectionMatrix();
+    // The shadow camera's own frustum decides what casts into the square.
+    sun.updateMatrixWorld();
+    sun.target.updateMatrixWorld();
+    sun.shadow.updateMatrices(sun);
+    shadowFrustum.copy(sun.shadow.getFrustum());
+    // Everything that can cast into the square has to exist before its one shadow pass.
+    for (const entry of cells) {
+      if (!entry.objects.length && shadowFrustum.intersectsBox(entry.box)) build(entry);
+    }
+    renderer.shadowMap.needsUpdate = true;
+  }
+
+  /**
+   * Shows only the cells in view. On a frame that redraws the shadow map, the cells that cast
+   * into it join the shadow camera's layer, so the shadow pass draws them and the view doesn't.
+   */
+  function cull(): void {
+    const shadowPass = renderer.shadowMap.needsUpdate;
+    for (const { box, objects } of cells) {
+      const [surfaces, outlines] = objects;
+      if (!surfaces || !outlines) continue;
+      const inView = frustum.intersectsBox(box);
+      const casts = shadowPass && shadowFrustum.intersectsBox(box);
+      surfaces.layers.mask = (inView ? VIEW_LAYER : 0) | (casts ? SHADOW_LAYER : 0);
+      surfaces.visible = inView || casts;
+      outlines.visible = inView;
+    }
+  }
+
+  // Everything else is built in small slices while the page has nothing better to do.
+  let idleHandle = 0;
+  function buildInBackground(): void {
+    idleHandle = 0;
+    const t = controls.target;
+    const waiting = cells
+      .filter((entry) => !entry.objects.length)
+      .toSorted((a, b) => a.box.distanceToPoint(t) - b.box.distanceToPoint(t));
+    const start = performance.now();
+    for (const entry of waiting) {
+      if (performance.now() - start > IDLE_SLICE_MS) break;
+      build(entry);
+    }
+    invalidate();
+    if (cells.some((entry) => !entry.objects.length)) idleHandle = idle(buildInBackground);
+  }
+
   const right = new Vector3();
   const up = new Vector3();
   const saved = new Vector3();
@@ -202,7 +348,17 @@ export function createViewer(options: ViewerOptions): Viewer {
         .addScaledVector(up, Math.round(u / unit) * unit - u);
     }
     camera.updateMatrixWorld();
+    prepare();
+    cull();
+    const shadowPass = renderer.shadowMap.needsUpdate;
     renderer.render(scene, camera);
+    // The cost of this very frame, for the smoke test and anyone debugging. Frames that redraw
+    // the static shadow map (on load, and when the view leaves its square) cost more.
+    Object.assign(canvas.dataset, {
+      drawCalls: renderer.info.render.calls,
+      triangles: renderer.info.render.triangles,
+      shadowPass,
+    });
 
     placed.length = 0;
     for (const { el, w, h, world } of labels) {
@@ -238,8 +394,7 @@ export function createViewer(options: ViewerOptions): Viewer {
 
   function clampTarget(): void {
     const t = controls.target;
-    const cx = Math.min(Math.max(t.x, minX), maxX);
-    const cz = Math.min(Math.max(t.z, minZ), maxZ);
+    const [cx, cz] = clampToArea(city.area, t.x, t.z);
     if (cx !== t.x || cz !== t.z) {
       camera.position.x += cx - t.x;
       camera.position.z += cz - t.z;
@@ -318,6 +473,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   resetView();
   renderer.shadowMap.needsUpdate = true;
   renderNow();
+  idleHandle = idle(buildInBackground);
 
   return {
     rotate,
@@ -335,6 +491,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     dispose() {
       cancelAnimationFrame(frame);
       cancelAnimationFrame(spin);
+      cancelIdle(idleHandle);
       observer.disconnect();
       densityQuery?.removeEventListener('change', onDensity);
       canvas.removeEventListener('webglcontextrestored', onRestored);

@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
-import { VIEW_AREA } from './area.ts';
-import { ringInside } from './geometry.ts';
+import { AREA, VIEW_AREA } from './area.ts';
+import { ringInArea } from './geometry.ts';
 import { unpackCity } from './format.ts';
 
 // Guards the committed city file: it must decode, match the area and stay plausible.
@@ -9,9 +9,10 @@ test('public/data/city.bin decodes into a plausible Leuven', async () => {
   const response = await fetch(new URL('../../public/data/city.bin', import.meta.url));
   const city = await unpackCity(new Uint8Array(await response.arrayBuffer()));
 
+  expect(city.area).toEqual([...AREA]);
   expect(city.bounds).toEqual(VIEW_AREA);
   expect(city.buildings.length).toBeGreaterThan(1000);
-  expect(city.buildings.every((b) => ringInside(b.ring, VIEW_AREA))).toBe(true);
+  expect(city.buildings.every((b) => ringInArea(b.ring, AREA))).toBe(true);
   expect(city.buildings.every((b) => b.height >= 2.5 && b.height <= 90)).toBe(true);
   expect(city.buildings.some((b) => b.tier === 'hero')).toBe(true);
   expect(city.roads.length).toBeGreaterThan(50);

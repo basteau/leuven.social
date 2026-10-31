@@ -10,6 +10,7 @@ import { addParasol, terraceParasols } from './terraces.ts';
 const SQUARE = new Float32Array([-50, -20, 50, -20, 50, 20, -50, 20]);
 
 const city = (over: Partial<City> = {}): City => ({
+  area: [{ minX: -100, minZ: -100, maxX: 100, maxZ: 100 }],
   bounds: { minX: -100, minZ: -100, maxX: 100, maxZ: 100 },
   labels: [{ name: 'Oude Markt', x: 0, z: 0 }],
   buildings: [],

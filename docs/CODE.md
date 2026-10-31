@@ -9,7 +9,7 @@ The code is split by what it is allowed to know about. Lint enforces the arrows,
 | `src/data`  | The city model, the binary format, geometry and projection maths, the map area | `@portable/*` and web APIs only. No three.js, React or other layers. |
 | `src/scene` | Everything 3D: meshes, materials, camera, controls, the render loop            | `src/data`, three.js. No React.                                      |
 | `src/app`   | The React shell: HUD, loading and error states, keyboard shortcuts             | `src/data`, `src/scene`                                              |
-| `scripts/`  | Build-time edges: baking data, icons, budgets, the smoke test                  | `src/data`, plus the `Bun` global for files and processes            |
+| `scripts/`  | Build-time edges: baking data, icons, budgets, the smoke test, deploys         | `src/data`, plus the `Bun` global for files and processes            |
 
 `src/scene` exposes one entry point, `createViewer()`. It returns a small imperative handle (`rotate`, `resetView`, `setPixelated`, `stats`, `dispose`), so React never touches three.js objects.
 
@@ -26,7 +26,7 @@ Code uses web-standard APIs and the [Portable](https://github.com/portablejs/por
 
 - Coverage below 95% lines or functions in any file fails the run, even when every test passes: look for the file in the coverage table.
 - `src/modules.test.ts` imports every pure module, so a new file without tests still shows up in coverage instead of hiding.
-- Browser-only code (`viewer.ts`, `trees.ts`, `facade-material.ts`, `load.ts`, the React app) is checked by the smoke test in `bun run verify` instead.
+- Browser-only code (`viewer.ts`, `facade-material.ts`, `load.ts`, the React app) is checked by the smoke test in `bun run verify` instead.
 - When you add logic, put it in a pure function in `src/data` or a geometry builder in `src/scene` and test it there. Keep `viewer.ts` thin.
 
 `src/data/baked.test.ts` decodes the committed `public/data/city.bin`, so a broken bake can't ship.
