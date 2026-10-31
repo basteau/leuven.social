@@ -14,8 +14,12 @@ const SESSION = `leuven-smoke-${PORT}`;
 const BASE = `http://localhost:${PORT}/`;
 const ARTIFACTS = Bun.fileURLToPath(new URL('../.artifacts/', import.meta.url));
 const BIN = Bun.fileURLToPath(new URL('../node_modules/.bin/', import.meta.url));
-/** Per-frame render budget: one draw call per layer, plus the shadow pass. */
-const MAX_DRAW_CALLS = 12;
+/**
+ * Per-frame render budget, for every frame checked: the first one (which also draws the shadow
+ * map) and the latest. The city is cut into cells and only those in view are drawn, two draw
+ * calls each (surfaces, outlines); a frame that redraws the shadow map adds one per casting cell.
+ */
+const MAX_DRAW_CALLS = 100;
 const MAX_TRIANGLES = 600_000;
 
 async function run(cmd: string[]): Promise<string> {
@@ -55,17 +59,21 @@ async function expectHealthyPage(viewport: string): Promise<void> {
     '--fn',
     "['ready', 'error'].includes(document.documentElement.dataset.state)",
   );
-  const page = await evalJson<Record<string, string>>(
-    'JSON.stringify({ ...document.documentElement.dataset, labels: document.querySelectorAll(".map-label").length })',
+  const page = await evalJson<Record<string, string> & { frame: Record<string, string> }>(
+    'JSON.stringify({ ...document.documentElement.dataset, frame: { ...document.querySelector("canvas")?.dataset }, labels: document.querySelectorAll(".map-label").length })',
   );
   const problems: string[] = [];
   if (page.state !== 'ready') problems.push(`state is "${page.state}"`);
-  const calls = Number(page.drawCalls);
-  const triangles = Number(page.triangles);
-  if (!(calls > 0 && calls <= MAX_DRAW_CALLS))
-    problems.push(`${calls} draw calls (max ${MAX_DRAW_CALLS})`);
-  if (!(triangles > 0 && triangles <= MAX_TRIANGLES))
-    problems.push(`${triangles} triangles (max ${MAX_TRIANGLES})`);
+  // The first frame (published on <html> when ready) and the latest one (on the canvas).
+  const frames = { first: page, latest: page.frame };
+  for (const [name, frame] of Object.entries(frames)) {
+    const calls = Number(frame.drawCalls);
+    const triangles = Number(frame.triangles);
+    if (!(calls > 0 && calls <= MAX_DRAW_CALLS))
+      problems.push(`${name} frame: ${calls} draw calls (max ${MAX_DRAW_CALLS})`);
+    if (!(triangles > 0 && triangles <= MAX_TRIANGLES))
+      problems.push(`${name} frame: ${triangles} triangles (max ${MAX_TRIANGLES})`);
+  }
   if (Number(page.labels) === 0) problems.push('no landmark labels');
   const { errors } = await browserJson<{ errors: { text: string }[] }>('errors');
   for (const e of errors) problems.push(`page error: ${e.text.split('\n')[0]}`);
@@ -75,7 +83,11 @@ async function expectHealthyPage(viewport: string): Promise<void> {
     if (m.type === 'error' || m.type === 'warning') problems.push(`console ${m.type}: ${m.text}`);
   }
   if (problems.length) throw new Error(`${viewport}: ${problems.join('; ')}`);
-  console.log(`ok  ${viewport}: ${calls} draw calls, ${triangles.toLocaleString()} triangles`);
+  const { latest } = frames;
+  const shadows = latest.shadowPass === 'true' ? ', redrawing shadows' : '';
+  console.log(
+    `ok  ${viewport}: ${latest.drawCalls} draw calls, ${Number(latest.triangles).toLocaleString()} triangles${shadows}`,
+  );
 }
 
 /** The data licences require the credit to be visible at start (it may collapse later). */
@@ -133,6 +145,11 @@ try {
   await browser('wait', '200');
   await expectHealthyPage('desktop zoomed in');
   await browser('screenshot', `${ARTIFACTS}smoke-detail.png`);
+  // All the way out is the most city on screen at once: the heaviest steady frame.
+  for (let i = 0; i < 12; i++) await browser('press', '-');
+  await browser('wait', '400');
+  await expectHealthyPage('desktop zoomed out');
+  await browser('screenshot', `${ARTIFACTS}smoke-overview.png`);
 
   await browser('set', 'viewport', '390', '844');
   await openFresh(BASE);
