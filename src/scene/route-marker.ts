@@ -9,11 +9,11 @@ import { ROUTE } from './palette.ts';
  * the walker drop off by moving the geometry's draw range, so walking never rebuilds it.
  */
 
-const SPACING = 1.8;
+const SPACING = 2.2;
 /** Room left free around the walker at the start and the target at the end (m). */
 const LEAD = 1.4;
-const DOT = 0.32;
-const DOT_INK = 0.56;
+const DOT = 0.5;
+const DOT_INK = 0.9;
 const Y = 0.23;
 const UP = [0, 1, 0] as const;
 /** Vertices per dot: an ink square under a pale one, two triangles each. */
@@ -52,9 +52,9 @@ export function routeMarker(route: Float32Array): RouteMarker {
     walked += length;
   }
   const [x, z] = [route.at(-2)!, route.at(-1)!];
-  square(mesh, x, z, 1.5, Y, ROUTE.ink);
-  square(mesh, x, z, 1.1, Y + 0.01, ROUTE.fill);
-  square(mesh, x, z, 0.5, Y + 0.02, ROUTE.ink);
+  square(mesh, x, z, 2.4, Y, ROUTE.ink);
+  square(mesh, x, z, 1.8, Y + 0.01, ROUTE.fill);
+  square(mesh, x, z, 0.8, Y + 0.02, ROUTE.ink);
   return { geometry: mesh.build(), dots: Float32Array.from(dots) };
 }
 

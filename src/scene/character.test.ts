@@ -5,7 +5,6 @@ import {
   BONES,
   PARTS,
   applyPose,
-  blobGeometry,
   characterGeometry,
   createCharacter,
   poseAt,
@@ -19,7 +18,7 @@ describe('characterGeometry', () => {
   const outlined = PARTS.filter((p) => p.outline !== false).length;
 
   test('is a box per part plus an outline hull per outlined part, one bone per vertex', () => {
-    expect(position.count).toBe((PARTS.length + outlined) * 36);
+    expect(position.count).toBe((PARTS.length + outlined) * 36 + 18);
     const index = g.getAttribute('skinIndex');
     const weight = g.getAttribute('skinWeight');
     for (let i = 0; i < position.count; i++) {
@@ -52,22 +51,29 @@ describe('characterGeometry', () => {
   });
 });
 
-test('the blob shadow is a flat octagon a little above the feet', () => {
-  const g = blobGeometry();
-  expect(g.getAttribute('position').count).toBe(6 * 3);
-  g.computeBoundingBox();
-  expect(g.boundingBox!.max.y).toBeCloseTo(0.02);
-  expect(g.boundingBox!.max.x).toBeCloseTo(0.42);
+test('the blob shadow is a dithered flat octagon on the root, just above the feet', () => {
+  const g = characterGeometry();
+  const dither = g.getAttribute('dither');
+  const position = g.getAttribute('position');
+  const index = g.getAttribute('skinIndex');
+  const blob = Array.from({ length: dither.count }, (_, i) => i).filter((i) => dither.getX(i));
+  expect(blob).toHaveLength(6 * 3);
+  for (const i of blob) {
+    expect(position.getY(i)).toBeCloseTo(0.02);
+    expect(index.getX(i)).toBe(BONES.indexOf('root'));
+  }
 });
 
 describe('createCharacter and poses', () => {
   const material = new MeshBasicMaterial();
   const character = createCharacter(material, material);
 
-  test('binds a skeleton of named bones and carries the shadow along', () => {
+  test('binds a skeleton of named bones, shared by the x-ray twin drawn just before it', () => {
     expect(character.mesh.skeleton.bones.map((b) => b.name)).toEqual([...BONES]);
-    expect(character.mesh.children).toHaveLength(2);
-    expect(character.mesh.frustumCulled).toBe(false);
+    expect(character.xray.skeleton).toBe(character.mesh.skeleton);
+    expect(character.xray.geometry).toBe(character.mesh.geometry);
+    expect(character.xray.renderOrder).toBeLessThan(character.mesh.renderOrder);
+    expect(character.mesh.frustumCulled || character.xray.frustumCulled).toBe(false);
   });
 
   test('standing still is the rest pose once the idle glance is over', () => {

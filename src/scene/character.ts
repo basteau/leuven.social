@@ -2,7 +2,6 @@ import {
   Bone,
   BufferAttribute,
   BufferGeometry,
-  Mesh,
   Skeleton,
   SkinnedMesh,
   Uint16BufferAttribute,
@@ -18,11 +17,11 @@ import { IDLE_SECONDS, WALK_SPEED } from './walker.ts';
  * The walker: a few boxes on a seven-bone skeleton, chunky enough to read at a dozen game
  * pixels tall. Its ink outline is an inverted hull in the same geometry (slightly larger
  * boxes facing inward, so only their far sides show around the silhouette), which keeps the
- * whole figure to one draw call. A soft-edged blob shadow under it is a second.
+ * whole figure, shadow included, to one draw call.
  */
 
 /** How much larger than life the figure is drawn, so it reads from the isometric camera. */
-export const CHARACTER_SCALE = 1.5;
+export const CHARACTER_SCALE = 2.2;
 /** Outline thickness, in model metres. */
 const OUTLINE_WIDTH = 0.035;
 
@@ -121,9 +120,23 @@ function addBox(mesh: MeshBuilder, min: V3, max: V3, color: number, inward: bool
 
 const grow = (v: V3, by: number): V3 => [v[0] + by, v[1] + by, v[2] + by];
 
-/** The figure's geometry with one bone per vertex: body boxes, then their outline hulls. */
+/** A flat octagon under the feet, in model metres: the blob shadow. */
+function addBlob(mesh: MeshBuilder, radius = 0.42): void {
+  const at = (i: number): V3 => [
+    Math.cos((i * Math.PI) / 4) * radius,
+    0.02,
+    Math.sin((i * Math.PI) / 4) * radius * 0.8,
+  ];
+  for (let i = 1; i < 7; i++) mesh.triangle(at(0), at(i), at(i + 1), OUTLINE, [0, 1, 0]);
+}
+
+/**
+ * The figure's geometry with one bone per vertex: body boxes, their outline hulls, and the
+ * blob shadow on the root. A `dither` attribute marks the shadow, which the material draws as
+ * a checkerboard of pixels: see-through without blending, so it costs no extra draw call.
+ */
 export function characterGeometry(): BufferGeometry {
-  const pieces: { geometry: BufferGeometry; bone: number }[] = [];
+  const pieces: { geometry: BufferGeometry; bone: number; dither: number }[] = [];
   for (const [bone, name] of BONES.entries()) {
     const mesh = new MeshBuilder();
     for (const p of PARTS.filter((part) => part.bone === name)) {
@@ -132,8 +145,11 @@ export function characterGeometry(): BufferGeometry {
       addBox(mesh, grow(p.min, -OUTLINE_WIDTH), grow(p.max, OUTLINE_WIDTH), OUTLINE, true);
     }
     const geometry = mesh.build();
-    if (geometry.getAttribute('position').count) pieces.push({ geometry, bone });
+    if (geometry.getAttribute('position').count) pieces.push({ geometry, bone, dither: 0 });
   }
+  const blob = new MeshBuilder();
+  addBlob(blob);
+  pieces.push({ geometry: blob.build(), bone: BONES.indexOf('root'), dither: 1 });
 
   const count = pieces.reduce((n, p) => n + p.geometry.getAttribute('position').count, 0);
   const position = new Float32Array(count * 3);
@@ -141,14 +157,16 @@ export function characterGeometry(): BufferGeometry {
   const color = new Float32Array(count * 3);
   const skinIndex = new Uint16Array(count * 4);
   const skinWeight = new Float32Array(count * 4);
+  const dither = new Uint8Array(count);
   let offset = 0;
-  for (const { geometry, bone } of pieces) {
-    const n = geometry.getAttribute('position').count;
-    position.set(geometry.getAttribute('position').array, offset * 3);
-    normal.set(geometry.getAttribute('normal').array as Int8Array, offset * 3);
-    color.set(geometry.getAttribute('color').array, offset * 3);
+  for (const piece of pieces) {
+    const n = piece.geometry.getAttribute('position').count;
+    position.set(piece.geometry.getAttribute('position').array, offset * 3);
+    normal.set(piece.geometry.getAttribute('normal').array as Int8Array, offset * 3);
+    color.set(piece.geometry.getAttribute('color').array, offset * 3);
+    dither.fill(piece.dither, offset, offset + n);
     for (let i = offset; i < offset + n; i++) {
-      skinIndex[i * 4] = bone;
+      skinIndex[i * 4] = piece.bone;
       skinWeight[i * 4] = 1;
     }
     offset += n;
@@ -159,29 +177,23 @@ export function characterGeometry(): BufferGeometry {
   geometry.setAttribute('color', new BufferAttribute(color, 3));
   geometry.setAttribute('skinIndex', new Uint16BufferAttribute(skinIndex, 4));
   geometry.setAttribute('skinWeight', new BufferAttribute(skinWeight, 4));
+  geometry.setAttribute('dither', new BufferAttribute(dither, 1));
   geometry.computeBoundingSphere();
   return geometry;
 }
 
-/** A flat octagon under the feet, in model metres. */
-export function blobGeometry(radius = 0.42): BufferGeometry {
-  const mesh = new MeshBuilder();
-  const at = (i: number): V3 => [
-    Math.cos((i * Math.PI) / 4) * radius,
-    0.02,
-    Math.sin((i * Math.PI) / 4) * radius * 0.8,
-  ];
-  for (let i = 1; i < 7; i++) mesh.triangle(at(0), at(i), at(i + 1), OUTLINE, [0, 1, 0]);
-  return mesh.build();
-}
-
 export interface Character {
   mesh: SkinnedMesh;
+  /** The same figure drawn only where the city hides it, as a see-through silhouette. */
+  xray: SkinnedMesh;
   bones: Record<BoneName, Bone>;
 }
 
-/** The figure, bound to its skeleton, with the blob shadow riding along as a child. */
-export function createCharacter(body: Material, shadow: Material): Character {
+/**
+ * The figure, bound to its skeleton, and its x-ray twin sharing that skeleton. The twin draws
+ * after the city but before the figure, wherever something stands in front: two draw calls.
+ */
+export function createCharacter(body: Material, xray: Material): Character {
   const bones = Object.fromEntries(BONES.map((name) => [name, new Bone()])) as Record<
     BoneName,
     Bone
@@ -192,13 +204,18 @@ export function createCharacter(body: Material, shadow: Material): Character {
     bones[name].position.set(...at);
     if (parent) bones[parent].add(bones[name]);
   }
-  const mesh = new SkinnedMesh(characterGeometry(), body);
+  const geometry = characterGeometry();
+  const mesh = new SkinnedMesh(geometry, body);
   mesh.add(bones.root);
   mesh.bind(new Skeleton(BONES.map((name) => bones[name])));
-  mesh.add(new Mesh(blobGeometry(), shadow));
+  const twin = new SkinnedMesh(geometry, xray);
+  mesh.add(twin);
+  twin.bind(mesh.skeleton, mesh.bindMatrix);
+  twin.renderOrder = 1;
+  mesh.renderOrder = 2;
   // It moves every frame and is always on screen while walking: skip the bounds checks.
   mesh.traverse((object) => (object.frustumCulled = false));
-  return { mesh, bones };
+  return { mesh, xray: twin, bones };
 }
 
 export interface Pose {

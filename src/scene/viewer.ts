@@ -39,6 +39,10 @@ import {
 } from './shadow-fit.ts';
 import type { ShadowSquare } from './shadow-fit.ts';
 import { terraceParasols } from './terraces.ts';
+import { createWalk } from './walk.ts';
+import type { WalkMode } from './walk.ts';
+
+export type { WalkMode } from './walk.ts';
 
 export interface ViewerOptions {
   canvas: HTMLCanvasElement;
@@ -49,6 +53,10 @@ export interface ViewerOptions {
   city: City;
   pixelated: boolean;
   reducedMotion: boolean;
+  /** Walk mode changed: picking a start, walking, or back on the map. */
+  onWalkModeChange?: (mode: WalkMode) => void;
+  /** A spot that can't be walked to was picked. */
+  onWalkBlocked?: () => void;
 }
 
 export interface ViewerStats {
@@ -62,6 +70,14 @@ export interface Viewer {
   zoomBy(factor: number): void;
   resetView(): void;
   setPixelated(on: boolean): void;
+  /** Starts walk mode: the next click on the map says where. */
+  pickWalkStart(): void;
+  /** Starts walking from the street nearest the middle of the view. */
+  walkFromCentre(): void;
+  /** Back to the map. */
+  stopWalking(): void;
+  /** Walks toward a direction on screen while held: right and up, each from -1 to 1. */
+  steer(right: number, up: number): void;
   stats(): ViewerStats;
   dispose(): void;
 }
@@ -469,6 +485,21 @@ export function createViewer(options: ViewerOptions): Viewer {
   };
   canvas.addEventListener('webglcontextrestored', onRestored);
 
+  const walk = createWalk({
+    scene,
+    camera,
+    controls,
+    canvas,
+    keyTarget,
+    city,
+    gradientMap,
+    reducedMotion,
+    placeCamera,
+    render: renderNow,
+    ...(options.onWalkModeChange && { onModeChange: options.onWalkModeChange }),
+    ...(options.onWalkBlocked && { onBlocked: options.onWalkBlocked }),
+  });
+
   resize();
   resetView();
   renderer.shadowMap.needsUpdate = true;
@@ -484,6 +515,10 @@ export function createViewer(options: ViewerOptions): Viewer {
       pixelated = on;
       resize();
     },
+    pickWalkStart: () => walk.pick(),
+    walkFromCentre: () => walk.startAtCentre(),
+    stopWalking: () => walk.exit(),
+    steer: (x, y) => walk.steer(x, y),
     stats: () => ({
       drawCalls: renderer.info.render.calls,
       triangles: renderer.info.render.triangles,
@@ -492,6 +527,7 @@ export function createViewer(options: ViewerOptions): Viewer {
       cancelAnimationFrame(frame);
       cancelAnimationFrame(spin);
       cancelIdle(idleHandle);
+      walk.dispose();
       observer.disconnect();
       densityQuery?.removeEventListener('change', onDensity);
       canvas.removeEventListener('webglcontextrestored', onRestored);
