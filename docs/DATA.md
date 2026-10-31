@@ -140,7 +140,7 @@ Bump `VERSION` in `format.ts` and the cache name in `public/sw.js` together. The
 
 ## Attribution
 
-The city data must be credited wherever it is shown. The HUD shows "© OpenStreetMap" and "© Digitaal Vlaanderen" in the top-end corner at start, then collapses them to a © button (DESIGN.md has the rules, and the smoke test checks it). Don't remove it or start it collapsed. Its links come from `CREDITS` in `src/data/sources.ts`, so a new provider whose licence asks for credit shows up there by itself.
+The city data must be credited wherever it is shown. The HUD shows "© OpenStreetMap" and "© Digitaal Vlaanderen" in the top-end corner at start, then collapses them to a © button (DESIGN.md has the rules, and the smoke test checks it). Don't remove it or start it collapsed. Its links come from `CREDITS` in `src/data/providers.ts`, so a new provider whose licence asks for credit shows up there by itself.
 
 - **GRB:** "Bron: Grootschalig Referentie Bestand Vlaanderen, Digitaal Vlaanderen".
 - **DHMV II:** "Bron: Digitaal Hoogtemodel Vlaanderen II, Digitaal Vlaanderen".

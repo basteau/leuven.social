@@ -2,12 +2,11 @@ import { expect, test } from 'bun:test';
 
 import { AREA, VIEW_AREA } from './area.ts';
 import { toLambert72, toLonLat } from './projection.ts';
+import { CREDITS, PROVIDERS } from './providers.ts';
 import {
-  CREDITS,
   DATA_MARGIN,
   ORTHO_MARGIN,
   OSM_DATE,
-  PROVIDERS,
   SOURCES,
   gridBox,
   lonLatBox,

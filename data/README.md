@@ -21,7 +21,7 @@ Make it all with `bun run data:fetch` (downloads) and `bun run data:build` (deri
 | `derived/preview_heights.png`                              | Top-down preview map                                                                                                                                     | built                        |
 | `.cache/`                                                  | Overpass tiles, so an interrupted fetch resumes; the city `data:check` rebuilt                                                                           | —                            |
 
-Licences: OpenStreetMap data is © OpenStreetMap contributors under the ODbL, and so is the combined building data. GRB, DHMV II and the orthophotos are Digitaal Vlaanderen's, under the Modellicentie Gratis Hergebruik v1.0. Wikidata is CC0. The credits are in `src/data/sources.ts`.
+Licences: OpenStreetMap data is © OpenStreetMap contributors under the ODbL, and so is the combined building data. GRB, DHMV II and the orthophotos are Digitaal Vlaanderen's, under the Modellicentie Gratis Hergebruik v1.0. Wikidata is CC0. The credits are in `src/data/providers.ts`.
 
 ## How heights are computed
 

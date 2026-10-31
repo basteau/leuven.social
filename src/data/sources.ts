@@ -2,7 +2,7 @@
  * Every outside source the city is built from: what it is, where it comes from, under which
  * licence, and where its download lands in data/. `bun run data:fetch` (scripts/fetch.ts)
  * downloads exactly this list, docs/DATA.md and data/README.md describe it, and the HUD's
- * credits come from its providers. New data comes in here, never by hand (docs/DATA.md).
+ * credits come from its providers (src/data/providers.ts). New data comes in here, never by hand (docs/DATA.md).
  *
  * Extents are not written down: they follow AREA (src/data/area.ts) plus a margin, so growing
  * the map grows every download with it.
@@ -10,68 +10,8 @@
 
 import { AREA, LANDMARK_ITEMS, VIEW_AREA } from './area.ts';
 import type { Bounds } from './city.ts';
+import type { ProviderId } from './providers.ts';
 import { toLambert72, toLonLat } from './projection.ts';
-
-export interface Provider {
-  name: string;
-  /** The attribution the licence asks for, word for word. */
-  credit: string;
-  licence: string;
-  licenceUrl: string;
-  /** The short credit the HUD shows, and where it links. Left out when the licence asks none. */
-  hud?: string;
-  hudUrl?: string;
-}
-
-const DIGITAAL_VLAANDEREN = {
-  licence: 'Modellicentie Gratis Hergebruik v1.0',
-  licenceUrl: 'https://data.vlaanderen.be/id/licentie/modellicentie-gratis-hergebruik/v1.0',
-  hud: '© Digitaal Vlaanderen',
-  hudUrl: 'https://www.vlaanderen.be/digitaal-vlaanderen',
-};
-
-export const PROVIDERS = {
-  osm: {
-    name: 'OpenStreetMap',
-    credit: '© OpenStreetMap contributors',
-    licence: 'ODbL 1.0',
-    licenceUrl: 'https://opendatacommons.org/licenses/odbl/1-0/',
-    hud: '© OpenStreetMap',
-    hudUrl: 'https://www.openstreetmap.org/copyright',
-  },
-  grb: {
-    name: 'GRB (Grootschalig Referentie Bestand), Digitaal Vlaanderen',
-    credit: 'Bron: Grootschalig Referentie Bestand Vlaanderen, Digitaal Vlaanderen',
-    ...DIGITAAL_VLAANDEREN,
-  },
-  dhmv: {
-    name: 'DHMV II LiDAR elevation, Digitaal Vlaanderen',
-    credit: 'Bron: Digitaal Hoogtemodel Vlaanderen II, Digitaal Vlaanderen',
-    ...DIGITAAL_VLAANDEREN,
-  },
-  ortho: {
-    name: 'Orthophoto winter mosaic, Digitaal Vlaanderen',
-    credit: 'Bron: Luchtopnamen Digitaal Vlaanderen',
-    ...DIGITAAL_VLAANDEREN,
-  },
-  wikidata: {
-    name: 'Wikidata',
-    credit: 'Wikidata',
-    licence: 'CC0 1.0',
-    licenceUrl: 'https://creativecommons.org/publicdomain/zero/1.0/',
-  },
-} as const satisfies Record<string, Provider>;
-
-export type ProviderId = keyof typeof PROVIDERS;
-
-/** The HUD's credits: one link per distinct short credit, in manifest order. */
-export const CREDITS: readonly { label: string; href: string }[] = [
-  ...new Map(
-    Object.values(PROVIDERS as Record<ProviderId, Provider>).flatMap((p): [string, string][] =>
-      p.hud && p.hudUrl ? [[p.hud, p.hudUrl]] : [],
-    ),
-  ).entries(),
-].map(([label, href]) => ({ label, href }));
 
 interface Common {
   /** Short, stable, kebab-case: the lock file and `--only` use it. */
