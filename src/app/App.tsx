@@ -19,8 +19,6 @@ type Status = { state: 'loading' } | { state: 'ready' } | { state: 'error'; mess
 const LOAD_TIMEOUT_MS = 20_000;
 
 const CREDITS_VISIBLE_MS = 5_000;
-/** How long "Can't walk there" stays before the hint comes back. */
-const BLOCKED_MS = 2_500;
 
 /** Keys that walk, as screen directions: right and up. */
 const WALK_KEYS: Record<string, readonly [number, number]> = {
@@ -108,8 +106,9 @@ export function App() {
             walkModeRef.current = mode;
             setWalkMode(mode);
             setBlocked(0);
-            // The buttons that started or ended the walk are gone: keep the keys working.
-            map.focus({ focusVisible: false } as FocusOptions);
+            // The buttons that started or ended the walk are gone: keep the keys working. The
+            // browser shows the ring only if a key pressed that button.
+            map.focus();
           },
           onWalkBlocked: () => setBlocked(performance.now()),
         });
@@ -165,6 +164,7 @@ export function App() {
       const key = event.key.toLowerCase();
       const mode = walkModeRef.current;
       if (mode === 'walk' && Object.hasOwn(WALK_KEYS, key)) {
+        setBlocked(0);
         event.preventDefault();
         if (!held.has(key)) {
           held.add(key);
@@ -172,8 +172,8 @@ export function App() {
         }
         return;
       }
-      // Enter on a focused button presses that button instead.
-      const onButton = event.target instanceof HTMLButtonElement;
+      // Enter on a focused button or link presses that instead.
+      const onControl = event.target instanceof Element && !!event.target.closest('button, a');
       const actions: Record<string, () => void> = {
         q: () => viewer.rotate(-1),
         e: () => viewer.rotate(1),
@@ -181,7 +181,7 @@ export function App() {
         '=': () => viewer.zoomBy(1.25),
         '-': () => viewer.zoomBy(0.8),
         ...(mode === 'map' && { r: () => viewer.resetView(), w: () => viewer.pickWalkStart() }),
-        ...(mode === 'pick' && !onButton && { enter: () => viewer.walkFromCentre() }),
+        ...(mode === 'pick' && !onControl && { enter: () => viewer.walkFromCentre() }),
         ...(mode !== 'map' && { escape: () => viewer.stopWalking() }),
       };
       actions[key]?.();
@@ -201,10 +201,13 @@ export function App() {
     };
   }, []);
 
+  // "Can't walk there" stays until the next try, so nobody misses it.
   useEffect(() => {
-    if (!blocked) return;
-    const timer = setTimeout(() => setBlocked(0), BLOCKED_MS);
-    return () => clearTimeout(timer);
+    const map = mapRef.current;
+    if (!blocked || !map) return;
+    const clear = () => setBlocked(0);
+    map.addEventListener('pointerdown', clear, { once: true, passive: true });
+    return () => map.removeEventListener('pointerdown', clear);
   }, [blocked]);
 
   const ready = status.state === 'ready';
@@ -268,15 +271,16 @@ export function App() {
       </output>
 
       <footer className="hud hud-bottom">
-        {/* Always in the DOM, so screen readers hear the hint change. */}
-        <output className="panel hint" hidden={walkMode === 'map'}>
+        {/* Always rendered, empty on the map, so screen readers hear the hint change. */}
+        <output className="panel hint">
           {walkMode === 'map' ? null : blocked ? (
             'Can’t walk there. Pick a street or square.'
           ) : walkMode === 'pick' ? (
             'Pick a street to start walking.'
           ) : (
             <>
-              Pick a street to walk there<span className="hint-keys">, or use W A S D</span>.
+              Pick a street to walk there
+              <span className="hint-keys">, or use W&nbsp;A&nbsp;S&nbsp;D</span>.
             </>
           )}
         </output>
@@ -407,6 +411,7 @@ function ToolButton(props: {
 function Reticle() {
   return (
     <svg className="reticle" width="32" height="32" viewBox="0 0 32 32" aria-hidden="true">
+      <path className="reticle-halo" d="M16 3v9M16 20v9M3 16h9M20 16h9" />
       <path d="M16 3v9M16 20v9M3 16h9M20 16h9" />
     </svg>
   );

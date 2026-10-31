@@ -278,10 +278,10 @@ button {
   }
 }
 
-/* The walk button and the view toolbar share a row, and stack where the row runs out. */
+/* The walk button and the view toolbar share a row; Walk goes above where the row runs out. */
 .dock {
   display: flex;
-  flex-wrap: wrap-reverse;
+  flex-wrap: wrap;
   justify-content: center;
   gap: var(--space-s);
 }
@@ -289,13 +289,22 @@ button {
 .hint {
   display: block;
   max-inline-size: 100%;
-  margin: 0 0 var(--space-s);
+  margin: 0;
   padding-block: var(--space-xs);
   padding-inline: var(--space-m);
   font-size: 0.8125rem;
   font-weight: 600;
   line-height: 1.4;
   text-align: center;
+  /* Read, not touched: taps go through to the map. */
+  pointer-events: none;
+}
+
+/* On the map the hint is empty but stays in the page, so its next words are announced. */
+.hint:empty {
+  padding: 0;
+  border: 0;
+  box-shadow: none;
 }
 
 /* Keyboard walking is only worth mentioning where there is likely a keyboard. */
@@ -319,8 +328,12 @@ button {
   stroke: var(--ink);
   stroke-width: 2;
   stroke-linecap: square;
-  filter: drop-shadow(0 0 1px var(--paper)) drop-shadow(0 0 1px var(--paper));
   pointer-events: none;
+}
+
+.reticle-halo {
+  stroke: var(--paper);
+  stroke-width: 6;
 }
 
 .credits {

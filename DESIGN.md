@@ -93,7 +93,7 @@ Tokens are oklch, in `src/app/app.css`:
 - A keyboard shortcut is shown on devices that have hover.
 - Below 30 rem of width the toolbar becomes a tab bar: icon above label, no shortcut hints.
 - **Walk** sits in its own panel beside the view toolbar and wraps above it when the row runs out. Picking a start shows a one-line hint, a reticle in the middle of the view, and **Start here** / **Cancel**. Walking swaps the toolbar for **Map** (back to the map view), **Turn left** and **Turn right**, under a one-line hint that names the keys only on devices with a fine pointer.
-- A spot that can't be walked to says so in the hint ("Can’t walk there. Pick a street or square.") for a few seconds.
+- A spot that can't be walked to says so in the hint ("Can’t walk there. Pick a street or square.") until the next try.
 
 ### States
 
