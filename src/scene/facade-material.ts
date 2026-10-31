@@ -48,7 +48,8 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
           float angle = floor(rest / 2.0) * PI / ${f(ANGLES)};
           vec2 across = vec2(cos(angle), sin(angle));
           float reach = kind == ${f(PAINT_KIND.line)} ? ${f(PAINT_HALF.line)}
-            : kind == ${f(PAINT_KIND.block)} ? ${f(PAINT_HALF.block)} : ${f(PAINT_HALF.stripe)};
+            : kind == ${f(PAINT_KIND.block)} ? ${f(PAINT_HALF.block)}
+            : kind == ${f(PAINT_KIND.patch)} ? ${f(PAINT_HALF.patch)} : ${f(PAINT_HALF.stripe)};
           float want = reach;
           if (kind == ${f(PAINT_KIND.line)}) {
             // Screen size of a metre across the line, measured square to it on screen.

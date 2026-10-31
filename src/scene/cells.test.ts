@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 
 import type { Building, City } from '../data/city.ts';
 import { partyWalls } from './buildings.ts';
-import { CELL_SIZE, buildCell, partition } from './cells.ts';
+import { CELL_SIZE, along, buildCell, partition } from './cells.ts';
 
 const S = CELL_SIZE;
 const box = (x: number, z: number, w: number, d: number) =>
@@ -29,8 +29,9 @@ const city: City = {
   roads: [box(S - 50, 100, 100, 10)],
   carriageways: [{ kind: 'street', ring: box(S - 50, 100, 100, 10) }],
   markings: [
-    // A lane line across the seam, and a crossing that straddles it.
+    // Lane lines across the seam, and a crossing that straddles it.
     { kind: 'dashed', line: new Float32Array([S - 30, 105, S + 30, 105]) },
+    { kind: 'solid', line: new Float32Array([S - 30, 108, S + 30, 108]) },
     { kind: 'zebra', line: new Float32Array([S - 1, 100, S + 1, 110]) },
   ],
   plazas: [],
@@ -61,13 +62,16 @@ test('the area is cut into cells, and each thing goes to one', () => {
   expect(east.ground.roads).toHaveLength(1);
   expect(Math.max(...east.ground.roads[0]!.filter((_, i) => i % 2 === 0))).toBe(S + 50);
   expect(east.ground.carriageways.map((r) => r.kind)).toEqual(['street']);
-  // Lane lines are cut at the seam; a crossing stays whole in the cell of its start.
-  expect(west.ground.markings.map((m) => [m.kind, Array.from(m.line)])).toEqual([
-    ['dashed', [S - 30, 105, S, 105]],
-    ['zebra', [S - 1, 100, S + 1, 110]],
+  // Lane lines are cut at the seam, each piece knowing where along the line it starts; a
+  // crossing stays whole where it starts.
+  expect(west.ground.markings.map((m) => [m.kind, Array.from(m.line), m.from])).toEqual([
+    ['dashed', [S - 30, 105, S, 105], 0],
+    ['solid', [S - 30, 108, S, 108], 0],
+    ['zebra', [S - 1, 100, S + 1, 110], undefined],
   ]);
-  expect(east.ground.markings.map((m) => [m.kind, Array.from(m.line)])).toEqual([
-    ['dashed', [S, 105, S + 30, 105]],
+  expect(east.ground.markings.map((m) => [m.kind, Array.from(m.line), m.from])).toEqual([
+    ['dashed', [S, 105, S + 30, 105], 30],
+    ['solid', [S, 108, S + 30, 108], 30],
   ]);
   expect(west.ground.green[0]).toEqual(city.green[0]!);
 });
@@ -96,4 +100,12 @@ test('a cell builds into one mesh and one set of outlines', () => {
   expect(g.boundingBox!.min.y).toBeLessThan(0); // the slab
   expect(g.boundingBox!.max.y).toBeGreaterThanOrEqual(10); // the houses
   expect(lines.build().getAttribute('position').count).toBeGreaterThan(0);
+});
+
+test('along: how far a point on a line lies from its start', () => {
+  const line = [0, 0, 10, 0, 10, 10];
+  expect(along(line, 0, 0)).toBe(0);
+  expect(along(line, 4, 0)).toBe(4);
+  expect(along(line, 10, 6)).toBe(16);
+  expect(along([0, 0, 0, 0, 5, 0], 3, 0)).toBe(3);
 });

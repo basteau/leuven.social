@@ -1,4 +1,4 @@
-import type { CarriagewayKind, Marking } from '../data/city.ts';
+import type { CarriagewayKind, Marking as CityMarking } from '../data/city.ts';
 import type { MeshBuilder, V3 } from './mesh-builder.ts';
 import { PAINT } from './palette.ts';
 
@@ -109,9 +109,9 @@ function segments(line: Float32Array, visit: (a: number[], b: number[], d: numbe
 }
 
 /** Lane lines, dashed along the whole line rather than per segment, so bends keep the rhythm. */
-function addLine(mesh: MeshBuilder, line: Float32Array, dashed: boolean): void {
+function addLine(mesh: MeshBuilder, line: Float32Array, dashed: boolean, offset = 0): void {
   const half = PAINT_HALF.line;
-  let run = 0;
+  let run = offset;
   segments(line, ([ax, az], _, [dx, dz, len]) => {
     const n = [-dz!, dx!] as const;
     const at = (s: number) => [ax! + dx! * s, az! + dz! * s] as const;
@@ -121,12 +121,18 @@ function addLine(mesh: MeshBuilder, line: Float32Array, dashed: boolean): void {
       return;
     }
     for (let s = -(run % (DASH + GAP)); s < len!; s += DASH + GAP) {
-      const [from, to] = [Math.max(0, s), Math.min(len!, s + DASH)];
-      if (to - from > 0.2) bar(mesh, 'line', at(from), at(to), n, half, OVER, PAINT.line);
+      const [start, end] = [Math.max(0, s), Math.min(len!, s + DASH)];
+      if (end - start > 0.2) bar(mesh, 'line', at(start), at(end), n, half, OVER, PAINT.line);
     }
     run += len!;
   });
 }
+
+/**
+ * A marking as a cell holds it: a lane line cut at a cell edge remembers how far along the whole
+ * line its piece starts, so the dashes keep their rhythm across the edge.
+ */
+export type Marking = CityMarking & { from?: number };
 
 /** Where a crossing runs, and the frame across and along the road at its start. */
 function crossingFrame(line: Float32Array) {
@@ -206,8 +212,8 @@ export function addPaint(mesh: MeshBuilder, markings: readonly Marking[]): void 
  * The viewer draws it last, so it can leave it out whole when a pixel is wider than `LINE_LOD`.
  */
 export function addFinePaint(mesh: MeshBuilder, markings: readonly Marking[]): void {
-  for (const { kind, line } of markings) {
-    if (kind === 'dashed' || kind === 'solid') addLine(mesh, line, kind === 'dashed');
+  for (const { kind, line, from } of markings) {
+    if (kind === 'dashed' || kind === 'solid') addLine(mesh, line, kind === 'dashed', from);
     else if (crossing(kind)) addCrossingBars(mesh, line, kind === 'bike-crossing');
   }
 }

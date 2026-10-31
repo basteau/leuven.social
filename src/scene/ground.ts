@@ -1,9 +1,10 @@
 import { ShapeUtils, Vector2 } from 'three';
 
-import type { Bounds, Carriageway, Marking, Path } from '../data/city.ts';
+import type { Bounds, Carriageway, Path } from '../data/city.ts';
 import { areaOutline } from '../data/geometry.ts';
 import type { MeshBuilder } from './mesh-builder.ts';
 import { SURFACE, SURFACE_OF, addPaint } from './paint.ts';
+import type { Marking } from './paint.ts';
 import { CARRIAGEWAYS, GROUND } from './palette.ts';
 
 /** How far the diorama slab drops below street level, in metres. */

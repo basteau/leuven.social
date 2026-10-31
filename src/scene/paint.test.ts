@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import type { Marking } from '../data/city.ts';
+import type { Marking } from './paint.ts';
 import { MeshBuilder } from './mesh-builder.ts';
 import {
   ANGLES,
@@ -71,6 +71,14 @@ describe('paint geometry', () => {
     // Lines are as wide as paint until the shader widens them.
     const widths = v.filter((p) => p.x < 4).map((p) => p.z);
     expect(Math.max(...widths) - Math.min(...widths)).toBeCloseTo(2 * PAINT_HALF.line);
+  });
+
+  test('a piece of a dashed line picks up the rhythm where it starts along the whole line', () => {
+    // 4 m in: the first dash (0–3 m) is past, the next starts 5 m into the piece.
+    const v = draw(addFinePaint, [{ kind: 'dashed', line: line(0, 0, 10, 0), from: 4 }]);
+    expect(v).toHaveLength(6);
+    expect(Math.min(...v.map((p) => p.x))).toBeCloseTo(5);
+    expect(Math.max(...v.map((p) => p.x))).toBeCloseTo(8);
   });
 
   test('a solid line runs on past its ends so bends close up', () => {

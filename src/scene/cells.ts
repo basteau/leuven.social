@@ -1,10 +1,11 @@
-import type { Bounds, Building, Carriageway, City, Marking, Path } from '../data/city.ts';
+import type { Bounds, Building, Carriageway, City, Path } from '../data/city.ts';
 import { clipLine, clipRing } from '../data/geometry.ts';
 import { addBuilding } from './buildings.ts';
 import type { PartyWalls } from './buildings.ts';
 import { addGround } from './ground.ts';
 import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
 import { addFinePaint } from './paint.ts';
+import type { Marking } from './paint.ts';
 import { addParasol } from './terraces.ts';
 import type { Parasol } from './terraces.ts';
 import { addTree } from './trees.ts';
@@ -30,6 +31,26 @@ export interface Cell {
 }
 
 const cellOf = (v: number) => Math.floor(v / CELL_SIZE);
+
+/** How far along `line` the point (x, z), which lies on it, is. */
+export function along(line: ArrayLike<number>, x: number, z: number): number {
+  let run = 0;
+  let best = 0;
+  let nearest = Infinity;
+  for (let i = 0; i + 3 < line.length; i += 2) {
+    const [ax, az, bx, bz] = [line[i]!, line[i + 1]!, line[i + 2]!, line[i + 3]!];
+    const len = Math.hypot(bx - ax, bz - az);
+    const t =
+      len > 0 ? Math.min(len, Math.max(0, ((x - ax) * (bx - ax) + (z - az) * (bz - az)) / len)) : 0;
+    const off =
+      len > 0
+        ? Math.hypot(ax + ((bx - ax) * t) / len - x, az + ((bz - az) * t) / len - z)
+        : Math.hypot(ax - x, az - z);
+    if (off < nearest - 1e-6) [nearest, best] = [off, run + t];
+    run += len;
+  }
+  return best;
+}
 
 /** Sorts the city into cells. A building goes whole to the cell holding its first corner. */
 export function partition(city: City, parasols: readonly Parasol[] = []): Cell[] {
@@ -110,10 +131,15 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
     cutLine(line, (cell, piece) => cell.ground.paths.push({ width, paved, line: piece }));
   }
   for (const { kind, line } of city.markings) {
-    // A crossing stays whole, in the cell of its start, so its bars keep their rhythm.
-    if (kind === 'zebra' || kind === 'bike-crossing')
+    // A crossing stays whole, in the cell of its start, so its bars keep their rhythm; a lane
+    // line's pieces remember where along it they start, so its dashes do.
+    if (kind === 'zebra' || kind === 'bike-crossing') {
       at(line[0]!, line[1]!)?.ground.markings.push({ kind, line });
-    else cutLine(line, (cell, piece) => cell.ground.markings.push({ kind, line: piece }));
+    } else {
+      cutLine(line, (cell, piece) =>
+        cell.ground.markings.push({ kind, line: piece, from: along(line, piece[0]!, piece[1]!) }),
+      );
+    }
   }
   return [...cells.values()];
 }
