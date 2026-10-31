@@ -25,6 +25,7 @@ Raw downloads and derived, game-ready files for **Leuven inside the R23 ring plu
 | `ortho/z18/{x}_{y}.png` | 1016 orthophoto tiles (z18, ~0.37 m/px, 82 MB) over the map area, for roof colours (`tools/fetch_ortho.py`) | Digitaal Vlaanderen WMTS `omwrgbmrvl` (most recent winter mosaic) | [Modellicentie Gratis Hergebruik v1.0](https://data.vlaanderen.be/id/licentie/modellicentie-gratis-hergebruik/v1.0); "Bron: Luchtopnamen Digitaal Vlaanderen" |
 | `derived/leuven_buildings.geojson` | Each GRB footprint with **height**, eave, roof pitch, roof colour, ground level, OSM tags and **detail tier** | built by `tools/build_leuven_data.py` | GRB + DHMV II + orthophotos + OSM (ODbL applies to the combined database) |
 | `derived/leuven_buildings_local.json` | Same buildings in a compact **game format**: local metres, origin at Grote Markt, x = east, z = south (three.js convention), courtyards as `holes` | same | same |
+| `derived/grb_structures.json` | GRB structures (KNW): bridge outlines, and tanks and silos with their LiDAR p90 height, in local metres | same | GRB + DHMV II © Digitaal Vlaanderen |
 | `derived/lidar_trees.json` | 10.6k tree crowns of 10 m and up found in the LiDAR canopy, with their heights | same | © Digitaal Vlaanderen |
 | `derived/osm_roads.geojson`, `osm_areas.geojson`, `osm_points.geojson` | OSM layers converted to GeoJSON (10,359 roads, 9,477 areas, 11,710 points) | same | ODbL |
 | `derived/preview_heights.png` | Top-down preview map | same | — |

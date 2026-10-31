@@ -22,6 +22,8 @@ const city = (over: Partial<City> = {}): City => ({
   trees: new Float32Array(),
   treeHeights: new Float32Array(),
   props: [],
+  tanks: [],
+  parapets: [],
   ...over,
 });
 

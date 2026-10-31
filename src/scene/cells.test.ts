@@ -41,6 +41,8 @@ const city: City = {
     { kind: 'bench', x: S + 30, z: 30, angle: 0, size: 0 },
     { kind: 'needle', x: S + 60, z: 60, angle: 0, size: 23 },
   ],
+  tanks: [{ height: 15, ring: box(S + 100, 100, 6, 6) }],
+  parapets: [new Float32Array([40, 120, 40, 130])],
 };
 
 test('the area is cut into cells, and each thing goes to one', () => {
@@ -59,6 +61,8 @@ test('the area is cut into cells, and each thing goes to one', () => {
   expect(east.parasols).toHaveLength(1);
   expect(west.props.map((p) => p.kind)).toEqual(['bench']);
   expect(east.props.map((p) => p.kind)).toEqual(['bench', 'needle']);
+  expect(east.tanks).toHaveLength(1);
+  expect(west.parapets).toHaveLength(1);
   // Ground across the seam is cut in two; ground inside one cell is passed through.
   expect(west.ground.roads).toHaveLength(1);
   expect(east.ground.roads).toHaveLength(1);

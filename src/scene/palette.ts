@@ -45,6 +45,8 @@ export const PROPS = {
   /** Jan Fabre's jewel beetle on the Totem. */
   beetle: 0x2f8a6e,
 } as const;
+/** Brewery tanks and silos in pale aluminium; bridge parapets in the warm stone of the quays. */
+export const STRUCTURES = { tank: 0xd4d2c8, tankTop: 0xb9b6ab, parapet: 0xc4ad85 } as const;
 export const BIKES = [
   0x2f3a4a, 0x2b2420, 0xd2553f, 0xf6eedc, 0x8db36f, 0x5b6170, 0xe8b94a,
 ] as const;

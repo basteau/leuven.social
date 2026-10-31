@@ -10,6 +10,7 @@
  * Trees are a ring of positions followed by their heights in decimetres.
  * Props are a kind per prop, then their positions as one ring, then a turn (a byte: 256ths of a
  * full turn) and a size in decimetres each.
+ * Tanks are a height in decimetres and a footprint each; parapets are open lines.
  */
 
 import * as Binary from '@portable/binary';
@@ -20,7 +21,7 @@ import type { Bounds, Building, City, Prop } from './city.ts';
 import { boundsOf } from './geometry.ts';
 
 const MAGIC = 'LVN1';
-const VERSION = 5;
+const VERSION = 6;
 const DM = 10; // units per metre
 const ZIGZAG = { encoding: 'zigzag' } as const;
 const TURN = Math.PI * 2;
@@ -117,6 +118,14 @@ export function encodeCity(city: City): Uint8Array {
     w.uint8(Math.round((p.angle / TURN) * 256) & 255);
     w.varint(Math.round(p.size * DM));
   }
+
+  w.varint(city.tanks.length);
+  for (const t of city.tanks) {
+    w.varint(Math.round(t.height * DM));
+    writeRing(w, t.ring);
+  }
+  w.varint(city.parapets.length);
+  for (const line of city.parapets) writeRing(w, line);
   return w.toBytes();
 }
 
@@ -191,6 +200,11 @@ export function decodeCity(bytes: Uint8Array): City {
     angle: (r.uint8() / 256) * TURN,
     size: r.varint() / DM,
   }));
+  const tanks = Array.from({ length: r.varint() }, () => ({
+    height: r.varint() / DM,
+    ring: readRing(r),
+  }));
+  const parapets = Array.from({ length: r.varint() }, () => readRing(r));
   if (r.remaining !== 0) throw new CityFormatError(`${r.remaining} trailing bytes.`);
   return {
     area,
@@ -205,6 +219,8 @@ export function decodeCity(bytes: Uint8Array): City {
     trees,
     treeHeights,
     props,
+    tanks,
+    parapets,
   };
 }
 

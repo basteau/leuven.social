@@ -72,6 +72,12 @@ export interface Prop {
   size: number;
 }
 
+/** A tank or silo (GRB structures): its footprint and LiDAR height. Solid, so not walkable. */
+export interface Tank {
+  height: number;
+  ring: Float32Array;
+}
+
 export interface Bounds {
   minX: number;
   minZ: number;
@@ -95,6 +101,9 @@ export interface City {
   /** Height of each tree in metres, from the LiDAR canopy. */
   treeHeights: Float32Array;
   props: Prop[];
+  tanks: Tank[];
+  /** Bridge parapets: low walls along the sides of a bridge that face the water, as open lines. */
+  parapets: Float32Array[];
 }
 
 const KIND_BY_OSM: Record<string, Kind> = {

@@ -7,7 +7,7 @@
 
 import { AREA, LANDMARK_FOOTPRINTS, LANDMARKS, VIEW_AREA } from '../src/data/area.ts';
 import { kindFromOsm, pathFromOsm, roofFromSurvey } from '../src/data/city.ts';
-import type { Building, City, Path, Tier } from '../src/data/city.ts';
+import type { Building, City, Path, Tank, Tier } from '../src/data/city.ts';
 import { packCity } from '../src/data/format.ts';
 import {
   areaIndex,
@@ -20,6 +20,7 @@ import {
 } from '../src/data/geometry.ts';
 import { toLocal } from '../src/data/projection.ts';
 import { EdgeIndex, RingIndex, placeProps } from '../src/data/props.ts';
+import { bridgeParapets, tankOutline } from '../src/data/structures.ts';
 import { mergeTrees } from '../src/data/trees.ts';
 
 const root = new URL('../', import.meta.url);
@@ -91,9 +92,12 @@ const GREEN_LANDUSE = new Set(['grass', 'meadow', 'cemetery', 'forest', 'recreat
 /** Courtyards smaller than this are light wells: below a game pixel, and not worth the walls. */
 const MIN_COURTYARD = 12;
 
-const [local, crowns, wbn, wtz, osmAreas, osmRoads, osmPoints] = await Promise.all([
+const [local, crowns, knw, wbn, wtz, osmAreas, osmRoads, osmPoints] = await Promise.all([
   read<{ buildings: LocalBuilding[] }>('data/derived/leuven_buildings_local.json'),
   read<{ trees: [number, number, number][] }>('data/derived/lidar_trees.json'),
+  read<{ structures: { kind: string; h: number; ring: [number, number][] }[] }>(
+    'data/derived/grb_structures.json',
+  ),
   read<Collection>('data/grb/grb_WBN.geojson'),
   read<Collection>('data/grb/grb_WTZ.geojson'),
   read<Collection>('data/derived/osm_areas.geojson'),
@@ -168,6 +172,22 @@ for (const ring of [...roads, ...plazas, ...buildings.map((b) => b.ring)]) edges
 for (const p of paths) edges.add(p.line, false);
 const blocked = new RingIndex();
 for (const ring of [...water, ...buildings.map((b) => b.ring)]) blocked.add(ring);
+const river = new RingIndex();
+for (const ring of water) river.add(ring);
+// Tanks lower than this were built after the 2013–15 LiDAR, or are buried: leave them out.
+const MIN_TANK = 2.5;
+const tanks: Tank[] = knw.structures.flatMap(({ kind, h, ring }) => {
+  const footprint = tankOutline(normalizeRing(ring.flat()));
+  return kind === 'tank' && h >= MIN_TANK && footprint.length >= 6 && ringInArea(footprint, AREA)
+    ? [{ height: h, ring: new Float32Array(footprint) }]
+    : [];
+});
+const parapets = knw.structures
+  .filter((s) => s.kind === 'bridge')
+  .flatMap((s) => bridgeParapets(normalizeRing(s.ring.flat()), river))
+  .flatMap((line) => AREA.flatMap((rect) => clipLine(line, rect)))
+  .map((line) => new Float32Array(line));
+
 const STRIP = 50; // sorted in strips, so neighbours are near each other and deltas stay small
 const props = placeProps(
   osmPoints.features.flatMap((f) => {
@@ -198,6 +218,8 @@ const city: City = {
   trees: new Float32Array(trees.positions),
   treeHeights: new Float32Array(trees.heights),
   props,
+  tanks,
+  parapets,
 };
 
 const bytes = await packCity(city);
@@ -214,6 +236,7 @@ console.log(
     `props ${props.length}: ${Object.entries(Object.groupBy(props, (p) => p.kind))
       .map(([kind, list]) => `${list!.length} ${kind}`)
       .join(', ')}`,
+    `tanks ${tanks.length}, bridge parapets ${parapets.length}`,
     `public/data/city.bin ${(bytes.length / 1024).toFixed(0)} KB gzipped`,
   ].join('\n'),
 );

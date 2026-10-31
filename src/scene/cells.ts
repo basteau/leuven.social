@@ -1,4 +1,4 @@
-import type { Bounds, Building, City, Path, Prop } from '../data/city.ts';
+import type { Bounds, Building, City, Path, Prop, Tank } from '../data/city.ts';
 import { clipLine, clipRing } from '../data/geometry.ts';
 import { addBuilding } from './buildings.ts';
 import type { PartyWalls } from './buildings.ts';
@@ -6,6 +6,7 @@ import { addGround } from './ground.ts';
 import type { GroundLayers } from './ground.ts';
 import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
 import { LARGE_PROPS, addProp } from './props.ts';
+import { addParapet, addTank } from './structures.ts';
 import { addParasol } from './terraces.ts';
 import type { Parasol } from './terraces.ts';
 import { addTree } from './trees.ts';
@@ -26,6 +27,8 @@ export interface Cell {
   parasols: Parasol[];
   /** Street furniture, drawn in a mesh of its own that hides when zoomed out; tall ones aren't. */
   props: Prop[];
+  tanks: Tank[];
+  parapets: Float32Array[];
 }
 
 const cellOf = (v: number) => Math.floor(v / CELL_SIZE);
@@ -50,6 +53,8 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
           trees: [],
           parasols: [],
           props: [],
+          tanks: [],
+          parapets: [],
         });
       }
     }
@@ -63,6 +68,9 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
   }
   for (const p of parasols) at(p.x, p.z)?.parasols.push(p);
   for (const p of city.props) at(p.x, p.z)?.props.push(p);
+  // Like buildings, tanks and parapets go whole to the cell of their first point.
+  for (const t of city.tanks) at(t.ring[0]!, t.ring[1]!)?.tanks.push(t);
+  for (const line of city.parapets) at(line[0]!, line[1]!)?.parapets.push(line);
 
   // Ground polygons are flat, so they can be cut along cell edges without a visible seam.
   for (const layer of ['green', 'water', 'roads', 'plazas'] as const) {
@@ -124,6 +132,8 @@ export function buildCell(
     addTree(mesh, cell.trees[i]!, cell.trees[i + 1]!, cell.trees[i + 2]!, cell.trees[i + 3]!);
   }
   for (const p of cell.parasols) addParasol(mesh, lines, p);
+  for (const t of cell.tanks) addTank(mesh, lines, t);
+  for (const line of cell.parapets) addParapet(mesh, lines, line);
   for (const p of cell.props) addProp(LARGE_PROPS.has(p.kind) ? mesh : props, p);
   return { mesh, lines, props };
 }

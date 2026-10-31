@@ -50,6 +50,8 @@ const city: City = {
     { kind: 'bikes', x: 12.3, z: -4.5, angle: Math.PI / 2, size: 12 },
     { kind: 'needle', x: -100, z: 200.7, angle: 0, size: 23 },
   ],
+  tanks: [{ height: 14.5, ring: square(500, -1000, 6) }],
+  parapets: [new Float32Array([-3, 0, -3, 10]), new Float32Array([3, 0, 3, 5, 3.5, 10])],
 };
 
 describe('city format', () => {
@@ -81,6 +83,8 @@ describe('city format', () => {
       expect(p.z).toBeCloseTo(original.z, 4);
       expect(p.angle).toBeCloseTo(original.angle, 1); // a 256th of a turn
     }
+    expect(decoded.tanks).toEqual(city.tanks);
+    expect(decoded.parapets).toEqual(city.parapets);
   });
 
   test('gzip pack and unpack, and accepts already-inflated bytes', async () => {
