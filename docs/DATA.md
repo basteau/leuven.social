@@ -51,7 +51,7 @@ Prefer reading the world over guessing it. Each of these replaced a rule of thum
 
 ## Growing the map
 
-1. Change `AREA` in `src/data/area.ts`, and `LANDMARKS` if you want new labels.
+1. Change `AREA` in `src/data/area.ts`, and `LANDMARKS` if you want new labels (with the zoom each shows from).
 2. Run `bun run bake`, then `bun run verify`. The budgets tell you when the city got too heavy.
 
 The raw extent covers lat 50.857–50.892, lon 4.676–4.722; the area already reaches its east edge at the Abdij van Park. Growing past it means downloading more data first.

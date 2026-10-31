@@ -43,6 +43,8 @@ export interface Label {
   name: string;
   x: number;
   z: number;
+  /** Shown from this zoom: landmarks and districts always (0), small sights only up close. */
+  minZoom: number;
 }
 
 /**

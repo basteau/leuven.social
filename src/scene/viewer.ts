@@ -214,7 +214,8 @@ export function createViewer(options: ViewerOptions): Viewer {
   }
 
   // Landmark labels are plain DOM, moved with transforms after each render. Their order is
-  // their priority: a label that would overlap an earlier one, or the screen edge, is hidden.
+  // their priority: a label that would overlap an earlier one, or the screen edge, is hidden,
+  // and so is one whose zoom hasn't been reached.
   const labelEls = city.labels.map((label) => {
     const el = document.createElement('span');
     el.className = 'map-label';
@@ -227,6 +228,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     el,
     w: el.offsetWidth,
     h: el.offsetHeight,
+    minZoom: city.labels[i]!.minZoom,
     world: new Vector3(city.labels[i]!.x, LABEL_HEIGHT, city.labels[i]!.z),
   }));
   const placed: [number, number, number, number][] = [];
@@ -379,7 +381,11 @@ export function createViewer(options: ViewerOptions): Viewer {
     });
 
     placed.length = 0;
-    for (const { el, w, h, world } of labels) {
+    for (const { el, w, h, world, minZoom } of labels) {
+      if (camera.zoom < minZoom) {
+        el.hidden = true;
+        continue;
+      }
       projected.copy(world).project(camera);
       const x = ((projected.x + 1) / 2) * width;
       const y = ((1 - projected.y) / 2) * height;

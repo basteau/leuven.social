@@ -1,7 +1,7 @@
 /**
  * The compact binary city format ("LVN1"), served gzipped from public/data/.
  *
- * Layout: magic "LVN1", version, area rectangles, labels, buildings, four polygon layers, paths,
+ * Layout: magic "LVN1", version, area rectangles, labels (with the zoom they show from), buildings, four polygon layers, paths,
  * trees.
  * Coordinates are decimetres, zigzag varints, delta-encoded within each ring.
  * A building packs tier (2 bits), kind (4 bits) and roof (2 bits) into one byte, then its
@@ -21,7 +21,7 @@ import type { Bounds, Building, City, Prop } from './city.ts';
 import { boundsOf } from './geometry.ts';
 
 const MAGIC = 'LVN1';
-const VERSION = 6;
+const VERSION = 7;
 const DM = 10; // units per metre
 const ZIGZAG = { encoding: 'zigzag' } as const;
 const TURN = Math.PI * 2;
@@ -79,6 +79,7 @@ export function encodeCity(city: City): Uint8Array {
     writeString(w, label.name);
     w.varint(Math.round(label.x * DM), ZIGZAG);
     w.varint(Math.round(label.z * DM), ZIGZAG);
+    w.varint(Math.round(label.minZoom * DM));
   }
 
   w.varint(city.buildings.length);
@@ -147,7 +148,8 @@ export function decodeCity(bytes: Uint8Array): City {
 
   const labels = Array.from({ length: r.varint() }, () => {
     const name = r.string(r.varint());
-    return { name, x: r.varint(ZIGZAG) / DM, z: r.varint(ZIGZAG) / DM };
+    const [x, z] = [r.varint(ZIGZAG) / DM, r.varint(ZIGZAG) / DM];
+    return { name, x, z, minZoom: r.varint() / DM };
   });
 
   const buildings = Array.from({ length: r.varint() }, (): Building => {

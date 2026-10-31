@@ -14,7 +14,10 @@ const city: City = {
     { minX: -650, minZ: 450, maxX: 0, maxZ: 900 },
   ],
   bounds: { minX: -650, minZ: -400, maxX: 600, maxZ: 900 },
-  labels: [{ name: 'Grote Markt', x: 0, z: 0 }],
+  labels: [
+    { name: 'Grote Markt', x: 0, z: 0, minZoom: 0 },
+    { name: 'Totem', x: 348.5, z: 57.2, minZoom: 2.5 },
+  ],
   buildings: [
     {
       id: 7,

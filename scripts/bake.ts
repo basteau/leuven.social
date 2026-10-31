@@ -201,9 +201,9 @@ const props = placeProps(
 const city: City = {
   area: [...AREA],
   bounds: VIEW_AREA,
-  labels: LANDMARKS.map(({ name, lon, lat }) => {
+  labels: LANDMARKS.map(({ name, lon, lat, minZoom = 0 }) => {
     const [x, z] = toLocal(lon, lat);
-    return { name, x, z };
+    return { name, x, z, minZoom };
   }),
   buildings,
   roads,
