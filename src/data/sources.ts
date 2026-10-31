@@ -164,15 +164,15 @@ export const SOURCES: readonly Source[] = [
     kind: 'overpass',
     title: 'Mapped trees and points of interest',
     statements: [
-      'node["natural"="tree"];',
+      // A regex, not ="tree": read from history, Overpass looks an exact value of so common a
+      // tag up worldwide before cutting it to the box, and runs out of memory.
+      'node["natural"~"^tree$"];',
       'nwr["amenity"~"pub|bar|cafe|restaurant|fast_food|university|library|theatre|cinema|bicycle_parking|bicycle_rental|fountain|bench|place_of_worship|townhall"];',
       'nwr["tourism"]; nwr["historic"]; nwr["man_made"~"tower|statue"];',
       'node["highway"~"street_lamp|traffic_signals|bus_stop"];',
     ].join(' '),
     out: 'tags center',
-    // Read from Overpass's history, these tag filters over every node, way and relation
-    // run a server out of memory in bigger tiles.
-    tile: 0.012,
+    tile: 0.025,
     output: 'osm/points.json',
     usedBy: 'bake: mapped trees',
   },
