@@ -1,3 +1,10 @@
 #!/bin/sh
 # Back pressure: nothing is committed unless formatting, lint, types and tests pass.
-exec bun run verify:quick
+# Quiet when green; the full report when something fails.
+if output=$(bun run verify:quick 2>&1); then
+  echo "verify:quick ✓"
+else
+  printf '%s\n' "$output"
+  echo "\nCommit blocked: fix the above (bun run fix handles formatting and autofixable lint)." >&2
+  exit 1
+fi
