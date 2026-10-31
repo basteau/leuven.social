@@ -27,7 +27,7 @@ Raw downloads and derived, game-ready files for **Leuven inside the R23 ring plu
 | `derived/leuven_buildings_local.json` | Same buildings in a compact **game format**: local metres, origin at Grote Markt, x = east, z = south (three.js convention), courtyards as `holes` | same | same |
 | `derived/lidar_trees.json` | 10.6k tree crowns of 10 m and up found in the LiDAR canopy, with their heights | same | © Digitaal Vlaanderen |
 | `derived/osm_roads.geojson`, `osm_areas.geojson`, `osm_points.geojson` | OSM layers converted to GeoJSON (10,359 roads, 9,477 areas, 11,710 points) | same | ODbL |
-| `derived/road_zones.json` | The GRB road surface cut along its WGO kerb lines into ~1,100 carriageway and cycle-track faces (with the tags of the OSM way along each), ~380 lane lines and painted cycle lanes, ~780 crossings; local metres like the buildings | built by `tools/build_road_zones.py` | GRB + OSM (ODbL) |
+| `derived/road_zones.json` | The GRB road surface cut along its WGO kerb lines into ~1,100 carriageway and cycle-track faces (with the tags of the OSM way along each), ~310 lane lines and painted cycle lanes, ~780 crossings; local metres like the buildings | built by `tools/build_road_zones.py` | GRB + OSM (ODbL) |
 | `derived/preview_heights.png` | Top-down preview map | same | — |
 
 ## How heights are computed
