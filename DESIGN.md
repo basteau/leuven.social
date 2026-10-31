@@ -31,20 +31,29 @@ Leuven as a tiny city you could hold in your hands: a warm, crisp, pixel-art dio
 - Golden hour: a warm sun (`#ffe2b8`) from the south-west, long shadows.
 - A cool sky fill (`#cfe3ff`) and a warm ground bounce.
 
+### Landmarks and squares
+
+- **Hero landmarks get their real silhouette.** Low-poly halls, towers and spires fitted to the LiDAR: the Stadhuis' steep roof with dormers and six turrets, Sint-Pieterskerk's cross, flèche and squat west work, the Universiteitsbibliotheek's tower. Enough to recognise at zoom 2–4, never sculpted detail.
+- **Stepped gables say "Flemish town".** Nearly half the gables in the hero squares are stepped, a fifth elsewhere in the centre, none on the fringe. Narrow gables stay plain, since the steps would be smaller than a game pixel.
+- **Squares show what happens on them.** Oude Markt gets rows of café parasols along its facades; the middle stays open.
+- To add a landmark, fit parts in `src/scene/landmark-models.ts` against a LiDAR height plot of its footprint, then check it from all four rotations.
+
 ### Palette
 
 Values live in `src/scene/palette.ts`; change them there only. Each building's colour is picked deterministically from its id, so it never changes between reloads.
 
-| Element                | Colours                                                                        | Why                                                                     |
-| ---------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
-| House walls            | Brick reds, warm plaster creams                                                | Leuven's streets: red-brown brick next to whitewashed and pastel fronts |
-| Civic and church walls | Sandstone and limestone                                                        | The Gothic Stadhuis, Sint-Pieterskerk and the university halls          |
-| Pitched roofs          | Slate blue-grey and terracotta                                                 | The two roof families of Flemish towns                                  |
-| Flat roofs             | Light warm greys                                                               | Read as quiet backdrop, never darker than the streets                   |
-| Windows                | Deep blue-grey glass, ~7% lit warm (`#f3c873`)                                 | The sun catching a few panes; reads as life without noise               |
-| Ground                 | Garden green-beige base, warm grey roads, sand cobbles for squares, river blue | Squares should glow slightly against the roads                          |
-| Diorama slab           | Earth brown sides                                                              | Frames the city as an object                                            |
-| Outlines               | `#2b2420` warm ink                                                             | Ties scene and HUD together (same ink as the panels)                    |
+| Element                | Colours                                                                        | Why                                                                            |
+| ---------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------------------------------------ |
+| House walls            | Brick reds, warm plaster creams                                                | Leuven's streets: red-brown brick next to whitewashed and pastel fronts        |
+| Civic and church walls | Sandstone and limestone                                                        | The Gothic Stadhuis, Sint-Pieterskerk and the university halls                 |
+| Landmarks              | Warm sandstone, pale limestone, red brick with cream trim, dark slate spires   | Each hero reads as its own building, a step darker and richer than the streets |
+| Café parasols          | Cream, brick red, mustard, orange, sage                                        | A few warm dots of life on the squares                                         |
+| Pitched roofs          | Slate blue-grey and terracotta                                                 | The two roof families of Flemish towns                                         |
+| Flat roofs             | Light warm greys                                                               | Read as quiet backdrop, never darker than the streets                          |
+| Windows                | Deep blue-grey glass, ~7% lit warm (`#f3c873`)                                 | The sun catching a few panes; reads as life without noise                      |
+| Ground                 | Garden green-beige base, warm grey roads, sand cobbles for squares, river blue | Squares should glow slightly against the roads                                 |
+| Diorama slab           | Earth brown sides                                                              | Frames the city as an object                                                   |
+| Outlines               | `#2b2420` warm ink                                                             | Ties scene and HUD together (same ink as the panels)                           |
 
 ## HUD
 
