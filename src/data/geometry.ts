@@ -26,6 +26,17 @@ export function normalizeRing(ring: readonly number[]): number[] {
   return pts;
 }
 
+/** Even-odd test: whether (x, z) lies inside the ring. */
+export function pointInRing(ring: ArrayLike<number>, x: number, z: number): boolean {
+  let inside = false;
+  const n = ring.length / 2;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const [xi, zi, xj, zj] = [ring[i * 2]!, ring[i * 2 + 1]!, ring[j * 2]!, ring[j * 2 + 1]!];
+    if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
 export function ringInside(ring: ArrayLike<number>, b: Bounds): boolean {
   for (let i = 0; i < ring.length; i += 2) {
     const x = ring[i]!;

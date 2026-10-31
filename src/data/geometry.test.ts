@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 
-import { clipRing, normalizeRing, orientedRect, ringInside, signedArea } from './geometry.ts';
+import {
+  clipRing,
+  normalizeRing,
+  orientedRect,
+  pointInRing,
+  ringInside,
+  signedArea,
+} from './geometry.ts';
 
 const bounds = { minX: 0, minZ: 0, maxX: 10, maxZ: 10 };
 
@@ -53,4 +60,12 @@ describe('orientedRect', () => {
   test('reports a low fill for an L-shape', () => {
     expect(orientedRect([0, 0, 10, 0, 10, 2, 2, 2, 2, 10, 0, 10]).fill).toBeCloseTo(0.36);
   });
+});
+
+test('pointInRing works for concave rings', () => {
+  const ell = [0, 0, 10, 0, 10, 2, 2, 2, 2, 10, 0, 10];
+  expect(pointInRing(ell, 1, 1)).toBe(true);
+  expect(pointInRing(ell, 1, 8)).toBe(true);
+  expect(pointInRing(ell, 6, 6)).toBe(false);
+  expect(pointInRing(ell, -1, 1)).toBe(false);
 });
