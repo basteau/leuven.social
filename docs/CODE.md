@@ -9,7 +9,7 @@ The code is split by what it is allowed to know about. Lint enforces the arrows,
 | `src/data`  | The city model, the binary format, geometry and projection maths, the map area | `@portable/*` and web APIs only. No three.js, React or other layers. |
 | `src/scene` | Everything 3D: meshes, materials, camera, controls, the render loop            | `src/data`, three.js. No React.                                      |
 | `src/app`   | The React shell: HUD, loading and error states, keyboard shortcuts             | `src/data`, `src/scene`                                              |
-| `scripts/`  | Build-time edges: baking data, icons, budgets, the smoke test                  | `src/data`, plus the `Bun` global for files and processes            |
+| `scripts/`  | Build-time edges: baking data, icons, budgets, the smoke test, deploys         | `src/data`, plus the `Bun` global for files and processes            |
 
 `src/scene` exposes one entry point, `createViewer()`. It returns a small imperative handle (`rotate`, `resetView`, `setPixelated`, `stats`, `dispose`), so React never touches three.js objects.
 
