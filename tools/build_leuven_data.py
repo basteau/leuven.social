@@ -265,9 +265,10 @@ for f in json.load(open(DATA / 'grb/grb_GBA.geojson'))['features']:
         cs, rs = np.meshgrid(np.arange(c0, c1), np.arange(r0, r1))
         built[r0:r1, c0:c1] |= contains_xy(pl.buffer(1.0), X0 + (cs + 0.5) * RES, Y1 - (rs + 0.5) * RES)
 
-# Grey-world white balance over all sampled roofs: the winter mosaic has a cool cast, and the
+# Grey-world white balance over the sampled roofs in the ring and hero zones: the winter mosaic has a cool cast, and the
 # viewer snaps these colours to its palette, which expects neutral slate to come out neutral.
-rgbs = np.array([f['properties']['roof_rgb'] for f in feats if 'roof_rgb' in f['properties']], np.float32)
+# Fringe roofs don't count, so how far past the map the downloads reach doesn't shift every colour.
+rgbs = np.array([f['properties']['roof_rgb'] for f in feats if 'roof_rgb' in f['properties'] and f['properties']['tier'] != 'fringe'], np.float32)
 if len(rgbs):
     balance = rgbs.mean(0).mean() / rgbs.mean(0)
     for f in feats:
@@ -300,13 +301,17 @@ def lidar_trees(min_height=10.0, max_height=35.0):
     rough = slope > 25
     rough_near = sum(np.roll(np.roll(rough, dy, 0), dx, 1) for dy in (-1, 0, 1) for dx in (-1, 0, 1)) >= 3
     rows, cols = np.nonzero(peak & (canopy >= min_height) & rough_near)
-    order = np.argsort(-canopy[rows, cols])
+    # Stable, so equal heights go in raster order (north to south, west to east) whatever the raster's extent.
+    order = np.argsort(-canopy[rows, cols], kind='stable')
+    # Buckets as wide as the largest room, so looking one bucket around finds every clash and the result doesn't
+    # depend on where the raster happens to start.
+    bucket = math.ceil(2.1 * 2.6 * (max_height / 6.8) ** 0.8 / RES)
     kept, grid = [], {}
     for k in order:
         r_, c_ = int(rows[k]), int(cols[k])
         h = float(canopy[r_, c_])
         room = max(6.0, 2.1 * 2.6 * (h / 6.8) ** 0.8)
-        cell = (r_ // 8, c_ // 8)
+        cell = (r_ // bucket, c_ // bucket)
         clash = any(math.hypot(r_ - r2, c_ - c2) * RES < max(room, room2)
                     for dy in (-1, 0, 1) for dx in (-1, 0, 1) for r2, c2, room2 in grid.get((cell[0] + dy, cell[1] + dx), ()))
         if clash:
