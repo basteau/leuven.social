@@ -19,6 +19,7 @@
     "smoke": "bun scripts/smoke.ts",
     "bake": "bun scripts/bake.ts",
     "icons": "bun scripts/icons.ts",
+    "deploy": "bun scripts/deploy.ts",
     "prepare": "git config core.hooksPath .githooks || true"
   },
   "dependencies": {

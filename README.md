@@ -25,6 +25,7 @@ Controls:
 | `bun run verify`       | The above, plus the production build, size budgets and a headless-browser smoke test (screenshots in `.artifacts/`). Runs in CI. |
 | `bun run format`       | Formats everything                                                                                                               |
 | `bun run bake`         | Rebuilds `public/data/city.bin` from the raw data. See docs/DATA.md.                                                             |
+| `bun run deploy`       | Builds and publishes to https://leuven.exe.xyz/. See docs/DEPLOY.md.                                                             |
 
 Read [AGENTS.md](AGENTS.md) first; it links to everything else:
 

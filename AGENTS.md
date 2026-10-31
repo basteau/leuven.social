@@ -24,6 +24,7 @@ Commit in small, well-scoped steps: one logical change per commit, with its test
 - Where the city data comes from and how to grow the map: [docs/DATA.md](docs/DATA.md)
 - How it should look and feel: [DESIGN.md](DESIGN.md)
 - Background research, sources and ideas: [REPORT.md](REPORT.md)
+- Publishing to https://leuven.exe.xyz/ with `bun run deploy`: [docs/DEPLOY.md](docs/DEPLOY.md)
 
 ## UI work
 
