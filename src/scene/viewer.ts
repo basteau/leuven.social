@@ -51,7 +51,6 @@ export interface ViewerOptions {
   /** Absolutely positioned layer over the canvas that receives landmark labels. */
   labelLayer: HTMLElement;
   city: City;
-  pixelated: boolean;
   reducedMotion: boolean;
   /** Walk mode changed: picking a start, walking, or back on the map. */
   onWalkModeChange?: (mode: WalkMode) => void;
@@ -69,7 +68,6 @@ export interface Viewer {
   /** Multiplies the zoom, within the controls' limits. */
   zoomBy(factor: number): void;
   resetView(): void;
-  setPixelated(on: boolean): void;
   /** Starts walk mode: the next click on the map says where. */
   pickWalkStart(): void;
   /** Starts walking from the street nearest the middle of the view. */
@@ -84,8 +82,6 @@ export interface Viewer {
 
 /** Metres of city shown top to bottom at zoom 1. */
 const VIEW_HEIGHT = 560;
-/** Vertical game pixels the pixel look aims for, whatever the screen. */
-const PIXEL_ROWS = 420;
 const PITCH = Math.atan(1 / Math.SQRT2); // true isometric, ≈ 35.26°
 const CAMERA_DISTANCE = 2000;
 const ROTATE_MS = 280;
@@ -129,9 +125,9 @@ function toonGradient(): DataTexture {
 
 export function createViewer(options: ViewerOptions): Viewer {
   const { canvas, keyTarget, labelLayer, city, reducedMotion } = options;
-  let pixelated = options.pixelated;
-
-  const renderer = new WebGLRenderer({ canvas, alpha: true, antialias: false });
+  // Dense screens are smooth already; only standard-density ones pay for multisampling.
+  const density = Math.min(globalThis.devicePixelRatio || 1, 2);
+  const renderer = new WebGLRenderer({ canvas, alpha: true, antialias: density < 1.5 });
   renderer.setClearColor(0x000000, 0);
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = BasicShadowMap;
@@ -243,14 +239,12 @@ export function createViewer(options: ViewerOptions): Viewer {
   function resize(): void {
     const w = Math.max(1, canvas.clientWidth);
     const h = Math.max(1, canvas.clientHeight);
-    const ratio = pixelated
-      ? 1 / Math.max(2, Math.round(h / PIXEL_ROWS))
-      : Math.min(globalThis.devicePixelRatio || 1, 2);
+    const ratio = Math.min(globalThis.devicePixelRatio || 1, 2);
     if (w === width && h === height && ratio === renderer.getPixelRatio()) return;
     width = w;
     height = h;
     renderer.setDrawingBufferSize(width, height, ratio); // one reallocation, style untouched
-    // The buffer is floored to whole pixels, so take the aspect from it: game pixels stay square.
+    // The buffer is floored to whole pixels, so take the aspect from it: pixels stay square.
     renderer.getDrawingBufferSize(buffer);
     const halfH = VIEW_HEIGHT / 2;
     const halfW = halfH * (buffer.x / buffer.y);
@@ -345,24 +339,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     if (cells.some((entry) => !entry.objects.length)) idleHandle = idle(buildInBackground);
   }
 
-  const right = new Vector3();
-  const up = new Vector3();
-  const saved = new Vector3();
   function render(): void {
-    // Snap the camera to whole game pixels so edges don't shimmer while panning.
-    saved.copy(camera.position);
-    if (pixelated) {
-      camera.updateMatrixWorld();
-      right.setFromMatrixColumn(camera.matrixWorld, 0);
-      up.setFromMatrixColumn(camera.matrixWorld, 1);
-      const unit =
-        (camera.top - camera.bottom) / camera.zoom / renderer.getDrawingBufferSize(buffer).y;
-      const r = camera.position.dot(right);
-      const u = camera.position.dot(up);
-      camera.position
-        .addScaledVector(right, Math.round(r / unit) * unit - r)
-        .addScaledVector(up, Math.round(u / unit) * unit - u);
-    }
     camera.updateMatrixWorld();
     prepare();
     cull();
@@ -391,7 +368,6 @@ export function createViewer(options: ViewerOptions): Viewer {
       placed.push(box);
       el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
     }
-    camera.position.copy(saved);
   }
 
   let frame = 0;
@@ -510,11 +486,6 @@ export function createViewer(options: ViewerOptions): Viewer {
     rotate,
     zoomBy,
     resetView,
-    setPixelated(on) {
-      if (on === pixelated) return;
-      pixelated = on;
-      resize();
-    },
     pickWalkStart: () => walk.pick(),
     walkFromCentre: () => walk.startAtCentre(),
     stopWalking: () => walk.exit(),

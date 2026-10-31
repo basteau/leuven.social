@@ -1,13 +1,13 @@
 # Design
 
-Leuven as a tiny city you could hold in your hands: a warm, crisp, pixel-art diorama at golden hour, with a calm, game-like HUD that stays out of the way.
+Leuven as a tiny city you could hold in your hands: a warm, crisp, low-poly diorama at golden hour, with a calm, game-like HUD that stays out of the way.
 
 ## Principles
 
 1. **The city is the interface.** The map fills the screen. HUD panels are small, few, and float at the edges. Every new control has to justify covering the city.
 2. **Recognisable, not literal.** Real footprints and real heights make it unmistakably Leuven. Simplified shapes and a limited palette make it charming. Spend detail where people look: hero landmarks first.
 3. **Crisp over smooth.**
-   - Hard pixels, hard shadows, a 3-step toon ramp, dark ink outlines.
+   - Hard shadows, a 3-step toon ramp, dark ink outlines.
    - No blur, no glows, no soft gradients inside the scene.
    - Smoothness belongs to motion, not to surfaces.
 4. **Fast is a feature.** It opens instantly and costs nothing when idle. A visual idea that breaks a budget in docs/RENDERING.md needs a cheaper version.
@@ -18,13 +18,8 @@ Leuven as a tiny city you could hold in your hands: a warm, crisp, pixel-art dio
 ### Camera
 
 - True isometric view (35.26° pitch).
-- Rotation snaps to 90° steps, which keeps the pixel grid stable.
-- The camera snaps to whole game pixels.
-
-### Pixel mode
-
-- On by default: at least 2× game pixels, about 420 rows on a desktop window, scaled up with nearest-neighbour.
-- Crisp mode renders at device resolution, for screenshots and reading labels.
+- Rotation snaps to 90° steps.
+- One rendering path: device resolution (capped at 2×), with multisampling only on standard-density screens, where edges would otherwise stair-step.
 
 ### Light
 
@@ -123,7 +118,7 @@ Tokens are oklch, in `src/app/app.css`:
 ### Keyboard
 
 - The map is one focusable widget (`role="application"`, focused on load without a ring).
-- Arrow keys pan, `+`/`-` zoom, Q/E turn, P toggles pixels, R resets, W starts a walk.
+- Arrow keys pan, `+`/`-` zoom, Q/E turn, R resets, W starts a walk.
 - Picking a start: Enter starts in the middle of the view, Escape cancels.
 - Walking: W A S D or the arrow keys walk relative to the screen, Escape returns to the map. Clicking or tapping a street walks there along a route.
 - Shortcuts only act while focus is inside the app.

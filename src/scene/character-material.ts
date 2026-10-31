@@ -3,7 +3,7 @@ import type { Texture, WebGLProgramParametersWithUniforms } from 'three';
 
 import { WALKER } from './palette.ts';
 
-/** Every other pixel, in a checkerboard: half-transparent the pixel-art way, with no blending. */
+/** Every other pixel, in a checkerboard: see-through without blending or sorting. */
 const CHECKER = 'mod(floor(gl_FragCoord.x) + floor(gl_FragCoord.y), 2.0) < 1.0';
 
 function withDither(shader: WebGLProgramParametersWithUniforms, discard: string): void {

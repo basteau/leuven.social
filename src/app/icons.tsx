@@ -26,12 +26,6 @@ export const RotateRightIcon = () => (
   </svg>
 );
 
-export const PixelIcon = () => (
-  <svg {...base}>
-    <path d="M4 4h6v6H4zM14 14h6v6h-6zM14 4h6v6h-6zM4 14h6v6H4z" />
-  </svg>
-);
-
 export const ResetIcon = () => (
   <svg {...base}>
     <circle cx="12" cy="12" r="7" />

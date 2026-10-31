@@ -14,8 +14,8 @@ import { OUTLINE, WALKER } from './palette.ts';
 import { IDLE_SECONDS, WALK_SPEED } from './walker.ts';
 
 /**
- * The walker: a few boxes on a seven-bone skeleton, chunky enough to read at a dozen game
- * pixels tall. Its ink outline is an inverted hull in the same geometry (slightly larger
+ * The walker: a few boxes on a seven-bone skeleton, chunky enough to read from the isometric
+ * camera. Its ink outline is an inverted hull in the same geometry (slightly larger
  * boxes facing inward, so only their far sides show around the silhouette), which keeps the
  * whole figure, shadow included, to one draw call.
  */

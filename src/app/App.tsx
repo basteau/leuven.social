@@ -7,7 +7,6 @@ import {
   CloseIcon,
   MapIcon,
   PinIcon,
-  PixelIcon,
   ResetIcon,
   RotateLeftIcon,
   RotateRightIcon,
@@ -77,8 +76,6 @@ export function App() {
   const labelsRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
   const [status, setStatus] = useState<Status>({ state: 'loading' });
-  const [pixelated, setPixelated] = useState(true);
-  const pixelatedRef = useRef(pixelated);
   const [attempt, setAttempt] = useState(0);
   const retryRef = useRef<HTMLButtonElement>(null);
   const [walkMode, setWalkMode] = useState<WalkMode>('map');
@@ -106,7 +103,6 @@ export function App() {
           keyTarget: map,
           labelLayer,
           city,
-          pixelated: pixelatedRef.current,
           reducedMotion: reducedMotion() ?? false,
           onWalkModeChange: (mode) => {
             walkModeRef.current = mode;
@@ -142,11 +138,6 @@ export function App() {
       viewerRef.current = null;
     };
   }, [attempt]);
-
-  useEffect(() => {
-    pixelatedRef.current = pixelated;
-    viewerRef.current?.setPixelated(pixelated);
-  }, [pixelated]);
 
   useEffect(() => {
     if (status.state === 'error') retryRef.current?.focus();
@@ -186,7 +177,6 @@ export function App() {
       const actions: Record<string, () => void> = {
         q: () => viewer.rotate(-1),
         e: () => viewer.rotate(1),
-        p: () => setPixelated((on) => !on),
         '+': () => viewer.zoomBy(1.25),
         '=': () => viewer.zoomBy(1.25),
         '-': () => viewer.zoomBy(0.8),
@@ -236,7 +226,7 @@ export function App() {
   }, [ready]);
 
   return (
-    <main ref={appRef} className="app" data-pixelated={pixelated} data-walk={walkMode}>
+    <main ref={appRef} className="app" data-walk={walkMode}>
       <div
         ref={mapRef}
         className="map"
@@ -321,15 +311,6 @@ export function App() {
                 <RotateRightIcon />
               </ToolButton>
               <ToolButton
-                label="Pixels"
-                shortcut="P"
-                pressed={pixelated}
-                disabled={!ready}
-                onPress={() => setPixelated((on) => !on)}
-              >
-                <PixelIcon />
-              </ToolButton>
-              <ToolButton
                 label="Reset"
                 shortcut="R"
                 disabled={!ready}
@@ -403,7 +384,6 @@ function ToolButton(props: {
   /** The key as shown; `keys` names it for assistive tech when the two differ. */
   shortcut: string;
   keys?: string;
-  pressed?: boolean;
   disabled: boolean;
   onPress: () => void;
   children: ReactNode;
@@ -412,7 +392,6 @@ function ToolButton(props: {
     <button
       type="button"
       className="button"
-      aria-pressed={props.pressed}
       aria-keyshortcuts={props.keys ?? props.shortcut}
       disabled={props.disabled}
       onClick={props.onPress}
