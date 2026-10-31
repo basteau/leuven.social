@@ -13,6 +13,7 @@ import type {
   Source,
   WcsSource,
   WfsSource,
+  WikidataSource,
   WmtsSource,
 } from './sources.ts';
 
@@ -44,7 +45,7 @@ export function lonLatTiles(box: LonLatBox, max: number): LonLatBox[] {
 /** One Overpass request: the source's statements inside a tile, as OpenStreetMap was on `date`. */
 export function overpassQuery(source: OverpassSource, tile: LonLatBox, date: string): string {
   const bbox = [tile.south, tile.west, tile.north, tile.east].join(',');
-  return `[out:json][timeout:180][date:"${date}"][bbox:${bbox}];(${source.statements});out tags ${source.out};`;
+  return `[out:json][timeout:180][date:"${date}"][bbox:${bbox}];(${source.statements});out ${source.out};`;
 }
 
 export interface OsmElement {
@@ -230,11 +231,64 @@ export function wmtsUrl(source: WmtsSource, x: number, y: number): string {
 export const wmtsFile = (source: WmtsSource, x: number, y: number) =>
   `${source.output}/${x}_${y}.png`;
 
+/** wbgetentities takes at most 50 ids per request. */
+export function wikidataUrls(source: WikidataSource): string[] {
+  const urls: string[] = [];
+  for (let i = 0; i < source.items.length; i += 50) {
+    const params = new URLSearchParams({
+      action: 'wbgetentities',
+      ids: source.items.slice(i, i + 50).join('|'),
+      props: 'claims',
+      format: 'json',
+    });
+    urls.push(`${source.endpoint}?${params}`);
+  }
+  return urls;
+}
+
+interface Statement {
+  rank?: string;
+  mainsnak?: { datavalue?: { value?: { latitude?: number; longitude?: number } } };
+}
+export interface WikidataResult {
+  entities: Record<string, { missing?: string; claims?: Record<string, Statement[]> }>;
+}
+
+export function checkWikidata(text: string): WikidataResult {
+  const json = parseJson(text, 'Wikidata');
+  if (json.error !== undefined)
+    throw new SourceError(`Wikidata error: ${JSON.stringify(json.error)}`);
+  if (typeof json.entities !== 'object' || json.entities === null) {
+    throw new SourceError('Wikidata answer has no entities');
+  }
+  return json as unknown as WikidataResult;
+}
+
+/**
+ * Just each item's coordinates (the preferred P625 statement, else the first), sorted by id:
+ * revision ids and edit times would change the file without changing anything we use.
+ */
+export function mergeWikidata(results: readonly WikidataResult[], items: readonly string[]) {
+  const all = Object.assign({}, ...results.map((r) => r.entities)) as WikidataResult['entities'];
+  const out: Record<string, { lon: number; lat: number }> = {};
+  for (const id of items.toSorted()) {
+    const statements = all[id]?.claims?.P625 ?? [];
+    const best = statements.find((s) => s.rank === 'preferred') ?? statements[0];
+    const value = best?.mainsnak?.datavalue?.value;
+    if (value?.latitude === undefined || value.longitude === undefined) {
+      throw new SourceError(`Wikidata ${id} has no coordinates (P625)`);
+    }
+    out[id] = { lon: value.longitude, lat: value.latitude };
+  }
+  return out;
+}
+
 /** The files under data/ a source fills: one merged file, or one per tile. */
 export function outputFiles(source: Source): string[] {
   switch (source.kind) {
     case 'overpass':
     case 'wfs':
+    case 'wikidata':
       return [source.output];
     case 'wcs':
       return gridTiles(gridBox(lonLatBox()), source.resolution).map((t) => wcsFile(source, t));

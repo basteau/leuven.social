@@ -24,6 +24,7 @@
     "test": "bun test --coverage",
     "budget": "bun scripts/budget.ts",
     "smoke": "bun scripts/smoke.ts",
+    "data:fetch": "bun scripts/fetch.ts",
     "bake": "bun scripts/bake.ts",
     "icons": "bun scripts/icons.ts",
     "deploy": "bun scripts/deploy.ts",

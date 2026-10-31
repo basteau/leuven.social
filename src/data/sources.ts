@@ -8,7 +8,7 @@
  * the map grows every download with it.
  */
 
-import { AREA, VIEW_AREA } from './area.ts';
+import { AREA, LANDMARK_ITEMS, VIEW_AREA } from './area.ts';
 import type { Bounds } from './city.ts';
 import { toLambert72, toLonLat } from './projection.ts';
 
@@ -18,9 +18,9 @@ export interface Provider {
   credit: string;
   licence: string;
   licenceUrl: string;
-  /** The short credit the HUD shows, and where it links. */
-  hud: string;
-  hudUrl: string;
+  /** The short credit the HUD shows, and where it links. Left out when the licence asks none. */
+  hud?: string;
+  hudUrl?: string;
 }
 
 const DIGITAAL_VLAANDEREN = {
@@ -54,13 +54,23 @@ export const PROVIDERS = {
     credit: 'Bron: Luchtopnamen Digitaal Vlaanderen',
     ...DIGITAAL_VLAANDEREN,
   },
+  wikidata: {
+    name: 'Wikidata',
+    credit: 'Wikidata',
+    licence: 'CC0 1.0',
+    licenceUrl: 'https://creativecommons.org/publicdomain/zero/1.0/',
+  },
 } as const satisfies Record<string, Provider>;
 
 export type ProviderId = keyof typeof PROVIDERS;
 
 /** The HUD's credits: one link per distinct short credit, in manifest order. */
 export const CREDITS: readonly { label: string; href: string }[] = [
-  ...new Map(Object.values(PROVIDERS).map((p): [string, string] => [p.hud, p.hudUrl])).entries(),
+  ...new Map(
+    Object.values(PROVIDERS as Record<ProviderId, Provider>).flatMap((p): [string, string][] =>
+      p.hud && p.hudUrl ? [[p.hud, p.hudUrl]] : [],
+    ),
+  ).entries(),
 ].map(([label, href]) => ({ label, href }));
 
 interface Common {
@@ -81,8 +91,11 @@ interface Common {
 export interface OverpassSource extends Common {
   kind: 'overpass';
   statements: string;
-  /** `geom` for full way and relation geometry, `center` for one point per element. */
-  out: 'geom' | 'center';
+  /**
+   * Overpass `out` mode: `tags geom` for tags and geometry, `geom` to also keep relation
+   * members (and their geometry), `tags center` for one point per element.
+   */
+  out: 'tags geom' | 'geom' | 'tags center';
   /** Largest tile side in degrees: dense layers need smaller requests. */
   tile: number;
 }
@@ -112,7 +125,14 @@ export interface WmtsSource extends Common {
   zoom: number;
 }
 
-export type Source = OverpassSource | WfsSource | WcsSource | WmtsSource;
+/** Coordinates (P625) of some Wikidata items, through the wbgetentities API. */
+export interface WikidataSource extends Common {
+  kind: 'wikidata';
+  endpoint: string;
+  items: readonly string[];
+}
+
+export type Source = OverpassSource | WfsSource | WcsSource | WmtsSource | WikidataSource;
 
 /**
  * The moment of OpenStreetMap to read. Overpass answers from its history ("attic") for this
@@ -155,7 +175,7 @@ export const SOURCES: readonly Source[] = [
     kind: 'overpass',
     title: 'Buildings and building parts, for their tags (name, roof shape, levels, use)',
     statements: 'way["building"]; relation["building"]; way["building:part"];',
-    out: 'geom',
+    out: 'tags geom',
     tile: 0.025,
     output: 'osm/buildings.json',
     usedBy: 'tools/build_leuven_data.py: tags joined onto GRB footprints',
@@ -166,7 +186,7 @@ export const SOURCES: readonly Source[] = [
     kind: 'overpass',
     title: 'The R23 ring road',
     statements: 'way["ref"="R23"];',
-    out: 'geom',
+    out: 'tags geom',
     tile: OVERPASS_TILE,
     output: 'osm/ring_r23.json',
     usedBy: 'tools/build_leuven_data.py: the core tier is what lies inside the ring',
@@ -177,7 +197,7 @@ export const SOURCES: readonly Source[] = [
     kind: 'overpass',
     title: 'Every highway way: streets, footways, paths, cycleways, steps',
     statements: 'way["highway"];',
-    out: 'geom',
+    out: 'tags geom',
     tile: OVERPASS_TILE,
     output: 'osm/roads.json',
     usedBy: 'bake: paths and pedestrian areas',
@@ -193,7 +213,7 @@ export const SOURCES: readonly Source[] = [
       'way["landuse"]; relation["landuse"];',
       'way["railway"]; way["amenity"="parking"]; way["place"="square"]; way["area:highway"];',
     ].join(' '),
-    out: 'geom',
+    out: 'tags geom',
     tile: OVERPASS_TILE,
     output: 'osm/areas.json',
     usedBy: 'bake: green, water and plazas',
@@ -209,15 +229,34 @@ export const SOURCES: readonly Source[] = [
       'nwr["tourism"]; nwr["historic"]; nwr["man_made"~"tower|statue"];',
       'node["highway"~"street_lamp|traffic_signals|bus_stop"];',
     ].join(' '),
-    out: 'center',
+    out: 'tags center',
     tile: OVERPASS_TILE,
     output: 'osm/points.json',
     usedBy: 'bake: mapped trees',
+  },
+  {
+    id: 'osm-rail-platforms',
+    provider: 'osm',
+    kind: 'overpass',
+    title: 'Railway platforms, with their multipolygon members',
+    statements: [
+      'relation["railway"="platform"]; way["railway"="platform"];',
+      'relation["public_transport"="platform"]["train"="yes"]; way["public_transport"="platform"]["train"="yes"];',
+    ].join(' '),
+    out: 'geom',
+    tile: OVERPASS_TILE,
+    output: 'osm/rail_platforms.json',
+    usedBy: 'bake: station platforms (railways branch)',
   },
   grb('GBG', 'Building footprints, with courtyards', 'tools/build_leuven_data.py: every building'),
   grb('GBA', 'Building annexes', 'tools/build_leuven_data.py: keeps LiDAR trees off sheds'),
   grb('WBN', 'Road surfaces', 'bake: roads'),
   grb('WTZ', 'Watercourses', 'bake: water'),
+  grb(
+    'KNW',
+    'Structures: bridges, tanks, silos',
+    'tools/build_leuven_data.py: bridges and tanks (city-details branch)',
+  ),
   ...(['DTM', 'DSM'] as const).map((model): WcsSource => ({
     id: `dhmv-${model.toLowerCase()}`,
     provider: 'dhmv',
@@ -242,6 +281,16 @@ export const SOURCES: readonly Source[] = [
     zoom: 18,
     output: 'ortho/z18',
     usedBy: 'tools/build_leuven_data.py: roof colours (no imagery ships)',
+  },
+  {
+    id: 'wikidata-labels',
+    provider: 'wikidata',
+    kind: 'wikidata',
+    title: 'Coordinates of the labelled places (P625)',
+    endpoint: 'https://www.wikidata.org/w/api.php',
+    items: LANDMARK_ITEMS,
+    output: 'wikidata/labels.json',
+    usedBy: 'bake: where each label in LANDMARKS (src/data/area.ts) goes',
   },
 ];
 

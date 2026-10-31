@@ -31,18 +31,51 @@ export const LANDMARK_FOOTPRINTS: readonly number[] = [
 /** The rectangle around the whole area. */
 export const VIEW_AREA: Bounds = boundsOf(AREA);
 
-export const LANDMARKS: readonly { name: string; lon: number; lat: number }[] = [
-  { name: 'Stadhuis', lon: 4.70111, lat: 50.87889 },
-  { name: 'Sint-Pieterskerk', lon: 4.70111, lat: 50.87944 },
-  { name: 'Oude Markt', lon: 4.69944, lat: 50.87806 },
-  { name: 'Fonske', lon: 4.70194, lat: 50.87917 },
-  { name: 'Universiteitsbibliotheek', lon: 4.70741, lat: 50.87801 },
-  { name: 'M Leuven', lon: 4.70444, lat: 50.87889 },
-  { name: 'Station Leuven', lon: 4.7152, lat: 50.8813 },
-  { name: 'Groot Begijnhof', lon: 4.6975, lat: 50.872 },
-  { name: 'Arenbergkasteel', lon: 4.6832, lat: 50.86333 },
-  { name: 'Abdij van Park', lon: 4.7181, lat: 50.8641 },
-  { name: 'Sint-Donatuspark', lon: 4.70291, lat: 50.87555 },
-  { name: 'Sint-Michielskerk', lon: 4.70056, lat: 50.87611 },
-  { name: 'Arenbergpark', lon: 4.6886, lat: 50.8656 },
+/**
+ * A label names a Wikidata item, and the bake places it at the item's coordinates (P625, from
+ * the `wikidata-labels` download). A place without an item gives its own position and says
+ * where it comes from: docs/DATA.md lists these under Exceptions.
+ */
+export type Landmark = { name: string } & (
+  { wikidata: string } | { lon: number; lat: number; source: string }
+);
+
+export const LANDMARKS: readonly Landmark[] = [
+  { name: 'Stadhuis', wikidata: 'Q940882' },
+  { name: 'Sint-Pieterskerk', wikidata: 'Q17722' },
+  { name: 'Oude Markt', wikidata: 'Q2792167' },
+  { name: 'Fonske', wikidata: 'Q2107804' },
+  { name: 'Universiteitsbibliotheek', wikidata: 'Q139854572' },
+  { name: 'M Leuven', wikidata: 'Q2362660' },
+  { name: 'Station Leuven', wikidata: 'Q801090' },
+  { name: 'Groot Begijnhof', wikidata: 'Q1049301' },
+  { name: 'Arenbergkasteel', wikidata: 'Q1522076' },
+  { name: 'Abdij van Park', wikidata: 'Q476178' },
+  { name: 'Sint-Donatuspark', wikidata: 'Q2663022' },
+  { name: 'Sint-Michielskerk', wikidata: 'Q1502706' },
+  {
+    name: 'Arenbergpark',
+    lon: 4.6886,
+    lat: 50.8656,
+    source: "No Wikidata item: the middle of the park's lawn on the orthophoto",
+  },
 ];
+
+/** The Wikidata items the labels need, sorted, each once. */
+export const LANDMARK_ITEMS: readonly string[] = [
+  ...new Set(LANDMARKS.flatMap((l) => ('wikidata' in l ? [l.wikidata] : []))),
+].toSorted();
+
+/** Where each label goes: its item's coordinates, or the position it gives itself. */
+export function placeLandmarks(
+  landmarks: readonly Landmark[],
+  items: Readonly<Record<string, { lon: number; lat: number }>>,
+): { name: string; lon: number; lat: number }[] {
+  return landmarks.map((l) => {
+    if (!('wikidata' in l)) return { name: l.name, lon: l.lon, lat: l.lat };
+    const item = items[l.wikidata];
+    if (!item)
+      throw new Error(`No coordinates for ${l.name} (${l.wikidata}): run bun run data:fetch`);
+    return { name: l.name, lon: item.lon, lat: item.lat };
+  });
+}
