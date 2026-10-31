@@ -108,6 +108,38 @@ async function expectCreditsShown(): Promise<void> {
   console.log('ok  credits visible at start');
 }
 
+/** Holds a key down for a while, as a person walking would (agent-browser only taps keys). */
+async function holdKey(key: string, ms: number): Promise<void> {
+  const send = (type: string) =>
+    browser(
+      'eval',
+      `document.querySelector('.map').dispatchEvent(new KeyboardEvent('${type}', { key: '${key}', bubbles: true }))`,
+    );
+  await send('keydown');
+  await browser('wait', String(ms));
+  await send('keyup');
+}
+
+const canvasData = (name: string) => `document.querySelector('canvas')?.dataset.${name}`;
+
+/** Walk mode: start in the middle of the view, walk a few steps, go back to the map. */
+async function expectWalking(): Promise<void> {
+  await browser('press', 'w');
+  await browser('wait', '--fn', `${canvasData('walk')} === 'pick'`);
+  await browser('press', 'Enter');
+  await browser('wait', '--fn', `${canvasData('walk')} === 'walk'`);
+  const start = await evalJson<string>(`JSON.stringify(${canvasData('walker')})`);
+  await holdKey('d', 800);
+  await holdKey('w', 800);
+  // The walker publishes where it stands once it has stopped and stopped idling.
+  await browser('wait', '--fn', `${canvasData('walker')} !== ${JSON.stringify(start)}`);
+  await expectHealthyPage('desktop walking');
+  await browser('screenshot', `${ARTIFACTS}smoke-walk.png`);
+  await browser('press', 'Escape');
+  await browser('wait', '--fn', `${canvasData('walk')} === 'map'`);
+  await expectHealthyPage('desktop back on the map');
+}
+
 async function waitForServer(): Promise<void> {
   for (let i = 0; i < 100; i++) {
     if (server.exitCode !== null) {
@@ -157,6 +189,8 @@ try {
   await browser('wait', '400');
   await expectHealthyPage('desktop zoomed out');
   await browser('screenshot', `${ARTIFACTS}smoke-overview.png`);
+
+  await expectWalking();
 
   await browser('set', 'viewport', '390', '844');
   await openFresh(BASE);
