@@ -230,7 +230,7 @@ export const SOURCES: readonly Source[] = [
       'node["highway"~"street_lamp|traffic_signals|bus_stop"];',
     ].join(' '),
     out: 'tags center',
-    tile: OVERPASS_TILE,
+    tile: 0.025,
     output: 'osm/points.json',
     usedBy: 'bake: mapped trees',
   },

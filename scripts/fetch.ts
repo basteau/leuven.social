@@ -293,13 +293,14 @@ for (const source of SOURCES) {
     fetched:
       previous?.sha256 === digest.sha256 ? previous.fetched : new Date().toISOString().slice(0, 10),
   };
+  // Saved after every source, so an interrupted fetch keeps what it finished.
+  if (args.frozen !== true) await writeLock(lock);
 }
 
 if (args.frozen === true && changed.length) {
   console.error(`These sources differ from data/sources.lock.json: ${changed.join(', ')}`);
   process.exit(1);
 }
-await writeLock(lock);
 console.log(
   changed.length ? `Lock updated for ${changed.join(', ')}` : 'Everything matches the lock',
 );
