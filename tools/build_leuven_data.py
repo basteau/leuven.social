@@ -195,13 +195,16 @@ osm_pts = [g.representative_point() for _, g in osm_b]
 KEEP = ['building', 'name', 'building:levels', 'roof:shape', 'roof:levels', 'amenity', 'shop', 'historic', 'building:colour', 'roof:colour']
 
 # --- Detail tiers: hand-built hero zones > generic but faithful core inside R23 > cheap fringe outside it ---------------
+# Which neighbourhoods get the most detail is a design choice, not data (docs/DATA.md, Exceptions). Centres are the
+# Wikidata coordinates (P625) of each square or landmark, except Ladeuzeplein and Martelarenplein, moved between the
+# square and its library or station so one circle holds both.
 HERO_ZONES = {  # name: (lon, lat, radius m)
-    'Grote Markt (Stadhuis, Sint-Pieterskerk)': (4.70139, 50.87917, 170),
-    'Oude Markt': (4.69944, 50.87806, 120),
-    'Ladeuzeplein (Universiteitsbibliotheek)': (4.70690, 50.87820, 140),
-    'Martelarenplein (station)': (4.71560, 50.88100, 150),
-    'Groot Begijnhof': (4.69694, 50.87167, 170),
-    'Kasteel van Arenberg (Heverlee)': (4.68306, 50.86333, 220),
+    'Grote Markt (Stadhuis, Sint-Pieterskerk)': (4.70139, 50.87917, 170),  # Q4766627
+    'Oude Markt': (4.69944, 50.87806, 120),  # Q2792167
+    'Ladeuzeplein (Universiteitsbibliotheek)': (4.70690, 50.87820, 140),  # Q6469401, Q139854572
+    'Martelarenplein (station)': (4.71560, 50.88100, 150),  # Q2658903, Q801090
+    'Groot Begijnhof': (4.69694, 50.87167, 170),  # Q1049301
+    'Kasteel van Arenberg (Heverlee)': (4.68306, 50.86333, 220),  # Q1522076
 }
 ring_pts = [(p['lon'], p['lat']) for e in osm_elements('ring_r23') for p in e.get('geometry', []) if p]
 RING = make_valid(Polygon(ring_pts).convex_hull)  # R23 is close to convex; hull is fine for tiering

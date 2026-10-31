@@ -68,3 +68,8 @@ test('orthophotos cover each rectangle of the area, not the box around them', ()
     expect(r.maxZ).toBe(AREA[i]!.maxZ + ORTHO_MARGIN);
   });
 });
+
+test.each(['docs/DATA.md', 'data/README.md'])('%s names every source', async (doc) => {
+  const text = await (await fetch(new URL(`../../${doc}`, import.meta.url))).text();
+  expect(SOURCES.filter((s) => !text.includes(`\`${s.id}\``)).map((s) => s.id)).toEqual([]);
+});
