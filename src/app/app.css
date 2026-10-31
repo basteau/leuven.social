@@ -1,0 +1,322 @@
+/* Tokens and rationale: DESIGN.md. Techniques: .agents/skills/good-css, mobile-native. */
+
+:root {
+  color-scheme: light;
+  --ink: oklch(26% 0.02 50);
+  --paper: oklch(97% 0.015 85);
+  --paper-press: color-mix(in oklch, var(--paper), var(--ink) 9%);
+  --accent: oklch(47% 0.12 252);
+  --accent-press: color-mix(in oklch, var(--accent), black 15%);
+  --muted: color-mix(in oklch, var(--ink) 72%, var(--paper));
+  --sky-top: oklch(83% 0.06 235);
+  --sky-horizon: oklch(93% 0.05 75);
+
+  --space-xs: 0.25rem;
+  --space-s: 0.5rem;
+  --space-m: 0.75rem;
+  --space-l: 1rem;
+  --radius: 8px;
+  --border: 2px;
+  --shadow-hard: 0 3px 0 var(--ink);
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+/* Reset (good-css foundations) */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+:root {
+  text-wrap: pretty;
+  overflow-wrap: break-word;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-ui);
+  color: var(--ink);
+  background: var(--sky-horizon);
+}
+
+h1 {
+  text-wrap: balance;
+}
+
+svg {
+  display: block;
+  flex: none;
+}
+
+button {
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.sr-only {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: clip;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* App shell: the map fills the dynamic viewport; HUD panels float over it. */
+.app {
+  position: fixed;
+  inset: 0;
+  block-size: 100dvh;
+  overflow: clip;
+  background: linear-gradient(var(--sky-top), var(--sky-horizon) 70%);
+}
+
+.map {
+  position: absolute;
+  inset: 0;
+}
+
+.map:focus-visible {
+  outline-offset: -3px;
+}
+
+.city {
+  position: absolute;
+  inset: 0;
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+  touch-action: none;
+}
+
+.app[data-pixelated='true'] .city {
+  image-rendering: pixelated;
+}
+
+.label-layer {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  pointer-events: none;
+}
+
+.map-label {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  translate: -50% -100%;
+  padding-inline: var(--space-s);
+  border: var(--border) solid var(--ink);
+  border-radius: 4px;
+  background: var(--paper);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.6;
+  white-space: nowrap;
+  box-shadow: 0 2px 0 var(--ink);
+}
+
+.hud {
+  position: absolute;
+  inset-inline: 0;
+  display: flex;
+  gap: var(--space-s);
+  padding-inline: max(var(--space-l), env(safe-area-inset-left, 0px))
+    max(var(--space-l), env(safe-area-inset-right, 0px));
+  pointer-events: none;
+}
+
+.hud-top {
+  inset-block-start: 0;
+  padding-block-start: calc(var(--space-l) + env(safe-area-inset-top, 0px));
+}
+
+.hud-bottom {
+  container-type: inline-size;
+  inset-block-end: 0;
+  flex-direction: column;
+  align-items: center;
+  padding-block-end: calc(var(--space-m) + env(safe-area-inset-bottom, 0px));
+}
+
+.panel {
+  pointer-events: auto;
+  border: var(--border) solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--paper);
+  box-shadow: var(--shadow-hard);
+}
+
+.brand {
+  padding-block: var(--space-s);
+  padding-inline: var(--space-m);
+}
+
+.brand h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+}
+
+.brand p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+
+.notice {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  translate: -50% -50%;
+  display: grid;
+  gap: var(--space-m);
+  justify-items: center;
+  max-inline-size: min(22rem, calc(100% - 2 * var(--space-l)));
+  margin: 0;
+  padding: var(--space-l);
+  text-align: center;
+}
+
+.toolbar {
+  display: flex;
+  gap: var(--space-xs);
+  margin: 0;
+  padding: var(--space-xs);
+  min-inline-size: 0;
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-s);
+  min-block-size: 44px;
+  padding-inline: var(--space-m);
+  border: 0;
+  /* Concentric with the panel: outer radius minus its padding. */
+  border-radius: calc(var(--radius) - var(--space-xs));
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.notice .button {
+  border: var(--border) solid var(--ink);
+}
+
+.button[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--paper);
+}
+
+.button:active:not(:disabled) {
+  transform: scale(0.97);
+  background: var(--paper-press);
+}
+
+.button[aria-pressed='true']:active:not(:disabled) {
+  background: var(--accent-press);
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.button kbd {
+  padding-inline: var(--space-xs);
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  font: 600 0.6875rem / 1.4 var(--font-mono);
+}
+
+@media (hover: none) {
+  .button kbd {
+    display: none;
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .button:hover:not(:disabled) {
+    background: var(--paper-press);
+  }
+
+  .button[aria-pressed='true']:hover:not(:disabled) {
+    background: var(--accent-press);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .button {
+    transition:
+      transform 140ms var(--ease-out),
+      background-color 140ms var(--ease-out);
+  }
+}
+
+/* Narrow screens: a tab-bar layout, icon over label, so all four controls fit at 320px. */
+@container (inline-size < 30rem) {
+  .button {
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    min-inline-size: 4rem;
+    padding-block: var(--space-xs);
+    padding-inline: var(--space-xs);
+    font-size: 0.6875rem;
+  }
+
+  .button kbd {
+    display: none;
+  }
+}
+
+.credits {
+  margin: 0;
+  color: color-mix(in oklch, var(--ink) 85%, var(--paper));
+  font-size: 0.625rem;
+  font-weight: 600;
+  line-height: 1.4;
+  /* A tight paper halo instead of a pill: small and quiet, still legible over busy streets. */
+  text-shadow:
+    0 0 1px var(--paper),
+    0 0 1px var(--paper),
+    0 0 3px var(--paper),
+    0 0 3px var(--paper);
+  pointer-events: auto;
+}
+
+.credits a {
+  color: inherit;
+  text-decoration: none;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .credits a:hover {
+    text-decoration: underline;
+  }
+}
