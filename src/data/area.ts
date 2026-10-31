@@ -3,8 +3,9 @@
  * budget check (scripts/) keep the result fast. Local metres, x = east, z = south.
  */
 
-import type { Bounds } from './city.ts';
+import type { Bounds, Label } from './city.ts';
 import { boundsOf } from './geometry.ts';
+import { toLocal } from './projection.ts';
 
 /**
  * Abutting rectangles, never overlapping: everything inside the R23 ring with the station,
@@ -34,11 +35,12 @@ export const VIEW_AREA: Bounds = boundsOf(AREA);
 
 /**
  * A label names a Wikidata item, and the bake places it at the item's coordinates (P625, from
- * the `wikidata-labels` download). A place without an item gives its own position and says
- * where it comes from: docs/DATA.md lists these under Exceptions.
+ * the `wikidata-labels` download), or on the GRB footprint of the building it names. A place
+ * without an item gives its own position and says where it comes from: docs/DATA.md lists
+ * these under Exceptions.
  */
 export type Landmark = { name: string } & (
-  { wikidata: string } | { lon: number; lat: number; source: string }
+  { wikidata: string; footprint?: number } | { lon: number; lat: number; source: string }
 );
 
 export const LANDMARKS: readonly Landmark[] = [
@@ -48,7 +50,8 @@ export const LANDMARKS: readonly Landmark[] = [
   { name: 'Fonske', wikidata: 'Q2107804' },
   { name: 'Universiteitsbibliotheek', wikidata: 'Q139854572' },
   { name: 'M Leuven', wikidata: 'Q2362660' },
-  { name: 'Station Leuven', wikidata: 'Q801090' },
+  // Wikidata's point is on the tracks; the label belongs on the station building.
+  { name: 'Station Leuven', wikidata: 'Q801090', footprint: 2870209 },
   { name: 'Groot Begijnhof', wikidata: 'Q1049301' },
   { name: 'Arenbergkasteel', wikidata: 'Q1522076' },
   { name: 'Abdij van Park', wikidata: 'Q476178' },
@@ -67,16 +70,28 @@ export const LANDMARK_ITEMS: readonly string[] = [
   ...new Set(LANDMARKS.flatMap((l) => ('wikidata' in l ? [l.wikidata] : []))),
 ].toSorted();
 
-/** Where each label goes: its item's coordinates, or the position it gives itself. */
+/**
+ * Where each label goes, in local metres: on its footprint's centre, at its item's coordinates,
+ * or where it says.
+ */
 export function placeLandmarks(
   landmarks: readonly Landmark[],
   items: Readonly<Record<string, { lon: number; lat: number }>>,
-): { name: string; lon: number; lat: number }[] {
+  footprintCentre: (id: number) => readonly [number, number] | undefined,
+): Label[] {
   return landmarks.map((l) => {
-    if (!('wikidata' in l)) return { name: l.name, lon: l.lon, lat: l.lat };
+    if (!('wikidata' in l)) return label(l.name, toLocal(l.lon, l.lat));
+    if (l.footprint !== undefined) {
+      const centre = footprintCentre(l.footprint);
+      if (!centre) throw new Error(`${l.name}: footprint ${l.footprint} is not in the city`);
+      return label(l.name, centre);
+    }
     const item = items[l.wikidata];
-    if (!item)
+    if (!item) {
       throw new Error(`No coordinates for ${l.name} (${l.wikidata}): run bun run data:fetch`);
-    return { name: l.name, lon: item.lon, lat: item.lat };
+    }
+    return label(l.name, toLocal(item.lon, item.lat));
   });
 }
+
+const label = (name: string, [x, z]: readonly [number, number]): Label => ({ name, x, z });

@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { LANDMARKS, LANDMARK_ITEMS, placeLandmarks } from './area.ts';
+import { ORIGIN } from './projection.ts';
 
 test('every label names a Wikidata item, or says where its own position comes from', () => {
   for (const l of LANDMARKS) {
@@ -11,17 +12,27 @@ test('every label names a Wikidata item, or says where its own position comes fr
   expect(LANDMARK_ITEMS).toContain('Q940882');
 });
 
-test('placeLandmarks puts labels at their item, or where they say', () => {
+const none = () => undefined;
+
+test('placeLandmarks puts labels on their footprint, at their item, or where they say', () => {
   const placed = placeLandmarks(
     [
-      { name: 'Stadhuis', wikidata: 'Q940882' },
-      { name: 'Park', lon: 4.6, lat: 50.8, source: 'Read off the orthophoto' },
+      { name: 'Grote Markt', wikidata: 'Q4766627' },
+      { name: 'Station', wikidata: 'Q801090', footprint: 7 },
+      { name: 'Park', lon: ORIGIN.lon, lat: ORIGIN.lat, source: 'Read off the orthophoto' },
     ],
-    { Q940882: { lon: 4.70111, lat: 50.87889 } },
+    { Q4766627: { lon: ORIGIN.lon, lat: ORIGIN.lat } },
+    (id) => (id === 7 ? [10, 20] : undefined),
   );
   expect(placed).toEqual([
-    { name: 'Stadhuis', lon: 4.70111, lat: 50.87889 },
-    { name: 'Park', lon: 4.6, lat: 50.8 },
+    { name: 'Grote Markt', x: 0, z: 0 },
+    { name: 'Station', x: 10, z: 20 },
+    { name: 'Park', x: 0, z: 0 },
   ]);
-  expect(() => placeLandmarks([{ name: 'Fonske', wikidata: 'Q2107804' }], {})).toThrow('Q2107804');
+  expect(() => placeLandmarks([{ name: 'Fonske', wikidata: 'Q2107804' }], {}, none)).toThrow(
+    'Q2107804',
+  );
+  expect(() =>
+    placeLandmarks([{ name: 'Station', wikidata: 'Q801090', footprint: 7 }], {}, none),
+  ).toThrow('footprint 7');
 });

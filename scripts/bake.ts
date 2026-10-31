@@ -21,6 +21,7 @@ import {
   clipLine,
   clipRingToArea,
   normalizeRing,
+  orientedRect,
   ringInArea,
   signedArea,
   simplifyRing,
@@ -168,9 +169,11 @@ const trees = mergeTrees(
 const city: City = {
   area: [...AREA],
   bounds: VIEW_AREA,
-  labels: placeLandmarks(LANDMARKS, items).map(({ name, lon, lat }) => {
-    const [x, z] = toLocal(lon, lat);
-    return { name, x, z };
+  labels: placeLandmarks(LANDMARKS, items, (id) => {
+    const b = buildings.find((building) => building.id === id);
+    if (!b) return undefined;
+    const { cx, cz } = orientedRect(b.ring);
+    return [cx, cz];
   }),
   buildings,
   roads: layer(wbn.features, () => true),
