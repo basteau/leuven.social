@@ -38,8 +38,11 @@ const TAP_MS = 600;
 const APPEAR = 0.3;
 /** Half the figure's width (m): how close steering may bring its middle to a wall. */
 const BODY_RADIUS = 0.5;
-/** Feet on the squares, which sit highest of the ground layers. */
-const GROUND_Y = 0.2;
+/**
+ * Feet just above the squares, the highest ground layer, so the outline under the soles never
+ * dips below the street (where the x-ray would show it).
+ */
+const GROUND_Y = 0.32;
 
 export interface WalkHost {
   scene: Scene;

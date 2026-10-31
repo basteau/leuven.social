@@ -75,8 +75,8 @@ export const PARTS: readonly Part[] = [
   ...ARM,
   ...ARM.map((p) => mirror(p, 'armR')),
   { bone: 'head', min: [-0.2, 1.38, -0.19], max: [0.2, 1.78, 0.19], color: WALKER.skin },
-  { bone: 'head', min: [-0.22, 1.66, -0.21], max: [0.22, 1.85, 0.21], color: WALKER.hair },
-  { bone: 'head', min: [-0.22, 1.44, -0.21], max: [0.22, 1.7, -0.08], color: WALKER.hair },
+  { bone: 'head', min: [-0.22, 1.72, -0.21], max: [0.22, 1.85, 0.21], color: WALKER.hair },
+  { bone: 'head', min: [-0.22, 1.46, -0.21], max: [0.22, 1.76, -0.06], color: WALKER.hair },
   // Eyes: dots on the face, too small for an outline.
   { bone: 'head', min: [0.06, 1.55, 0.18], max: [0.12, 1.63, 0.2], color: OUTLINE, outline: false },
   {
@@ -256,19 +256,22 @@ export function poseAt(
 ): Pose {
   const walk = Math.min(1, speed / WALK_SPEED);
   const swing = Math.sin(phase);
-  out.hips = JOINTS.hips.at[1] + walk * 0.14 * (Math.abs(Math.cos(phase)) - 0.6);
-  out.lean = 0.12 * walk;
-  out.twist = 0.18 * swing * walk;
   out.leg = -0.8 * swing * walk;
   out.arm = 0.7 * swing * walk;
+  // The hips drop as the legs spread, so the soles stay on the ground, plus a little spring
+  // in the step as the legs pass each other.
+  out.hips = JOINTS.hips.at[1] * Math.cos(out.leg) + 0.05 * walk * Math.abs(Math.cos(phase));
+  out.lean = 0.12 * walk;
+  out.twist = 0.18 * swing * walk;
   out.nod = -0.6 * out.lean;
   out.look = 0;
   if (idle && walk === 0 && still < IDLE_SECONDS) {
     const u = still / IDLE_SECONDS;
     const fade = Math.sin(Math.PI * u);
+    const breath = 0.5 - 0.5 * Math.cos(Math.PI * 6 * u);
     out.look = 0.5 * Math.sin(Math.PI * 2 * u) * fade;
-    out.hips += 0.015 * Math.sin(Math.PI * 6 * u) * fade;
-    out.arm = 0.05 * Math.sin(Math.PI * 6 * u) * fade;
+    out.hips += 0.015 * breath * fade;
+    out.arm = 0.05 * breath * fade;
   }
   return out;
 }

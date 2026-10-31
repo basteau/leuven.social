@@ -96,6 +96,20 @@ describe('createCharacter and poses', () => {
     expect(passing.lean).toBeGreaterThan(0);
   });
 
+  test('the soles never sink below the ground, walking or breathing', () => {
+    for (let phase = 0; phase < Math.PI * 2; phase += 0.1) {
+      for (const [speed, still] of [
+        [WALK_SPEED, 0],
+        [WALK_SPEED / 2, 0],
+        [0, phase],
+      ] as const) {
+        const pose = poseAt(restPose(), speed, phase, still, true);
+        // The lower foot hangs a leg's length (pivot to sole) under the hips.
+        expect(pose.hips - 0.82 * Math.cos(pose.leg)).toBeGreaterThanOrEqual(-1e-9);
+      }
+    }
+  });
+
   test('applying a pose moves the feet forward and back', () => {
     const foot = (bone: 'legL' | 'legR') => {
       character.mesh.updateMatrixWorld(true);

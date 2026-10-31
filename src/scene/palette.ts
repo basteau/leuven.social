@@ -111,7 +111,7 @@ export const TREE = {
  */
 export const WALKER = {
   skin: 0xf0c49c,
-  hair: 0x5a3626,
+  hair: 0x7a4a2c,
   coat: 0x2f62a8,
   scarf: 0xe8b94a,
   trousers: 0x3d4250,

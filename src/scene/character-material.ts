@@ -10,11 +10,17 @@ function withDither(shader: WebGLProgramParametersWithUniforms, discard: string)
   shader.vertexShader = shader.vertexShader
     .replace(
       '#include <common>',
-      '#include <common>\nattribute float dither;\nvarying float vDither;',
+      '#include <common>\nattribute float dither;\nvarying float vDither;\nvarying float vHeight;',
     )
-    .replace('#include <begin_vertex>', '#include <begin_vertex>\nvDither = dither;');
+    .replace(
+      '#include <skinning_vertex>',
+      '#include <skinning_vertex>\nvDither = dither;\nvHeight = transformed.y;',
+    );
   shader.fragmentShader = shader.fragmentShader
-    .replace('#include <common>', '#include <common>\nvarying float vDither;')
+    .replace(
+      '#include <common>',
+      '#include <common>\nvarying float vDither;\nvarying float vHeight;',
+    )
     .replace(
       '#include <clipping_planes_fragment>',
       `#include <clipping_planes_fragment>\n${discard}`,
@@ -31,9 +37,9 @@ export function createCharacterMaterial(gradientMap: Texture): MeshToonMaterial 
 }
 
 /**
- * The walker's silhouette where the city hides it: a checkerboard of coat blue (readable on
- * slate roofs and pale walls alike), drawn only where
- * something nearer already filled the depth buffer, and never for the shadow.
+ * The walker's silhouette where the city hides it: a checkerboard of coat blue, readable on
+ * slate roofs and pale walls alike. It draws only where something nearer already filled the
+ * depth buffer, and never for the shadow.
  */
 export function createXrayMaterial(): MeshBasicMaterial {
   const material = new MeshBasicMaterial({
@@ -41,8 +47,9 @@ export function createXrayMaterial(): MeshBasicMaterial {
     depthFunc: GreaterDepth,
     depthWrite: false,
   });
+  // Not the soles either: mid-stride their corners dip into the street, which isn't hiding them.
   material.onBeforeCompile = (shader) =>
-    withDither(shader, `if (vDither > 0.5 || !(${CHECKER})) discard;`);
+    withDither(shader, `if (vDither > 0.5 || vHeight < 0.25 || !(${CHECKER})) discard;`);
   material.customProgramCacheKey = () => 'walker-xray-v1';
   return material;
 }
