@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import type { Building } from '../data/city.ts';
 import { buildingsGeometry, planRoof } from './buildings.ts';
+import { LANDMARK_MODELS } from './landmark-models.ts';
 import { pick } from './palette.ts';
 
 const box = (w: number, d: number): Float32Array => new Float32Array([0, 0, w, 0, w, d, 0, d]);
@@ -102,6 +103,66 @@ describe('outlines', () => {
     ]);
     expect(outlines.getAttribute('position').count / 2).toBe(16 + 16);
   });
+});
+
+/** A house wide and tall enough for steps. */
+const wide = (over: Partial<Building>) => building({ ring: box(8, 14), height: 14, ...over });
+/** How many of 300 such houses in a tier get stepped gables. */
+const steppedCount = (tier: Building['tier']) =>
+  Array.from({ length: 300 }, (_, id) => planRoof(wide({ id, tier }))).filter(
+    (p) => p.type === 'gable' && p.stepped,
+  ).length;
+
+describe('stepped gables', () => {
+  const steppedId = Array.from({ length: 50 }, (_, i) => i).find((id) => {
+    const plan = planRoof(wide({ id, tier: 'hero' }));
+    return plan.type === 'gable' && plan.stepped;
+  })!;
+
+  test('hero squares get more of them than ordinary streets, the fringe none', () => {
+    expect(steppedCount('hero')).toBeGreaterThan(steppedCount('core'));
+    expect(steppedCount('core')).toBeGreaterThan(0);
+    expect(steppedCount('fringe')).toBe(0);
+  });
+
+  test('narrow gables stay plain: the steps would be smaller than a pixel', () => {
+    const plan = planRoof(building({ id: steppedId, tier: 'hero', ring: box(4, 12) }));
+    expect(plan.type === 'gable' && plan.stepped).toBe(false);
+  });
+
+  test('steps climb above the ridge, face outward and replace the gable triangles', () => {
+    const b = wide({ id: steppedId, tier: 'hero' });
+    expect(windingAgreesWithNormals(b)).toBe(true);
+    const { surfaces, outlines } = buildingsGeometry([b]);
+    surfaces.computeBoundingBox();
+    expect(surfaces.boundingBox!.max.y).toBeGreaterThan(14);
+    // 3 steps a side, 4 quads each, on both sides of both ends; plus walls and slopes.
+    expect(surfaces.getAttribute('position').count).toBe((4 * 2 + 2 * 2 + 2 * 2 * 3 * 4 * 2) * 3);
+    // Base, eave tops, corners, two eaves, ridge, then a riser and a tread per step.
+    expect(outlines.getAttribute('position').count / 2).toBe(12 + 2 + 1 + 2 * 2 * 3 * 2);
+  });
+});
+
+describe('landmarks', () => {
+  const [id, model] = [...LANDMARK_MODELS][0]!;
+  const ring = new Float32Array([-30, -15, 30, -15, 30, 15, -30, 15]);
+
+  test('a landmark extrudes its footprint to its base and builds its parts above', () => {
+    const b = building({ id, tier: 'hero', kind: 'civic', height: 30, ring });
+    const g = buildingsGeometry([b]).surfaces;
+    g.computeBoundingBox();
+    expect(g.boundingBox!.max.y).toBeGreaterThan(model.base + 10);
+    const facade = g.getAttribute('facade');
+    expect(Array.from({ length: facade.count }, (_, i) => facade.getX(i))).toContain(model.base);
+  });
+});
+
+test('café parasols ride along in the buildings geometry', () => {
+  const parasol = { x: 0, z: 0, ux: 1, uz: 0, color: 0xffffff };
+  const without = buildingsGeometry([]).surfaces.getAttribute('position').count;
+  expect(buildingsGeometry([], [parasol]).surfaces.getAttribute('position').count).toBe(
+    without + 12,
+  );
 });
 
 test('pick is deterministic and stays in range', () => {

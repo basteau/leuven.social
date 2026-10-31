@@ -23,6 +23,7 @@ import { buildingsGeometry } from './buildings.ts';
 import { createFacadeMaterial } from './facade-material.ts';
 import { groundGeometry } from './ground.ts';
 import { BOUNCE_LIGHT, OUTLINE, SKY_LIGHT, SUN } from './palette.ts';
+import { terraceParasols } from './terraces.ts';
 import { createTrees } from './trees.ts';
 
 export interface ViewerOptions {
@@ -87,7 +88,7 @@ export function createViewer(options: ViewerOptions): Viewer {
 
   const ground = new Mesh(groundGeometry(city), material);
   ground.receiveShadow = true;
-  const blocks = buildingsGeometry(city.buildings);
+  const blocks = buildingsGeometry(city.buildings, terraceParasols(city));
   const buildings = new Mesh(blocks.surfaces, createFacadeMaterial(gradientMap));
   buildings.castShadow = true;
   buildings.receiveShadow = true;
