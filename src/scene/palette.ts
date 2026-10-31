@@ -31,6 +31,61 @@ export const PARASOLS = [0xf6eedc, 0xd2553f, 0xe8b94a, 0xe07b4f, 0x8db36f] as co
 export const PITCHED_ROOFS = [0x4f5664, 0x5b6170, 0x46505e, 0xa9553e, 0xb8613f, 0x9b4a36];
 export const FLAT_ROOFS = [0xb3aa9c, 0xa89f92, 0xbfb6a6];
 
+/**
+ * Roof colours sampled from the orthophotos snap to these swatches. `ref` is what that roof
+ * looks like in the (hazy, winter) aerial photo; `pitched` and `flat` are how the diorama paints
+ * it. Flat roofs stay light, never darker than the streets, so they read as quiet backdrop.
+ */
+export const ROOF_SWATCHES: readonly { ref: number; pitched: number; flat: number }[] = [
+  { ref: 0x48536a, pitched: 0x3c4354, flat: 0x958f86 }, // dark slate, glazed black tiles
+  { ref: 0x6c717c, pitched: 0x4a5161, flat: 0x9c958b }, // slate
+  { ref: 0x82878c, pitched: 0x585e6c, flat: 0xa39b8f }, // weathered slate, bitumen
+  { ref: 0x959a9a, pitched: 0x6a6f79, flat: 0xaba397 }, // grey tiles, zinc
+  { ref: 0xadb1ad, pitched: 0x81827f, flat: 0xb6aea1 }, // concrete tiles, gravel
+  { ref: 0xd0dace, pitched: 0x9a9a92, flat: 0xc8c1b2 }, // pale membrane, glass
+  { ref: 0x8c7d73, pitched: 0x7e3f30, flat: 0xa08a7a }, // dark red tiles
+  { ref: 0xada097, pitched: 0x9b4a36, flat: 0xae9a89 }, // old red tiles
+  { ref: 0xcebbaa, pitched: 0xb8613f, flat: 0xbaa794 }, // terracotta
+  { ref: 0x8c9c78, pitched: 0x667f4c, flat: 0x93a66d }, // moss, sedum
+];
+
+function linear(c: number): number {
+  const u = c / 255;
+  return u <= 0.04045 ? u / 12.92 : ((u + 0.055) / 1.055) ** 2.4;
+}
+
+/** Oklab with chroma weighted 3×: on a roof, hue tells tile from slate more than lightness. */
+function roofSpace(hex: number): [number, number, number] {
+  const [r, g, b] = [linear((hex >> 16) & 255), linear((hex >> 8) & 255), linear(hex & 255)];
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
+  return [
+    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
+    3 * (1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s),
+    3 * (0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s),
+  ];
+}
+
+const SWATCH_SPACE = ROOF_SWATCHES.map((s) => roofSpace(s.ref));
+
+/**
+ * A roof's diorama colour: the swatch nearest its sampled orthophoto colour, or a deterministic
+ * pick from the generic roofs where nothing was sampled.
+ */
+export function roofColor(sampled: number | null, flat: boolean, seed: number): number {
+  if (sampled === null) return flat ? pick(FLAT_ROOFS, seed) : pick(PITCHED_ROOFS, seed * 7);
+  const [l, a, b] = roofSpace(sampled);
+  let best = 0;
+  let bestDistance = Infinity;
+  for (const [i, [sl, sa, sb]] of SWATCH_SPACE.entries()) {
+    const d = (l - sl) ** 2 + (a - sa) ** 2 + (b - sb) ** 2;
+    if (d < bestDistance) [best, bestDistance] = [i, d];
+  }
+  const swatch = ROOF_SWATCHES[best]!;
+  return flat ? swatch.flat : swatch.pitched;
+}
+
 export const GROUND = {
   base: 0xb4be8e,
   earth: 0x6b4f3a,

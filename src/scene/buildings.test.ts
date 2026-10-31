@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { Building } from '../data/city.ts';
-import { buildingsGeometry, planRoof } from './buildings.ts';
+import { buildingsGeometry, cutAt, planRoof } from './buildings.ts';
 import { LANDMARK_MODELS } from './landmark-models.ts';
 import { pick } from './palette.ts';
 
@@ -45,12 +45,52 @@ describe('planRoof', () => {
     }
   });
 
-  test('towers, civic buildings, odd shapes and flat-tagged roofs stay flat', () => {
+  test('unsurveyed towers and civic buildings, and flat-tagged roofs, stay flat', () => {
     expect(planRoof(building({ height: 40 })).type).toBe('flat');
     expect(planRoof(building({ kind: 'civic' })).type).toBe('flat');
     expect(planRoof(building({ roof: 'flat' })).type).toBe('flat');
-    const ell = new Float32Array([0, 0, 10, 0, 10, 2, 2, 2, 2, 10, 0, 10]);
-    expect(planRoof(building({ ring: ell })).type).toBe('flat');
+    expect(planRoof(building({ ring: box(3, 3) })).type).toBe('flat');
+  });
+
+  test('a surveyed roof takes its rise from the LiDAR, capped by the width', () => {
+    const plan = planRoof(building({ roof: 'gabled', height: 12, eave: 9 }));
+    expect(plan).toMatchObject({ type: 'gable', eave: 9, ridge: 12 });
+    const steep = planRoof(building({ roof: 'gabled', height: 14, eave: 3 }));
+    expect(steep.eave).toBeCloseTo(14 - 3 * 1.5);
+  });
+
+  test('odd shapes get a hipped roof instead of a gable hanging over thin air', () => {
+    const ell = new Float32Array([0, 0, 10, 0, 10, 4, 4, 4, 4, 10, 0, 10]);
+    const plan = planRoof(building({ ring: ell }));
+    expect(plan.type).toBe('hip');
+    if (plan.type === 'hip') {
+      expect(plan.ridge).toBe(10);
+      expect(plan.eave).toBeCloseTo(10 - 2 * 0.9); // no survey: ~42° over the 4 m wings
+    }
+    expect(planRoof(building({ roof: 'hipped' })).type).toBe('hip');
+  });
+
+  test('a block with a courtyard keeps it open and roofs around it', () => {
+    const hole = new Float32Array([6, 6, 6, 14, 14, 14, 14, 6]);
+    const b = building({ roof: 'gabled', ring: box(20, 20), holes: [hole], height: 15, eave: 11 });
+    const plan = planRoof(b);
+    expect(plan.type).toBe('hip');
+    if (plan.type === 'hip') expect(plan.holes).toHaveLength(1);
+    expect(windingAgreesWithNormals(b)).toBe(true);
+    const flat = building({ roof: 'flat', ring: box(20, 20), holes: [hole] });
+    // 8 walls, and a roof ring of 8 triangles around the hole.
+    expect(buildingsGeometry([flat]).surfaces.getAttribute('position').count).toBe((8 * 2 + 8) * 3);
+  });
+});
+
+describe('cutAt', () => {
+  test('splits a roof face where it reaches its rise, and reports the cut line', () => {
+    const face = [0, 0, 0, 10, 0, 0, 5, 5, 5];
+    const { below, above, cuts } = cutAt(face, 2);
+    expect(below.length / 3).toBe(4);
+    expect(above.length / 3).toBe(3);
+    expect(cuts).toEqual([[8, 2, 2, 2]]);
+    expect(cutAt(face, 9).above).toEqual([]);
   });
 });
 
@@ -173,4 +213,34 @@ test('pick is deterministic and stays in range', () => {
   const list = [1, 2, 3];
   expect(pick(list, 42)).toBe(pick(list, 42));
   for (let i = 0; i < 100; i++) expect(list).toContain(pick(list, i));
+});
+
+describe('hipped roofs', () => {
+  const ell = new Float32Array([0, 0, 12, 0, 12, 5, 5, 5, 5, 12, 0, 12]);
+
+  test('face outward, peak at the surveyed height and outline their hips', () => {
+    const b = building({ ring: ell, roof: 'gabled', height: 12, eave: 8 });
+    expect(windingAgreesWithNormals(b)).toBe(true);
+    const { surfaces, outlines } = buildingsGeometry([b]);
+    surfaces.computeBoundingBox();
+    expect(surfaces.boundingBox!.max.y).toBeCloseTo(12);
+    // Walls: 6 bases, 6 tops, 6 corners; plus the roof's hips, valley and ridges.
+    expect(outlines.getAttribute('position').count / 2).toBeGreaterThan(18 + 4);
+  });
+
+  test('a wide block flattens off on top in the flat-roof colour', () => {
+    const b = building({
+      ring: box(40, 30),
+      roof: 'hipped',
+      height: 20,
+      eave: 16,
+      roofColor: 0x6c717c,
+    });
+    const plan = planRoof(b);
+    expect(plan.type === 'hip' && plan.pitch).toBe(0.6);
+    const g = buildingsGeometry([b]).surfaces;
+    const y = g.getAttribute('position');
+    const flatTop = Array.from({ length: y.count }, (_, i) => y.getY(i)).filter((v) => v === 20);
+    expect(flatTop.length).toBeGreaterThan(3);
+  });
 });
