@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { MeshBuilder } from './mesh-builder.ts';
+import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
 
 test('grows past its initial capacity without losing vertices', () => {
   const mesh = new MeshBuilder();
@@ -20,4 +20,28 @@ test('skips degenerate triangles', () => {
   const mesh = new MeshBuilder();
   mesh.triangle([0, 0, 0], [1, 0, 0], [2, 0, 0], 0, [0, 1, 0]);
   expect(mesh.build().getAttribute('position').count).toBe(0);
+});
+
+test('a facade value per corner follows its corner when a triangle is flipped', () => {
+  const mesh = new MeshBuilder();
+  // Wound clockwise from above, so it flips to face up: b and c swap places.
+  mesh.quad([0, 0, 0], [0, 0, 1], [1, 0, 1], [1, 0, 0], 0, [0, 1, 0], [-1, -2, -3, -4]);
+  const g = mesh.build({ facade: true });
+  const [position, facade] = [g.getAttribute('position'), g.getAttribute('facade')];
+  const at = (x: number, z: number) =>
+    Array.from({ length: position.count }, (_, i) => i)
+      .filter((i) => position.getX(i) === x && position.getZ(i) === z)
+      .map((i) => facade.getX(i));
+  expect(at(0, 0)).toEqual([-1, -1]);
+  expect(at(0, 1)).toEqual([-2]);
+  expect(at(1, 1)).toEqual([-3, -3]);
+  expect(at(1, 0)).toEqual([-4]);
+  expect(g.getAttribute('normal').getY(0)).toBe(1);
+});
+
+test('lines count their segments', () => {
+  const lines = new LineBuilder();
+  lines.segment([0, 0, 0], [1, 0, 0]);
+  lines.segment([0, 0, 0], [0, 1, 0]);
+  expect(lines.segments).toBe(2);
 });

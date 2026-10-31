@@ -24,7 +24,7 @@ import type { City } from '../data/city.ts';
 import { clampToArea } from '../data/geometry.ts';
 import { partyWalls } from './buildings.ts';
 import { buildCell, partition } from './cells.ts';
-import type { Cell } from './cells.ts';
+import type { Cell, DetailMarks } from './cells.ts';
 import { createFacadeMaterial } from './facade-material.ts';
 import { SLAB_DEPTH } from './ground.ts';
 import type { V3 } from './mesh-builder.ts';
@@ -79,6 +79,8 @@ interface CellEntry {
   box: Box3;
   /** Its mesh and outlines once built; empty until then. */
   objects: Object3D[];
+  /** Where the rails and the catenary masts end in its outlines, which only show zoomed in. */
+  detail: DetailMarks;
 }
 
 /** Golden hour from the south-west, low enough for long shadows. */
@@ -92,6 +94,13 @@ const VIEW_LAYER = 1 << 0;
 const SHADOW_LAYER = 1 << 1;
 /** Time the idle builder may take per slice before handing the main thread back (ms). */
 const IDLE_SLICE_MS = 8;
+/**
+ * Zooms from which rails and catenary masts show. Further out, a track's two rails are under
+ * two game pixels apart and a yard's tracks would merge into one dark hatch; the sleeper band
+ * alone reads as the track there.
+ */
+const RAIL_ZOOM = 2.5;
+const MAST_ZOOM = 1.5;
 
 /** requestIdleCallback where there is one (not in Safari), else the next frame or so. */
 const idle = (run: () => void) =>
@@ -140,10 +149,12 @@ export function createViewer(options: ViewerOptions): Viewer {
       new Vector3(cell.bounds.maxX + 60, MAX_HEIGHT, cell.bounds.maxZ + 60),
     ),
     objects: [],
+    detail: { rails: 0, masts: 0 },
   }));
 
   function build(entry: CellEntry): void {
-    const { mesh, lines } = buildCell(entry.cell, city.area, walls);
+    const { mesh, lines, detail } = buildCell(entry.cell, city.area, walls);
+    entry.detail = detail;
     const surfaces = new Mesh(mesh.build({ facade: true }), material);
     surfaces.castShadow = true;
     surfaces.receiveShadow = true;
@@ -301,9 +312,12 @@ export function createViewer(options: ViewerOptions): Viewer {
    */
   function cull(): void {
     const shadowPass = renderer.shadowMap.needsUpdate;
-    for (const { box, objects } of cells) {
-      const [surfaces, outlines] = objects;
+    const zoom = camera.zoom;
+    for (const { box, objects, detail } of cells) {
+      const [surfaces, outlines] = objects as [Mesh?, LineSegments?];
       if (!surfaces || !outlines) continue;
+      const skip = zoom < MAST_ZOOM ? detail.masts : zoom < RAIL_ZOOM ? detail.rails : 0;
+      outlines.geometry.setDrawRange(skip * 2, Infinity);
       const inView = frustum.intersectsBox(box);
       const casts = shadowPass && shadowFrustum.intersectsBox(box);
       surfaces.layers.mask = (inView ? VIEW_LAYER : 0) | (casts ? SHADOW_LAYER : 0);

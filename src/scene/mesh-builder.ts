@@ -47,7 +47,11 @@ export class MeshBuilder {
     this.#count++;
   }
 
-  triangle(a: V3, b: V3, c: V3, color: number, hint: V3, facade = 0): void {
+  /**
+   * `facade` is the attribute the facade shader reads: one value for the whole triangle, or one
+   * per corner (a, b, c) where it varies across the face.
+   */
+  triangle(a: V3, b: V3, c: V3, color: number, hint: V3, facade: number | V3 = 0): void {
     const ux = b[0] - a[0];
     const uy = b[1] - a[1];
     const uz = b[2] - a[2];
@@ -64,14 +68,24 @@ export class MeshBuilder {
     ny = (ny / len) * flip;
     nz = (nz / len) * flip;
     this.#color.setHex(color);
-    this.#vertex(a, nx, ny, nz, facade);
-    this.#vertex(flip < 0 ? c : b, nx, ny, nz, facade);
-    this.#vertex(flip < 0 ? b : c, nx, ny, nz, facade);
+    const [fa, fb, fc] = typeof facade === 'number' ? [facade, facade, facade] : facade;
+    this.#vertex(a, nx, ny, nz, fa);
+    this.#vertex(flip < 0 ? c : b, nx, ny, nz, flip < 0 ? fc : fb);
+    this.#vertex(flip < 0 ? b : c, nx, ny, nz, flip < 0 ? fb : fc);
   }
 
-  quad(a: V3, b: V3, c: V3, d: V3, color: number, hint: V3, facade = 0): void {
-    this.triangle(a, b, c, color, hint, facade);
-    this.triangle(a, c, d, color, hint, facade);
+  quad(
+    a: V3,
+    b: V3,
+    c: V3,
+    d: V3,
+    color: number,
+    hint: V3,
+    facade: number | readonly [number, number, number, number] = 0,
+  ): void {
+    const [fa, fb, fc, fd] = typeof facade === 'number' ? [facade, facade, facade, facade] : facade;
+    this.triangle(a, b, c, color, hint, [fa, fb, fc]);
+    this.triangle(a, c, d, color, hint, [fa, fc, fd]);
   }
 
   /** `facade` adds the wall-top attribute the window shader reads; only buildings need it. */
@@ -90,6 +104,11 @@ export class MeshBuilder {
 /** Collects line segments (pairs of points) for an outline geometry. */
 export class LineBuilder {
   #points: number[] = [];
+
+  /** Segments so far: a mark for drawing only part of the outlines (see `setDrawRange`). */
+  get segments(): number {
+    return this.#points.length / 6;
+  }
 
   segment(a: V3, b: V3): void {
     this.#points.push(a[0], a[1], a[2], b[0], b[1], b[2]);
