@@ -25,6 +25,9 @@ export const LANDMARK = {
   spire: 0x3b4150,
 } as const;
 
+/** Café parasols on the squares: each café keeps one colour along its stretch of terrace. */
+export const PARASOLS = [0xf6eedc, 0xd2553f, 0xe8b94a, 0xe07b4f, 0x8db36f] as const;
+
 export const PITCHED_ROOFS = [0x4f5664, 0x5b6170, 0x46505e, 0xa9553e, 0xb8613f, 0x9b4a36];
 export const FLAT_ROOFS = [0xb3aa9c, 0xa89f92, 0xbfb6a6];
 
