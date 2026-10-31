@@ -3,7 +3,7 @@
  * both; see docs/DATA.md). Only this edge reads files; the transforms live in src/data and
  * are unit-tested. Same inputs, same bytes: `bun run data:check` holds it to that.
  *
- *   bun run bake [--data <folder>] [--out <file>]
+ *   bun run bake
  */
 
 import {
@@ -28,14 +28,9 @@ import {
 } from '../src/data/geometry.ts';
 import { toLocal } from '../src/data/projection.ts';
 import { mergeTrees } from '../src/data/trees.ts';
-import { dataDir, flags } from './data-files.ts';
+import { DATA } from './data-files.ts';
 
-const args = flags(Bun.argv.slice(2), [], ['data', 'out']);
-const DATA = dataDir(typeof args.data === 'string' ? args.data : undefined);
-const OUT =
-  typeof args.out === 'string'
-    ? args.out
-    : new URL('../public/data/city.bin', import.meta.url).pathname;
+const OUT = new URL('../public/data/city.bin', import.meta.url).pathname;
 const read = async <T>(path: string): Promise<T> => {
   const file = Bun.file(`${DATA}/${path}`);
   if (!(await file.exists())) {
@@ -206,6 +201,6 @@ console.log(
     `paths ${paths.length} (${paths.filter((p) => !p.paved).length} unpaved)`,
     `trees ${trees.heights.length} (${osmTrees.length / 2} mapped), labels ${city.labels.length}`,
     `roofs ${buildings.filter((b) => b.roof === 'flat').length} flat, ${buildings.filter((b) => b.roofColor !== null).length} with a sampled colour, ${buildings.filter((b) => b.holes.length).length} with courtyards`,
-    `${OUT.split('/').slice(-3).join('/')} ${(bytes.length / 1024).toFixed(0)} KB gzipped`,
+    `public/data/city.bin ${(bytes.length / 1024).toFixed(0)} KB gzipped`,
   ].join('\n'),
 );

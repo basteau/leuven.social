@@ -11,24 +11,7 @@ import type { Source } from '../src/data/sources.ts';
 const root = new URL('../', import.meta.url).pathname.replace(/\/$/, '');
 export const LOCK = `${root}/data/sources.lock.json`;
 
-/** data/ in this checkout, or the folder given with `--data`. */
-export const dataDir = (override?: string) =>
-  override ? override.replace(/\/$/, '') : `${root}/data`;
-
-/** `--name value` and `--switch` flags; anything else is an error. */
-export function flags(argv: readonly string[], switches: string[], options: string[]) {
-  const out: Record<string, string | true> = {};
-  for (let i = 0; i < argv.length; i++) {
-    const name = argv[i]!.replace(/^--/, '');
-    if (switches.includes(name)) out[name] = true;
-    else if (options.includes(name) && argv[i + 1] !== undefined) out[name] = argv[++i]!;
-    else
-      throw new Error(
-        `Unknown argument ${argv[i]}. Flags: ${[...switches, ...options].map((f) => `--${f}`).join(' ')}`,
-      );
-  }
-  return out;
-}
+export const DATA = `${root}/data`;
 
 export type Lock = Record<string, LockEntry>;
 

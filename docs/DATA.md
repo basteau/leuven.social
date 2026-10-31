@@ -8,15 +8,15 @@ Everything in it can be rebuilt from free, open data with one command: data + co
 
 You need [Bun](https://bun.sh) and [uv](https://docs.astral.sh/uv/). uv fetches Python and the pinned packages itself.
 
-| Command              | What it does                                                                                                  |
-| -------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `bun run data`       | All three steps below: fetch, build, bake. About 230 MB of downloads the first time, then seconds.            |
-| `bun run data:fetch` | Downloads every source into `data/` and records it in `data/sources.lock.json`. Skips what it already has.    |
-| `bun run data:build` | `tools/build_leuven_data.py`: joins footprints, LiDAR, orthophotos and OSM into `data/derived/`.              |
-| `bun run bake`       | `scripts/bake.ts`: keeps what lies in `AREA`, projects, simplifies and writes `public/data/city.bin`.         |
-| `bun run data:check` | Rebuilds from the downloads in `data/` and fails unless the result is byte for byte the committed `city.bin`. |
+| Command              | What it does                                                                                                |
+| -------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `bun run data`       | All three steps below: fetch, build, bake. About 230 MB of downloads the first time, then seconds.          |
+| `bun run data:fetch` | Downloads every source into `data/` and records it in `data/sources.lock.json`. Skips what it already has.  |
+| `bun run data:build` | `tools/build_leuven_data.py`: joins footprints, LiDAR, orthophotos and OSM into `data/derived/`.            |
+| `bun run bake`       | `scripts/bake.ts`: keeps what lies in `AREA`, projects, simplifies and writes `public/data/city.bin`.       |
+| `bun run data:check` | Rebuilds from the downloads in `data/` and fails unless the result is byte for byte the `city.bin` you had. |
 
-`data:fetch` takes `--only <id,id>`, `--refresh` (download again) and `--frozen` (fail if anything differs from the lock); every data command takes `--data <folder>`.
+None of them takes options. To fetch a source again, delete its files and rerun `bun run data:fetch`; to see what changed upstream, `git diff data/sources.lock.json` after a fetch.
 
 ## Pipeline
 
@@ -66,7 +66,7 @@ public/data/city.bin ◀─ bun run bake ◀─ data/derived/ ◀─ bun run dat
   | GRB           | Nothing: the WFS serves today's | Digitaal Vlaanderen updates footprints and roads continuously; features in this area changed in October 2026.  |
   | Orthophotos   | Nothing: "most recent" mosaic   | A new winter flight replaces it, about once a year. The dated layers (`omwrgb24vl`, …) are a different mosaic. |
 
-  `data/sources.lock.json` records each source's files, size and hash, so `bun run data:fetch --frozen` tells you exactly which source moved. Commit the lock together with `city.bin`.
+  `data/sources.lock.json` records each source's files, size and hash, so `git diff data/sources.lock.json` after a fetch into an empty `data/` tells you exactly which source moved (the monthly workflow does this). Commit the lock together with `city.bin`.
 
 ## Adding a source
 
@@ -75,7 +75,7 @@ New data comes through the manifest and the pipeline, never by a manual download
 1. Add an entry to `SOURCES` in `src/data/sources.ts`. Pick the kind (`overpass`, `wfs`, `wcs` or `wmts`), a kebab-case `id`, its `output` under `data/`, its provider (add one to `PROVIDERS`, with its licence and credit, if it is new) and what reads it in `usedBy`. Don't write coordinates: the request follows `AREA`.
    - Another kind of service needs a planner and a check in `src/data/fetch-plan.ts` (tested) and a case in `scripts/fetch.ts`. Prefer open formats a script can read without a GIS stack: GeoJSON, JSON, GeoTIFF, PNG.
 2. List it in the Sources table above and in [data/README.md](../data/README.md). The sources test fails until this page names every id.
-3. Run `bun run data:fetch --only <id>`, use it in the build or the bake, then `bun run data` and `bun run verify`.
+3. Run `bun run data:fetch` (it downloads only the new source), use it in the build or the bake, then `bun run data` and `bun run verify`.
 4. Commit the code, `data/sources.lock.json` and `public/data/city.bin` together. If what you draw from it is a choice rather than data, add it to [Exceptions](#exceptions).
 
 ## What the data decides

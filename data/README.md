@@ -19,7 +19,7 @@ Make it all with `bun run data:fetch` (downloads) and `bun run data:build` (deri
 | `derived/lidar_trees.json`                                 | Tree crowns of 10 m and up found in the LiDAR canopy, with their heights                                                                                 | built                        |
 | `derived/osm_roads.geojson`, `osm_areas.geojson`, `osm_points.geojson` | The OSM layers as GeoJSON                                                                                                                    | built                        |
 | `derived/preview_heights.png`                              | Top-down preview map                                                                                                                                     | built                        |
-| `.cache/`                                                  | Overpass tiles, so an interrupted fetch resumes; the city `data:check` rebuilt                                                                           | —                            |
+| `.cache/`                                                  | Overpass tiles, so an interrupted fetch resumes                                                                                                          | —                            |
 
 Licences: OpenStreetMap data is © OpenStreetMap contributors under the ODbL, and so is the combined building data. GRB, DHMV II and the orthophotos are Digitaal Vlaanderen's, under the Modellicentie Gratis Hergebruik v1.0. Wikidata is CC0. The credits are in `src/data/providers.ts`.
 

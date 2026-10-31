@@ -2,19 +2,17 @@
  * Rebuilds the city from the downloads already in data/ and checks the result is byte for
  * byte the committed public/data/city.bin: data + code = map.
  *
- *   bun run data:check [--data <folder>]
+ *   bun run data:check
  *
  * It first checks the downloads against data/sources.lock.json, so a failure says whether the
- * inputs or the code changed.
+ * inputs or the code changed. It bakes in place: when the city differs, `git diff` shows it.
  */
 
 import { outputFiles } from '../src/data/fetch-plan.ts';
 import { unpackCity } from '../src/data/format.ts';
 import { SOURCES } from '../src/data/sources.ts';
-import { dataDir, flags, hashSource, readLock } from './data-files.ts';
+import { DATA, hashSource, readLock } from './data-files.ts';
 
-const args = flags(Bun.argv.slice(2), [], ['data']);
-const DATA = dataDir(typeof args.data === 'string' ? args.data : undefined);
 const root = new URL('../', import.meta.url).pathname;
 
 const lock = await readLock();
@@ -45,24 +43,24 @@ async function run(cmd: string[]) {
   if ((await proc.exited) !== 0) throw new Error(`${cmd.join(' ')} failed`);
 }
 
-const rebuilt = `${DATA}/.cache/city.bin`;
-await run(['uv', 'run', '--locked', '--script', 'tools/build_leuven_data.py', DATA]);
-await run(['bun', 'scripts/bake.ts', '--data', DATA, '--out', rebuilt]);
+const city = `${root}public/data/city.bin`;
+const before = await Bun.file(city).bytes();
+await run(['bun', 'run', 'data:build']);
+await run(['bun', 'run', 'bake']);
+const after = await Bun.file(city).bytes();
 
-const fresh = await Bun.file(rebuilt).bytes();
-const committed = await Bun.file(`${root}public/data/city.bin`).bytes();
-if (Bun.deepEquals(fresh, committed)) {
+if (Bun.deepEquals(after, before)) {
   console.log('public/data/city.bin is reproduced byte for byte.');
 } else {
-  const [a, b] = await Promise.all([unpackCity(fresh), unpackCity(committed)]);
+  const [a, b] = await Promise.all([unpackCity(after), unpackCity(before)]);
   const counts = (c: typeof a) =>
     Object.entries(c)
       .filter(([, v]) => Array.isArray(v))
       .map(([k, v]) => `${k} ${(v as unknown[]).length}`)
       .join(', ');
   console.error(
-    `The rebuilt city differs from public/data/city.bin.\n  rebuilt:   ${counts(a)}\n  committed: ${counts(b)}\n` +
-      `The rebuilt file is ${rebuilt}. If the change is intended, run bun run bake and commit city.bin.`,
+    `The rebuilt city differs from the one you had.\n  rebuilt: ${counts(a)}\n  before:  ${counts(b)}\n` +
+      'It is in public/data/city.bin now: commit it if the change is intended, or git restore it.',
   );
   process.exit(1);
 }

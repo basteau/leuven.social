@@ -1,12 +1,11 @@
 /**
  * Downloads every source in src/data/sources.ts into data/ and records what it got in
- * data/sources.lock.json. Safe to rerun: what is already there and still planned is kept.
+ * data/sources.lock.json. Safe to rerun: it fetches only what is missing or planned anew, so
+ * a new source costs one rerun, and deleting a source's files fetches them again.
  *
- *   bun run data:fetch                 fetch what is missing, update the lock
- *   bun run data:fetch --only osm-roads,grb-gbg
- *   bun run data:fetch --refresh       fetch everything again
- *   bun run data:fetch --frozen        fail if anything differs from the lock (CI)
- *   bun run data:fetch --data /tmp/d   another data folder
+ *   bun run data:fetch
+ *
+ * After a fetch, `git diff data/sources.lock.json` shows which sources changed.
  */
 
 import {
@@ -50,11 +49,8 @@ import type {
   WikidataSource,
   WmtsSource,
 } from '../src/data/sources.ts';
-import { dataDir, flags, hashSource, readLock, removeStale, writeLock } from './data-files.ts';
+import { DATA, hashSource, readLock, removeStale, writeLock } from './data-files.ts';
 
-const args = flags(Bun.argv.slice(2), ['refresh', 'frozen'], ['only', 'data']);
-
-const DATA = dataDir(typeof args.data === 'string' ? args.data : undefined);
 const USER_AGENT = 'leuven.social data fetch (+https://github.com/basteau/leuven.social)';
 const box = lonLatBox();
 
@@ -138,8 +134,8 @@ interface Plan {
   requests: string[];
   /** Files under data/ this source owns once fetched. */
   files: string[];
-  /** Downloads whatever is missing (or everything, when refreshing). */
-  run: (refresh: boolean) => Promise<void>;
+  /** Downloads whatever is missing. */
+  run: () => Promise<void>;
 }
 
 const exists = async (path: string) => {
@@ -203,10 +199,10 @@ function tilePlan(
   return {
     requests: entries.map((e) => e.url),
     files: entries.map((e) => e.file),
-    run: async (refresh) => {
+    run: async () => {
       let done = 0;
       await pool(entries, limit, async ({ url, file }) => {
-        if (!refresh && (await exists(file))) return;
+        if (await exists(file)) return;
         const bytes = await request(url, (b) => {
           if (!valid(b)) throw new SourceError(`Not the expected format: ${text(b.slice(0, 160))}`);
           return b;
@@ -264,24 +260,18 @@ function plan(source: Source): Plan {
   }
 }
 
-const only = typeof args.only === 'string' ? args.only.split(',') : undefined;
-const unknown = only?.filter((id) => !SOURCES.some((s) => s.id === id)) ?? [];
-if (unknown.length)
-  throw new Error(`Unknown source ${unknown.join(', ')}: see src/data/sources.ts`);
-
 const lock = await readLock();
 const changed: string[] = [];
 for (const source of SOURCES) {
-  if (only && !only.includes(source.id)) continue;
   const p = plan(source);
   const planHash = (await sha256(p.requests.join('\n'))).slice(0, 16);
   const previous = lock[source.id];
   const complete = (await Promise.all(p.files.map(exists))).every(Boolean);
   // A merged file can't tell it was made for another extent; tiles are named by what they cover.
   const stale = previous?.plan !== planHash && source.kind !== 'wcs' && source.kind !== 'wmts';
-  if (args.refresh === true || !complete || stale) {
+  if (!complete || stale) {
     console.log(`${source.id}: fetching ${source.title.toLowerCase()}`);
-    await p.run(args.refresh === true);
+    await p.run();
   } else {
     console.log(`${source.id}: cached`);
   }
@@ -295,13 +285,9 @@ for (const source of SOURCES) {
       previous?.sha256 === digest.sha256 ? previous.fetched : new Date().toISOString().slice(0, 10),
   };
   // Saved after every source, so an interrupted fetch keeps what it finished.
-  if (args.frozen !== true) await writeLock(lock);
+  await writeLock(lock);
 }
 
-if (args.frozen === true && changed.length) {
-  console.error(`These sources differ from data/sources.lock.json: ${changed.join(', ')}`);
-  process.exit(1);
-}
 console.log(
   changed.length ? `Lock updated for ${changed.join(', ')}` : 'Everything matches the lock',
 );

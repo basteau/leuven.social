@@ -14,7 +14,7 @@ import type { ProviderId } from './providers.ts';
 import { toLambert72, toLonLat } from './projection.ts';
 
 interface Common {
-  /** Short, stable, kebab-case: the lock file and `--only` use it. */
+  /** Short, stable, kebab-case: the lock file is keyed by it. */
   id: string;
   provider: ProviderId;
   title: string;
