@@ -1,10 +1,12 @@
-import type { Bounds, Building, City, Path } from '../data/city.ts';
+import type { Bounds, Building, City, Path, Prop, Tank } from '../data/city.ts';
 import { clipLine, clipRing } from '../data/geometry.ts';
 import { addBuilding } from './buildings.ts';
 import type { PartyWalls } from './buildings.ts';
 import { addGround } from './ground.ts';
 import type { GroundLayers } from './ground.ts';
 import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
+import { LARGE_PROPS, addProp } from './props.ts';
+import { addParapet, addTank } from './structures.ts';
 import { addParasol } from './terraces.ts';
 import type { Parasol } from './terraces.ts';
 import { addTree } from './trees.ts';
@@ -23,6 +25,10 @@ export interface Cell {
   /** Flat [x, z, seed, height, …]: the seed keeps a tree's look when the cell changes. */
   trees: number[];
   parasols: Parasol[];
+  /** Street furniture, drawn in a mesh of its own that hides when zoomed out; tall ones aren't. */
+  props: Prop[];
+  tanks: Tank[];
+  parapets: Float32Array[];
 }
 
 const cellOf = (v: number) => Math.floor(v / CELL_SIZE);
@@ -46,6 +52,9 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
           ground: { green: [], water: [], roads: [], plazas: [], paths: [] },
           trees: [],
           parasols: [],
+          props: [],
+          tanks: [],
+          parapets: [],
         });
       }
     }
@@ -58,6 +67,10 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
     at(x, z)?.trees.push(x, z, i / 2, city.treeHeights[i / 2] ?? 0);
   }
   for (const p of parasols) at(p.x, p.z)?.parasols.push(p);
+  for (const p of city.props) at(p.x, p.z)?.props.push(p);
+  // Like buildings, tanks and parapets go whole to the cell of their first point.
+  for (const t of city.tanks) at(t.ring[0]!, t.ring[1]!)?.tanks.push(t);
+  for (const line of city.parapets) at(line[0]!, line[1]!)?.parapets.push(line);
 
   // Ground polygons are flat, so they can be cut along cell edges without a visible seam.
   for (const layer of ['green', 'water', 'roads', 'plazas'] as const) {
@@ -102,17 +115,19 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
 }
 
 /**
- * Everything in one cell as one mesh and one set of outlines: two draw calls. The flat ground
- * and the tree trunks come first (up to `shadowFrom`), so the shadow pass can skip them: the
+ * Everything in one cell as one mesh and one set of outlines (two draw calls), plus its small
+ * street furniture as a third mesh, so it can hide when zoomed out. The flat ground and the tree
+ * trunks come first in the mesh (up to `shadowFrom`), so the shadow pass can skip them: the
  * ground can't shade anything, and a trunk's shadow hides in its crown's.
  */
 export function buildCell(
   cell: Cell,
   area: readonly Bounds[],
   walls: PartyWalls,
-): { mesh: MeshBuilder; lines: LineBuilder; shadowFrom: number } {
+): { mesh: MeshBuilder; lines: LineBuilder; props: MeshBuilder; shadowFrom: number } {
   const mesh = new MeshBuilder();
   const lines = new LineBuilder();
+  const props = new MeshBuilder();
   const { trees } = cell;
   addGround(mesh, area, cell.bounds, cell.ground);
   for (let i = 0; i < trees.length; i += 4) {
@@ -124,5 +139,8 @@ export function buildCell(
     addTree(mesh, trees[i]!, trees[i + 1]!, trees[i + 2]!, trees[i + 3]!, ['crown']);
   }
   for (const p of cell.parasols) addParasol(mesh, lines, p);
-  return { mesh, lines, shadowFrom };
+  for (const t of cell.tanks) addTank(mesh, lines, t);
+  for (const line of cell.parapets) addParapet(mesh, lines, line);
+  for (const p of cell.props) addProp(LARGE_PROPS.has(p.kind) ? mesh : props, p);
+  return { mesh, lines, props, shadowFrom };
 }

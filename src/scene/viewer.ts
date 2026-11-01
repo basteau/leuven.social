@@ -84,8 +84,17 @@ const SHADOW_MAP = 2048;
 /** Tallest thing in the city (m), and the margin kept around the view for tall roofs. */
 const MAX_HEIGHT = 90;
 const SHADOW_REACH = 60;
-/** The shadow pass draws layer 1, which only the shadow casters are on; the view draws layer 0. */
-const SHADOW_LAYER = 1;
+/**
+ * Layer masks: the view draws layer 0, the shadow pass layer 1. A cell's shadow casters are only
+ * on the shadow layer; its furniture joins whichever pass needs it (see `cull`).
+ */
+const VIEW_LAYER = 1 << 0;
+const SHADOW_LAYER = 1 << 1;
+/**
+ * Zoom from which street furniture shows. Further out a lamp post is a stray pixel, and the
+ * frames that show the most city are the ones that can least afford it.
+ */
+const PROP_ZOOM = 2;
 /** Time the idle builder may take per slice before handing the main thread back (ms). */
 const IDLE_SLICE_MS = 8;
 
@@ -139,7 +148,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   }));
 
   function build(entry: CellEntry): void {
-    const { mesh, lines, shadowFrom } = buildCell(entry.cell, city.area, walls);
+    const { mesh, lines, props, shadowFrom } = buildCell(entry.cell, city.area, walls);
     const surfaces = new Mesh(mesh.build({ facade: true }), material);
     surfaces.receiveShadow = true;
     // The shadow pass draws the same buffers from past the ground and the trunks, as a mesh of
@@ -149,13 +158,18 @@ export function createViewer(options: ViewerOptions): Viewer {
     shape.setDrawRange(shadowFrom, Infinity);
     const casters = new Mesh(shape, material);
     casters.castShadow = true;
-    casters.layers.set(SHADOW_LAYER);
+    casters.layers.mask = SHADOW_LAYER;
+    // Street furniture shares the material and its program: one more draw call, only up close.
+    const furniture = new Mesh(props.build({ facade: true }), material);
+    furniture.castShadow = true;
+    furniture.receiveShadow = true;
     const outlines = new LineSegments(lines.build(), ink);
     // Cells are culled by their boxes below: three's bounding spheres are far looser.
-    entry.objects = [surfaces, outlines, casters];
+    entry.objects = [surfaces, outlines, casters, furniture];
     entry.box.copy(surfaces.geometry.boundingBox!);
+    if (entry.cell.props.length) entry.box.union(furniture.geometry.boundingBox!);
     for (const object of entry.objects) object.frustumCulled = false;
-    scene.add(surfaces, outlines, casters);
+    scene.add(surfaces, outlines, casters, furniture);
   }
 
   scene.add(new HemisphereLight(SKY_LIGHT, BOUNCE_LIGHT, 1.3));
@@ -165,7 +179,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   sun.shadow.mapSize.set(SHADOW_MAP, SHADOW_MAP);
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.6;
-  sun.shadow.camera.layers.set(SHADOW_LAYER);
+  sun.shadow.camera.layers.mask = SHADOW_LAYER;
   scene.add(sun, sun.target);
   // The shadow camera's depth spans the whole area, from the slab's underside to the rooftops.
   const [nearest, farthest] = depthRange(
@@ -180,6 +194,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     ),
   );
   let shadow: ShadowSquare | undefined;
+  let propsShown = false;
   const shadowFrustum = new Frustum();
 
   const camera = new OrthographicCamera(-1, 1, 1, -1, 1, CAMERA_DISTANCE * 2);
@@ -205,7 +220,8 @@ export function createViewer(options: ViewerOptions): Viewer {
   }
 
   // Landmark labels are plain DOM, moved with transforms after each render. Their order is
-  // their priority: a label that would overlap an earlier one, or the screen edge, is hidden.
+  // their priority: a label that would overlap an earlier one, or the screen edge, is hidden,
+  // and so is one whose zoom hasn't been reached.
   const labelEls = city.labels.map((label) => {
     const el = document.createElement('span');
     el.className = 'map-label';
@@ -218,6 +234,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     el,
     w: el.offsetWidth,
     h: el.offsetHeight,
+    minZoom: city.labels[i]!.minZoom,
     world: new Vector3(city.labels[i]!.x, LABEL_HEIGHT, city.labels[i]!.z),
   }));
   const placed: [number, number, number, number][] = [];
@@ -269,6 +286,11 @@ export function createViewer(options: ViewerOptions): Viewer {
     });
     const need = shadowNeeds(light, ground);
     need.half += SHADOW_REACH;
+    // Furniture appearing or hiding changes what casts shadows: refit the square to the view,
+    // which is close up when it appears, so the redraw stays small.
+    const near = camera.zoom >= PROP_ZOOM;
+    if (near !== propsShown) shadow = undefined;
+    propsShown = near;
     if (shadow && shadowCovers(shadow, need)) return;
     shadow = fitShadow(need, SHADOW_MAP);
     sun.position.set(...shadowPoint(light, shadow.x, shadow.y, farthest + 10));
@@ -301,13 +323,16 @@ export function createViewer(options: ViewerOptions): Viewer {
    */
   function cull(): void {
     const shadowPass = renderer.shadowMap.needsUpdate;
-    for (const { box, objects } of cells) {
-      const [surfaces, outlines, casters] = objects;
-      if (!surfaces || !outlines || !casters) continue;
+    for (const { box, cell, objects } of cells) {
+      const [surfaces, outlines, casters, furniture] = objects;
+      if (!surfaces || !outlines || !casters || !furniture) continue;
       const inView = frustum.intersectsBox(box);
       surfaces.visible = inView;
       outlines.visible = inView;
-      casters.visible = shadowPass && shadowFrustum.intersectsBox(box);
+      const casts = shadowPass && shadowFrustum.intersectsBox(box);
+      casters.visible = casts;
+      furniture.layers.mask = (inView ? VIEW_LAYER : 0) | (casts ? SHADOW_LAYER : 0);
+      furniture.visible = (inView || casts) && propsShown && cell.props.length > 0;
     }
   }
 
@@ -343,7 +368,11 @@ export function createViewer(options: ViewerOptions): Viewer {
     });
 
     placed.length = 0;
-    for (const { el, w, h, world } of labels) {
+    for (const { el, w, h, world, minZoom } of labels) {
+      if (camera.zoom < minZoom) {
+        el.hidden = true;
+        continue;
+      }
       projected.copy(world).project(camera);
       const x = ((projected.x + 1) / 2) * width;
       const y = ((1 - projected.y) / 2) * height;

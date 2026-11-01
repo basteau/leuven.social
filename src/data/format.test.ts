@@ -14,7 +14,10 @@ const city: City = {
     { minX: -650, minZ: 450, maxX: 0, maxZ: 900 },
   ],
   bounds: { minX: -650, minZ: -400, maxX: 600, maxZ: 900 },
-  labels: [{ name: 'Grote Markt', x: 0, z: 0 }],
+  labels: [
+    { name: 'Grote Markt', x: 0, z: 0, minZoom: 0 },
+    { name: 'Totem', x: 348.5, z: 57.2, minZoom: 2.5 },
+  ],
   buildings: [
     {
       id: 7,
@@ -46,6 +49,12 @@ const city: City = {
   paths: [{ width: 2.5, paved: false, line: new Float32Array([0, 0, 10, 5, 20, 5]) }],
   trees: new Float32Array([1.5, 2.5, -40, 60.1]),
   treeHeights: new Float32Array([8, 21.5]),
+  props: [
+    { kind: 'bikes', x: 12.3, z: -4.5, angle: Math.PI / 2, size: 12 },
+    { kind: 'needle', x: -100, z: 200.7, angle: 0, size: 23 },
+  ],
+  tanks: [{ height: 14.5, ring: square(500, -1000, 6) }],
+  parapets: [new Float32Array([-3, 0, -3, 10]), new Float32Array([3, 0, 3, 5, 3.5, 10])],
 };
 
 describe('city format', () => {
@@ -67,6 +76,18 @@ describe('city format', () => {
     expect(decoded.paths).toEqual(city.paths);
     expect([...decoded.trees]).toEqual([1.5, 2.5, -40, 60.1].map((v) => Math.fround(v)));
     expect([...decoded.treeHeights]).toEqual([8, 21.5]);
+    expect(decoded.props.map((p) => [p.kind, p.size])).toEqual([
+      ['bikes', 12],
+      ['needle', 23],
+    ]);
+    for (const [i, p] of decoded.props.entries()) {
+      const original = city.props[i]!;
+      expect(p.x).toBeCloseTo(original.x, 4);
+      expect(p.z).toBeCloseTo(original.z, 4);
+      expect(p.angle).toBeCloseTo(original.angle, 1); // a 256th of a turn
+    }
+    expect(decoded.tanks).toEqual(city.tanks);
+    expect(decoded.parapets).toEqual(city.parapets);
   });
 
   test('gzip pack and unpack, and accepts already-inflated bytes', async () => {
@@ -79,6 +100,11 @@ describe('city format', () => {
   test('rejects foreign or truncated data', () => {
     expect(() => decodeCity(new TextEncoder().encode('nope'))).toThrow(CityFormatError);
     expect(() => decodeCity(encodeCity({ ...city, area: [] }))).toThrow(CityFormatError);
+    // A prop kind this version doesn't know: find its byte by changing only the kind.
+    const lamp = encodeCity({ ...city, props: [{ ...city.props[0]!, kind: 'lamp' }] });
+    const bench = encodeCity({ ...city, props: [{ ...city.props[0]!, kind: 'bench' }] });
+    lamp[lamp.findIndex((b, i) => b !== bench[i])] = 200;
+    expect(() => decodeCity(lamp)).toThrow('Bad prop kind');
     const bytes = encodeCity(city);
     expect(() => decodeCity(bytes.subarray(0, bytes.length - 3))).toThrow();
     const trailing = new Uint8Array(bytes.length + 1);
