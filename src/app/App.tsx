@@ -48,6 +48,11 @@ const MAP_LABELS: Record<WalkMode, string> = {
   walk: 'Walking in Leuven. W, A, S and D or the arrow keys walk, and hold Shift to run; drag to look around; click or tap a street to walk there; hold Q or E to turn the view; Escape returns to the map.',
 };
 
+/** Walk mode downloads on first use; say so only if that takes long enough to notice. */
+const WALK_LOADING_MS = 250;
+
+type WalkLoad = 'idle' | 'loading' | 'failed';
+
 const reducedMotion = () => globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 /** Publishes app state on <html> for CSS, the smoke test and anyone debugging. */
@@ -89,6 +94,15 @@ export function App() {
   const [blocked, setBlocked] = useState(0);
   const [running, setRunning] = useState(false);
   const runningRef = useRef(running);
+  const [walkLoad, setWalkLoad] = useState<WalkLoad>('idle');
+  const walkLoadTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  /** Starts walk mode, saying it's getting ready if its download is slow. */
+  const startWalkRef = useRef(() => {
+    clearTimeout(walkLoadTimer.current);
+    setWalkLoad('idle');
+    walkLoadTimer.current = setTimeout(() => setWalkLoad('loading'), WALK_LOADING_MS);
+    viewerRef.current?.pickWalkStart();
+  });
 
   useEffect(() => {
     const map = mapRef.current;
@@ -113,6 +127,8 @@ export function App() {
           city,
           reducedMotion: reducedMotion() ?? false,
           onWalkModeChange: (mode) => {
+            clearTimeout(walkLoadTimer.current);
+            setWalkLoad('idle');
             walkModeRef.current = mode;
             setWalkMode(mode);
             setBlocked(0);
@@ -121,6 +137,10 @@ export function App() {
             map.focus();
           },
           onWalkBlocked: () => setBlocked(performance.now()),
+          onWalkUnavailable: () => {
+            clearTimeout(walkLoadTimer.current);
+            setWalkLoad('failed');
+          },
         });
         viewerRef.current = viewer;
         // Keyboard users can pan and use shortcuts at once, without a focus ring flashing up.
@@ -202,7 +222,7 @@ export function App() {
         '+': () => viewer.zoomBy(1.25),
         '=': () => viewer.zoomBy(1.25),
         '-': () => viewer.zoomBy(0.8),
-        ...(mode === 'map' && { r: () => viewer.resetView(), w: () => viewer.pickWalkStart() }),
+        ...(mode === 'map' && { r: () => viewer.resetView(), w: () => startWalkRef.current() }),
         ...(mode === 'pick' && !onControl && { enter: () => viewer.walkFromCentre() }),
         ...(mode !== 'map' && { escape: () => viewer.stopWalking() }),
       };
@@ -302,7 +322,13 @@ export function App() {
       <footer className="hud hud-bottom">
         {/* Always rendered, empty on the map, so screen readers hear the hint change. */}
         <output className="panel hint">
-          {walkMode === 'map' ? null : blocked ? (
+          {walkMode === 'map' ? (
+            walkLoad === 'loading' ? (
+              'Getting ready to walk…'
+            ) : walkLoad === 'failed' ? (
+              'Walking couldn’t load. Check your connection and try again.'
+            ) : null
+          ) : blocked ? (
             'Can’t walk there. Pick a street or square.'
           ) : walkMode === 'pick' ? (
             'Pick a street to start walking.'
@@ -325,7 +351,9 @@ export function App() {
                 label="Walk"
                 shortcut="W"
                 disabled={!ready}
-                onPress={() => viewerRef.current?.pickWalkStart()}
+                busy={walkLoad === 'loading'}
+                onPress={() => startWalkRef.current()}
+                onWarm={() => viewerRef.current?.preloadWalk()}
               >
                 <WalkIcon />
               </ToolButton>
@@ -437,8 +465,12 @@ function ToolButton(props: {
   pressed?: boolean;
   /** The key is held for the same effect rather than pressed for this button: not its shortcut. */
   hold?: boolean;
+  /** Its action is under way (walk mode downloading). */
+  busy?: boolean;
   disabled: boolean;
   onPress: () => void;
+  /** About to be pressed (hovered or focused): a chance to get ready. */
+  onWarm?: () => void;
   children: ReactNode;
 }) {
   return (
@@ -447,8 +479,11 @@ function ToolButton(props: {
       className="button"
       aria-keyshortcuts={props.hold ? undefined : (props.keys ?? props.shortcut)}
       aria-pressed={props.pressed}
+      aria-busy={props.busy || undefined}
       disabled={props.disabled}
       onClick={props.onPress}
+      onPointerEnter={props.onWarm}
+      onFocus={props.onWarm}
     >
       {props.children}
       <span>{props.label}</span>
