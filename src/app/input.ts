@@ -33,6 +33,14 @@ export async function layoutKeycaps(keyboard?: KeyboardLayout): Promise<Keycaps>
   return caps;
 }
 
+/** Keys that pan, zoom, turn or reset the map; anything else (Tab, Enter, M) leaves it be. */
+const MOVING_CODES = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyQ', 'KeyE']);
+const MOVING_KEYS = new Set(['+', '=', '-', 'r', 'R']);
+
+export function movesMap(event: { code: string; key: string }): boolean {
+  return MOVING_CODES.has(event.code) || MOVING_KEYS.has(event.key);
+}
+
 /**
  * A button that appears where another was just pressed (Walk, then Cancel and Start here under
  * it) would take the rest of a double-click or double-tap. Ignore the second click of a

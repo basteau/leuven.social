@@ -18,7 +18,7 @@ import {
   SoundIcon,
   WalkIcon,
 } from './icons.tsx';
-import { KEYCAPS, layoutKeycaps } from './input.ts';
+import { KEYCAPS, layoutKeycaps, movesMap } from './input.ts';
 import type { KeyboardLayout, Keycaps } from './input.ts';
 import { useShortcuts } from './shortcuts.ts';
 import { StreetSign } from './street-sign.tsx';
@@ -220,7 +220,8 @@ export function App() {
   }, [attempt]);
 
   useEffect(() => {
-    if (status.state === 'error') retryRef.current?.focus();
+    // Focus moved there for the person, not by a click: show where it went.
+    if (status.state === 'error') retryRef.current?.focus({ focusVisible: true } as FocusOptions);
   }, [status.state]);
 
   useShortcuts({
@@ -262,12 +263,18 @@ export function App() {
     const map = mapRef.current;
     if (!ready || !map) return;
     const collapse = () => setCreditsOpen(false);
+    // Only keys that move the map: Tab must still reach the links.
+    const onKey = (event: KeyboardEvent) => {
+      if (movesMap(event)) collapse();
+    };
     const timer = setTimeout(collapse, CREDITS_VISIBLE_MS);
-    const events = ['pointerdown', 'wheel', 'keydown'] as const;
+    const events = ['pointerdown', 'wheel'] as const;
     for (const type of events) map.addEventListener(type, collapse, { passive: true });
+    map.addEventListener('keydown', onKey);
     return () => {
       clearTimeout(timer);
       for (const type of events) map.removeEventListener(type, collapse);
+      map.removeEventListener('keydown', onKey);
     };
   }, [ready]);
 

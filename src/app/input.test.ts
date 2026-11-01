@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { KEYCAPS, layoutKeycaps, SETTLE_MS, strayPress } from './input.ts';
+import { KEYCAPS, layoutKeycaps, movesMap, SETTLE_MS, strayPress } from './input.ts';
 import type { KeyboardLayout } from './input.ts';
 
 const layout = (keys: Record<string, string>): KeyboardLayout => ({
@@ -39,6 +39,36 @@ describe('layoutKeycaps', () => {
   test('never changes the defaults', async () => {
     await layoutKeycaps(layout({ KeyW: 'z' }));
     expect(KEYCAPS.KeyW).toBe('W');
+  });
+});
+
+describe('movesMap', () => {
+  test('arrows, zoom, turn and reset move the map', () => {
+    for (const [code, key] of [
+      ['ArrowLeft', 'ArrowLeft'],
+      ['ArrowUp', 'ArrowUp'],
+      ['Equal', '+'],
+      ['Equal', '='],
+      ['Minus', '-'],
+      ['Digit6', '-'], // AZERTY's minus
+      ['KeyQ', 'a'], // AZERTY's A turns left, by position
+      ['KeyE', 'e'],
+      ['KeyR', 'r'],
+    ] as const) {
+      expect(movesMap({ code, key })).toBe(true);
+    }
+  });
+
+  test('Tab, Enter, Shift and Mute leave it be', () => {
+    for (const [code, key] of [
+      ['Tab', 'Tab'],
+      ['Enter', 'Enter'],
+      ['ShiftLeft', 'Shift'],
+      ['KeyM', 'm'],
+      ['KeyA', 'q'], // AZERTY's Q is QWERTY's A: no map key
+    ] as const) {
+      expect(movesMap({ code, key })).toBe(false);
+    }
   });
 });
 
