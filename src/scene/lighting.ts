@@ -14,7 +14,7 @@ export const LIGHT = { sky: 1.3, sun: 2.2 } as const;
  */
 export const SHADE_HUE = 0.7;
 /** Shade is a little richer than the colour itself, as painters do it. */
-export const SHADE_CHROMA = 1.3;
+export const SHADE_CHROMA = 1.1;
 /** Lit-to-base lightness ratios between which the hue is restored: full shade to half lit. */
 export const SHADE_RANGE = [0.35, 0.8] as const;
 

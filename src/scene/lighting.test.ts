@@ -19,7 +19,7 @@ test('shade keeps the hue of its own colour', () => {
   const [, a, b] = toOklab(GROUND.plaza);
   // Same hue direction, and most of its colour (plain sky light greys it out).
   expect(sa * a + sb * b).toBeGreaterThan(0);
-  expect(Math.hypot(sa, sb)).toBeGreaterThan(Math.hypot(a, b) * 0.7);
+  expect(Math.hypot(sa, sb)).toBeGreaterThan(Math.hypot(a, b) * 0.6);
 });
 
 test('sun is lighter than shade', () => {

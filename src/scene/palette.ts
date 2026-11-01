@@ -117,7 +117,7 @@ export const GROUND = {
   parking: 0x97938b,
   /** The road surface where no carriageway lies on it: pale slabs, like the footpaths. */
   pavement: 0xb3afa6,
-  plaza: 0xd9b98a,
+  plaza: 0xd8bb90,
   water: 0x5f9fc4,
   /** Paved footpaths: pale slabs, lighter than the roads. */
   path: 0xb9b0a0,
