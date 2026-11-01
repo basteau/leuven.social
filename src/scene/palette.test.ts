@@ -1,7 +1,15 @@
 import { expect, test } from 'bun:test';
 
-import { toOklab } from '../data/colour.ts';
-import { FLAT_ROOFS, PITCHED_ROOFS, ROOF_SWATCHES, roofColor } from './palette.ts';
+import { deltaE, toOklab } from '../data/colour.ts';
+import {
+  FLAT_ROOFS,
+  PITCHED_ROOFS,
+  ROOF_SWATCHES,
+  WALLS,
+  pick,
+  roofColor,
+  wallColor,
+} from './palette.ts';
 
 test('sampled roof colours snap to the swatch they look like from the air', () => {
   // Near the cluster centres of Leuven's roofs in the corrected orthophoto colours.
@@ -21,4 +29,14 @@ test('unsampled roofs fall back to a stable pick', () => {
   expect(PITCHED_ROOFS).toContain(roofColor(null, false, 3));
   expect(FLAT_ROOFS).toContain(roofColor(null, true, 3));
   expect(roofColor(null, false, 3)).toBe(roofColor(null, false, 3));
+});
+
+test('walls stray a little from their swatch, the same way every time', () => {
+  const colours = Array.from({ length: 200 }, (_, id) => wallColor('house', id));
+  expect(wallColor('house', 7)).toBe(colours[7]!);
+  // Neighbours painted from one swatch still differ.
+  expect(new Set(colours).size).toBeGreaterThan(150);
+  for (const [id, colour] of colours.entries()) {
+    expect(deltaE(colour, pick(WALLS.house, id))).toBeLessThan(0.05);
+  }
 });

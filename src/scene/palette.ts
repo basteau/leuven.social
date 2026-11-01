@@ -4,10 +4,11 @@
  */
 
 import type { Kind } from '../data/city.ts';
-import { toOklab } from '../data/colour.ts';
+import { fromOklab, toOklab } from '../data/colour.ts';
 
 export const WALLS: Record<Kind, readonly number[]> = {
-  house: [0xb5523b, 0xc0674a, 0xa84a3a, 0xe8dcc4, 0xf0e6d0, 0xd9c7a8, 0xc98e6c],
+  // Red and dark brown brick, yellow brick, whitewash, cream and sand plaster.
+  house: [0xb5523b, 0xc0674a, 0xa84a3a, 0x94573f, 0xd6bd85, 0xe5d9c0, 0xebe2cc, 0xd9c7a8, 0xc98e6c],
   apartments: [0xd8cfc0, 0xc4b8a6, 0xb9a48a, 0xe2d6c2],
   retail: [0xe9dcc6, 0xd96f4e, 0xf2e8d5, 0xc8a882],
   civic: [0xe6dcc8, 0xd8c9a8, 0xcdbb94],
@@ -16,18 +17,24 @@ export const WALLS: Record<Kind, readonly number[]> = {
   other: [0xd6cbb8, 0xc7b8a0, 0xb8a58c],
 };
 
-/** Hero landmarks: their own stones and dark slate, so they stand out from the streets. */
+/**
+ * Hero landmarks: their own stones and dark slate. Each is the lightest, most colourful thing
+ * in its street, so the eye finds it first.
+ */
 export const LANDMARK = {
-  sandstone: 0xe4cf9f,
-  limestone: 0xd8cba8,
-  brick: 0xb35a40,
-  trim: 0xeee3c9,
+  sandstone: 0xf4dca2,
+  limestone: 0xf0e2bb,
+  brick: 0xc85c3a,
+  trim: 0xfaf0d8,
   slate: 0x4a5161,
   spire: 0x3b4150,
 } as const;
 
-/** Café parasols on the squares: each café keeps one colour along its stretch of terrace. */
-export const PARASOLS = [0xf6eedc, 0xd2553f, 0xe8b94a, 0xe07b4f, 0x8db36f] as const;
+/**
+ * Café parasols on the squares: each café keeps one colour along its stretch of terrace. Beer
+ * brand reds, cream, mustard, orange and a blue; no green, which read as a hedge from above.
+ */
+export const PARASOLS = [0xf6eedc, 0xd2553f, 0xe8b94a, 0xe07b4f, 0x4a77a8] as const;
 
 export const PITCHED_ROOFS = [0x4f5666, 0x3c4354, 0x6c707a, 0x7a3e31, 0x9c4a35, 0xb85e3c];
 export const FLAT_ROOFS = [0x8e8f92, 0x9a9996, 0xa7a49d];
@@ -94,6 +101,9 @@ export const TREE = {
   tints: [0xffffff, 0xe3eed6, 0xd2e0c2, 0xf4f1dc],
 } as const;
 
+/** Shop awnings over the ground-floor windows: one canvas per bay. */
+export const AWNINGS = [0xd2553f, 0x2f6b4f, 0x4a77a8, 0xe8b94a, 0x7a3e31, 0xf6eedc] as const;
+
 /** Window glass, and the few windows that catch the low sun. */
 export const WINDOW = { glass: 0x2f3a4a, lit: 0xf3c873 } as const;
 
@@ -102,11 +112,33 @@ export const SUN = 0xffe2b8;
 export const SKY_LIGHT = 0xcfe3ff;
 export const BOUNCE_LIGHT = 0x9a8a70;
 
-/** Deterministic pick so a building keeps its colour across reloads and rebakes. */
-export function pick<T>(list: readonly T[], seed: number): T {
+/** How far a building's wall strays from its swatch: lightness, and each hue axis (Oklab). */
+const WALL_JITTER = { l: 0.035, ab: 0.007 } as const;
+
+/**
+ * A building's wall colour: a swatch for its kind, nudged a little lighter or darker, warmer
+ * or cooler by its id, so a row of houses painted from the same swatch still reads as separate
+ * houses. Deterministic, like `pick`.
+ */
+export function wallColor(kind: Kind, id: number): number {
+  const [l, a, b] = toOklab(pick(WALLS[kind], id));
+  const unit = (salt: number) => (hash(id * 31 + salt) / 0xffffffff) * 2 - 1;
+  return fromOklab([
+    l + unit(1) * WALL_JITTER.l,
+    a + unit(2) * WALL_JITTER.ab,
+    b + unit(3) * WALL_JITTER.ab,
+  ]);
+}
+
+function hash(seed: number): number {
   let h = Math.imul(seed ^ 0x9e3779b9, 0x85ebca6b);
   h ^= h >>> 13;
   h = Math.imul(h, 0xc2b2ae35);
   h ^= h >>> 16;
-  return list[(h >>> 0) % list.length]!;
+  return h >>> 0;
+}
+
+/** Deterministic pick so a building keeps its colour across reloads and rebakes. */
+export function pick<T>(list: readonly T[], seed: number): T {
+  return list[hash(seed) % list.length]!;
 }
