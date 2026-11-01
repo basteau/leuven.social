@@ -16,11 +16,14 @@ const TILE = 64;
 /** Narrow paths still get a ribbon at least this wide, so diagonal ones never break apart. */
 const MIN_HALF_WIDTH = 0.75;
 
-/** A cell's value: closed ground, walkable, or a building (its roof height in metres + 1). */
+/** A cell's value: closed ground, walkable, or a building or tank (its height in metres + 1). */
 const CLOSED = 0;
 const OPEN = 1;
 
-export type WalkLayers = Pick<City, 'area' | 'bounds' | 'roads' | 'plazas' | 'paths' | 'buildings'>;
+export type WalkLayers = Pick<
+  City,
+  'area' | 'bounds' | 'roads' | 'plazas' | 'paths' | 'buildings' | 'tanks'
+>;
 
 interface Shape {
   ring: ArrayLike<number>;
@@ -77,7 +80,8 @@ export class WalkGrid {
       const half = Math.max(width / 2, MIN_HALF_WIDTH);
       each(ringBox(line, half), (t) => this.#ribbons[t]!.push({ line, half }));
     }
-    for (const { ring, height } of city.buildings) {
+    // Tanks and silos are as solid as buildings, and as tall.
+    for (const { ring, height } of [...city.buildings, ...city.tanks]) {
       const value = Math.min(254, Math.ceil(height)) + 1;
       each(ringBox(ring), (t) => this.#shapes[t]!.push({ ring, value }));
     }

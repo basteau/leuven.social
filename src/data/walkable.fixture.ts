@@ -20,7 +20,7 @@ const building = (ring: Float32Array, height = 12): Building => ({
 
 /**
  * A street from west to east across two tiles, a house standing in its northern half, a
- * square to the south, a footpath running north off the street and a closed garden beyond.
+ * square to the south with a tank on it, a footpath running north off the street and a closed garden beyond.
  */
 export const town: WalkLayers = {
   area: [{ minX: 0, minZ: 0, maxX: 200, maxZ: 120 }],
@@ -29,4 +29,5 @@ export const town: WalkLayers = {
   plazas: [rect(60, 50, 90, 80), rect(150, 100, 160, 110)],
   paths: [{ width: 1, paved: true, line: Float32Array.of(20, 41, 20, 10, 40, 5) }],
   buildings: [building(rect(40, 38, 60, 45), 15.2)],
+  tanks: [{ height: 8, ring: rect(62, 70, 68, 78) }],
 };

@@ -63,6 +63,7 @@ describe('Router', () => {
       plazas: [],
       paths: [],
       buildings: [],
+      tanks: [],
     });
     const far = new Router(long);
     expect(far.route(5, 10, 695, 10)).toBeNull();
@@ -81,6 +82,7 @@ test('searches a wide open square to its edges before giving up', () => {
     ],
     paths: [],
     buildings: [],
+    tanks: [],
   });
   const router = new Router(square);
   expect(router.route(150, 150, 395, 395)).toBeNull();
@@ -95,6 +97,7 @@ test('routes along the very edge of the grid, whose size is a whole number of ti
     plazas: [],
     paths: [],
     buildings: [],
+    tanks: [],
   });
   const route = new Router(edge).route(0.5, 63.5, 127.5, 63.5)!;
   expect(Array.from(route.slice(-2))).toEqual([127.5, 63.5]);

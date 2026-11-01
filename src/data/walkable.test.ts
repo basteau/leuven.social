@@ -31,6 +31,12 @@ describe('WalkGrid', () => {
     expect(grid.buildingHeight(50, 47)).toBe(0);
   });
 
+  test('a tank closes the square under it like a building', () => {
+    expect(grid.walkable(65, 74)).toBe(false);
+    expect(grid.buildingHeight(65, 74)).toBe(8);
+    expect(grid.walkable(65, 68)).toBe(true);
+  });
+
   test('clearance keeps a body off walls but not off the edge of a path', () => {
     expect(grid.walkable(50, 45.2)).toBe(true);
     expect(grid.walkable(50, 45.2, 0.5)).toBe(false);
