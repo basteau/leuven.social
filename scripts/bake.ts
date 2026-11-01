@@ -27,6 +27,7 @@ import {
   simplifyRing,
 } from '../src/data/geometry.ts';
 import { toLocal } from '../src/data/projection.ts';
+import { capShedsUnderTrees } from '../src/data/sheds.ts';
 import { mergeTrees } from '../src/data/trees.ts';
 import { DATA } from './data-files.ts';
 
@@ -137,6 +138,9 @@ for (const b of local.buildings) {
   });
 }
 
+// Garden sheds whose LiDAR height is the tree over them (src/data/sheds.ts).
+const shedsCapped = capShedsUnderTrees(buildings, crowns.trees);
+
 const closedPedestrianArea = (p: Props) =>
   (p.highway === 'pedestrian' || p.highway === 'footway') && p.area === 'yes';
 
@@ -200,6 +204,7 @@ console.log(
     `roads ${city.roads.length}, plazas ${city.plazas.length}, green ${city.green.length}, water ${city.water.length}`,
     `paths ${paths.length} (${paths.filter((p) => !p.paved).length} unpaved)`,
     `trees ${trees.heights.length} (${osmTrees.length / 2} mapped), labels ${city.labels.length}`,
+    `sheds under trees capped ${shedsCapped}`,
     `roofs ${buildings.filter((b) => b.roof === 'flat').length} flat, ${buildings.filter((b) => b.roofColor !== null).length} with a sampled colour, ${buildings.filter((b) => b.holes.length).length} with courtyards`,
     `public/data/city.bin ${(bytes.length / 1024).toFixed(0)} KB gzipped`,
   ].join('\n'),

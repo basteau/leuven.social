@@ -82,15 +82,16 @@ New data comes through the manifest and the pipeline, never by a manual download
 
 Prefer reading the world over guessing it. Each of these replaced a rule of thumb:
 
-| What                      | From                                                                                  | Where                                       |
-| ------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------- |
-| Pitched or flat roof      | OSM `roof:shape`, else the LiDAR: over 40% of the roof sloped 15–60° is pitched       | `roofFromSurvey` in `src/data/city.ts`      |
-| Roof rise and wall height | LiDAR p90 (ridge) minus p15 (eave), capped by the footprint's width                   | `planRoof` in `src/scene/buildings.ts`      |
-| Roof shape                | Gable on near-rectangles, else a hipped roof over the footprint's straight skeleton   | `src/data/skeleton.ts`                      |
-| Roof colour               | Median of the sunlit orthophoto pixels, snapped to the roof swatches                  | `roofColor` in `src/scene/palette.ts`       |
-| Courtyards                | GRB polygon holes                                                                     | walls and roofs in `src/scene/buildings.ts` |
-| Trees and their heights   | OSM's mapped trees plus LiDAR canopy crowns outside every building                    | `mergeTrees` in `src/data/trees.ts`         |
-| Paths                     | OSM footways, paths, cycleways, tracks and steps of their own, with width and surface | `pathFromOsm` in `src/data/city.ts`         |
+| What                      | From                                                                                                                    | Where                                       |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| Pitched or flat roof      | OSM `roof:shape`, else the LiDAR: over 40% of the roof sloped 15–60° is pitched                                         | `roofFromSurvey` in `src/data/city.ts`      |
+| Roof rise and wall height | LiDAR p90 (ridge) minus p15 (eave), capped by the footprint's width                                                     | `planRoof` in `src/scene/buildings.ts`      |
+| Roof shape                | Gable on near-rectangles, else a hipped roof over the footprint's straight skeleton                                     | `src/data/skeleton.ts`                      |
+| Roof colour               | Median of the sunlit orthophoto pixels, snapped to the roof swatches                                                    | `roofColor` in `src/scene/palette.ts`       |
+| Courtyards                | GRB polygon holes                                                                                                       | walls and roofs in `src/scene/buildings.ts` |
+| Sheds under trees         | A lone footprint under 60 m² beside a LiDAR crown of its height measured the tree: capped to 1.5 × √area (at least 3 m) | `capShedsUnderTrees` in `src/data/sheds.ts` |
+| Trees and their heights   | OSM's mapped trees plus LiDAR canopy crowns outside every building                                                      | `mergeTrees` in `src/data/trees.ts`         |
+| Paths                     | OSM footways, paths, cycleways, tracks and steps of their own, with width and surface                                   | `pathFromOsm` in `src/data/city.ts`         |
 
 ## Exceptions
 
@@ -111,7 +112,7 @@ Everything else on screen is read from the downloads. These are not, and each sa
 
 No download is ever edited by hand. When a source is wrong, fix it upstream (OSM is open to edits; move `OSM_DATE` forward to pick it up) or write a rule for it.
 
-Known limits of the data itself: the LiDAR was flown in 2013–2015, so buildings built or demolished since have wrong heights, and overhanging trees can inflate the height of small buildings.
+Known limits of the data itself: the LiDAR was flown in 2013–2015, so buildings built or demolished since have wrong heights, and overhanging trees can inflate the height of small buildings (the bake caps the clearest cases, sheds standing alone under a crown).
 
 ## Coordinates
 
