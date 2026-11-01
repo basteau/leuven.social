@@ -28,7 +28,7 @@ test('every kind stands on the ground at its place, a few dozen triangles at mos
     const size = { needle: 23, bikes: 6 }[kind as string] ?? 0;
     const { triangles, box } = built(prop(kind, { size }));
     expect(triangles).toBeGreaterThan(0);
-    expect(triangles).toBeLessThanOrEqual(kind === 'bikes' ? 80 : 48);
+    expect(triangles).toBeLessThanOrEqual(kind === 'bikes' ? 6 * 34 : 48);
     expect(box.min.y).toBeCloseTo(0);
     expect(box.max.y).toBeLessThan(kind === 'needle' ? 24 : 6);
     expect(Math.abs((box.min.x + box.max.x) / 2 - 10)).toBeLessThan(1);
@@ -55,7 +55,7 @@ test('a rack holds most of its stands, a big one in two rows', () => {
   const full = built(prop('bikes', { size: 12 })).triangles;
   const double = built(prop('bikes', { size: 24 }));
   expect(full).toBeGreaterThan(small);
-  expect(full).toBeGreaterThanOrEqual(12 * 0.5 * 10); // 10 triangles a bike
+  expect(full).toBeGreaterThanOrEqual(12 * 0.5 * 34); // 34 triangles a bike
   expect(double.box.max.x - double.box.min.x).toBeGreaterThan(2.5); // two rows deep
   // The same rack looks the same every time.
   expect(built(prop('bikes', { size: 12 })).triangles).toBe(full);

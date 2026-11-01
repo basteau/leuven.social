@@ -1,5 +1,12 @@
 import type { Prop, PropKind } from '../data/city.ts';
-import { BIKE_SHIFT, ROW_GAP, STAND_SPACING, propScale, rackRows } from '../data/props.ts';
+import {
+  BIKE_SHIFT,
+  HANDLEBAR,
+  ROW_GAP,
+  STAND_SPACING,
+  propScale,
+  rackRows,
+} from '../data/props.ts';
 import { GROUND, BIKES, PROPS, pick } from './palette.ts';
 import type { MeshBuilder, V3 } from './mesh-builder.ts';
 
@@ -14,6 +21,8 @@ import type { MeshBuilder, V3 } from './mesh-builder.ts';
 export const LARGE_PROPS: ReadonlySet<PropKind> = new Set(['needle']);
 /** Share of a rack's stands that hold a bike. Leuven's racks are rarely empty. */
 const OCCUPANCY = 0.8;
+/** Half a bike tube's width: chunky, so a frame still shows its colour zoomed out (m). */
+const TUBE = 0.045;
 
 interface Frame {
   x: number;
@@ -125,17 +134,61 @@ const hash = (a: number, b: number) => {
   return (Math.imul(h, 0x27d4eb2d) >>> 0) / 2 ** 32;
 };
 
+/** A tube in a bike's plane (u fixed), from (v, y) to (v, y), as a thin two-sided strip. */
+function tube(
+  mesh: MeshBuilder,
+  f: Frame,
+  u: number,
+  [va, ya]: readonly [number, number],
+  [vb, yb]: readonly [number, number],
+  color: number,
+): void {
+  const length = Math.hypot(vb - va, yb - ya);
+  const [nv, ny] = [((ya - yb) / length) * TUBE, ((vb - va) / length) * TUBE];
+  panel(
+    mesh,
+    [
+      at(f, u, va - nv, ya - ny),
+      at(f, u, vb - nv, yb - ny),
+      at(f, u, vb + nv, yb + ny),
+      at(f, u, va + nv, ya + ny),
+    ],
+    color,
+  );
+}
+
+/**
+ * A city bike, seen side on: hexagonal wheels, a filled rear triangle that carries its colour on
+ * the map, top and down tubes, a fork and a handlebar across. 34 triangles.
+ */
 function addBike(mesh: MeshBuilder, f: Frame, u: number, v: number, color: number): void {
   const r = 0.33;
   const [rear, front] = [v - 0.55, v + 0.55];
   for (const c of [rear, front]) {
-    panel(
-      mesh,
-      [at(f, u, c - r, r), at(f, u, c, 0), at(f, u, c + r, r), at(f, u, c, 2 * r)],
-      PROPS.wheel,
-    );
+    const rim = Array.from({ length: 6 }, (_, i) => {
+      const t = Math.PI / 2 + (i * Math.PI) / 3;
+      return at(f, u, c + Math.cos(t) * r, r + Math.sin(t) * r);
+    });
+    panel(mesh, rim, PROPS.wheel);
   }
-  panel(mesh, [at(f, u, rear, r), at(f, u, front, r), at(f, u, v - 0.15, 0.95)], color);
+  const bracket = [v - 0.1, 0.3] as const;
+  const seat = [v - 0.28, 0.9] as const;
+  const head = [v + 0.38, 0.82] as const;
+  panel(mesh, [at(f, u, rear, r), at(f, u, ...bracket), at(f, u, ...seat)], color);
+  tube(mesh, f, u, seat, head, color);
+  tube(mesh, f, u, bracket, head, color);
+  tube(mesh, f, u, [front, r], [v + 0.34, 1], color);
+  // The handlebar, across the bike: seen end on from the side, a dash from the front.
+  panel(
+    mesh,
+    [
+      at(f, u - HANDLEBAR, v + 0.34, 0.97),
+      at(f, u + HANDLEBAR, v + 0.34, 0.97),
+      at(f, u + HANDLEBAR, v + 0.34, 1.03),
+      at(f, u - HANDLEBAR, v + 0.34, 1.03),
+    ],
+    PROPS.wheel,
+  );
 }
 
 function addBikes(mesh: MeshBuilder, f: Frame, stands: number, seed: number): void {
