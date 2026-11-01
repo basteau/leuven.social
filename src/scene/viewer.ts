@@ -153,7 +153,6 @@ export function createViewer(options: ViewerOptions): Viewer {
     const outlines = new LineSegments(lines.build(), ink);
     // Cells are culled by their boxes below: three's bounding spheres are far looser.
     entry.objects = [surfaces, outlines, casters];
-    surfaces.geometry.computeBoundingBox();
     entry.box.copy(surfaces.geometry.boundingBox!);
     for (const object of entry.objects) object.frustumCulled = false;
     scene.add(surfaces, outlines, casters);

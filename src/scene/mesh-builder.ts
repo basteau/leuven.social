@@ -1,6 +1,42 @@
-import { BufferAttribute, BufferGeometry, Color } from 'three';
+import { Box3, BufferAttribute, BufferGeometry, Color, Sphere, Vector3 } from 'three';
 
 export type V3 = readonly [number, number, number];
+
+/** Linear RGB of each palette colour, converted from sRGB once rather than per triangle. */
+const linear = new Map<number, Color>();
+function linearOf(hex: number): Color {
+  let color = linear.get(hex);
+  if (!color) linear.set(hex, (color = new Color().setHex(hex)));
+  return color;
+}
+
+/**
+ * Tracks the bounds of what a builder wrote, so its geometry gets them without another pass over
+ * the vertices. The sphere is centred where three would centre it (the box's centre), which is
+ * what the renderer sorts by; its radius is the box's, a little looser than three's.
+ */
+class Bounds {
+  min = [Infinity, Infinity, Infinity];
+  max = [-Infinity, -Infinity, -Infinity];
+
+  add(x: number, y: number, z: number): void {
+    const { min, max } = this;
+    if (x < min[0]!) min[0] = x;
+    if (x > max[0]!) max[0] = x;
+    if (y < min[1]!) min[1] = y;
+    if (y > max[1]!) max[1] = y;
+    if (z < min[2]!) min[2] = z;
+    if (z > max[2]!) max[2] = z;
+  }
+
+  applyTo(geometry: BufferGeometry): void {
+    const box = new Box3(new Vector3(...this.min), new Vector3(...this.max));
+    geometry.boundingBox = box;
+    geometry.boundingSphere = box.isEmpty()
+      ? new Sphere(new Vector3(), 0)
+      : box.getBoundingSphere(new Sphere());
+  }
+}
 
 /**
  * Accumulates flat-shaded, vertex-coloured triangles into one geometry, so a whole layer of
@@ -15,7 +51,8 @@ export class MeshBuilder {
   #normals = new Int8Array(this.#capacity * 3);
   #colors = new Float32Array(this.#capacity * 3);
   #facades = new Float32Array(this.#capacity);
-  #color = new Color();
+  #color = linearOf(0);
+  #bounds = new Bounds();
 
   #grow(): void {
     this.#capacity *= 2;
@@ -41,6 +78,8 @@ export class MeshBuilder {
     this.#positions[i] = v[0];
     this.#positions[i + 1] = v[1];
     this.#positions[i + 2] = v[2];
+    // As stored, so the bounds match what three would compute from the buffer.
+    this.#bounds.add(this.#positions[i]!, this.#positions[i + 1]!, this.#positions[i + 2]!);
     // Normalized int8 normals: a quarter of the memory, and exact enough for flat shading.
     this.#normals[i] = Math.round(nx * 127);
     this.#normals[i + 1] = Math.round(ny * 127);
@@ -68,7 +107,7 @@ export class MeshBuilder {
     nx = (nx / len) * flip;
     ny = (ny / len) * flip;
     nz = (nz / len) * flip;
-    this.#color.setHex(color);
+    this.#color = linearOf(color);
     this.#vertex(a, nx, ny, nz, facade);
     this.#vertex(flip < 0 ? c : b, nx, ny, nz, facade);
     this.#vertex(flip < 0 ? b : c, nx, ny, nz, facade);
@@ -87,23 +126,41 @@ export class MeshBuilder {
     geometry.setAttribute('normal', new BufferAttribute(this.#normals.slice(0, n * 3), 3, true));
     geometry.setAttribute('color', new BufferAttribute(this.#colors.slice(0, n * 3), 3));
     if (facade) geometry.setAttribute('facade', new BufferAttribute(this.#facades.slice(0, n), 1));
-    geometry.computeBoundingSphere();
+    this.#bounds.applyTo(geometry);
     return geometry;
   }
 }
 
 /** Collects line segments (pairs of points) for an outline geometry. */
 export class LineBuilder {
-  #points: number[] = [];
+  #points = new Float32Array(6 << 10);
+  #length = 0;
+  #bounds = new Bounds();
 
   segment(a: V3, b: V3): void {
-    this.#points.push(a[0], a[1], a[2], b[0], b[1], b[2]);
+    if (this.#length + 6 > this.#points.length) {
+      const next = new Float32Array(this.#points.length * 2);
+      next.set(this.#points);
+      this.#points = next;
+    }
+    const p = this.#points;
+    const i = this.#length;
+    p[i] = a[0];
+    p[i + 1] = a[1];
+    p[i + 2] = a[2];
+    p[i + 3] = b[0];
+    p[i + 4] = b[1];
+    p[i + 5] = b[2];
+    this.#length += 6;
+    this.#bounds.add(p[i]!, p[i + 1]!, p[i + 2]!);
+    this.#bounds.add(p[i + 3]!, p[i + 4]!, p[i + 5]!);
   }
 
   build(): BufferGeometry {
     const geometry = new BufferGeometry();
-    geometry.setAttribute('position', new BufferAttribute(new Float32Array(this.#points), 3));
-    geometry.computeBoundingSphere();
+    const points = this.#points.slice(0, this.#length);
+    geometry.setAttribute('position', new BufferAttribute(points, 3));
+    this.#bounds.applyTo(geometry);
     return geometry;
   }
 }
