@@ -7,11 +7,14 @@ The code is split by what it is allowed to know about. Lint enforces the arrows,
 | Layer       | Holds                                                                               | May import                                                           |
 | ----------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
 | `src/data`  | The city model, the binary format, geometry and projection maths, the map area      | `@portable/*` and web APIs only. No three.js, React or other layers. |
-| `src/scene` | Everything 3D: meshes, materials, camera, controls, the render loop                 | `src/data`, three.js. No React.                                      |
-| `src/app`   | The React shell: HUD, loading and error states, keyboard shortcuts                  | `src/data`, `src/scene`                                              |
+| `src/scene` | Everything 3D: meshes, materials, camera, controls, the render loop                 | `src/data`, `src/audio`, three.js. No React.                         |
+| `src/audio` | The few UI and walking sounds, synthesised with Web Audio                           | Web APIs only. No three.js, React or other layers.                   |
+| `src/app`   | The React shell: HUD, loading and error states, keyboard shortcuts                  | `src/data`, `src/scene`, `src/audio`                                 |
 | `scripts/`  | Build-time edges: fetching and baking data, icons, budgets, the smoke test, deploys | `src/data`, plus the `Bun` global for files and processes            |
 
 `src/scene` exposes one entry point, `createViewer()`. It returns a small imperative handle (`rotate`, `zoomBy`, `resetView`, the walk controls `preloadWalk`, `pickWalkStart`, `walkFromCentre`, `steer`, `run`, `look` and `stopWalking`, `stats`, `dispose`), so React never touches three.js objects. Walk mode is its own chunk, which the viewer imports the first time it's needed. It reports back through three callbacks: `onWalkModeChange`, `onWalkBlocked`, and `onWalkUnavailable` when its download fails.
+
+`src/audio` exports one shared engine, `sound`. The HUD uses it for button taps and the sound toggle; walk mode imports `walking.ts` for footsteps and cues, so those ride in the walk chunk.
 
 ## Portable by default
 
