@@ -5,6 +5,7 @@ import {
   depthRange,
   fitShadow,
   lightFrame,
+  shadowBias,
   shadowCovers,
   shadowNeeds,
   shadowPoint,
@@ -72,4 +73,18 @@ test('points on the shadow plane and depths along the sun', () => {
   ]);
   expect(near).toBe(0);
   expect(far).toBeCloseTo(90 * frame.dir[1]);
+});
+
+const biasAt = (half: number) => shadowBias({ x: 0, y: 0, half }, 2048, 3400);
+
+test('lookups lift about one and a half texels, within limits, and a few cm nearer the sun', () => {
+  // The street square at 12 cm a texel, and the map at zoom 4.
+  expect(biasAt(128).normalBias).toBeCloseTo(0.1875);
+  expect(biasAt(256).normalBias).toBeCloseTo(0.375);
+  // Fully zoomed out, and absurdly fine.
+  expect(biasAt(4096).normalBias).toBe(1.2);
+  expect(biasAt(16).normalBias).toBe(0.08);
+  // Under a bench seat (half a metre up) wherever furniture shows, from zoom 2.
+  expect(biasAt(512).normalBias).toBeLessThan(0.8);
+  expect(biasAt(128).bias * 3400).toBeCloseTo(-0.05);
 });

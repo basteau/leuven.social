@@ -95,3 +95,28 @@ export function depthRange(frame: LightFrame, points: readonly V3[]): [number, n
   const d = points.map((p) => dot(p, frame.dir));
   return [Math.min(...d), Math.max(...d)];
 }
+
+/** How far off its surface a shadow lookup starts, in texels, and the limits on that (m). */
+const NORMAL_BIAS_TEXELS = 1.5;
+const NORMAL_BIAS_RANGE = [0.08, 1.2] as const;
+/** How much nearer the sun a lookup is taken than the point itself (m). */
+const DEPTH_BIAS = 0.05;
+
+/**
+ * The sun shadow's biases for a fitted square, in three's units: the normal offset (m) lifts each
+ * lookup about one and a half texels off its surface, which clears the filtered taps a texel
+ * either side (shadow-filter.ts) however finely the square is drawn, and stays well under a bench.
+ * The depth bias is a few centimetres, as a fraction of the shadow camera's `depth` (m).
+ */
+export function shadowBias(
+  fit: ShadowSquare,
+  mapSize: number,
+  depth: number,
+): { normalBias: number; bias: number } {
+  const texel = (2 * fit.half) / mapSize;
+  const [lo, hi] = NORMAL_BIAS_RANGE;
+  return {
+    normalBias: Math.min(hi, Math.max(lo, NORMAL_BIAS_TEXELS * texel)),
+    bias: -DEPTH_BIAS / depth,
+  };
+}
