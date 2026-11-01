@@ -187,11 +187,14 @@ export function App() {
           },
         });
         viewerRef.current = viewer;
-        // Keyboard users can pan and use shortcuts at once, without a focus ring flashing up.
-        map.focus({ focusVisible: false } as FocusOptions);
-        setStatus({ state: 'ready' });
-        publish({ state: 'ready' }, viewer);
-        cacheForOffline();
+        return viewer.ready.then(() => {
+          if (abort.signal.aborted) return;
+          // Keyboard users can pan and use shortcuts at once, without a focus ring flashing up.
+          map.focus({ focusVisible: false } as FocusOptions);
+          setStatus({ state: 'ready' });
+          publish({ state: 'ready' }, viewer);
+          cacheForOffline();
+        });
       })
       .catch((error: unknown) => {
         if (abort.signal.aborted) return;
