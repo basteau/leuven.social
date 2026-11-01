@@ -26,7 +26,7 @@ import type { City } from '../data/city.ts';
 import { clampToArea } from '../data/geometry.ts';
 import type { StreetIndex } from '../data/streets.ts';
 import { partyWalls } from './buildings.ts';
-import { buildCell, partition } from './cells.ts';
+import { buildCell, buildFurniture, partition } from './cells.ts';
 import type { Cell, DetailMarks } from './cells.ts';
 import { createFacadeMaterial, setPixelSize } from './facade-material.ts';
 import { LIGHT } from './lighting.ts';
@@ -118,6 +118,8 @@ interface CellEntry {
   box: Box3;
   /** Its mesh, outlines and shadow casters once built; empty until then. */
   objects: Object3D[];
+  /** Its street furniture, built after the rest (see `furnish`). */
+  furniture: Mesh | undefined;
   /** Where the rails and the catenary masts end in its outlines, which only show zoomed in. */
   detail: DetailMarks;
   /** Where the trunks, what else casts shadows and the fine road paint start in its mesh. */
@@ -231,6 +233,7 @@ export function createViewer(options: ViewerOptions): Viewer {
       new Vector3(cell.bounds.maxX + 60, MAX_HEIGHT, cell.bounds.maxZ + 60),
     ),
     objects: [],
+    furniture: undefined,
     detail: { rails: 0, masts: 0 },
     trunksFrom: 0,
     shadowFrom: 0,
@@ -240,7 +243,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   /** Vertices and bytes of geometry the built cells hand the GPU. */
   const held = { vertices: 0, bytes: 0 };
   function build(entry: CellEntry): void {
-    const { mesh, lines, props, trunksFrom, shadowFrom, fineVertices, detail } = buildCell(
+    const { mesh, lines, trunksFrom, shadowFrom, fineVertices, detail } = buildCell(
       entry.cell,
       city.area,
       walls,
@@ -260,22 +263,39 @@ export function createViewer(options: ViewerOptions): Viewer {
     const casters = new Mesh(shape, material);
     casters.castShadow = true;
     casters.layers.mask = SHADOW_LAYER;
-    // Street furniture shares the material and its program: one more draw call, only up close.
-    // It has no windows, so it leaves out the facade attribute and the shader reads its default.
-    const furniture = new Mesh(props.build(), material);
-    furniture.castShadow = true;
-    furniture.receiveShadow = true;
     const outlines = new LineSegments(lines.build(), ink);
     // Cells are culled by their boxes below: three's bounding spheres are far looser.
-    entry.objects = [surfaces, outlines, casters, furniture];
-    for (const { geometry } of [surfaces, outlines, furniture]) {
+    entry.objects = [surfaces, outlines, casters];
+    hold(surfaces, outlines);
+    entry.box.copy(surfaces.geometry.boundingBox!);
+    for (const object of entry.objects) object.frustumCulled = false;
+    scene.add(surfaces, outlines, casters);
+    if (propsShown) furnish(entry);
+  }
+
+  /**
+   * Builds a cell's street furniture. It shows only up close, so it waits for the idle builder,
+   * unless the view gets close first (see `prepare`).
+   */
+  function furnish(entry: CellEntry): void {
+    // It shares the material and its program: one more draw call, only up close. It has no
+    // windows, so it leaves out the facade attribute and the shader reads its default.
+    const furniture = new Mesh(buildFurniture(entry.cell).build(), material);
+    furniture.castShadow = true;
+    furniture.receiveShadow = true;
+    furniture.frustumCulled = false;
+    furniture.visible = false; // until `cull` says otherwise
+    entry.furniture = furniture;
+    hold(furniture);
+    entry.box.union(furniture.geometry.boundingBox!);
+    scene.add(furniture);
+  }
+
+  function hold(...objects: { geometry: BufferGeometry }[]): void {
+    for (const { geometry } of objects) {
       held.vertices += geometry.getAttribute('position').count;
       held.bytes += geometryBytes(geometry);
     }
-    entry.box.copy(surfaces.geometry.boundingBox!);
-    if (entry.cell.props.length) entry.box.union(furniture.geometry.boundingBox!);
-    for (const object of entry.objects) object.frustumCulled = false;
-    scene.add(surfaces, outlines, casters, furniture);
   }
 
   const sky = new HemisphereLight(SKY_LIGHT, BOUNCE_LIGHT, LIGHT.sky);
@@ -435,6 +455,16 @@ export function createViewer(options: ViewerOptions): Viewer {
         build(entry);
         added = true;
       }
+      // Up close, no cell shows or casts without its furniture.
+      if (
+        propsShown &&
+        entry.objects.length &&
+        !entry.furniture &&
+        (frustum.intersectsBox(entry.box) || shadowFrustum.intersectsBox(entry.box))
+      ) {
+        furnish(entry);
+        added ||= shadowFrustum.intersectsBox(entry.box);
+      }
     }
     if (refit || added) renderer.shadowMap.needsUpdate = true;
   }
@@ -480,9 +510,10 @@ export function createViewer(options: ViewerOptions): Viewer {
     // texel; landing refits it round the walker with theirs.
     const flying = walk?.flightSpan !== undefined;
     const fromStreet = view !== camera && !flying;
-    for (const { box, cell, objects, detail, trunksFrom, shadowFrom, fineVertices } of cells) {
-      const [surfaces, outlines, casters, furniture] = objects as [Mesh?, Mesh?, Mesh?, Mesh?];
-      if (!surfaces || !outlines || !casters || !furniture) continue;
+    for (const entry of cells) {
+      const { box, cell, objects, detail, trunksFrom, shadowFrom, fineVertices } = entry;
+      const [surfaces, outlines, casters] = objects as [Mesh?, Mesh?, Mesh?];
+      if (!surfaces || !outlines || !casters) continue;
       const skip = pixel > MAST_PIXEL ? detail.masts : pixel > RAIL_PIXEL ? detail.rails : 0;
       outlines.geometry.setDrawRange(skip * 2, Infinity);
       const inView = frustum.intersectsBox(box);
@@ -492,14 +523,17 @@ export function createViewer(options: ViewerOptions): Viewer {
       casters.visible = casts;
       const from = fromStreet ? trunksFrom : shadowFrom;
       if (casts) casters.geometry.setDrawRange(from, fineVertices - from);
-      const furnitureCasts = casts && !flying;
-      furniture.layers.mask = (inView ? VIEW_LAYER : 0) | (furnitureCasts ? SHADOW_LAYER : 0);
-      furniture.visible = (inView || furnitureCasts) && propsShown && cell.props.length > 0;
       if (inView) {
         draw(surfaces);
         calls++; // its outlines
       }
       if (casts) draw(casters);
+      // Up close, `prepare` has built it for every cell in view or casting.
+      const { furniture } = entry;
+      if (!furniture) continue;
+      const furnitureCasts = casts && !flying;
+      furniture.layers.mask = (inView ? VIEW_LAYER : 0) | (furnitureCasts ? SHADOW_LAYER : 0);
+      furniture.visible = (inView || furnitureCasts) && propsShown && cell.props.length > 0;
       if (furniture.visible && inView) draw(furniture);
       if (furniture.visible && furnitureCasts) draw(furniture);
     }
@@ -511,15 +545,24 @@ export function createViewer(options: ViewerOptions): Viewer {
   function buildInBackground(): void {
     idleHandle = 0;
     const t = controls.target;
-    const waiting = cells
-      .filter((entry) => !entry.objects.length)
-      .toSorted((a, b) => a.box.distanceToPoint(t) - b.box.distanceToPoint(t));
+    const near = (a: CellEntry, b: CellEntry) =>
+      a.box.distanceToPoint(t) - b.box.distanceToPoint(t);
+    // The cells first, then their furniture, nearest first.
+    const waiting = [
+      ...cells.filter((entry) => !entry.objects.length).toSorted(near),
+      ...cells.filter((entry) => !entry.furniture).toSorted(near),
+    ];
     const start = performance.now();
     // A frame is drawn only when it would show something new: a cell that came into view, or
     // the shadow map redrawn with all its casters.
     let changed = false;
     for (const entry of waiting) {
       if (performance.now() - start > IDLE_SLICE_MS) break;
+      if (entry.objects.length) {
+        // Off screen: up close, `prepare` furnishes what shows or casts before it's drawn.
+        if (!entry.furniture) furnish(entry);
+        continue;
+      }
       build(entry);
       missingCasters ||= shadowFrustum.intersectsBox(entry.box);
       changed ||= frustum.intersectsBox(entry.box);
@@ -536,7 +579,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     if (changed) invalidate();
     // What the cells hand the GPU, for the smoke test, whether or not a frame is drawn.
     publish({ vertices: held.vertices, geometryBytes: held.bytes });
-    if (cells.some((entry) => !entry.objects.length)) idleHandle = idle(buildInBackground);
+    if (cells.some((e) => !e.furniture)) idleHandle = idle(buildInBackground);
   }
 
   const peak = { drawCalls: 0, triangles: 0 };
@@ -785,7 +828,9 @@ export function createViewer(options: ViewerOptions): Viewer {
   const onRestored = () => {
     for (const entry of cells) {
       scene.remove(...entry.objects);
+      if (entry.furniture) scene.remove(entry.furniture);
       entry.objects = [];
+      entry.furniture = undefined;
     }
     [held.vertices, held.bytes] = [0, 0];
     shadow = undefined;

@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 
 import type { Building, City } from '../data/city.ts';
 import { partyWalls } from './buildings.ts';
-import { CELL_SIZE, along, buildCell, partition } from './cells.ts';
+import { CELL_SIZE, along, buildCell, buildFurniture, partition } from './cells.ts';
 import { unindexed } from './mesh-builder.ts';
 import type { MeshBuilder } from './mesh-builder.ts';
 
@@ -166,13 +166,12 @@ const height = (m: MeshBuilder) => {
   return g.boundingBox!.max.y;
 };
 
-test('small props get a mesh of their own, tall ones join the cell', () => {
+test('small props get a mesh of their own, built apart; tall ones join the cell', () => {
   const [west, east] = partition(city);
   const walls = partyWalls(city.buildings);
-  const w = buildCell(west!, city.area, walls);
   const e = buildCell(east!, city.area, walls);
-  expect(height(w.props)).toBeLessThan(2); // a bench
-  expect(height(e.props)).toBeLessThan(2); // only the bench: the needle is in the main mesh
+  expect(height(buildFurniture(west!))).toBeLessThan(2); // a bench
+  expect(height(buildFurniture(east!))).toBeLessThan(2); // only the bench: the needle is in the main mesh
   expect(height(e.mesh)).toBeGreaterThan(20);
 });
 
