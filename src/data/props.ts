@@ -2,7 +2,9 @@
  * Street furniture and small monuments from OpenStreetMap points: lamps, benches, bike racks,
  * bus stops, statues, fountains and pumps. They are what makes a street read as a street at
  * zoom 2–4. A point has neither a size nor a direction, so each kind gets a footprint and a rule
- * (`placeProps`): what it may stand on, how much room it keeps, and which way it turns.
+ * (`placeProps`): what it may stand on, how much room it keeps, and which way it turns. Benches and
+ * racks drawn as ways bring the way they run (`_bearing`) and their length (`_length`), from
+ * tools/build_leuven_data.py.
  */
 
 import type { Prop, PropKind } from './city.ts';
@@ -33,6 +35,8 @@ const POSTLESS_MOUNTS = new Set(['wall', 'suspended', 'wire', 'ceiling']);
 const POSTLESS_SUPPORTS = new Set(['wall_mounted', 'suspended', 'wire', 'ceiling']);
 /** Kinds whose OSM `direction` says which way they face: a bench's sitter, a lamp's light. */
 const DIRECTED = new Set<PropKind>(['bench', 'lamp', 'statue']);
+/** Kinds drawn along the way they're mapped as, when they are: a long bench, a row of stands. */
+const RUNS = new Set<PropKind>(['bench', 'bikes']);
 const POINTS = 'N NNE NE ENE E ESE SE SSE S SSW SW WSW W WNW NW NNW'.split(' ');
 
 /**
@@ -51,15 +55,36 @@ export function directionFromOsm(tag: string | undefined): number | null {
 
 /**
  * Which OSM points are props, and how big. A tagged height counts for monuments only; a tagged
- * direction for the kinds that face one way (`facing`, else null).
+ * direction for the kinds that face one way (`facing`, else null). A bench or rack drawn as a
+ * way runs along it (`axis`, the turn of `_bearing`, else null), and a bench line's `side` is the
+ * one its sitter faces: OSM leaves `side` on benches undefined, and read this way the only ones
+ * that have it (Martelarenplein's, round two low blocks) face out onto the square.
  */
 export function propFromOsm(
   tags: Tags,
-): { kind: PropKind; size: number; facing: number | null } | null {
+): { kind: PropKind; size: number; facing: number | null; axis: number | null } | null {
   const style = styleFromOsm(tags);
   if (!style) return null;
-  const facing = DIRECTED.has(style.kind) ? directionFromOsm(tags.direction) : null;
-  return { ...style, facing };
+  const axis = RUNS.has(style.kind) ? directionFromOsm(tags['_bearing']) : null;
+  const facing =
+    (DIRECTED.has(style.kind) ? directionFromOsm(tags.direction) : null) ??
+    (style.kind === 'bench' && axis !== null ? sideOf(axis, tags.side) : null);
+  return { ...style, facing, axis };
+}
+
+/** The turn to the left or right of a run (the map's turn is clockwise seen from above). */
+function sideOf(axis: number, side: string | undefined): number | null {
+  if (side !== 'left' && side !== 'right') return null;
+  return axis + (side === 'right' ? Math.PI / 2 : -Math.PI / 2);
+}
+
+/**
+ * Stands in a rack drawn as a way `length` metres long with no capacity: as many as fill it
+ * when drawn, in one row.
+ */
+export function standsAlong(length: number): number {
+  const stands = Math.round((length / propScale('bikes') - 2 * HANDLEBAR) / STAND_SPACING) + 1;
+  return Math.min(Math.max(stands, 2), ROW);
 }
 
 function styleFromOsm(tags: Tags): { kind: PropKind; size: number } | null {
@@ -77,7 +102,8 @@ function styleFromOsm(tags: Tags): { kind: PropKind; size: number } | null {
   if (tags.amenity === 'bicycle_parking') {
     if (HIDDEN_RACKS.has(tags.location ?? '') || tags.bicycle_parking === 'building') return null;
     const capacity = Number.parseInt(tags.capacity ?? '', 10);
-    const stands = capacity > 0 ? capacity : DEFAULT_STANDS;
+    const length = Number.parseFloat(tags['_length'] ?? '');
+    const stands = capacity > 0 ? capacity : length > 0 ? standsAlong(length) : DEFAULT_STANDS;
     return { kind: 'bikes', size: Math.min(Math.max(stands, 2), MAX_STANDS) };
   }
   if (tags.highway === 'bus_stop')
@@ -470,7 +496,8 @@ const osmId = (tags: Tags): number => Number(/(\d+)$/.exec(tags['_osm'] ?? '')?.
  * - Turned: lamps (head over the road), shelters (open side to it) and bus stops (sign across it)
  *   square to the nearest kerb; bike racks along the nearest kerb, wall or path; benches and
  *   monuments along the nearest edge, facing away from a wall close behind, into a square, or
- *   else towards the edge. A tagged `direction` wins.
+ *   else towards the edge. A bench or rack drawn as a way faces across it, to the side its rule
+ *   picks; a bench line's `side`, or a tagged `direction`, wins.
  * - Placed in priority order (monuments, shelters, bus stops, lamps, benches, racks), then by OSM
  *   id: each keeps clear of buildings, water, tanks, parapets, mapped trunks and the props placed
  *   before it, and of the carriageway unless it was mapped there (medians, racks in a parking
@@ -504,7 +531,7 @@ export function placeProps(points: readonly PropPoint[], around: Surroundings): 
 
   const result: PlacedProps = { props: [], nudged: 0, dropped: 0 };
   for (const c of candidates) {
-    const angle = c.facing ?? turnOf(c.kind, c.x, c.z, around);
+    const angle = c.facing ?? turnOf(c.kind, c.x, c.z, around, c.axis);
     const prop: Prop = { kind: c.kind, x: c.x, z: c.z, angle, size: c.size };
     const body = { kind: c.kind, f: propFootprint(prop) };
     const twin = [...near(placed, PROP_CELL, body.f, widest)].some(
@@ -591,15 +618,30 @@ function towards(edge: Nearest): [number, number] {
 const nearer = (a: Nearest | null, b: Nearest | null) =>
   !a ? b : !b ? a : a.distance <= b.distance ? a : b;
 
-/** Which way a prop turns where it was mapped, by its kind's rule (see `placeProps`). */
-export function turnOf(kind: PropKind, x: number, z: number, around: Surroundings): number {
+/** A normal of a run (a turn), the one on the edge's side when there is an edge. */
+function normalOf(axis: number, edge: Nearest | null): [number, number] {
+  const n: [number, number] = [-Math.sin(axis), Math.cos(axis)];
+  return edge && n[0] * edge.dx + n[1] * edge.dz < 0 ? [-n[0], -n[1]] : n;
+}
+
+/**
+ * Which way a prop turns where it was mapped, by its kind's rule (see `placeProps`). With an
+ * `axis`, the way it was drawn along, it faces across that instead of across the nearest edge.
+ */
+export function turnOf(
+  kind: PropKind,
+  x: number,
+  z: number,
+  around: Surroundings,
+  axis: number | null = null,
+): number {
   if (kind === 'lamp' || kind === 'shelter' || kind === 'busstop') {
     const edge = around.roads.edges.nearest(x, z, KERB_REACH) ?? around.edges.nearest(x, z, REACH);
     return edge ? turn(towards(edge)) : 0;
   }
   const edge = nearer(around.roads.edges.nearest(x, z, REACH), around.edges.nearest(x, z, REACH));
-  if (!edge) return 0;
-  const n = towards(edge);
+  const n = axis === null ? edge && towards(edge) : normalOf(axis, edge);
+  if (!n) return 0;
   if (kind === 'bikes') return turn(n);
   // Benches and monuments: back to a wall, else into a square, else towards the edge.
   const wall = (s: number) => {

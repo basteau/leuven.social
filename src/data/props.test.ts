@@ -6,6 +6,7 @@ import {
   DEFAULT_STANDS,
   EdgeIndex,
   MAX_STANDS,
+  ROW,
   RingIndex,
   Shapes,
   directionFromOsm,
@@ -16,26 +17,40 @@ import {
   propFootprint,
   propFromOsm,
   segmentInFootprint,
+  standsAlong,
 } from './props.ts';
 import type { PropPoint, Surroundings } from './props.ts';
 
 test('OSM points become the props they are', () => {
-  expect(propFromOsm({ highway: 'street_lamp' })).toEqual({ kind: 'lamp', size: 0, facing: null });
-  expect(propFromOsm({ amenity: 'bench' })).toEqual({ kind: 'bench', size: 0, facing: null });
+  expect(propFromOsm({ highway: 'street_lamp' })).toEqual({
+    kind: 'lamp',
+    size: 0,
+    facing: null,
+    axis: null,
+  });
+  expect(propFromOsm({ amenity: 'bench' })).toEqual({
+    kind: 'bench',
+    size: 0,
+    facing: null,
+    axis: null,
+  });
   expect(propFromOsm({ highway: 'bus_stop', shelter: 'yes' })).toEqual({
     kind: 'shelter',
     size: 0,
     facing: null,
+    axis: null,
   });
   expect(propFromOsm({ highway: 'bus_stop', shelter: 'no' })).toEqual({
     kind: 'busstop',
     size: 0,
     facing: null,
+    axis: null,
   });
   expect(propFromOsm({ man_made: 'water_well', historic: 'yes' })).toEqual({
     kind: 'pump',
     size: 0,
     facing: null,
+    axis: null,
   });
   // Lamp posts that carry flags are lamps.
   expect(propFromOsm({ highway: 'street_lamp', man_made: 'flagpole' })?.kind).toBe('lamp');
@@ -48,22 +63,24 @@ test('a sculpture is a statue, a tall one a needle, a fountain sculpture a fount
     kind: 'statue',
     size: 0,
     facing: null,
+    axis: null,
   });
   expect(propFromOsm({ historic: 'memorial', memorial: 'statue', height: '4' })).toEqual({
     kind: 'statue',
     size: 4,
     facing: null,
+    axis: null,
   });
   expect(
     propFromOsm({ tourism: 'artwork', artwork_type: 'sculpture', name: 'Totem', height: '23' }),
-  ).toEqual({ kind: 'needle', size: 23, facing: null });
+  ).toEqual({ kind: 'needle', size: 23, facing: null, axis: null });
   // A statue on a bench (De Kotmadam) is the statue; Fonske is a fountain.
   expect(propFromOsm({ amenity: 'bench', tourism: 'artwork', artwork_type: 'statue' })?.kind).toBe(
     'statue',
   );
   expect(
     propFromOsm({ amenity: 'fountain', tourism: 'artwork', artwork_type: 'sculpture' }),
-  ).toEqual({ kind: 'fountain', size: 0, facing: null });
+  ).toEqual({ kind: 'fountain', size: 0, facing: null, axis: null });
   // Nonsense heights are ignored.
   expect(propFromOsm({ tourism: 'artwork', artwork_type: 'bust', height: '300' })?.size).toBe(0);
 });
@@ -73,6 +90,7 @@ test('bike racks hold their tagged capacity, within reason, unless out of sight'
     kind: 'bikes',
     size: 10,
     facing: null,
+    axis: null,
   });
   expect(propFromOsm({ amenity: 'bicycle_parking' })?.size).toBe(DEFAULT_STANDS);
   expect(propFromOsm({ amenity: 'bicycle_parking', capacity: '400' })?.size).toBe(MAX_STANDS);
@@ -121,6 +139,41 @@ test('a tagged direction turns benches, lamps and statues, in degrees or compass
   expect(propFromOsm({ amenity: 'bench', direction: 'E' })?.facing).toBeCloseTo(0);
   // A bus stop's direction is the buses', not its own.
   expect(propFromOsm({ highway: 'bus_stop', direction: 'E' })?.facing).toBeNull();
+});
+
+test('a bench or rack drawn as a way runs along it; a bench line faces its side', () => {
+  // Drawn eastwards: the run turns to +x, its right is south (+z), its left north.
+  const east = { _bearing: '90.0', _length: '4.8' };
+  const bench = propFromOsm({ amenity: 'bench', ...east })!;
+  expect([bench.kind, bench.size, bench.facing]).toEqual(['bench', 0, null]);
+  expect(bench.axis).toBeCloseTo(0);
+  expect(propFromOsm({ amenity: 'bench', side: 'right', ...east })?.facing).toBeCloseTo(
+    Math.PI / 2,
+  );
+  expect(propFromOsm({ amenity: 'bench', side: 'left', ...east })?.facing).toBeCloseTo(
+    -Math.PI / 2,
+  );
+  expect(propFromOsm({ amenity: 'bench', side: 'both', ...east })?.facing).toBeNull();
+  // A tagged direction still wins.
+  expect(
+    propFromOsm({ amenity: 'bench', side: 'left', direction: 'S', ...east })?.facing,
+  ).toBeCloseTo(Math.PI / 2);
+  expect(propFromOsm({ amenity: 'bicycle_parking', ...east })?.axis).toBeCloseTo(0);
+  // Only benches and racks run along their way.
+  expect(propFromOsm({ highway: 'street_lamp', ...east })?.axis).toBeNull();
+});
+
+test('a rack drawn as a way without a capacity fills its length, in one row', () => {
+  expect(standsAlong(4.8)).toBe(DEFAULT_STANDS); // Leuven's typical rack
+  expect(standsAlong(1)).toBe(2);
+  expect(standsAlong(60)).toBe(ROW);
+  // Drawn, its stands span about the way.
+  const rack = propFootprint(at({ kind: 'bikes', size: standsAlong(7) }));
+  expect(rack.u1 - rack.u0).toBeGreaterThan(6.3);
+  expect(rack.u1 - rack.u0).toBeLessThan(7.7);
+  const way = { amenity: 'bicycle_parking', _bearing: '0.0' };
+  expect(propFromOsm({ ...way, _length: '7' })?.size).toBe(standsAlong(7));
+  expect(propFromOsm({ ...way, _length: '7', capacity: '20' })?.size).toBe(20);
 });
 
 const at = (over: Partial<Prop>): Prop => ({
@@ -213,6 +266,26 @@ test('a bench turns its back to a wall, faces into a square, else towards the ed
   expect(turnOf('bench', 0, 7, s)).toBeCloseTo(SOUTH); // on the square's edge, facing into it
   expect(turnOf('bench', 50, 7, s)).toBeCloseTo(NORTH); // a pavement: towards the kerb
   expect(turnOf('statue', 0, 7, s)).toBeCloseTo(SOUTH);
+});
+
+test('drawn as a way, a rack or bench faces across it, to the side its rule picks', () => {
+  const s = street();
+  // Along the houses, whichever way it was drawn: stands across the pavement, as mapped.
+  expect(turnOf('bikes', 0, -4, s, 0)).toBeCloseTo(SOUTH);
+  expect(turnOf('bikes', 0, -4, s, Math.PI)).toBeCloseTo(SOUTH);
+  // Drawn across the pavement, it stays across, where the kerb rule would turn it along.
+  expect(Math.abs(Math.cos(turnOf('bikes', 0, -4, s, SOUTH)))).toBeCloseTo(1);
+  expect(Math.abs(Math.sin(turnOf('bikes', 0, -4, s)))).toBeCloseTo(1);
+  // A bench along the houses turns its back to them; drawn across, it faces along the street.
+  expect(turnOf('bench', 0, -5, s, 0)).toBeCloseTo(SOUTH);
+  expect(Math.abs(Math.cos(turnOf('bench', 0, -5, s, SOUTH)))).toBeCloseTo(1);
+  // With nothing near, it faces across the run all the same.
+  expect(turnOf('bench', 0, 500, s, 0)).toBeCloseTo(SOUTH);
+  const sided = placeProps(
+    [point(0, -4, { ...BENCH, _bearing: '90.0', _length: '3', side: 'left', _osm: 'way/1' })],
+    s,
+  );
+  expect(sided.props[0]!.angle).toBeCloseTo(NORTH); // facing the houses, as mapped
 });
 
 test('props move off walls and the carriageway, onto the nearest free ground', () => {

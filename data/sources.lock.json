@@ -34,6 +34,13 @@
     "sha256": "5a5252c591e7c3fb304baaf4fa5f84cfdb8be9ff4619c77fcf0849e912c9c714",
     "fetched": "2026-10-31"
   },
+  "osm-furniture-ways": {
+    "plan": "d8023180dfa9e786",
+    "files": 1,
+    "bytes": 166749,
+    "sha256": "cce341409e44974b191cddfc877b582a3ef1b13fc99fb1f746660314549089f9",
+    "fetched": "2026-11-01"
+  },
   "osm-rail-platforms": {
     "plan": "dcba6d5a184aa2f0",
     "files": 1,
