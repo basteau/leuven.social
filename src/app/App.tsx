@@ -160,7 +160,6 @@ export function App() {
       <header className="hud hud-top">
         <div className="panel brand">
           <h1>Leuven</h1>
-          <p>Grote Markt · prototype</p>
         </div>
         <Credits open={creditsOpen} onToggle={() => setCreditsOpen((open) => !open)} />
       </header>

@@ -63,7 +63,6 @@ Tokens are oklch, in `src/app/app.css`:
 | `--ink`    | Text, borders, hard shadows. Same family as the scene outlines. |
 | `--paper`  | Panel fill, a warm cream                                        |
 | `--accent` | KU Leuven-ish blue, only for the selected state of a toggle     |
-| `--muted`  | Secondary text                                                  |
 
 ### Panels
 
