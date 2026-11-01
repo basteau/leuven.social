@@ -101,19 +101,28 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
   return [...cells.values()];
 }
 
-/** Everything in one cell as one mesh and one set of outlines: two draw calls. */
+/**
+ * Everything in one cell as one mesh and one set of outlines: two draw calls. The flat ground
+ * and the tree trunks come first (up to `shadowFrom`), so the shadow pass can skip them: the
+ * ground can't shade anything, and a trunk's shadow hides in its crown's.
+ */
 export function buildCell(
   cell: Cell,
   area: readonly Bounds[],
   walls: PartyWalls,
-): { mesh: MeshBuilder; lines: LineBuilder } {
+): { mesh: MeshBuilder; lines: LineBuilder; shadowFrom: number } {
   const mesh = new MeshBuilder();
   const lines = new LineBuilder();
+  const { trees } = cell;
   addGround(mesh, area, cell.bounds, cell.ground);
+  for (let i = 0; i < trees.length; i += 4) {
+    addTree(mesh, trees[i]!, trees[i + 1]!, trees[i + 2]!, trees[i + 3]!, ['trunk']);
+  }
+  const shadowFrom = mesh.vertices;
   for (const b of cell.buildings) addBuilding(mesh, lines, b, walls);
-  for (let i = 0; i < cell.trees.length; i += 4) {
-    addTree(mesh, cell.trees[i]!, cell.trees[i + 1]!, cell.trees[i + 2]!, cell.trees[i + 3]!);
+  for (let i = 0; i < trees.length; i += 4) {
+    addTree(mesh, trees[i]!, trees[i + 1]!, trees[i + 2]!, trees[i + 3]!, ['crown']);
   }
   for (const p of cell.parasols) addParasol(mesh, lines, p);
-  return { mesh, lines };
+  return { mesh, lines, shadowFrom };
 }

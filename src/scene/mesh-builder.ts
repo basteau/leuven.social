@@ -30,6 +30,11 @@ export class MeshBuilder {
     this.#facades = grow(this.#facades, 1);
   }
 
+  /** Vertices so far: three per triangle. */
+  get vertices(): number {
+    return this.#count;
+  }
+
   #vertex(v: V3, nx: number, ny: number, nz: number, facade: number): void {
     if (this.#count === this.#capacity) this.#grow();
     const i = this.#count * 3;

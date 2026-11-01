@@ -29,13 +29,22 @@ const crownColors = TREE.tints.map((tint) => {
   return (channel(16) << 16) | (channel(8) << 8) | channel(0);
 });
 
+export type TreePart = 'trunk' | 'crown';
+
 /**
  * One low-poly tree at (x, z), written straight into a cell's mesh: no instancing, so trees are
  * culled with their cell and cost no draw call of their own. It grows to its surveyed height
  * (LiDAR), a little narrower than tall; without one, the seed picks a size. Turn and tint vary
- * by seed.
+ * by seed. `parts` lets a cell write all its trunks apart from the crowns (see `buildCell`).
  */
-export function addTree(mesh: MeshBuilder, x: number, z: number, seed: number, height = 0): void {
+export function addTree(
+  mesh: MeshBuilder,
+  x: number,
+  z: number,
+  seed: number,
+  height = 0,
+  parts: readonly TreePart[] = ['trunk', 'crown'],
+): void {
   const scale =
     height > 0
       ? Math.min(Math.max(height / MODEL_HEIGHT, 0.7), 2.8)
@@ -50,10 +59,11 @@ export function addTree(mesh: MeshBuilder, x: number, z: number, seed: number, h
     py * scale,
     z + (-px * s + pz * c) * wide,
   ];
-  for (const [shape, color, centreY] of [
-    [TRUNK, TREE.trunk, 1.5],
-    [CROWN, pick(crownColors, seed), 4.6],
+  for (const [part, shape, color, centreY] of [
+    ['trunk', TRUNK, TREE.trunk, 1.5],
+    ['crown', CROWN, pick(crownColors, seed), 4.6],
   ] as const) {
+    if (!parts.includes(part)) continue;
     for (let i = 0; i < shape.length; i += 3) {
       const [a, b, d] = [place(shape[i]!), place(shape[i + 1]!), place(shape[i + 2]!)];
       // Outward from the shape's axis, so the builder can orient every face.

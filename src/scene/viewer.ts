@@ -1,6 +1,7 @@
 import {
   BasicShadowMap,
   Box3,
+  BufferGeometry,
   DataTexture,
   DirectionalLight,
   Frustum,
@@ -17,7 +18,7 @@ import {
   Vector3,
   WebGLRenderer,
 } from 'three';
-import type { BufferGeometry, Material, Object3D } from 'three';
+import type { Material, Object3D } from 'three';
 import { MapControls } from 'three/addons/controls/MapControls.js';
 
 import type { City } from '../data/city.ts';
@@ -73,7 +74,7 @@ const LABEL_HEIGHT = 28;
 interface CellEntry {
   cell: Cell;
   box: Box3;
-  /** Its mesh and outlines once built; empty until then. */
+  /** Its mesh, outlines and shadow casters once built; empty until then. */
   objects: Object3D[];
 }
 
@@ -83,9 +84,8 @@ const SHADOW_MAP = 2048;
 /** Tallest thing in the city (m), and the margin kept around the view for tall roofs. */
 const MAX_HEIGHT = 90;
 const SHADOW_REACH = 60;
-/** Layer masks: the view draws layer 0, the shadow pass layer 1 (see `cull`). */
-const VIEW_LAYER = 1 << 0;
-const SHADOW_LAYER = 1 << 1;
+/** The shadow pass draws layer 1, which only the shadow casters are on; the view draws layer 0. */
+const SHADOW_LAYER = 1;
 /** Time the idle builder may take per slice before handing the main thread back (ms). */
 const IDLE_SLICE_MS = 8;
 
@@ -139,17 +139,24 @@ export function createViewer(options: ViewerOptions): Viewer {
   }));
 
   function build(entry: CellEntry): void {
-    const { mesh, lines } = buildCell(entry.cell, city.area, walls);
+    const { mesh, lines, shadowFrom } = buildCell(entry.cell, city.area, walls);
     const surfaces = new Mesh(mesh.build({ facade: true }), material);
-    surfaces.castShadow = true;
     surfaces.receiveShadow = true;
+    // The shadow pass draws the same buffers from past the ground and the trunks, as a mesh of
+    // its own on the shadow camera's layer: no copy, no extra upload, one draw call as before.
+    const shape = new BufferGeometry();
+    shape.setAttribute('position', surfaces.geometry.getAttribute('position'));
+    shape.setDrawRange(shadowFrom, Infinity);
+    const casters = new Mesh(shape, material);
+    casters.castShadow = true;
+    casters.layers.set(SHADOW_LAYER);
     const outlines = new LineSegments(lines.build(), ink);
     // Cells are culled by their boxes below: three's bounding spheres are far looser.
-    entry.objects = [surfaces, outlines];
+    entry.objects = [surfaces, outlines, casters];
     surfaces.geometry.computeBoundingBox();
     entry.box.copy(surfaces.geometry.boundingBox!);
     for (const object of entry.objects) object.frustumCulled = false;
-    scene.add(surfaces, outlines);
+    scene.add(surfaces, outlines, casters);
   }
 
   scene.add(new HemisphereLight(SKY_LIGHT, BOUNCE_LIGHT, 1.3));
@@ -159,7 +166,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   sun.shadow.mapSize.set(SHADOW_MAP, SHADOW_MAP);
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.6;
-  sun.shadow.camera.layers.set(1);
+  sun.shadow.camera.layers.set(SHADOW_LAYER);
   scene.add(sun, sun.target);
   // The shadow camera's depth spans the whole area, from the slab's underside to the rooftops.
   const [nearest, farthest] = depthRange(
@@ -290,19 +297,18 @@ export function createViewer(options: ViewerOptions): Viewer {
   }
 
   /**
-   * Shows only the cells in view. On a frame that redraws the shadow map, the cells that cast
-   * into it join the shadow camera's layer, so the shadow pass draws them and the view doesn't.
+   * Shows only the cells in view. On a frame that redraws the shadow map, the casters of the
+   * cells that cast into it show too; they sit on the shadow camera's layer, so only it draws them.
    */
   function cull(): void {
     const shadowPass = renderer.shadowMap.needsUpdate;
     for (const { box, objects } of cells) {
-      const [surfaces, outlines] = objects;
-      if (!surfaces || !outlines) continue;
+      const [surfaces, outlines, casters] = objects;
+      if (!surfaces || !outlines || !casters) continue;
       const inView = frustum.intersectsBox(box);
-      const casts = shadowPass && shadowFrustum.intersectsBox(box);
-      surfaces.layers.mask = (inView ? VIEW_LAYER : 0) | (casts ? SHADOW_LAYER : 0);
-      surfaces.visible = inView || casts;
+      surfaces.visible = inView;
       outlines.visible = inView;
+      casters.visible = shadowPass && shadowFrustum.intersectsBox(box);
     }
   }
 

@@ -66,3 +66,20 @@ test('a cell builds into one mesh and one set of outlines', () => {
   expect(g.boundingBox!.max.y).toBeGreaterThanOrEqual(10); // the houses
   expect(lines.build().getAttribute('position').count).toBeGreaterThan(0);
 });
+
+test('the ground and the trunks come first, so the shadow pass can start after them', () => {
+  const [west] = partition(city);
+  const { mesh, shadowFrom } = buildCell(west!, city.area, partyWalls(city.buildings));
+  const position = mesh.build().getAttribute('position');
+  // Everything before the mark lies on or under the ground, or is a trunk (3 m at most).
+  let low = -Infinity;
+  for (let i = 0; i < shadowFrom; i++) low = Math.max(low, position.getY(i));
+  expect(low).toBeLessThan(5);
+  // Everything after it stands up: the houses and the crowns.
+  let high = Infinity;
+  for (let i = shadowFrom; i < position.count; i += 3) {
+    high = Math.min(high, Math.max(position.getY(i), position.getY(i + 1), position.getY(i + 2)));
+  }
+  expect(high).toBeGreaterThan(0.5);
+  expect(shadowFrom).toBeGreaterThan(0);
+});
