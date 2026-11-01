@@ -95,10 +95,17 @@ export const GROUND = {
   trail: 0xd6bf90,
 } as const;
 
+/**
+ * Trees: one crown green that each tree strays from (lighter or darker, towards yellow or blue
+ * green), so a park reads as many trees rather than one pattern. Old, tall trees are darker.
+ */
 export const TREE = {
   crown: 0x6a9a4a,
   trunk: 0x6b4a32,
-  tints: [0xffffff, 0xe3eed6, 0xd2e0c2, 0xf4f1dc],
+  /** Oklab spread: lightness, and a turn of the hue (radians) between yellow and blue green. */
+  jitter: { l: 0.035, hue: 0.16 },
+  /** Lightness lost by a 25 m tree against a 7 m one. */
+  age: 0.05,
 } as const;
 
 /** Shop awnings over the ground-floor windows: one canvas per bay. */
