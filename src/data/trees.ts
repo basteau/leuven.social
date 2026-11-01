@@ -54,3 +54,28 @@ export function mergeTrees(
   }
   return { positions, heights };
 }
+
+/** How much larger than its model a tree this tall is drawn (src/scene/trees.ts). */
+export const treeScale = (height: number): number => Math.min(Math.max(height / 6.8, 0.7), 2.8);
+/** The widest a tree's trunk is drawn at the ground (m): what street furniture keeps clear of. */
+export const trunkRadius = (height: number): number => 0.55 * treeScale(height) ** 0.8;
+
+/**
+ * Drops the LiDAR crowns (every tree after the first `mapped`) whose trunk would stand in
+ * something mapped, such as a bench or a statue: the survey took it for a crown, or the crown
+ * leans over it from a trunk elsewhere. Mapped trees stay.
+ */
+export function clearCrowns(
+  trees: Trees,
+  mapped: number,
+  blocked: (x: number, z: number, radius: number) => boolean,
+): Trees {
+  const out: Trees = { positions: [], heights: [] };
+  for (const [i, h] of trees.heights.entries()) {
+    const [x, z] = [trees.positions[i * 2]!, trees.positions[i * 2 + 1]!];
+    if (i >= mapped && blocked(x, z, trunkRadius(h))) continue;
+    out.positions.push(x, z);
+    out.heights.push(h);
+  }
+  return out;
+}

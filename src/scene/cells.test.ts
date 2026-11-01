@@ -24,7 +24,6 @@ const house = (id: number, ring: Float32Array): Building => ({
 const city: City = {
   area: [{ minX: 0, minZ: 0, maxX: 2 * S, maxZ: S }],
   bounds: { minX: 0, minZ: 0, maxX: 2 * S, maxZ: S },
-  labels: [],
   // The second house starts in the first cell and overhangs into the second.
   buildings: [house(1, box(10, 10, 8, 8)), house(2, box(S - 4, 10, 8, 8))],
   roads: [box(S - 50, 100, 100, 10)],
@@ -66,6 +65,9 @@ const city: City = {
   ],
   tanks: [{ height: 15, ring: box(S + 100, 100, 6, 6) }],
   parapets: [new Float32Array([40, 120, 40, 130])],
+  streetNames: [],
+  streets: [],
+  plazaNames: [],
 };
 
 test('the area is cut into cells, and each thing goes to one', () => {
@@ -115,7 +117,7 @@ test('the area is cut into cells, and each thing goes to one', () => {
 
 test('a cell builds into one mesh and one set of outlines', () => {
   const [west] = partition(city);
-  const { mesh, lines, groundVertices, fineVertices, detail } = buildCell(
+  const { mesh, lines, fineVertices, detail } = buildCell(
     west!,
     city.area,
     partyWalls(city.buildings),
@@ -128,19 +130,33 @@ test('a cell builds into one mesh and one set of outlines', () => {
   // Fine paint comes last: the lane line's dash and the zebra's bars, just over the road.
   expect(fineVertices).toBeLessThan(p.count);
   for (let i = fineVertices; i < p.count; i++) expect(p.getY(i)).toBeCloseTo(0.17);
-  // The ground comes first, track beds included (their sleeper band is its highest layer, at
-  // 0.3 m): everything after it stands above it.
-  expect(groundVertices).toBeGreaterThan(0);
-  for (let i = 0; i < groundVertices; i++) expect(p.getY(i)).toBeLessThan(0.31);
-  expect(
-    Math.max(
-      ...Array.from({ length: p.count - groundVertices }, (_, i) => p.getY(groundVertices + i)),
-    ),
-  ).toBeGreaterThan(5);
   g.computeBoundingBox();
   expect(g.boundingBox!.min.y).toBeLessThan(0); // the slab
   expect(g.boundingBox!.max.y).toBeGreaterThanOrEqual(10); // the houses
   expect(lines.build().getAttribute('position').count).toBeGreaterThan(0);
+});
+
+test('the ground and the trunks come first, so the shadow pass can start after them', () => {
+  const [west] = partition(city);
+  const { mesh, trunksFrom, shadowFrom, fineVertices } = buildCell(
+    west!,
+    city.area,
+    partyWalls(city.buildings),
+  );
+  const position = mesh.build().getAttribute('position');
+  // Everything before the mark lies on or under the ground, or is a trunk (3 m at most).
+  let low = -Infinity;
+  for (let i = 0; i < shadowFrom; i++) low = Math.max(low, position.getY(i));
+  expect(low).toBeLessThan(5);
+  // Everything after it, up to the fine road paint, stands up: the houses and the crowns.
+  let high = Infinity;
+  for (let i = shadowFrom; i < fineVertices; i += 3) {
+    high = Math.min(high, Math.max(position.getY(i), position.getY(i + 1), position.getY(i + 2)));
+  }
+  expect(high).toBeGreaterThan(0.5);
+  expect(shadowFrom).toBeGreaterThan(0);
+  // The trunks sit between the ground and the rest: 8 triangles a tree.
+  expect(shadowFrom - trunksFrom).toBe((west!.trees.length / 4) * 8 * 3);
 });
 
 const height = (m: MeshBuilder) => {

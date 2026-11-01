@@ -1,4 +1,4 @@
-/** 24 × 24 stroke icons drawn in currentColor. Decorative: buttons carry the visible label. */
+/** 24 × 24 stroke icons drawn in currentColor. Decorative: every control carries its own name. */
 
 const base = {
   width: 20,
@@ -26,11 +26,15 @@ export const RotateRightIcon = () => (
   </svg>
 );
 
-export const ResetIcon = () => (
+export const PlusIcon = () => (
   <svg {...base}>
-    <circle cx="12" cy="12" r="7" />
-    <circle cx="12" cy="12" r="1.5" fill="currentColor" />
-    <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+    <path d="M12 5v14M5 12h14" />
+  </svg>
+);
+
+export const MinusIcon = () => (
+  <svg {...base}>
+    <path d="M5 12h14" />
   </svg>
 );
 
@@ -54,10 +58,10 @@ export const RunIcon = () => (
   </svg>
 );
 
-export const MapIcon = () => (
+/** Back to the map: a chevron, the way an app steps back up a level. */
+export const BackIcon = () => (
   <svg {...base}>
-    <path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z" />
-    <path d="M9 3v15M15 6v15" />
+    <path d="M15 5l-7 7 7 7" />
   </svg>
 );
 
@@ -68,9 +72,29 @@ export const PinIcon = () => (
   </svg>
 );
 
-export const CloseIcon = () => (
-  <svg {...base}>
-    <path d="M6 6l12 12M18 6L6 18" />
+/**
+ * A compass needle, north half filled. It turns against the view (CSS `--heading`), so north
+ * on it is north on the map.
+ */
+export const CompassIcon = () => (
+  <svg {...base} width={26} height={26} className="compass-needle">
+    <path d="M12 3l3.5 9h-7z" fill="currentColor" />
+    <path d="M8.5 12h7L12 21z" />
+  </svg>
+);
+
+/** The brand: a stepped gable, the shape that says "Flemish town" (the app icon's too). */
+export const GableIcon = () => (
+  <svg
+    {...base}
+    width={22}
+    height={22}
+    strokeWidth={2.25}
+    strokeLinejoin="miter"
+    strokeLinecap="square"
+  >
+    <path d="M4 21V12h2V9h2.5V6H11V3h2v3h2.5v3H18v3h2v9z" />
+    <path d="M10 21v-5h4v5" />
   </svg>
 );
 

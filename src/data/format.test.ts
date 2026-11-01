@@ -14,10 +14,6 @@ const city: City = {
     { minX: -650, minZ: 450, maxX: 0, maxZ: 900 },
   ],
   bounds: { minX: -650, minZ: -400, maxX: 600, maxZ: 900 },
-  labels: [
-    { name: 'Grote Markt', x: 0, z: 0, minZoom: 0 },
-    { name: 'Totem', x: 348.5, z: 57.2, minZoom: 2.5 },
-  ],
   buildings: [
     {
       id: 7,
@@ -41,6 +37,18 @@ const city: City = {
       ring: square(3.3, 8.8, 6),
       holes: [],
     },
+    {
+      // Ids are stored as the change from the one before, which can go down.
+      id: 3,
+      tier: 'fringe',
+      kind: 'shed',
+      roof: 'flat',
+      height: 3,
+      eave: 3,
+      roofColor: 0xfedcba,
+      ring: square(-480.2, 300.1, 4),
+      holes: [],
+    },
   ],
   roads: [square(0, 0, 100)],
   carriageways: [
@@ -51,7 +59,7 @@ const city: City = {
     { kind: 'dashed', line: new Float32Array([0, 50, 100, 50]) },
     { kind: 'zebra', line: new Float32Array([20, 0, 20, 10]) },
   ],
-  plazas: [],
+  plazas: [square(-50, -50, 30), square(200, 0, 10)],
   green: [square(-200, 100, 30)],
   water: [square(-300, -300, 12.5)],
   woods: [square(40, 40, 9)],
@@ -73,7 +81,16 @@ const city: City = {
   ],
   tanks: [{ height: 14.5, ring: square(500, -1000, 6) }],
   parapets: [new Float32Array([-3, 0, -3, 10]), new Float32Array([3, 0, 3, 5, 3.5, 10])],
+  streetNames: ['Grote Markt', 'Naamsestraat'],
+  streets: [
+    { name: 1, line: new Float32Array([0, 10, 0, 300]) },
+    { name: 0, line: new Float32Array([-60, 0, -10, 0, 10, 5]) },
+  ],
+  plazaNames: [0, -1],
 };
+
+/** Fifty small rings in a row, starting at x. */
+const block = (x: number) => Array.from({ length: 50 }, (_, i) => square(x + i * 7, 3000, 5));
 
 // A kind byte past the end of its list: find it where two cities differ only in that kind.
 const badKind = (a: City, b: City) => {
@@ -87,7 +104,6 @@ describe('city format', () => {
     const decoded = decodeCity(encodeCity(city));
     expect(decoded.area).toEqual(city.area);
     expect(decoded.bounds).toEqual(city.bounds);
-    expect(decoded.labels).toEqual(city.labels);
     expect(decoded.buildings.map(({ ring: _, holes: __, ...b }) => b)).toEqual(
       city.buildings.map(({ ring: _, holes: __, ...b }) => b),
     );
@@ -102,7 +118,7 @@ describe('city format', () => {
       city.carriageways.map((r) => exact(r.ring)),
     );
     expect(decoded.markings).toEqual(city.markings);
-    expect(decoded.plazas).toHaveLength(0);
+    expect(decoded.plazas.map((p) => Array.from(p))).toEqual(city.plazas.map(exact));
     expect(decoded.paths).toEqual(city.paths);
     expect(decoded.rails).toEqual(city.rails);
     expect(decoded.platforms.map((p) => Array.from(p))).toEqual(city.platforms.map(exact));
@@ -122,13 +138,25 @@ describe('city format', () => {
     }
     expect(decoded.tanks).toEqual(city.tanks);
     expect(decoded.parapets).toEqual(city.parapets);
+    expect(decoded.streetNames).toEqual(city.streetNames);
+    expect(decoded.streets).toEqual(city.streets);
+    expect(decoded.plazaNames).toEqual(city.plazaNames);
   });
 
   test('gzip pack and unpack, and accepts already-inflated bytes', async () => {
     const packed = await packCity(city);
     expect(packed[0]).toBe(0x1f);
-    expect((await unpackCity(packed)).buildings).toHaveLength(2);
-    expect((await unpackCity(encodeCity(city))).buildings).toHaveLength(2);
+    expect((await unpackCity(packed)).buildings).toHaveLength(3);
+    expect((await unpackCity(encodeCity(city))).buildings).toHaveLength(3);
+  });
+
+  test('each ring starts from the one before it: a block of them costs the same anywhere', () => {
+    const size = (x: number) => encodeCity({ ...city, green: block(x) }).length;
+    // Only the first ring's start moves, by a varint byte or two.
+    expect(size(-3000) - size(0)).toBeLessThanOrEqual(2);
+    expect(decodeCity(encodeCity({ ...city, green: block(-3000) })).green).toEqual(
+      block(-3000).map((r) => Float32Array.from(exact(r))),
+    );
   });
 
   test('rejects foreign or truncated data', () => {
@@ -158,5 +186,9 @@ describe('city format', () => {
     const flags = main.findIndex((b, i) => b !== yard[i]);
     main[flags] = 2 << 2;
     expect(() => decodeCity(main)).toThrow(CityFormatError);
+    // A street or a square naming past the end of the name table.
+    const street = { ...city, streets: [{ ...city.streets[0]!, name: 2 }] };
+    expect(() => decodeCity(encodeCity(street))).toThrow('Bad street name');
+    expect(() => decodeCity(encodeCity({ ...city, plazaNames: [0, 2] }))).toThrow('Bad square');
   });
 });

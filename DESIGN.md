@@ -82,37 +82,57 @@ Values live in `src/scene/palette.ts`; change them there only. Each building's c
 
 ## HUD
 
+The HUD is a frame round the city: a corner at the top start, the credits at the top end, a rail of map controls at the bottom end and the mode's one or two actions in the middle of the bottom edge. The middle of the screen stays city.
+
 ### Tokens
 
 Tokens are oklch, in `src/app/app.css`:
 
-| Token      | Use                                                             |
-| ---------- | --------------------------------------------------------------- |
-| `--ink`    | Text, borders, hard shadows. Same family as the scene outlines. |
-| `--paper`  | Panel fill, a warm cream                                        |
-| `--accent` | KU Leuven-ish blue, only for the selected state of a toggle     |
+| Token                        | Use                                                                                                                                            |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--ink`                      | Text, borders, hard shadows. Same family as the scene outlines.                                                                                |
+| `--paper`, `--paper-press`   | Panel and control fill, a warm cream; pressed and hovered                                                                                      |
+| `--accent`, `--accent-press` | KU Leuven-ish blue (the walker's coat): the mode's primary action and a toggle that's on                                                       |
+| `--sign`                     | The street plate: the accent's hue a shade deeper. Deeper shades are set by lightness, never mixed with ink, which would turn the blue purple. |
+| `--control`, `--control-big` | 44 px round controls; 60 px for Run                                                                                                            |
+| `--radius`, `--radius-inner` | 14 px panels; 10 px for what sits inside one, concentric                                                                                       |
+| `--lift`, `--shadow-hard`    | The 3 px hard shadow every control stands on, and the 1 px one it sinks to when pressed                                                        |
+| `--gutter`                   | Edge spacing, 12–20 px with the screen, plus the safe-area insets                                                                              |
 
-### Panels
+### Surfaces
 
-- 2 px ink border, 8 px radius.
-- A **hard 3 px drop shadow** with no blur. It's a nod to pixel UI and needs no transparency.
+- 2 px ink border and a **hard 3 px drop shadow** with no blur: a nod to pixel UI that needs no transparency.
+- **Pills** for actions and the brand, **circles** for map controls, a 14 px radius (`--radius`) for panels (the walking corner, the loading and error notice, hints). Things that belong together share one outline: the rail's controls one capsule split by a hairline, the walking corner one panel. What sits inside a panel is 2 px in from its 2 px border, with 10 px corners (`--radius-inner`), so they stay concentric.
 - Inner radii are concentric (outer radius minus padding).
 
 ### Type
 
 - System UI font, no web fonts, so nothing to download and no layout shift.
-- Weights 600–700 for controls, sizes from 0.625 rem (credits) to 1.25 rem (title).
-- Shortcut hints use the monospace stack.
+- Weights 600–800, sizes from 0.625 rem (credits) to 1.125 rem (the brand).
+- Shortcut hints are monospace keycaps.
 
 ### Controls
 
-- At least 44 px tall.
-- Icon plus a visible text label.
-- A keyboard shortcut is shown on devices that have hover.
-- Below 30 rem of width the toolbar becomes a tab bar: icon above label, no shortcut hints.
-- **Walk** sits in its own panel beside the view toolbar and wraps above it when the row runs out. Walking downloads on first use; if that takes over a quarter of a second, the hint says "Getting ready to walk…", and if it fails, "Walking couldn’t load. Check your connection and try again." Picking a start shows a one-line hint, a reticle in the middle of the view, and **Start here** / **Cancel**. Walking swaps the toolbar for **Map** (back to the map view), **Run** (a toggle, filled while on), **Turn left** and **Turn right**, under a one-line hint: keys and the mouse on devices with a fine pointer, thumbs everywhere else.
+- **Actions** are pills with an icon and a visible name: the one or two things a mode is for. The primary one is filled with the accent. The shortcut shows as a keycap on devices that have hover.
+- **Map controls** are round, icon only, in a rail at the bottom end, the same place in every mode and in reach of a right thumb: a **compass** whose needle points north on the map and resets the view (R); **zoom in / zoom out** (+ / −; closer and further while walking), so pinch is never the only way to zoom; **turn left / turn right** (Q / E). Each has an accessible name, and shows it with its key as a tip on hover and keyboard focus.
+- Every control is at least 44 px. On narrow screens the rail stands above the actions; on wide ones they share the bottom row.
+- **Map:** the brand in the corner, the rail, and **Walk** (W) as the primary action. Walking downloads on first use; if that takes over a quarter of a second, the hint says "Getting ready to walk…", and if it fails, "Walking couldn’t load. Check your connection and try again."
+- **Picking a start:** a reticle in the middle of the view, a hint ("Click a street to start there, or press Enter for the middle." / "Tap a street, or move the map and tap Start here."), and **Cancel** (Esc) / **Start here** (Enter).
+- **Walking:** the corner is one panel, 48 px tall like the actions: a bare **Map** button (Esc) and the street plate beside it. The rail turns and zooms the camera, with **Run** under it: a big round toggle, filled while on, labelled, under the right thumb.
 - **On touch,** a thumb that lands on the left of the screen grows a stick under it (ink ring, paper knob) and steers; anywhere else it looks around. Pushed to the rim, the stick runs.
 - A spot that can't be walked to says so in the hint ("Can’t walk there. Pick a street or square.") until the next try.
+
+### The street plate
+
+- **Only while walking**, and only when the walker is on a named square or within 20 m of a named street. Names are OpenStreetMap's (`src/data/streets.ts`): a square wins over the streets round it, and at a corner the street already on the plate stays until another is 4 m closer, so it doesn't flicker.
+- **An enamel plate inset in the corner panel,** beside the Map button: accent-blue (`--sign`) under a paper rim, paper text, 14 px, centred, two balanced lines at most (up to 17 rem wide). It has no border or shadow of its own: the panel's ink outline and hard shadow hold both, so it reads as part of the HUD, and never sits in the middle of the view. The Map button keeps its size; a long name wraps instead.
+- It slides in from the Map button's side, and each new name slides in after it (240–300 ms ease-out); with reduced motion, names only fade.
+- It's a polite live region ("On Brusselsestraat"), so screen readers hear each new street once.
+
+### Hints and coaching
+
+- One line, in a paper panel above the actions, always in the page (empty when there's nothing to say) so screen readers hear it change. It lets taps through to the map.
+- **The first walk** is coached: keycaps (W A S D, Shift, drag, click) where there's a fine pointer; "Left thumb walks, right thumb looks" and a dashed ghost of the stick where the left thumb goes on touch. It stays until four seconds after the first step, and isn't shown again on that device (`localStorage`; if storage is blocked, it shows each walk). Everything it teaches is also on the controls' tips and in the map's description.
 
 ### States
 
@@ -121,35 +141,34 @@ Tokens are oklch, in `src/app/app.css`:
 | Loading  | A small centred panel ("Building Leuven…") in one persistent `<output>` that also carries errors. Controls are disabled until ready. |
 | Error    | A centred panel with a plain-language cause and a **Try again** button. Never a blank screen.                                        |
 | Selected | Accent fill, with `aria-pressed`.                                                                                                    |
+| Pressed  | The control sinks into its shadow (2 px down, 1 px shadow) and darkens; in a capsule, its icon shrinks a little.                     |
 
 ### Credits
 
 - The data licences (ODbL for OpenStreetMap, GRB terms) require visible credit. OSM's attribution guidelines allow it to collapse only after it was shown.
-- It sits in the top-end corner, out of the layout flow, so it never pushes the HUD: "© OpenStreetMap" and "© Digitaal Vlaanderen" as two 10 px linked lines with a paper halo, beside (or, on narrow headers, under) a 20 px © button with a 44 px hit area.
+- It sits in the top-end corner: "© OpenStreetMap" and "© Digitaal Vlaanderen" as two 10 px linked lines with a paper halo, beside (or, on narrow headers, under) a 20 px © button with a 44 px hit area.
 - It collapses to just the © after 5 seconds or on the first pan, zoom or click; the © brings it back. The smoke test fails if the credit isn't visible at start.
 
-### Labels on the map
+### No labels on the map
 
-- Small ink-bordered tags with a short ink tick pointing to what they name: just above a building's real top (a landmark's highest spire), or just above the ground for a square, park or statue.
-- Their order in `LANDMARKS` is their priority: a label that would overlap an earlier one, or cross the screen edge, is hidden.
-- Names and places come from OpenStreetMap; `LANDMARKS` only lists ids. Each shows from its own zoom. Landmarks and the big parks and sites show from the start, so the far view can be read across the whole map; churches and squares from zoom 1.5–2, small sights (the Totem) only up close.
-- They're decorative: the map has a text description for screen readers.
+Places aren't named over the city: floating tags covered the very streets they named and fought each other for room. The street plate names where you are while walking; the map has a text description for screen readers.
 
 ### Keyboard
 
 - The map is one focusable widget (`role="application"`, focused on load without a ring).
 - Arrow keys pan, `+`/`-` zoom, Q/E turn, R resets, W starts a walk. M mutes or unmutes, in every mode.
 - Picking a start: Enter starts in the middle of the view, Escape cancels.
-- Walking: W A S D or the arrow keys walk relative to the screen, Shift runs, holding Q/E turns the view, `+`/`-` bring the camera closer or further, Escape returns to the map. Clicking or tapping a street walks there along a route, and the camera swings round behind on the way.
+- Walking: W A S D or the arrow keys walk relative to the screen, Shift runs, holding Q/E turns the view, `+`/`-` bring the camera closer or further, Escape returns to the map. Clicking or tapping a street walks there along a route, shown as a quiet trail of small dots that shrink toward a thin ring. On the move the camera drifts back behind the walker a moment after the last look around.
 - Shortcuts only act while focus is inside the app.
 
 ## Motion
 
 - **Rotation:** 280 ms ease-out. Instant with `prefers-reduced-motion`.
-- **Press feedback:** scale 0.97 over 140 ms ease-out.
-- **Hover:** only on devices with hover. Nothing else animates.
+- **Press feedback:** the control sinks into its hard shadow over 120 ms ease-out.
+- **The street plate:** slides in from the side (240 ms), each new name after it (300 ms). With `prefers-reduced-motion` names only fade.
+- **Hover:** only on devices with hover. Nothing else in the HUD animates; the compass needle turns with the view, frame by frame.
 - **Walking and running:** a procedural cycle that blends from walk to run with speed. Legs and arms swing against each other, each knee folds as its leg swings through, the hips sit as high as the planted leg reaches so the soles stay down; running lengthens the stride, bends the elbows and leans in. The torso banks into turns and the head follows the camera. Standing still, the walker breathes and glances about for four seconds, then rests.
-- **The camera** flies between the map and the street in 1.4 s, its lens widening as it closes in so the first frame matches the isometric map. Its look point trails the walker by a hair. With `prefers-reduced-motion` it cuts instead of flying, follows without easing and doesn't swing behind on routes; the figure appears without its pop and doesn't fidget. The walk cycle itself stays, since the user is moving the figure.
+- **The camera** flies between the map and the street in 1.4 s, its lens widening as it closes in so the first frame matches the isometric map. It follows on springs: its look point trails the walker by a hair and leads it a little at a run, the lens widens slightly and the boom lengthens when running, and walls pull it in quickly but smoothly (docs/RENDERING.md, "How walking should feel"). With `prefers-reduced-motion` it cuts instead of flying, follows without easing and doesn't recentre; the figure appears without its pop and doesn't fidget. The walk cycle itself stays, since the user is moving the figure.
 - **Future motion:** anything new (traffic, people, day-night) goes through Emil Kowalski's animation skills. It must also respect reduced motion.
 
 ## Sound
