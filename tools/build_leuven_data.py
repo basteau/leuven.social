@@ -20,7 +20,7 @@ Inputs (src/data/sources.ts lists each one's source and licence):
   grb/grb_GBG.geojson, grb/grb_GBA.geojson   GRB buildings and annexes (EPSG:4326)
   grb/grb_WBN.geojson, grb/grb_WGO.geojson   GRB road surfaces and their subdivision lines, for the road zones
   elevation/{DTM,DSM}/*.tif                 DHMV II 1 m rasters (EPSG:31370), tiled
-  osm/{buildings,ring_r23,roads,areas,points}.json   Overpass answers (out geom / center)
+  osm/{buildings,ring_r23,roads,areas,points,furniture_ways}.json   Overpass answers (out geom / center)
   ortho/z18/{x}_{y}.png                     optional: orthophoto tiles for roof colours
 Outputs (data/derived/):
   leuven_buildings.geojson   footprint + ground (m TAW) + height (m) + roof shape and colour + OSM tags
@@ -391,11 +391,40 @@ for e in osm_elements('areas'):
                 if g is not None:
                     areas.append({'type': 'Feature', 'properties': {**e.get('tags', {}), '_relation': e['id']}, 'geometry': mapping(g)})
 json.dump({'type': 'FeatureCollection', 'features': areas}, open(OUT / 'osm_areas.geojson', 'w'), separators=(',', ':'))
+
+
+def furniture_shape(e):
+    """A bench or rack drawn as a way: a point on it, the bearing it runs along (degrees clockwise from north) and its
+    length (m). A line runs along its longest stretch, first node to last, and stands at its middle; an area along the
+    long side of the rectangle round it, from its centre (None: Overpass's centre is kept)."""
+    xy = [((p['lon'] - ORIGIN[0]) * kx, (p['lat'] - ORIGIN[1]) * kz) for p in e['geometry']]  # x east, y north
+    if len(xy) >= 4 and xy[0] == xy[-1]:
+        box = shapely.oriented_envelope(Polygon(xy))
+        if box.geom_type != 'Polygon':
+            return None
+        c = box.exterior.coords
+        (ax, ay), (bx, by) = max([(c[0], c[1]), (c[1], c[2])], key=lambda s: math.dist(*s))
+        return None, math.degrees(math.atan2(bx - ax, by - ay)) % 180, math.dist((ax, ay), (bx, by))
+    segments = [(a, b) for a, b in zip(xy, xy[1:]) if a != b]
+    if not segments:
+        return None
+    (ax, ay), (bx, by) = max(segments, key=lambda s: math.dist(*s))  # the first of equals
+    middle = (ORIGIN[0] + (ax + bx) / 2 / kx, ORIGIN[1] + (ay + by) / 2 / kz)
+    return middle, math.degrees(math.atan2(bx - ax, by - ay)) % 360, sum(math.dist(a, b) for a, b in segments)
+
+
+furniture = {e['id']: e for e in osm_elements('furniture_ways')}
 pts = []
 for e in osm_elements('points'):
     ll = (e['lon'], e['lat']) if 'lon' in e else (e['center']['lon'], e['center']['lat']) if 'center' in e else None
-    if ll:
-        pts.append({'type': 'Feature', 'properties': {**e.get('tags', {}), '_osm': f"{e['type']}/{e['id']}"}, 'geometry': mapping(Point(ll))})
+    if not ll:
+        continue
+    props = {**e.get('tags', {}), '_osm': f"{e['type']}/{e['id']}"}
+    shaped = furniture_shape(furniture[e['id']]) if e['type'] == 'way' and e['id'] in furniture else None
+    if shaped:  # as strings, like the tags they sit among
+        ll = shaped[0] or ll
+        props |= {'_bearing': f'{shaped[1]:.1f}', '_length': f'{shaped[2]:.1f}'}
+    pts.append({'type': 'Feature', 'properties': props, 'geometry': mapping(Point(ll))})
 json.dump({'type': 'FeatureCollection', 'features': pts}, open(OUT / 'osm_points.geojson', 'w'), separators=(',', ':'))
 cnt = lambda k, v=None: sum(1 for p in pts if (k in p['properties']) and (v is None or p['properties'][k] in v))
 print(f'roads {len(roads)}, areas {len(areas)}, points {len(pts)}: trees {cnt("natural", ["tree"])}, '
