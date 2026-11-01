@@ -3,6 +3,7 @@ import type { BufferGeometry } from 'three';
 
 import type { MeshBuilder, V3 } from './mesh-builder.ts';
 import { fromOklab, toOklab } from '../data/colour.ts';
+import { treeScale } from '../data/trees.ts';
 import { TREE, pick } from './palette.ts';
 
 /** Flat triangle soup of a three.js shape, so trees can join the cell meshes. */
@@ -43,10 +44,7 @@ const UNITS = Array.from({ length: 64 }, (_, i) => i);
  * by seed.
  */
 export function addTree(mesh: MeshBuilder, x: number, z: number, seed: number, height = 0): void {
-  const scale =
-    height > 0
-      ? Math.min(Math.max(height / MODEL_HEIGHT, 0.7), 2.8)
-      : 0.8 + pick([0, 0.15, 0.3, 0.45], seed);
+  const scale = height > 0 ? treeScale(height) : 0.8 + pick([0, 0.15, 0.3, 0.45], seed);
   // Crowns spread a fifth wider than the model: the LiDAR trees are spaced by crown size, so a
   // canopy closes with as few trees as possible. Some are slimmer, some broader.
   const wide = 1.2 * scale ** 0.8 * pick([0.86, 0.94, 1, 1.06, 1.14], seed * 3);
