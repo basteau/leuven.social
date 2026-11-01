@@ -229,12 +229,13 @@ kbd {
   }
 }
 
+/* Lined up on the end edge, so the controls stay put when Run (wider) joins them. */
 .rail {
   grid-area: rail;
   justify-self: end;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: end;
   gap: var(--space-s);
 }
 
