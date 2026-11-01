@@ -46,6 +46,11 @@ const UP: V3 = [0, 1, 0];
 const BAY_LENGTH = 51;
 const CANOPY_EAVE = 9.5;
 const CANOPY_CROWN = 16;
+/**
+ * The sleeper band's `facade` is minus this plus the distance along the track: past every road
+ * surface and paint code (paint.ts), so the shader can tell them apart.
+ */
+export const SLEEPER_CODE = 8192;
 /** Points across a bay's vault, from valley to valley: -1 … 1 along the tracks. */
 const VAULT = [-1, -0.5, 0, 0.5, 1] as const;
 
@@ -178,8 +183,8 @@ export function planRailway(rails: readonly Rail[]): Railway {
 
 /**
  * Tracks on the ground: a ballast bed under a band of sleepers, both flat ribbons in the cell's
- * mesh. The sleepers are no geometry: the band's `facade` attribute holds minus the distance
- * along the track, and the facade shader draws them from it. Ballast runs on by half its width
+ * mesh. The sleepers are no geometry: the band's `facade` attribute holds the distance along
+ * the track (as a code past `SLEEPER_CODE`), and the facade shader draws them from it. Ballast runs on by half its width
  * at both ends, so bends need no join geometry; the sleeper band doesn't, so its pattern never
  * overlaps itself.
  */
@@ -201,8 +206,7 @@ export function addTracks(mesh: MeshBuilder, rails: readonly Rail[]): void {
         ];
       };
       mesh.quad(...ribbon(BALLAST / 2, BALLAST / 2, Y.ballast), colors.ballast, UP);
-      // Never zero: zero means "no pattern" to the shader.
-      const [u0, u1] = [-1 - travelled, -1 - travelled - f.length];
+      const [u0, u1] = [-SLEEPER_CODE - travelled, -SLEEPER_CODE - travelled - f.length];
       mesh.quad(...ribbon(SLEEPERS / 2, 0, Y.sleepers), colors.sleepers, UP, [u0, u1, u1, u0]);
       travelled += f.length;
     }

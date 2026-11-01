@@ -31,14 +31,25 @@ Leuven as a tiny city you could hold in your hands: a warm, crisp, low-poly dior
 - **Hero landmarks get their real silhouette.** Low-poly halls, towers and spires fitted to the LiDAR: the Stadhuis' steep roof with dormers and six turrets, Sint-Pieterskerk's cross, flèche and squat west work, the Universiteitsbibliotheek's tower, Station Leuven's gabled middle and pavilions, Arenbergkasteel's corner towers, the Abdij van Park church tower. Enough to recognise at zoom 2–4, never sculpted detail.
 - **Stepped gables say "Flemish town".** Nearly half the gables in the hero squares are stepped, a fifth elsewhere in the centre, none on the fringe. Narrow gables stay plain, since the steps would be smaller than a game pixel.
 - **Squares show what happens on them.** Oude Markt gets rows of café parasols along its facades; the middle stays open.
+- **Roads say what they're made of.** Asphalt, setts and paving stones come from OSM, kerbs and cycle tracks from the GRB. Setts get a grain once a stone spans a pixel or two and joints once it spans a few; from afar they're just a warmer, lighter grey than asphalt and a greyer one than the squares.
+- **Paint is at least a pixel, or nothing.** Lane lines are never thinner than a pixel, and go only when zoomed far out; zebra bars appear once a bar spans about two pixels, and before that the crossing is a light grey patch.
 - **Streets have furniture.** From zoom 2, the lamps, benches, bike racks, bus shelters and statues OpenStreetMap knows, drawn a third larger than life so they stay a few pixels. Below zoom 2 they would be noise, so they hide. Jan Fabre's Totem on Ladeuzeplein (a 23 m needle with its jewel beetle) shows at every zoom.
 - To add a landmark, fit parts in `src/scene/landmark-models.ts` against a LiDAR height plot of its footprint, list the footprint in `LANDMARK_FOOTPRINTS` (`src/data/area.ts`), rebake, then check it from all four rotations.
+
+### Walking
+
+- **A Leuven student**, a little larger than life (2.2×) so they read at walking zoom: a coat in the HUD's accent blue, a mustard scarf, a brick-red backpack. Boxy, outlined in ink, toon-shaded like the city.
+- **Walk mode zooms to 7** and follows them, still isometric; Q/E still turn the view.
+- **Walkable** means road surfaces, squares and footpaths. Never inside buildings or their courtyards, gardens, green or water without a path across.
+- **Hidden behind a building**, the figure shows as a checkerboard silhouette in coat blue.
+- **A picked destination** gets ink-ringed pale dots along the way and a square target, Street View style.
 
 ### Railways
 
 - **Tracks read at every zoom, detail arrives as you zoom in.** Far out, a track is a light band (running lines) or a brown one (yards). As pixels get smaller than 0.9 m the catenary masts appear, under 0.5 m both rails as ink lines, and at the closest zoom the sleepers.
 - **Masts only where they'd stand.** Every 60 m along electrified running lines, on the side with room, so a yard's inner tracks stay clear.
 - **The station is the wave roof.** Leuven's platform roof is the most recognisable thing from above: four white vaults across the tracks, rising from the valleys to the crowns at their real LiDAR heights. Railway land is gravel, never lawn.
+- **Not walkable:** tracks, railway land and platforms. Platforms are raised to train-floor height and the walker stays at street level; roads under rail bridges stay walkable.
 - Tunnels and covered tracks aren't drawn. Bridges get a parapet on each open side; the ground is flat, so roads just pass underneath.
 
 ### Palette
@@ -59,9 +70,12 @@ Values live in `src/scene/palette.ts`; change them there only. Each building's c
 | Railways               | Grey ballast under pale concrete sleepers on running lines, rusty ballast and dark timber in the yards, ink rails and catenary masts, pale concrete platforms, gravel railway land, a white platform roof | Leuven's railway is a wide band through the east of the city; it should read as tracks from any zoom without turning into noise |
 | Trees                  | One low-poly tree, scaled to the LiDAR height of each one                                                                                                                                                 | Parks and gardens are as wooded as they really are                                                                              |
 | Windows                | Deep blue-grey glass, ~7% lit warm (`#f3c873`)                                                                                                                                                            | The sun catching a few panes; reads as life without noise                                                                       |
-| Ground                 | Garden green-beige base, warm grey roads, sand cobbles for squares, river blue                                                                                                                            | Squares should glow slightly against the roads                                                                                  |
+| Ground                 | Garden green-beige base, sand cobbles for squares, river blue                                                                                                                                             | Squares should glow slightly against the roads                                                                                  |
+| Roads                  | Pale slab pavements; asphalt carriageways, darker on the ring and main roads; warm grey setts; pale stone paving; red cycle tracks                                                                        | Leuven from the air: pale pavements frame dark asphalt, the old centre is stone, Flemish cycle tracks are red                   |
+| Road paint             | Off-white lane lines and zebras; a zebra's average grey from afar; red cyclist crossings                                                                                                                  | The ring reads as a boulevard, and paint never shimmers                                                                         |
 | Diorama slab           | Earth brown sides                                                                                                                                                                                         | Frames the city as an object                                                                                                    |
 | Outlines               | `#2b2420` warm ink                                                                                                                                                                                        | Ties scene and HUD together (same ink as the panels)                                                                            |
+| Walker                 | Coat `#2f62a8`, scarf `#e8b94a`, backpack `#b84c36`, hair `#7a4a2c`                                                                                                                                       | Reads against grey streets, sandy squares and green parks; the coat matches the HUD                                             |
 
 ## HUD
 
@@ -93,6 +107,8 @@ Tokens are oklch, in `src/app/app.css`:
 - Icon plus a visible text label.
 - A keyboard shortcut is shown on devices that have hover.
 - Below 30 rem of width the toolbar becomes a tab bar: icon above label, no shortcut hints.
+- **Walk** sits in its own panel beside the view toolbar and wraps above it when the row runs out. Picking a start shows a one-line hint, a reticle in the middle of the view, and **Start here** / **Cancel**. Walking swaps the toolbar for **Map** (back to the map view), **Turn left** and **Turn right**, under a one-line hint that names the keys only on devices with a fine pointer.
+- A spot that can't be walked to says so in the hint ("Can’t walk there. Pick a street or square.") until the next try.
 
 ### States
 
@@ -118,7 +134,9 @@ Tokens are oklch, in `src/app/app.css`:
 ### Keyboard
 
 - The map is one focusable widget (`role="application"`, focused on load without a ring).
-- Arrow keys pan, `+`/`-` zoom, Q/E turn, R resets.
+- Arrow keys pan, `+`/`-` zoom, Q/E turn, R resets, W starts a walk.
+- Picking a start: Enter starts in the middle of the view, Escape cancels.
+- Walking: W A S D or the arrow keys walk relative to the screen, Escape returns to the map. Clicking or tapping a street walks there along a route.
 - Shortcuts only act while focus is inside the app.
 
 ## Motion
@@ -126,6 +144,7 @@ Tokens are oklch, in `src/app/app.css`:
 - **Rotation:** 280 ms ease-out. Instant with `prefers-reduced-motion`.
 - **Press feedback:** scale 0.97 over 140 ms ease-out.
 - **Hover:** only on devices with hover. Nothing else animates.
+- **Walking:** a procedural cycle. Legs and arms swing against each other, the hips drop as the legs spread so the soles stay down, with a little spring as they pass, a slight lean and a turn toward the heading. Standing still, the walker breathes and glances about for four seconds, then rests. The camera eases after the walker and into walk zoom. With `prefers-reduced-motion` the camera follows and zooms without easing, the figure appears without its pop, and there is no idle fidgeting; the walk cycle itself stays, since the user is moving the figure.
 - **Future motion:** anything new (traffic, people, day-night) goes through Emil Kowalski's animation skills. It must also respect reduced motion.
 
 ## Mobile and PWA

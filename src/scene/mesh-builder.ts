@@ -30,6 +30,11 @@ export class MeshBuilder {
     this.#facades = grow(this.#facades, 1);
   }
 
+  /** Vertices so far: three per triangle. */
+  get vertices(): number {
+    return this.#count;
+  }
+
   #vertex(v: V3, nx: number, ny: number, nz: number, facade: number): void {
     if (this.#count === this.#capacity) this.#grow();
     const i = this.#count * 3;
@@ -48,8 +53,8 @@ export class MeshBuilder {
   }
 
   /**
-   * `facade` is the attribute the facade shader reads: one value for the whole triangle, or one
-   * per corner (a, b, c) where it varies across the face.
+   * `facade` is the wall-top height the window shader reads, or on the ground a negative surface
+   * or paint code (see paint.ts); paint gives each vertex its own.
    */
   triangle(a: V3, b: V3, c: V3, color: number, hint: V3, facade: number | V3 = 0): void {
     const ux = b[0] - a[0];
@@ -70,10 +75,16 @@ export class MeshBuilder {
     this.#color.setHex(color);
     const [fa, fb, fc] = typeof facade === 'number' ? [facade, facade, facade] : facade;
     this.#vertex(a, nx, ny, nz, fa);
-    this.#vertex(flip < 0 ? c : b, nx, ny, nz, flip < 0 ? fc : fb);
-    this.#vertex(flip < 0 ? b : c, nx, ny, nz, flip < 0 ? fb : fc);
+    if (flip < 0) {
+      this.#vertex(c, nx, ny, nz, fc);
+      this.#vertex(b, nx, ny, nz, fb);
+    } else {
+      this.#vertex(b, nx, ny, nz, fb);
+      this.#vertex(c, nx, ny, nz, fc);
+    }
   }
 
+  /** Corners in order; `facade` as for `triangle`, or one value per corner. */
   quad(
     a: V3,
     b: V3,

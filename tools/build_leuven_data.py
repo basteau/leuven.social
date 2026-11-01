@@ -18,6 +18,7 @@ before they are written, and the map projection is pinned below rather than left
 
 Inputs (src/data/sources.ts lists each one's source and licence):
   grb/grb_GBG.geojson, grb/grb_GBA.geojson   GRB buildings and annexes (EPSG:4326)
+  grb/grb_WBN.geojson, grb/grb_WGO.geojson   GRB road surfaces and their subdivision lines, for the road zones
   elevation/{DTM,DSM}/*.tif                 DHMV II 1 m rasters (EPSG:31370), tiled
   osm/{buildings,ring_r23,roads,areas,points}.json   Overpass answers (out geom / center)
   ortho/z18/{x}_{y}.png                     optional: orthophoto tiles for roof colours
@@ -26,6 +27,7 @@ Outputs (data/derived/):
   leuven_buildings_local.json  compact game format: local metres, origin Grote Markt, x=east, z=south
   lidar_trees.json           tree crowns found in the LiDAR canopy, with their heights
   grb_structures.json        GRB structures (bridges, tanks and silos) in local metres, with tank heights from the LiDAR
+  road_zones.json            carriageways, cycle tracks, lane lines and crossings (tools/build_road_zones.py)
   osm_roads.geojson, osm_areas.geojson, osm_points.geojson
   preview_heights.png
 """
@@ -399,6 +401,11 @@ cnt = lambda k, v=None: sum(1 for p in pts if (k in p['properties']) and (v is N
 print(f'roads {len(roads)}, areas {len(areas)}, points {len(pts)}: trees {cnt("natural", ["tree"])}, '
       f'bars/pubs/cafes {cnt("amenity", ["bar", "pub", "cafe"])}, restaurants {cnt("amenity", ["restaurant", "fast_food"])}, '
       f'bike parkings {cnt("amenity", ["bicycle_parking"])}, historic {cnt("historic")}, tourism {cnt("tourism")}')
+
+# --- Road surfaces ---------------------------------------------------------------------------------------------------
+import build_road_zones  # tools/build_road_zones.py, beside this script
+
+build_road_zones.main(DATA)
 
 # --- Preview --------------------------------------------------------------------------------------------------------
 import matplotlib

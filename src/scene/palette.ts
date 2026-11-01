@@ -3,7 +3,7 @@
  * terracotta roofs, sandy cobbles. DESIGN.md explains the choices; change them here only.
  */
 
-import type { Kind } from '../data/city.ts';
+import type { CarriagewayKind, Kind } from '../data/city.ts';
 
 export const WALLS: Record<Kind, readonly number[]> = {
   house: [0xb5523b, 0xc0674a, 0xa84a3a, 0xe8dcc4, 0xf0e6d0, 0xd9c7a8, 0xc98e6c],
@@ -113,7 +113,8 @@ export const GROUND = {
   base: 0xb4be8e,
   earth: 0x6b4f3a,
   green: 0x86b064,
-  road: 0x8b8780,
+  /** The road surface where no carriageway lies on it: pale slabs, like the footpaths. */
+  pavement: 0xb3afa6,
   plaza: 0xd7c6a3,
   water: 0x5f9fc4,
   /** Paved footpaths: pale slabs, lighter than the roads. */
@@ -139,11 +140,44 @@ export const RAIL = {
   canopyEnd: 0xd3cfc3,
 } as const;
 
+/**
+ * Carriageways, by what they're made of (src/data/roads.ts). Asphalt darkens on the ring and main
+ * roads; setts are warm grey-brown and paving a pale stone, both greyer than the sand of the
+ * squares; cycle tracks are Flemish red asphalt.
+ */
+export const CARRIAGEWAYS: Record<CarriagewayKind, number> = {
+  cycleway: 0xa8604c,
+  street: 0x8b8780,
+  main: 0x77746f,
+  sett: 0xa69886,
+  paving: 0xb3aa9a,
+};
+
+/** Road paint: white lines and bars, the grey they average to from afar, and cycle-lane red. */
+export const PAINT = { line: 0xf1ede2, patch: 0xb0aca4, bike: 0xa8604c } as const;
+
 export const TREE = {
   crown: 0x6a9a4a,
   trunk: 0x6b4a32,
   tints: [0xffffff, 0xe3eed6, 0xd2e0c2, 0xf4f1dc],
 } as const;
+
+/**
+ * The walker: a Leuven student in a coat of the HUD's accent blue, with a mustard scarf and a
+ * brick-red backpack, so they read against grey streets, sandy squares and green parks.
+ */
+export const WALKER = {
+  skin: 0xf0c49c,
+  hair: 0x7a4a2c,
+  coat: 0x2f62a8,
+  scarf: 0xe8b94a,
+  trousers: 0x3d4250,
+  shoes: 0x2b2420,
+  bag: 0xb84c36,
+} as const;
+
+/** The route hint: pale dots and a target, ringed in ink like the HUD. */
+export const ROUTE = { fill: 0xfaf3e3, ink: 0x2b2420 } as const;
 
 /** Window glass, and the few windows that catch the low sun. */
 export const WINDOW = { glass: 0x2f3a4a, lit: 0xf3c873 } as const;

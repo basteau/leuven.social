@@ -1,10 +1,11 @@
-import type { Bounds, Building, City, Path, Prop, Rail, Tank } from '../data/city.ts';
+import type { Bounds, Building, Carriageway, City, Path, Prop, Rail, Tank } from '../data/city.ts';
 import { clipLine, clipRing } from '../data/geometry.ts';
 import { addBuilding } from './buildings.ts';
 import type { PartyWalls } from './buildings.ts';
 import { addGround } from './ground.ts';
-import type { GroundLayers } from './ground.ts';
 import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
+import { addFinePaint } from './paint.ts';
+import type { Marking } from './paint.ts';
 import { LARGE_PROPS, addProp } from './props.ts';
 import {
   addCanopyBay,
@@ -32,7 +33,11 @@ export const CELL_SIZE = 350;
 export interface Cell {
   bounds: Bounds;
   buildings: Building[];
-  ground: { [K in Exclude<keyof GroundLayers, 'paths'>]: Float32Array[] } & { paths: Path[] };
+  ground: { [K in 'green' | 'water' | 'roads' | 'plazas' | 'railLand']: Float32Array[] } & {
+    carriageways: Carriageway[];
+    markings: Marking[];
+    paths: Path[];
+  };
   /** Flat [x, z, seed, height, …]: the seed keeps a tree's look when the cell changes. */
   trees: number[];
   parasols: Parasol[];
@@ -51,6 +56,26 @@ export interface Cell {
 
 const cellOf = (v: number) => Math.floor(v / CELL_SIZE);
 
+/** How far along `line` the point (x, z), which lies on it, is. */
+export function along(line: ArrayLike<number>, x: number, z: number): number {
+  let run = 0;
+  let best = 0;
+  let nearest = Infinity;
+  for (let i = 0; i + 3 < line.length; i += 2) {
+    const [ax, az, bx, bz] = [line[i]!, line[i + 1]!, line[i + 2]!, line[i + 3]!];
+    const len = Math.hypot(bx - ax, bz - az);
+    const t =
+      len > 0 ? Math.min(len, Math.max(0, ((x - ax) * (bx - ax) + (z - az) * (bz - az)) / len)) : 0;
+    const off =
+      len > 0
+        ? Math.hypot(ax + ((bx - ax) * t) / len - x, az + ((bz - az) * t) / len - z)
+        : Math.hypot(ax - x, az - z);
+    if (off < nearest - 1e-6) [nearest, best] = [off, run + t];
+    run += len;
+  }
+  return best;
+}
+
 /** Sorts the city into cells. A building goes whole to the cell holding its first corner. */
 export function partition(city: City, parasols: readonly Parasol[] = []): Cell[] {
   const cells = new Map<string, Cell>();
@@ -67,7 +92,16 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
             maxZ: (j + 1) * CELL_SIZE,
           },
           buildings: [],
-          ground: { green: [], water: [], roads: [], plazas: [], railLand: [], paths: [] },
+          ground: {
+            green: [],
+            water: [],
+            roads: [],
+            carriageways: [],
+            markings: [],
+            plazas: [],
+            railLand: [],
+            paths: [],
+          },
           trees: [],
           parasols: [],
           props: [],
@@ -99,53 +133,60 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
   for (const p of railway.parapets) at(p.ax, p.az)?.railParapets.push(p);
   for (const b of city.canopies.flatMap(canopyBays)) at(b.cx, b.cz)?.canopies.push(b);
 
-  // Ground polygons are flat, so they can be cut along cell edges without a visible seam.
-  // Platforms too: their walls and edges are left out along a cut (see `addPlatform`).
-  const layers = [
-    ...(['green', 'water', 'roads', 'plazas', 'railLand'] as const).map(
-      (layer) => [city[layer], (c: Cell) => c.ground[layer]] as const,
-    ),
-    [city.platforms, (c: Cell) => c.platforms] as const,
-  ];
-  for (const [rings, into] of layers) {
-    for (const ring of rings) {
-      let [minX, minZ, maxX, maxZ] = [Infinity, Infinity, -Infinity, -Infinity];
-      for (let k = 0; k < ring.length; k += 2) {
-        [minX, maxX] = [Math.min(minX, ring[k]!), Math.max(maxX, ring[k]!)];
-        [minZ, maxZ] = [Math.min(minZ, ring[k + 1]!), Math.max(maxZ, ring[k + 1]!)];
-      }
-      const whole = cellOf(minX) === cellOf(maxX) && cellOf(minZ) === cellOf(maxZ);
-      for (let i = cellOf(minX); i <= cellOf(maxX); i++) {
-        for (let j = cellOf(minZ); j <= cellOf(maxZ); j++) {
-          const cell = cells.get(`${i},${j}`);
-          if (!cell) continue;
-          const piece = whole ? ring : clipRing(Array.from(ring), cell.bounds);
-          if (piece.length >= 6) into(cell).push(Float32Array.from(piece));
-        }
+  const span = (flat: ArrayLike<number>) => {
+    let [minX, minZ, maxX, maxZ] = [Infinity, Infinity, -Infinity, -Infinity];
+    for (let k = 0; k < flat.length; k += 2) {
+      [minX, maxX] = [Math.min(minX, flat[k]!), Math.max(maxX, flat[k]!)];
+      [minZ, maxZ] = [Math.min(minZ, flat[k + 1]!), Math.max(maxZ, flat[k + 1]!)];
+    }
+    const touched: Cell[] = [];
+    for (let i = cellOf(minX); i <= cellOf(maxX); i++) {
+      for (let j = cellOf(minZ); j <= cellOf(maxZ); j++) {
+        const cell = cells.get(`${i},${j}`);
+        if (cell) touched.push(cell);
       }
     }
-  }
-  // Paths and tracks are cut the same way, piece by piece along the cells they cross.
-  const cut = <T extends { line: Float32Array }>(lines: readonly T[], into: (c: Cell) => T[]) => {
-    for (const item of lines) {
-      const { line } = item;
-      let [minX, minZ, maxX, maxZ] = [Infinity, Infinity, -Infinity, -Infinity];
-      for (let k = 0; k < line.length; k += 2) {
-        [minX, maxX] = [Math.min(minX, line[k]!), Math.max(maxX, line[k]!)];
-        [minZ, maxZ] = [Math.min(minZ, line[k + 1]!), Math.max(maxZ, line[k + 1]!)];
-      }
-      for (let i = cellOf(minX); i <= cellOf(maxX); i++) {
-        for (let j = cellOf(minZ); j <= cellOf(maxZ); j++) {
-          const cell = cells.get(`${i},${j}`);
-          for (const piece of cell ? clipLine(line, cell.bounds) : []) {
-            into(cell!).push({ ...item, line: Float32Array.from(piece) });
-          }
-        }
-      }
+    return touched;
+  };
+  // Ground polygons are flat, so they can be cut along cell edges without a visible seam.
+  const cut = (ring: Float32Array, add: (cell: Cell, piece: Float32Array) => void) => {
+    const touched = span(ring);
+    for (const cell of touched) {
+      const piece = touched.length === 1 ? ring : clipRing(Array.from(ring), cell.bounds);
+      if (piece.length >= 6) add(cell, Float32Array.from(piece));
     }
   };
-  cut(city.paths, (c) => c.ground.paths);
-  cut(city.rails, (c) => c.rails);
+  for (const layer of ['green', 'water', 'roads', 'plazas', 'railLand'] as const) {
+    for (const ring of city[layer]) cut(ring, (cell, piece) => cell.ground[layer].push(piece));
+  }
+  // Platforms too: their walls and edges are left out along a cut (see `addPlatform`).
+  for (const ring of city.platforms) cut(ring, (cell, piece) => cell.platforms.push(piece));
+  for (const { kind, ring } of city.carriageways) {
+    cut(ring, (cell, piece) => cell.ground.carriageways.push({ kind, ring: piece }));
+  }
+  // Paths, tracks and lane lines are cut the same way, piece by piece along the cells they cross.
+  const cutLine = (line: Float32Array, add: (cell: Cell, piece: Float32Array) => void) => {
+    for (const cell of span(line)) {
+      for (const piece of clipLine(line, cell.bounds)) add(cell, Float32Array.from(piece));
+    }
+  };
+  for (const { width, paved, line } of city.paths) {
+    cutLine(line, (cell, piece) => cell.ground.paths.push({ width, paved, line: piece }));
+  }
+  for (const rail of city.rails) {
+    cutLine(rail.line, (cell, piece) => cell.rails.push({ ...rail, line: piece }));
+  }
+  for (const { kind, line } of city.markings) {
+    // A crossing stays whole, in the cell of its start, so its bars keep their rhythm; a lane
+    // line's pieces remember where along it they start, so its dashes do.
+    if (kind === 'zebra' || kind === 'bike-crossing') {
+      at(line[0]!, line[1]!)?.ground.markings.push({ kind, line });
+    } else {
+      cutLine(line, (cell, piece) =>
+        cell.ground.markings.push({ kind, line: piece, from: along(line, piece[0]!, piece[1]!) }),
+      );
+    }
+  }
   return [...cells.values()];
 }
 
@@ -161,18 +202,29 @@ export interface DetailMarks {
 
 /**
  * Everything in one cell as one mesh and one set of outlines (two draw calls), plus its small
- * street furniture as a third mesh, so it can hide when zoomed out.
+ * street furniture as a third mesh, so it can hide when zoomed out. In the main mesh the flat
+ * ground comes first (up to `groundVertices`) so the shadow pass can skip it, and the fine road
+ * paint last (from `fineVertices`) so a zoomed-out view can.
  */
 export function buildCell(
   cell: Cell,
   area: readonly Bounds[],
   walls: PartyWalls,
-): { mesh: MeshBuilder; lines: LineBuilder; props: MeshBuilder; detail: DetailMarks } {
+): {
+  mesh: MeshBuilder;
+  lines: LineBuilder;
+  props: MeshBuilder;
+  groundVertices: number;
+  fineVertices: number;
+  detail: DetailMarks;
+} {
   const mesh = new MeshBuilder();
   const lines = new LineBuilder();
   const props = new MeshBuilder();
   addGround(mesh, area, cell.bounds, cell.ground);
+  // Track beds are flat ground too, so they join it before the shadow pass's start.
   addTracks(mesh, cell.rails);
+  const groundVertices = mesh.vertices;
   addRailLines(lines, cell.rails);
   const rails = lines.segments;
   addMasts(lines, cell.masts);
@@ -188,5 +240,7 @@ export function buildCell(
   for (const t of cell.tanks) addTank(mesh, lines, t);
   for (const line of cell.parapets) addParapet(mesh, lines, line);
   for (const p of cell.props) addProp(LARGE_PROPS.has(p.kind) ? mesh : props, p);
-  return { mesh, lines, props, detail };
+  const fineVertices = mesh.vertices;
+  addFinePaint(mesh, cell.ground.markings);
+  return { mesh, lines, props, groundVertices, fineVertices, detail };
 }

@@ -2,9 +2,11 @@ import { expect, test } from 'bun:test';
 
 import type { Rail } from '../data/city.ts';
 import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
+import { ANGLES, PAINT_KIND, SURFACE } from './paint.ts';
 import {
   GAUGE,
   PLATFORM_HEIGHT,
+  SLEEPER_CODE,
   addMasts,
   addRailParapet,
   addPlatform,
@@ -76,8 +78,8 @@ test('a track is a ballast bed and a sleeper band carrying the distance along it
   const facade = g.getAttribute('facade');
   const values = Array.from({ length: facade.count }, (_, i) => facade.getX(i));
   expect(values.filter((v) => v === 0)).toHaveLength(12);
-  expect(Math.max(...values.filter((v) => v !== 0))).toBe(-1);
-  expect(Math.min(...values)).toBe(-31);
+  expect(Math.max(...values.filter((v) => v !== 0))).toBe(-SLEEPER_CODE);
+  expect(Math.min(...values)).toBe(-SLEEPER_CODE - 30);
   for (let i = 0; i < position.count; i++) expect(g.getAttribute('normal').getY(i)).toBe(1);
 });
 
@@ -150,4 +152,9 @@ test('a bay is a vault from valley to crown, ends filled, outlined, on four post
   expect(g.boundingBox!.max.y).toBeCloseTo(16);
   // Two edge profiles of four segments, two valleys, four posts.
   expect(lines.segments).toBe(8 + 2 + 4);
+});
+
+test('sleeper codes lie past every road surface and paint code', () => {
+  expect(SLEEPER_CODE).toBeGreaterThan((PAINT_KIND.patch + 1) * ANGLES * 2);
+  expect(SLEEPER_CODE).toBeGreaterThan(SURFACE.paving);
 });
