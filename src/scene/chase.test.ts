@@ -7,20 +7,29 @@ import {
   MAP_FOV,
   PITCH,
   PITCH_RANGE,
+  SHORT_BOOM,
+  TreeObstacles,
   boomDirection,
+  boomReach,
   chaseFov,
   clearPitch,
   createBoom,
+  createSteerFrame,
   easeBoom,
+  figureOpacity,
   flight,
+  followStrength,
   freeLength,
   headLook,
   mapYaw,
   reachGoal,
   recentre,
   recentreWeight,
+  settleFloor,
   settleReach,
+  shoulderPitch,
   spanAt,
+  steerYaw,
   stretchBoom,
   turnBoom,
   wheelKind,
@@ -90,6 +99,9 @@ describe('the boom', () => {
   });
 });
 
+/** A wall from x = 0.5 on, past z = 2. */
+const corner = (x: number, z: number) => (x > 0.5 && z > 2 ? 10 : 0);
+
 /** A house 10 m tall from z = 5 to 8, open street elsewhere. */
 const house = (_x: number, z: number) => (z >= 5 && z <= 8 ? 10 : 0);
 
@@ -151,6 +163,110 @@ describe('walls and the ground', () => {
     expect(reachGoal(8, 4, 8)).toBe(6);
     expect(reachGoal(3, 4, 8)).toBe(3);
   });
+
+  test('the reach along a boom feels with both whiskers', () => {
+    // Only the whisker turned toward +x meets the corner.
+    const look: Vec3 = [0, 2.6, 0];
+    expect(freeLength(corner, look, boomDirection(0, 0, [0, 0, 0]), 8)).toBe(8);
+    const reach = boomReach(corner, look, 0, 0, 8);
+    expect(reach).toBeLessThan(8);
+    expect(reach).toBeGreaterThan(4);
+    expect(boomReach(() => 0, look, 0, 0, 8)).toBe(8);
+  });
+});
+
+/** A street 3 m wide along x, between 12 m houses: a boom at yaw 0 points across it. */
+const lane = (_x: number, z: number) => (Math.abs(z) > 1.5 ? 12 : 0);
+
+describe('tight spots', () => {
+  const look: Vec3 = [0, 2.6, 0];
+  const dir: Vec3 = [0, 0, 0];
+  const freeAt = (map: typeof lane) => (pitch: number) =>
+    freeLength(map, look, boomDirection(0, pitch, dir), SHORT_BOOM);
+
+  test('across a narrow street, the boom rises over the shoulder instead of closing in', () => {
+    expect(freeAt(lane)(PITCH)).toBeLessThan(SHORT_BOOM);
+    const pitch = shoulderPitch(freeAt(lane), PITCH);
+    expect(pitch).toBeGreaterThan(PITCH + 0.2);
+    expect(pitch).toBeLessThanOrEqual(PITCH_RANGE[1]);
+    expect(freeAt(lane)(pitch)).toBeGreaterThanOrEqual(SHORT_BOOM);
+    // Only as high as it must: a little lower, it's short again.
+    expect(freeAt(lane)(pitch - 0.05)).toBeLessThan(SHORT_BOOM);
+  });
+
+  test('with room behind, or none above either, the pitch stays where it was', () => {
+    expect(
+      shoulderPitch(
+        freeAt(() => 0),
+        PITCH,
+      ),
+    ).toBe(PITCH);
+    expect(shoulderPitch(() => 0.5, PITCH)).toBe(PITCH);
+  });
+
+  test('with too little room at every pitch, it takes the roomiest', () => {
+    const roomiest = shoulderPitch((pitch) => 1.5 - Math.abs(pitch - 0.9), PITCH);
+    expect(roomiest).toBeGreaterThan(0.8);
+    expect(roomiest).toBeLessThan(1);
+  });
+
+  test('rises quickly and sinks back gently, the same at any frame rate', () => {
+    const rise = [30, 120].map((hz) => {
+      let floor = PITCH;
+      for (let i = 0; i < hz * 0.3; i++) floor = settleFloor(floor, 1, 1 / hz);
+      return floor;
+    });
+    expect(rise[0]).toBeGreaterThan(0.9);
+    expect(rise[0]).toBeCloseTo(rise[1]!, 5);
+    let floor = 1;
+    for (let i = 0; i < 12; i++) floor = settleFloor(floor, PITCH, 1 / 60);
+    expect(floor).toBeGreaterThan(0.7);
+  });
+
+  test('the figure fades only once the camera is within about a metre of it', () => {
+    expect(figureOpacity(0, 5, 3)).toBe(1);
+    expect(figureOpacity(1.5, 1.2, 0)).toBe(1);
+    // Beside the head, half a metre off it: mostly gone; touching it, gone.
+    const near = figureOpacity(0.4 + 0.6, 2, 0);
+    expect(near).toBeGreaterThan(0);
+    expect(near).toBeLessThan(0.5);
+    expect(figureOpacity(0.2, 2, 0)).toBe(0);
+    // Above the head counts from the top of it, below the feet from the soles.
+    expect(figureOpacity(0, 2.4 + 0.4 + 0.65, 0)).toBeCloseTo(0.5, 1);
+    expect(figureOpacity(0, -0.5, 0)).toBe(0);
+  });
+});
+
+describe('trees', () => {
+  // One tree at (10, 0): a 0.5 m trunk, its crown from 3 to 7 m up and 3 m across each way.
+  const trees = new TreeObstacles([10, 0, 0.5, 5, 3, 2, -400, 300, 0.4, 4, 2, 2]);
+  const away: Vec3 = [0, 2.6, 0];
+
+  test('a trunk and a crown are solid, round them is open', () => {
+    expect(trees.solid(10, 1, 0, away)).toBe(true);
+    expect(trees.solid(10.6, 1, 0, away)).toBe(true); // within the clearance
+    expect(trees.solid(11.5, 1, 0, away)).toBe(false);
+    expect(trees.solid(12.5, 5, 0, away)).toBe(true);
+    expect(trees.solid(10, 7.2, 0, away)).toBe(true);
+    expect(trees.solid(10, 8, 0, away)).toBe(false);
+    expect(trees.solid(-400, 4, 300, away)).toBe(true);
+    // Far from any, and off the edge of where the trees are filed.
+    expect(trees.solid(100, 4, 100, away)).toBe(false);
+    expect(trees.solid(-9000, 4, 9000, away)).toBe(false);
+  });
+
+  test('a tree the boom starts in is left out, so the camera stays put under a low crown', () => {
+    expect(trees.solid(11, 5, 0, [10, 4, 1])).toBe(false);
+    expect(trees.solid(-400, 4, 300, [10, 4, 1])).toBe(true);
+  });
+
+  test('the boom stops short of a tree behind the walker', () => {
+    const free = freeLength(() => 0, [0, 2.6, 0], [1, 0, 0], 20, trees.solid);
+    expect(free).toBeGreaterThan(9 - 2);
+    expect(free).toBeLessThan(10 - 0.5);
+    expect(freeLength(() => 0, [0, 2.6, 0], [-1, 0, 0], 20, trees.solid)).toBe(20);
+    expect(new TreeObstacles([]).solid(0, 0, 0, away)).toBe(false);
+  });
 });
 
 describe('following', () => {
@@ -169,11 +285,64 @@ describe('following', () => {
     expect(Math.abs(across.aimYaw)).toBeGreaterThan(Math.PI - 0.2);
   });
 
-  test('recentres walking away from the camera, a little sideways, never toward it', () => {
+  test('swings behind after a turn to either side, never round to a walker coming toward it', () => {
     expect(recentreWeight(0, Math.PI)).toBe(1);
-    expect(recentreWeight(Math.PI / 2, Math.PI)).toBeGreaterThan(0);
-    expect(recentreWeight(Math.PI / 2, Math.PI)).toBeLessThan(0.1);
+    expect(recentreWeight(Math.PI / 2, Math.PI)).toBe(1);
+    expect(recentreWeight(-Math.PI / 2, Math.PI)).toBe(1);
+    // Backing off diagonally barely turns it; straight at the camera, not at all.
+    expect(recentreWeight((3 * Math.PI) / 4, Math.PI)).toBeGreaterThan(0);
+    expect(recentreWeight((3 * Math.PI) / 4, Math.PI)).toBeLessThan(0.15);
     expect(recentreWeight(Math.PI, Math.PI)).toBe(0);
+  });
+
+  test('a turn to the side is behind the walker within a second, the same at any frame rate', () => {
+    const ends = [30, 60, 144].map((hz) => {
+      const boom = createBoom(Math.PI); // behind a walker facing +z, who turns to +x
+      for (let i = 0; i < hz; i++) {
+        recentre(boom, Math.PI / 2, 2.2 * recentreWeight(Math.PI / 2, boom.aimYaw), 1 / hz);
+      }
+      return boom.aimYaw;
+    });
+    // Behind a walker facing +x is yaw -π/2: from π, the short way through -π.
+    for (const yaw of ends) expect(Math.abs(yaw + Math.PI / 2)).toBeLessThan(0.2);
+    expect(ends[0]).toBeCloseTo(ends[2]!, 2);
+  });
+
+  test('says how far it turned, so steering can leave that out', () => {
+    const boom = createBoom(3);
+    const turned = recentre(boom, 0, 2, 0.1);
+    expect(turned).toBeCloseTo(boom.aimYaw - 3);
+    expect(turned).toBeGreaterThan(0);
+  });
+
+  test('waits after a look by hand, then eases back in', () => {
+    expect(followStrength(0)).toBe(0);
+    expect(followStrength(0.9)).toBe(0);
+    const ramp = [1.1, 1.3, 1.5].map(followStrength);
+    expect(ramp[0]).toBeGreaterThan(0);
+    expect(ramp[0]).toBeLessThan(ramp[1]!);
+    expect(ramp[1]).toBeLessThan(ramp[2]!);
+    expect(followStrength(5)).toBe(1);
+    expect(followStrength(Infinity)).toBe(1);
+  });
+
+  test('a held key keeps its way while the camera swings round, a new key steers by the camera', () => {
+    const frame = createSteerFrame();
+    // Holding right (D) with the camera at yaw 0.
+    expect(steerYaw(frame, 0, 1, 0)).toBe(0);
+    // Following swings the aim by 0.8: the key still steers by yaw 0.
+    frame.drift += 0.8;
+    expect(steerYaw(frame, 0.8, 1, 0)).toBeCloseTo(0);
+    // A look by hand on top turns the steering with it.
+    expect(steerYaw(frame, 1.1, 1, 0)).toBeCloseTo(0.3);
+    // Adding forward (W) is a new direction: by the camera as it is now.
+    expect(steerYaw(frame, 1.1, 1, 1)).toBeCloseTo(1.1);
+    expect(frame.drift).toBe(0);
+    // A stick drifting a little stays in its frame; letting go forgets it.
+    frame.drift = 0.4;
+    expect(steerYaw(frame, 1.5, 0.9, 1)).toBeCloseTo(1.1);
+    expect(steerYaw(frame, 1.5, 0, 0)).toBe(1.5);
+    expect(frame.input).toBeNaN();
   });
 
   test('the head looks where the camera looks, or back at the camera in front of it', () => {

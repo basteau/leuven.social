@@ -17,26 +17,35 @@ import type { City } from '../data/city.ts';
 import { Router } from '../data/route.ts';
 import { WalkGrid, pickWalkable } from '../data/walkable.ts';
 import { createCharacterMaterial, createXrayMaterial } from './character-material.ts';
+import type { Fade } from './character-material.ts';
 import { CHARACTER_SCALE, applyPose, createCharacter, poseAt, restPose } from './character.ts';
 import type { Character } from './character.ts';
 import {
   CHASE_FOV,
   LOOK_HEIGHT,
   MAP_FOV,
+  SHORT_BOOM,
+  TreeObstacles,
   boomDirection,
+  boomReach,
   chaseFov,
   clearPitch,
   createBoom,
+  createSteerFrame,
   easeBoom,
+  figureOpacity,
   flight,
+  followStrength,
   freeLength,
   headLook,
   mapYaw,
-  reachGoal,
   recentre,
   recentreWeight,
+  settleFloor,
   settleReach,
+  shoulderPitch,
   spanAt,
+  steerYaw,
   stretchBoom,
   turnBoom,
   wheelKind,
@@ -47,6 +56,7 @@ import { linearVertexColors } from './mesh-builder.ts';
 import { clock, decay, spring, springTo, ticks } from './motion.ts';
 import { SKY } from './palette.ts';
 import { passedVertices, routeMarker } from './route-marker.ts';
+import { treeSolid } from './trees.ts';
 import type { RouteMarker } from './route-marker.ts';
 import { STEP, WALK_SPEED, createWalker, followRoute, runBlend, stepWalker } from './walker.ts';
 import type { Walker } from './walker.ts';
@@ -93,14 +103,11 @@ const LOOK_KEY_EASE = 0.08;
 /** A turn button turns the view this far. */
 const TURN_STEP = Math.PI / 4;
 /**
- * After someone last looked around (ms), the camera drifts back behind the walker while it
- * moves: this share of the way per second walking, more at a run or on a route.
+ * While the walker moves, the camera swings round behind its back by this share of the way per
+ * second at a walk, twice that at a run; on a route a little less, as routes turn often.
  */
-const RECENTRE_WAIT_MS = 1500;
-const RECENTRE_RATE = 0.45;
-const ROUTE_RECENTRE_RATE = 1.1;
-/** Whiskers either side of the boom (radians) feel for corners before they cut the view. */
-const WHISKER = 0.15;
+const FOLLOW_RATE = 2.2;
+const ROUTE_FOLLOW_RATE = 1.6;
 /** The thumb stick: how far it reaches (px); pushed to the rim, it runs. */
 const STICK_RADIUS = 52;
 /** Touches that start in this share of the screen, from its left edge, steer. */
@@ -206,6 +213,19 @@ function createSky(): Mesh {
   return sky;
 }
 
+/** The city's trees as the camera meets them (chase.ts), sized as they're drawn (trees.ts). */
+function treeObstacles(city: City): TreeObstacles {
+  const shapes = new Float32Array(city.trees.length * 3);
+  for (let i = 0; i < city.trees.length / 2; i++) {
+    const { trunk, crownY, crownWide, crownTall } = treeSolid(i, city.treeHeights[i] ?? 0);
+    shapes.set(
+      [city.trees[i * 2]!, city.trees[i * 2 + 1]!, trunk, crownY, crownWide, crownTall],
+      i * 6,
+    );
+  }
+  return new TreeObstacles(shapes);
+}
+
 export function createWalk(host: WalkHost): Walk {
   const { scene, camera, controls, canvas, reducedMotion } = host;
   let mode: WalkMode = 'map';
@@ -217,9 +237,13 @@ export function createWalk(host: WalkHost): Walk {
   const walkable = (x: number, z: number, dx: number, dz: number) =>
     grid!.walkable(x, z, BODY_RADIUS, dx, dz);
   const heightAt = (x: number, z: number) => grid!.buildingHeight(x, z);
+  // The camera keeps out of trees too: their trunks and crowns, filed once with the grid.
+  let trees: TreeObstacles | undefined;
+  const inTree = (x: number, y: number, z: number, from: Vec3) => trees!.solid(x, y, z, from);
   const ensureGrid = () => {
     grid ??= new WalkGrid(host.city);
     router ??= new Router(grid);
+    trees ??= treeObstacles(host.city);
     return grid;
   };
 
@@ -229,8 +253,9 @@ export function createWalk(host: WalkHost): Walk {
   scene.add(sky);
 
   let character: Character | undefined;
-  const body = createCharacterMaterial(host.gradientMap);
-  const xray = createXrayMaterial();
+  const fade: Fade = { value: 1 };
+  const body = createCharacterMaterial(host.gradientMap, fade);
+  const xray = createXrayMaterial(fade);
   // The route hint is drawn half see-through, so it reads as chalk on the street, not paint.
   const hint = new Mesh(
     undefined,
@@ -256,7 +281,10 @@ export function createWalk(host: WalkHost): Walk {
   const boom: Boom = createBoom(0);
   const lookAt: Vec3 = [0, 0, 0];
   const out: Vec3 = [0, 0, 0];
-  const whisker: Vec3 = [0, 0, 0];
+  /** How far the boom reaches at a pitch, as far as a tight spot needs to know. */
+  const freeAt = (pitch: number) =>
+    boomReach(heightAt, lookAt, boom.yaw, pitch, SHORT_BOOM, inTree);
+  const steerFrame = createSteerFrame();
   const followX = spring();
   const followZ = spring();
   /** How far into a run the walker is, for the lens: 0 walking, 1 flat out. */
@@ -314,6 +342,7 @@ export function createWalk(host: WalkHost): Walk {
     moving = true;
     sprint = 0;
     Object.assign(boom, createBoom(yaw));
+    Object.assign(steerFrame, createSteerFrame());
     Object.assign(followX, spring(x));
     Object.assign(followZ, spring(z));
     if (!character) {
@@ -582,11 +611,14 @@ export function createWalk(host: WalkHost): Walk {
     if (walker && character) {
       if (mode === 'walk') {
         // Keys and the stick steer relative to the screen: up is away from the camera.
-        const steering = stick.right !== 0 || stick.up !== 0;
-        const right = steering ? stick.right : keyRight;
-        const up = steering ? stick.up : keyUp;
-        const fx = -Math.sin(boom.yaw);
-        const fz = -Math.cos(boom.yaw);
+        const sticking = stick.right !== 0 || stick.up !== 0;
+        const right = sticking ? stick.right : keyRight;
+        const up = sticking ? stick.up : keyUp;
+        // Steered by the camera as it was when the input last changed, give or take looks by
+        // hand: the camera swinging round behind doesn't turn a held key's way with it.
+        const yaw = steerYaw(steerFrame, boom.aimYaw, right, up);
+        const fx = -Math.sin(yaw);
+        const fz = -Math.cos(yaw);
         const sx = -fz * right + fx * up;
         const sz = fx * right + fz * up;
         for (let n = ticks(sim, elapsed); n > 0; n--) {
@@ -617,13 +649,17 @@ export function createWalk(host: WalkHost): Walk {
           busy = true;
           lastLook = now;
         }
-        // On the move, the camera drifts back round behind unless someone is looking about.
-        if (now - lastLook > RECENTRE_WAIT_MS && walker.speed > 0.1 && !reducedMotion) {
+        // On the move, the camera comes round behind the walker's back, unless someone has
+        // just looked about: then it waits a moment and eases back in.
+        const follow = followStrength((now - lastLook) / 1000);
+        if (follow > 0 && walker.speed > 0.1 && !reducedMotion) {
           const pace = Math.min(1, walker.speed / WALK_SPEED) * (1 + runBlend(walker.speed));
           const rate = walker.route
-            ? ROUTE_RECENTRE_RATE
-            : RECENTRE_RATE * recentreWeight(walker.heading, boom.aimYaw);
-          recentre(boom, walker.heading, rate * pace, dt);
+            ? ROUTE_FOLLOW_RATE
+            : FOLLOW_RATE * recentreWeight(walker.heading, boom.aimYaw);
+          steerFrame.drift = wrap(
+            steerFrame.drift + recentre(boom, walker.heading, rate * pace * follow, dt),
+          );
         }
       } else {
         [prevX, prevZ, prevHeading, prevPhase] = [walker.x, walker.z, walker.heading, walker.phase];
@@ -670,25 +706,17 @@ export function createWalk(host: WalkHost): Walk {
       const easing = easeBoom(boom, sprint, dt);
       busy ||= easing;
 
-      // The boom shortens for walls: quickly, and before a corner cuts the view if it can.
-      boomDirection(boom.yaw, boom.pitch, out);
-      const free = freeLength(heightAt, lookAt, out, boom.length);
-      const left = freeLength(
-        heightAt,
-        lookAt,
-        boomDirection(boom.yaw - WHISKER, boom.pitch, whisker),
-        boom.length,
-      );
-      const right = freeLength(
-        heightAt,
-        lookAt,
-        boomDirection(boom.yaw + WHISKER, boom.pitch, whisker),
-        boom.length,
-      );
-      const want = reachGoal(free, left, right);
+      // In a tight spot the boom rises to look over the walker's shoulder rather than close in
+      // on its head; then it shortens for walls and trees: quickly, before a corner cuts the view.
+      const rise = shoulderPitch(freeAt, boom.pitch);
+      boom.floor = reducedMotion ? rise : settleFloor(boom.floor, rise, dt);
+      busy ||= Math.abs(boom.floor - rise) > 1e-3;
+      const pitch = Math.max(boom.pitch, boom.floor);
+      const want = boomReach(heightAt, lookAt, boom.yaw, pitch, boom.length, inTree);
+      boomDirection(boom.yaw, pitch, out);
       const r = boom.reach;
-      const inside =
-        lookAt[1] + out[1] * r < heightAt(lookAt[0] + out[0] * r, lookAt[2] + out[2] * r) + 0.2;
+      const [cx, cy, cz] = [lookAt[0] + out[0] * r, lookAt[1] + out[1] * r, lookAt[2] + out[2] * r];
+      const inside = cy < heightAt(cx, cz) + 0.2 || inTree(cx, cy, cz, lookAt);
       boom.reach = reducedMotion ? want : settleReach(r, want, dt, inside);
       busy ||= Math.abs(boom.reach - want) > 0.01;
       controls.target.set(walker.x, 0, walker.z);
@@ -703,6 +731,9 @@ export function createWalk(host: WalkHost): Walk {
         }
       }
       placeView(dt);
+      // A camera squeezed up against the walker sees through it rather than into its head.
+      const eye = view.position;
+      fade.value = flying ? 1 : figureOpacity(eye.x - x, eye.y - GROUND_Y, eye.z - z);
       if (flying === -1 && flown === 0) land();
     }
 
@@ -715,7 +746,7 @@ export function createWalk(host: WalkHost): Walk {
   function placeView(dt = 0): void {
     const fov = chaseFov(canvas.clientWidth / Math.max(1, canvas.clientHeight), sprint);
     chaseShot.yaw = boom.yaw;
-    chaseShot.pitch = boom.pitch;
+    chaseShot.pitch = Math.max(boom.pitch, boom.floor);
     chaseShot.fov = fov;
     chaseShot.span = spanAt(boom.reach, fov);
     flight(mapShot, chaseShot, flown, lens);

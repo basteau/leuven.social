@@ -39,12 +39,13 @@ import {
   depthRange,
   fitShadow,
   lightFrame,
+  shadowBias,
   shadowCovers,
   shadowNeeds,
   shadowPoint,
 } from './shadow-fit.ts';
 import type { ShadowSquare } from './shadow-fit.ts';
-import { applyFourTapShadows } from './shadow-filter.ts';
+import { applyShadowChunks } from './shadow-filter.ts';
 import { terraceParasols } from './terraces.ts';
 import type { Walk, WalkMode } from './walk.ts';
 
@@ -201,8 +202,9 @@ export function createViewer(options: ViewerOptions): Viewer {
   const renderer = new WebGLRenderer({ canvas, alpha: true, antialias: density < 1.5 });
   renderer.setClearColor(0x000000, 0);
   renderer.shadowMap.enabled = true;
-  // Hard shadows, each texel's edge smoothed by one hardware-filtered tap (shadow-filter.ts).
-  applyFourTapShadows();
+  // Hard shadows with a soft rim, each lookup lifted off its surface on the sun's side
+  // (shadow-filter.ts).
+  applyShadowChunks();
   renderer.shadowMap.type = PCFShadowMap;
   // The city is static, so shadows render once instead of every frame.
   renderer.shadowMap.autoUpdate = false;
@@ -281,8 +283,6 @@ export function createViewer(options: ViewerOptions): Viewer {
   const light = lightFrame(SUN_DIRECTION);
   sun.castShadow = true;
   sun.shadow.mapSize.set(SHADOW_MAP, SHADOW_MAP);
-  sun.shadow.bias = -0.0004;
-  sun.shadow.normalBias = 0.6;
   sun.shadow.camera.layers.mask = SHADOW_LAYER;
   scene.add(sun, sun.target);
   // The shadow camera's depth spans the whole area, from the slab's underside to the rooftops.
@@ -451,6 +451,8 @@ export function createViewer(options: ViewerOptions): Viewer {
       far: farthest - nearest + 20,
     });
     sun.shadow.camera.updateProjectionMatrix();
+    // Biases in texels of this square, so a finer one doesn't lift a bench's shadow away.
+    Object.assign(sun.shadow, shadowBias(shadow, SHADOW_MAP, farthest - nearest + 19));
     // The shadow camera's own frustum decides what casts into the square.
     sun.updateMatrixWorld();
     sun.target.updateMatrixWorld();
