@@ -217,7 +217,16 @@ export function createWalk(host: WalkHost): Walk {
   let character: Character | undefined;
   const body = createCharacterMaterial(host.gradientMap);
   const xray = createXrayMaterial();
-  const hint = new Mesh(undefined, new MeshBasicMaterial({ vertexColors: true }));
+  // The route hint is drawn half see-through, so it reads as chalk on the street, not paint.
+  const hint = new Mesh(
+    undefined,
+    new MeshBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.5,
+      depthWrite: false,
+    }),
+  );
   hint.frustumCulled = false;
   hint.visible = false;
   let marker: RouteMarker | undefined;

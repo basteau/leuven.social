@@ -140,7 +140,7 @@ Tokens are oklch, in `src/app/app.css`:
 - The map is one focusable widget (`role="application"`, focused on load without a ring).
 - Arrow keys pan, `+`/`-` zoom, Q/E turn, R resets, W starts a walk.
 - Picking a start: Enter starts in the middle of the view, Escape cancels.
-- Walking: W A S D or the arrow keys walk relative to the screen, Shift runs, holding Q/E turns the view, `+`/`-` bring the camera closer or further, Escape returns to the map. Clicking or tapping a street walks there along a route. On the move the camera drifts back behind the walker a moment after the last look around.
+- Walking: W A S D or the arrow keys walk relative to the screen, Shift runs, holding Q/E turns the view, `+`/`-` bring the camera closer or further, Escape returns to the map. Clicking or tapping a street walks there along a route, shown as a quiet trail of small dots that shrink toward a thin ring. On the move the camera drifts back behind the walker a moment after the last look around.
 - Shortcuts only act while focus is inside the app.
 
 ## Motion

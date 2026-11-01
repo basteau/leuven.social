@@ -189,7 +189,7 @@ export const WALKER = {
 } as const;
 
 /** The route hint: pale dots and a target, ringed in ink like the HUD. */
-export const ROUTE = { fill: 0xfaf3e3, ink: 0x2b2420 } as const;
+export const ROUTE = 0x4a3c33;
 
 /** Window glass, and the few windows that catch the low sun. */
 export const WINDOW = { glass: 0x2f3a4a, lit: 0xf3c873 } as const;

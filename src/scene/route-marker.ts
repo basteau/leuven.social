@@ -4,20 +4,28 @@ import { MeshBuilder } from './mesh-builder.ts';
 import { ROUTE } from './palette.ts';
 
 /**
- * The hint for a walk to a picked spot: small inked dots along the way and a target square
- * where it ends, flat on the ground just above the squares. One unlit draw call; dots behind
- * the walker drop off by moving the geometry's draw range, so walking never rebuilds it.
+ * The hint for a walk to a picked spot: a quiet trail of small round dots along the way,
+ * shrinking toward the end, and a thin ring where it ends, flat on the ground just above the
+ * squares. One unlit, half see-through draw call; dots behind the walker drop off by moving
+ * the geometry's draw range, so walking never rebuilds it.
  */
 
-const SPACING = 2.2;
+const SPACING = 1.8;
 /** Room left free around the walker at the start and the target at the end (m). */
 const LEAD = 1.4;
-const DOT = 0.5;
-const DOT_INK = 0.9;
+/** Dot radius at the start of the trail, and at its end (m). */
+const DOT_START = 0.17;
+const DOT_END = 0.09;
+/** The ring around the target: outer and inner radius, and its centre dot (m). */
+const RING = [0.75, 0.62] as const;
+const CENTRE = 0.13;
 const Y = 0.23;
 const UP = [0, 1, 0] as const;
-/** Vertices per dot: an ink square under a pale one, two triangles each. */
-export const DOT_VERTICES = 12;
+/** Sides of a dot, and of the ring. */
+const DOT_SIDES = 6;
+const RING_SIDES = 16;
+/** Vertices per dot: a hexagon, four triangles. */
+export const DOT_VERTICES = (DOT_SIDES - 2) * 3;
 
 export interface RouteMarker {
   geometry: BufferGeometry;
@@ -25,9 +33,31 @@ export interface RouteMarker {
   dots: Float32Array;
 }
 
-function square(mesh: MeshBuilder, x: number, z: number, size: number, y: number, color: number) {
-  const h = size / 2;
-  mesh.quad([x - h, y, z - h], [x + h, y, z - h], [x + h, y, z + h], [x - h, y, z + h], color, UP);
+const corner = (x: number, z: number, r: number, i: number, sides: number) =>
+  [
+    x + Math.cos((i * Math.PI * 2) / sides) * r,
+    Y,
+    z + Math.sin((i * Math.PI * 2) / sides) * r,
+  ] as const;
+
+function disc(mesh: MeshBuilder, x: number, z: number, r: number, sides: number): void {
+  for (let i = 1; i < sides - 1; i++) {
+    const [a, b, c] = [
+      corner(x, z, r, 0, sides),
+      corner(x, z, r, i, sides),
+      corner(x, z, r, i + 1, sides),
+    ];
+    mesh.triangle(a, b, c, ROUTE, UP);
+  }
+}
+
+function ring(mesh: MeshBuilder, x: number, z: number): void {
+  const [outer, inner] = RING;
+  for (let i = 0; i < RING_SIDES; i++) {
+    const [a, b] = [corner(x, z, outer, i, RING_SIDES), corner(x, z, outer, i + 1, RING_SIDES)];
+    const [c, d] = [corner(x, z, inner, i + 1, RING_SIDES), corner(x, z, inner, i, RING_SIDES)];
+    mesh.quad(a, b, c, d, ROUTE, UP);
+  }
 }
 
 export function routeMarker(route: Float32Array): RouteMarker {
@@ -44,17 +74,15 @@ export function routeMarker(route: Float32Array): RouteMarker {
     const length = Math.hypot(bx - ax, bz - az);
     for (; next <= walked + length && next <= total - LEAD; next += SPACING) {
       const t = (next - walked) / length;
-      const [x, z] = [ax + (bx - ax) * t, az + (bz - az) * t];
-      square(mesh, x, z, DOT_INK, Y, ROUTE.ink);
-      square(mesh, x, z, DOT, Y + 0.01, ROUTE.fill);
+      const r = DOT_START + (DOT_END - DOT_START) * (next / total);
+      disc(mesh, ax + (bx - ax) * t, az + (bz - az) * t, r, DOT_SIDES);
       dots.push(next);
     }
     walked += length;
   }
   const [x, z] = [route.at(-2)!, route.at(-1)!];
-  square(mesh, x, z, 2.4, Y, ROUTE.ink);
-  square(mesh, x, z, 1.8, Y + 0.01, ROUTE.fill);
-  square(mesh, x, z, 0.8, Y + 0.02, ROUTE.ink);
+  ring(mesh, x, z);
+  disc(mesh, x, z, CENTRE, DOT_SIDES);
   return { geometry: mesh.build(), dots: Float32Array.from(dots) };
 }
 
