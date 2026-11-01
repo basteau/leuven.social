@@ -156,6 +156,9 @@ export function createViewer(options: ViewerOptions): Viewer {
     const shape = new BufferGeometry();
     shape.setAttribute('position', surfaces.geometry.getAttribute('position'));
     shape.setDrawRange(shadowFrom, Infinity);
+    // Its bounds are its cell's: computing them would need the array the upload let go of.
+    shape.boundingBox = surfaces.geometry.boundingBox;
+    shape.boundingSphere = surfaces.geometry.boundingSphere;
     const casters = new Mesh(shape, material);
     casters.castShadow = true;
     casters.layers.mask = SHADOW_LAYER;
@@ -472,10 +475,17 @@ export function createViewer(options: ViewerOptions): Viewer {
   }
   watchDensity();
 
-  // After a lost-and-restored GPU context (backgrounded phone tabs), redraw shadows and frame.
+  // After a lost-and-restored GPU context (backgrounded phone tabs), the cells' buffers are gone
+  // from the GPU, and their arrays were let go after upload: build them again, as on load.
   const onRestored = () => {
+    for (const entry of cells) {
+      scene.remove(...entry.objects);
+      entry.objects = [];
+    }
+    shadow = undefined;
     renderer.shadowMap.needsUpdate = true;
     invalidate();
+    if (!idleHandle) idleHandle = idle(buildInBackground);
   };
   canvas.addEventListener('webglcontextrestored', onRestored);
 

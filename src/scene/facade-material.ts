@@ -1,6 +1,7 @@
 import { Color, MeshToonMaterial } from 'three';
 import type { Texture } from 'three';
 
+import { linearVertexColors } from './mesh-builder.ts';
 import { WINDOW } from './palette.ts';
 
 /**
@@ -16,7 +17,7 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uGlass = { value: glass };
     shader.uniforms.uLit = { value: lit };
-    shader.vertexShader = shader.vertexShader
+    shader.vertexShader = linearVertexColors(shader.vertexShader)
       .replace(
         '#include <common>',
         `#include <common>
