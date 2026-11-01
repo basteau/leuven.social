@@ -36,7 +36,14 @@ import {
 import { toLocal } from '../src/data/projection.ts';
 import { elementCentre, findElement, labelName } from '../src/data/labels.ts';
 import type { OsmElement } from '../src/data/labels.ts';
-import { EdgeIndex, RingIndex, placeProps } from '../src/data/props.ts';
+import {
+  EdgeIndex,
+  RingIndex,
+  Shapes,
+  discInFootprint,
+  placeProps,
+  propFootprint,
+} from '../src/data/props.ts';
 import { carriagewayKind, crossingMarking } from '../src/data/roads.ts';
 import type { RoadRole } from '../src/data/roads.ts';
 import { correctRoofColours } from '../src/data/roof-colours.ts';
@@ -44,7 +51,7 @@ import { capShedsUnderTrees } from '../src/data/sheds.ts';
 import { isShopFront, markShopFronts } from '../src/data/shops.ts';
 import { bridgeParapets, tankOutline } from '../src/data/structures.ts';
 import { SOURCES } from '../src/data/sources.ts';
-import { mergeTrees } from '../src/data/trees.ts';
+import { clearCrowns, mergeTrees, trunkRadius } from '../src/data/trees.ts';
 import { DATA } from './data-files.ts';
 
 const OUT = new URL('../public/data/city.bin', import.meta.url).pathname;
@@ -300,7 +307,7 @@ const markings: Marking[] = [
   }),
 ];
 
-const trees = mergeTrees(
+const allTrees = mergeTrees(
   osmTrees,
   crowns.trees.filter(([x, z]) => areaIndex(AREA, x, z) >= 0 && !underRoof(x, z)),
 );
@@ -333,12 +340,6 @@ const pathLength = (list: Path[]) =>
     return sum;
   }, 0);
 
-// Street furniture faces the nearest kerb, path or wall, and never stands in a house or the river.
-const edges = new EdgeIndex();
-for (const ring of [...roads, ...plazas, ...buildings.map((b) => b.ring)]) edges.add(ring);
-for (const p of paths) edges.add(p.line, false);
-const blocked = new RingIndex();
-for (const ring of [...water, ...buildings.map((b) => b.ring)]) blocked.add(ring);
 const river = new RingIndex();
 for (const ring of water) river.add(ring);
 // Tanks lower than this were built after the 2013–15 LiDAR, or are buried: leave them out.
@@ -354,6 +355,60 @@ const parapets = knw.structures
   .flatMap((s) => bridgeParapets(normalizeRing(s.ring.flat()), river))
   .flatMap((line) => AREA.flatMap((rect) => clipLine(line, rect)))
   .map((line) => new Float32Array(line));
+
+// Street furniture by rule (src/data/props.ts): turned to its kerb, kept off walls, water, tanks,
+// trunks and each other, and off the carriageway unless mapped there.
+const kerbs = new Shapes();
+for (const { role, ring } of zones.faces) {
+  if (role === 'pedestrian') continue;
+  for (const r of clipRingToArea(normalizeRing(ring.flat()), AREA))
+    if (r.length >= 6) kerbs.ring(r);
+}
+const solid = new Shapes();
+for (const ring of [...buildings.map((b) => b.ring), ...tanks.map((t) => t.ring)]) solid.ring(ring);
+const pools = new Shapes();
+for (const ring of water) pools.ring(ring);
+for (const line of parapets) solid.line(line);
+const edges = new EdgeIndex();
+for (const ring of [...roads, ...plazas, ...buildings.map((b) => b.ring)]) edges.add(ring);
+for (const p of paths) edges.add(p.line, false);
+const squares = new RingIndex();
+for (const ring of plazas) squares.add(ring);
+const mappedTrees = osmTrees.length / 2;
+const STRIP = 50; // sorted in strips, so neighbours are near each other and deltas stay small
+const placed = placeProps(
+  osmPoints.features.flatMap((f) => {
+    const [x, z] = toLocal(...(f.geometry.coordinates as [number, number]));
+    return areaIndex(AREA, x, z) >= 0 ? [{ x, z, tags: f.properties }] : [];
+  }),
+  {
+    roads: kerbs,
+    solid,
+    water: pools,
+    edges,
+    squares,
+    trunks: allTrees.heights
+      .slice(0, mappedTrees)
+      .map((h, i) => [allTrees.positions[i * 2]!, allTrees.positions[i * 2 + 1]!, trunkRadius(h)]),
+  },
+);
+const props = placed.props.toSorted(
+  (a, b) => Math.floor(a.z / STRIP) - Math.floor(b.z / STRIP) || a.x - b.x,
+);
+// LiDAR crowns give way to mapped furniture: the Totem's needle is no tree.
+const near = Map.groupBy(
+  props.map(propFootprint),
+  (f) => `${Math.round(f.x / 16)},${Math.round(f.z / 16)}`,
+);
+const trees = clearCrowns(allTrees, mappedTrees, (x, z, r) =>
+  [-1, 0, 1].some((i) =>
+    [-1, 0, 1].some((j) =>
+      (near.get(`${Math.round(x / 16) + i},${Math.round(z / 16) + j}`) ?? []).some((f) =>
+        discInFootprint(f, x, z, r),
+      ),
+    ),
+  ),
+);
 
 // Labels: names and places read from the OSM element (or GRB footprint) each one refers to,
 // in every Overpass download of the manifest.
@@ -380,16 +435,6 @@ const labels = LANDMARKS.map((ref) => {
   const [x, z] = toLocal(...centre);
   return { name, x, z, minZoom };
 });
-
-const STRIP = 50; // sorted in strips, so neighbours are near each other and deltas stay small
-const props = placeProps(
-  osmPoints.features.flatMap((f) => {
-    const [x, z] = toLocal(...(f.geometry.coordinates as [number, number]));
-    return areaIndex(AREA, x, z) >= 0 ? [{ x, z, tags: f.properties }] : [];
-  }),
-  edges,
-  blocked,
-).toSorted((a, b) => Math.floor(a.z / STRIP) - Math.floor(b.z / STRIP) || a.x - b.x);
 
 const city: City = {
   area: [...AREA],
@@ -447,7 +492,9 @@ console.log(
     `trees ${trees.heights.length} (${osmTrees.length / 2} mapped), labels ${city.labels.length}`,
     `sheds under trees capped ${shedsCapped}, shop fronts ${shopFronts} (${buildings.filter((b) => b.kind === 'retail').length} retail)`,
     `roofs ${buildings.filter((b) => b.roof === 'flat').length} flat, ${buildings.filter((b) => b.roofColor !== null).length} with a sampled colour, ${buildings.filter((b) => b.holes.length).length} with courtyards`,
-    `props ${props.length}: ${Object.entries(Object.groupBy(props, (p) => p.kind))
+    `props ${props.length} (${placed.nudged} nudged, ${placed.dropped} dropped, ${allTrees.heights.length - trees.heights.length} crowns cleared): ${Object.entries(
+      Object.groupBy(props, (p) => p.kind),
+    )
       .map(([kind, list]) => `${list!.length} ${kind}`)
       .join(', ')}`,
     `tanks ${tanks.length}, bridge parapets ${parapets.length}`,

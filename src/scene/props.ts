@@ -1,23 +1,19 @@
 import type { Prop, PropKind } from '../data/city.ts';
+import { BIKE_SHIFT, ROW_GAP, STAND_SPACING, propScale, rackRows } from '../data/props.ts';
 import { GROUND, BIKES, PROPS, pick } from './palette.ts';
 import type { MeshBuilder, V3 } from './mesh-builder.ts';
 
 /**
  * Low-poly street furniture, a few boxes and panels each, written into a cell's props mesh.
- * Models are true to life, then drawn a third larger, as a diorama does: at life size a lamp
- * post or a bike is a pixel or two even zoomed in. Each prop stands in its own frame: v along
- * its facing (towards the nearest kerb, path or wall), u across it.
+ * Models are true to life, then drawn a third larger (`propScale`), as a diorama does: at life
+ * size a lamp post or a bike is a pixel or two even zoomed in. Each prop stands in its own frame:
+ * v along its facing (see `placeProps`), u across it, within the footprint the bake keeps clear.
  */
 
 /** Props that stay in view at every zoom, in the cell's main mesh; the rest hide when far. */
 export const LARGE_PROPS: ReadonlySet<PropKind> = new Set(['needle']);
-/** How much larger than life small props are drawn. */
-export const PROP_SCALE = 1.3;
 /** Share of a rack's stands that hold a bike. Leuven's racks are rarely empty. */
 const OCCUPANCY = 0.8;
-/** Stands per row; bigger racks get a second row, back to back. */
-const ROW = 12;
-const STAND_SPACING = 0.7;
 
 interface Frame {
   x: number;
@@ -143,17 +139,16 @@ function addBike(mesh: MeshBuilder, f: Frame, u: number, v: number, color: numbe
 }
 
 function addBikes(mesh: MeshBuilder, f: Frame, stands: number, seed: number): void {
-  const rows = stands > ROW ? 2 : 1;
-  const perRow = Math.ceil(stands / rows);
+  const { rows, perRow } = rackRows(stands);
   for (let row = 0; row < rows; row++) {
     // A second row stands behind the first, away from the kerb.
-    const v = rows === 1 ? 0 : row === 0 ? 0.9 : -0.9;
+    const v = rows === 1 ? 0 : row === 0 ? ROW_GAP : -ROW_GAP;
     for (let i = 0; i < perRow; i++) {
       const slot = row * perRow + i;
       if (hash(seed, slot) > OCCUPANCY) continue;
       const u = (i - (perRow - 1) / 2) * STAND_SPACING;
       // Bikes are never parked quite straight.
-      const shift = (hash(seed + 1, slot) - 0.5) * 0.3;
+      const shift = (hash(seed + 1, slot) - 0.5) * 2 * BIKE_SHIFT;
       addBike(mesh, f, u, v + shift, pick(BIKES, seed * 31 + slot));
     }
   }
@@ -209,7 +204,8 @@ const MODELS: Record<PropKind, (mesh: MeshBuilder, f: Frame, p: Prop, seed: numb
   },
   busstop(mesh, f) {
     box(mesh, f, [-0.07, 0.07], [-0.07, 0.07], [0, 2.6], PROPS.iron, false);
-    box(mesh, f, [-0.28, 0.28], [-0.05, 0.05], [2.15, 2.75], PROPS.sign);
+    // The sign stands across the kerb, so a bus coming either way sees it.
+    box(mesh, f, [-0.05, 0.05], [-0.28, 0.28], [2.15, 2.75], PROPS.sign);
   },
   statue(mesh, f, p) {
     // A tagged height is drawn true; untagged statues are a typical one, drawn large.
@@ -271,7 +267,12 @@ const MODELS: Record<PropKind, (mesh: MeshBuilder, f: Frame, p: Prop, seed: numb
 
 /** One prop, in its own frame, written into `mesh`. */
 export function addProp(mesh: MeshBuilder, p: Prop): void {
-  const scale = LARGE_PROPS.has(p.kind) ? 1 : PROP_SCALE;
-  const f = { x: p.x, z: p.z, fx: Math.cos(p.angle), fz: Math.sin(p.angle), scale };
+  const f = {
+    x: p.x,
+    z: p.z,
+    fx: Math.cos(p.angle),
+    fz: Math.sin(p.angle),
+    scale: propScale(p.kind),
+  };
   MODELS[p.kind](mesh, f, p, Math.round(p.x * 7) ^ Math.round(p.z * 13));
 }
