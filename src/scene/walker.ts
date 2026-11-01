@@ -10,13 +10,13 @@ import type { Spring } from './motion.ts';
  */
 
 /** Walking and running pace (m/s), for a figure a little larger than life. */
-export const WALK_SPEED = 2.3;
-export const RUN_SPEED = 6.2;
+export const WALK_SPEED = 2.8;
+export const RUN_SPEED = 7.5;
 /** The simulation step (s): steps are this long whatever the frame rate. */
 export const STEP = 1 / 120;
 /** Metres covered by one full gait cycle (two steps) walking, and running flat out. */
-const STRIDE_WALK = 1.9;
-const STRIDE_RUN = 3.6;
+const STRIDE_WALK = 2.2;
+const STRIDE_RUN = 4.2;
 /** Seconds the idle animation plays after stopping, before the scene can rest. */
 export const IDLE_SECONDS = 4;
 /** Half-lives (s) of the speed easing up, and down. */
