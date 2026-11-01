@@ -1,5 +1,4 @@
 import {
-  BasicShadowMap,
   Box3,
   DataTexture,
   DirectionalLight,
@@ -12,6 +11,7 @@ import {
   Mesh,
   NearestFilter,
   OrthographicCamera,
+  PCFShadowMap,
   RedFormat,
   Scene,
   Vector2,
@@ -42,6 +42,7 @@ import {
   shadowPoint,
 } from './shadow-fit.ts';
 import type { ShadowSquare } from './shadow-fit.ts';
+import { applyOneTapShadows } from './shadow-filter.ts';
 import { terraceParasols } from './terraces.ts';
 import type { Walk, WalkMode } from './walk.ts';
 
@@ -167,7 +168,9 @@ export function createViewer(options: ViewerOptions): Viewer {
   const renderer = new WebGLRenderer({ canvas, alpha: true, antialias: density < 1.5 });
   renderer.setClearColor(0x000000, 0);
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = BasicShadowMap;
+  // Hard shadows, each texel's edge smoothed by one hardware-filtered tap (shadow-filter.ts).
+  applyOneTapShadows();
+  renderer.shadowMap.type = PCFShadowMap;
   // The city is static, so shadows render once instead of every frame.
   renderer.shadowMap.autoUpdate = false;
 
