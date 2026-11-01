@@ -3,9 +3,13 @@
 :root {
   color-scheme: light;
   --ink: oklch(26% 0.02 50);
-  --paper: oklch(97% 0.015 85);
-  --paper-press: color-mix(in oklch, var(--paper), var(--ink) 9%);
+  --paper: oklch(97.5% 0.014 85);
+  --paper-press: color-mix(in oklch, var(--paper), var(--ink) 10%);
   --accent: oklch(47% 0.12 252);
+  /* Deeper shades keep the accent's hue: mixing in the warm ink would turn the blue purple. */
+  --accent-press: oklch(40% 0.11 252);
+  /* The street plate: the accent a shade deeper, so it reads as a sign, not a button. */
+  --sign: oklch(43% 0.115 252);
   --sky-top: oklch(83% 0.06 235);
   --sky-horizon: oklch(93% 0.05 75);
 
@@ -13,9 +17,17 @@
   --space-s: 0.5rem;
   --space-m: 0.75rem;
   --space-l: 1rem;
-  --radius: 8px;
+  --gutter: clamp(0.75rem, 2.5vw, 1.25rem);
+  --control: 44px;
+  --control-big: 60px;
+  --radius: 14px;
+  /* Inside a panel, 2px in from its 2px border: concentric with it. */
+  --radius-inner: calc(var(--radius) - 4px);
   --border: 2px;
-  --shadow-hard: 0 3px 0 var(--ink);
+  /* Pressing sinks a control into its shadow: hard, inked, no blur. */
+  --lift: 3px;
+  --shadow-hard: 0 var(--lift) 0 var(--ink);
+  --shadow-pressed: 0 1px 0 var(--ink);
   --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
   --font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
@@ -80,12 +92,21 @@ button {
   outline-offset: 2px;
 }
 
+kbd {
+  padding-inline: 0.3em;
+  border: 1px solid currentColor;
+  border-block-end-width: 2px;
+  border-radius: 4px;
+  font: 600 0.6875rem / 1.4 var(--font-mono);
+}
+
 /* App shell: the map fills the dynamic viewport; HUD panels float over it. */
 .app {
   position: fixed;
   inset: 0;
   block-size: 100dvh;
   overflow: clip;
+  container-type: inline-size;
   background: linear-gradient(var(--sky-top), var(--sky-horizon) 70%);
 }
 
@@ -107,84 +128,125 @@ button {
   touch-action: none;
 }
 
-.label-layer {
+.overlay {
   position: absolute;
   inset: 0;
   overflow: clip;
   pointer-events: none;
 }
 
-.map-label {
-  /* A short ink tick points from the tag down to what it names. */
-  --tick: 8px;
-  position: absolute;
-  inset-block-start: 0;
-  inset-inline-start: 0;
-  translate: -50% calc(-100% - var(--tick));
-  padding-inline: var(--space-s);
-  border: var(--border) solid var(--ink);
-  border-radius: 4px;
-  background: var(--paper);
-  font-size: 0.75rem;
-  font-weight: 700;
-  line-height: 1.6;
-  white-space: nowrap;
-  box-shadow: 0 2px 0 var(--ink);
-}
-
-.map-label::after {
-  position: absolute;
-  inset-block-start: 100%;
-  inset-inline-start: 50%;
-  inline-size: var(--border);
-  block-size: var(--tick);
-  translate: -50% 0;
-  background: var(--ink);
-  content: '';
-}
-
+/* The HUD takes no pointer events itself: only its controls do, the rest stays draggable map. */
 .hud {
   position: absolute;
   inset-inline: 0;
-  display: flex;
   gap: var(--space-s);
-  padding-inline: max(var(--space-l), env(safe-area-inset-left, 0px))
-    max(var(--space-l), env(safe-area-inset-right, 0px));
+  padding-inline: max(var(--gutter), env(safe-area-inset-left, 0px))
+    max(var(--gutter), env(safe-area-inset-right, 0px));
   pointer-events: none;
 }
 
-.hud-top {
-  container-type: inline-size;
-  inset-block-start: 0;
-  padding-block-start: calc(var(--space-l) + env(safe-area-inset-top, 0px));
-}
-
-.hud-bottom {
-  container-type: inline-size;
-  inset-block-end: 0;
-  flex-direction: column;
-  align-items: center;
-  padding-block-end: calc(var(--space-m) + env(safe-area-inset-bottom, 0px));
-}
-
-.panel {
+.panel,
+.action,
+.round,
+.stack {
   pointer-events: auto;
   border: var(--border) solid var(--ink);
-  border-radius: var(--radius);
   background: var(--paper);
   box-shadow: var(--shadow-hard);
 }
 
+.panel {
+  border-radius: var(--radius);
+}
+
+/* Top: the corner (who we are, or the way back and the street) and the credits. */
+.hud-top {
+  inset-block-start: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding-block-start: calc(var(--gutter) + env(safe-area-inset-top, 0px));
+}
+
+/*
+ * Walking, the corner is one panel: the Map button and the street plate inside it, 2px in from
+ * its border, with concentric corners, as tall as the actions (48px).
+ */
+.corner {
+  display: flex;
+  align-items: stretch;
+}
+
+.corner.panel {
+  padding: 2px;
+}
+
 .brand {
-  padding-block: var(--space-s);
-  padding-inline: var(--space-m);
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  min-block-size: var(--control);
+  padding-inline: var(--space-m) var(--space-l);
+  border-radius: 999px;
 }
 
 .brand h1 {
   margin: 0;
-  font-size: 1.25rem;
-  line-height: 1.1;
+  font-size: 1.125rem;
+  font-weight: 800;
+  line-height: 1;
   letter-spacing: -0.01em;
+}
+
+/* Bottom: the map controls in a rail at the end edge, the mode's hint and actions in the middle. */
+.hud-bottom {
+  inset-block-end: 0;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  grid-template-areas: '. bar rail';
+  align-items: end;
+  padding-block-end: calc(var(--gutter) + env(safe-area-inset-bottom, 0px));
+}
+
+/* Narrow screens: the rail stands above the bar, so the two never squeeze each other. */
+@container (inline-size < 40rem) {
+  .hud-bottom {
+    grid-template-columns: 1fr;
+    grid-template-areas: 'rail' 'bar';
+  }
+}
+
+.rail {
+  grid-area: rail;
+  justify-self: end;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-s);
+}
+
+.bar {
+  grid-area: bar;
+  justify-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-s);
+  max-inline-size: 100%;
+}
+
+fieldset {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+}
+
+.actions {
+  display: flex;
+  border: 0;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-s);
 }
 
 .notice {
@@ -198,125 +260,276 @@ button {
   max-inline-size: min(22rem, calc(100% - 2 * var(--space-l)));
   margin: 0;
   padding: var(--space-l);
+  font-weight: 600;
   text-align: center;
 }
 
-.toolbar {
-  display: flex;
-  gap: var(--space-xs);
-  margin: 0;
-  padding: var(--space-xs);
-  min-inline-size: 0;
-}
-
-.button {
+/* An action: a pill with an icon and its name, the one or two things each mode is for. */
+.action {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: var(--space-s);
-  min-block-size: 44px;
-  padding-inline: var(--space-m);
-  border: 0;
-  /* Concentric with the panel: outer radius minus its padding. */
-  border-radius: calc(var(--radius) - var(--space-xs));
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-size: 0.875rem;
-  font-weight: 650;
+  min-block-size: 48px;
+  padding-inline: var(--space-l) 1.125rem;
+  border-radius: 999px;
+  color: var(--ink);
+  font: 700 0.9375rem / 1 var(--font-ui);
+  white-space: nowrap;
   cursor: pointer;
 }
 
-.notice .button {
-  border: var(--border) solid var(--ink);
-}
-
-.button:active:not(:disabled) {
-  transform: scale(0.97);
-  background: var(--paper-press);
-}
-
-/* A toggle that's on (Run): filled, so it reads as on without relying on the colour alone. */
-.button[aria-pressed='true'],
-.button[aria-pressed='true']:active:not(:disabled) {
+.action.primary {
   background: var(--accent);
   color: var(--paper);
 }
 
+.action kbd {
+  opacity: 0.75;
+}
+
+/* Inside a panel: bare, its corners concentric with the panel's, its hit area out to its edge. */
+.action.quiet {
+  position: relative;
+  flex: none;
+  min-block-size: 40px;
+  padding-inline: var(--space-s) var(--space-m);
+  border: 0;
+  border-radius: var(--radius-inner);
+  background: transparent;
+  box-shadow: none;
+}
+
+.action.quiet::after {
+  position: absolute;
+  inset: -4px;
+  content: '';
+}
+
+/* A round map control. In a stack, the stack is the outline and the buttons share it. */
+.round {
+  position: relative;
+  display: grid;
+  place-items: center;
+  inline-size: var(--control);
+  block-size: var(--control);
+  padding: 0;
+  border-radius: 50%;
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  border-radius: 999px;
+}
+
+.stack .round {
+  inline-size: calc(var(--control) - 2 * var(--border));
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.stack .round + .round::before {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 10px;
+  block-size: 1px;
+  background: color-mix(in oklch, var(--ink) 25%, transparent);
+  content: '';
+}
+
+/* Run: a toggle under the right thumb, big enough to find without looking, labelled. */
+.round.big {
+  inline-size: var(--control-big);
+  block-size: var(--control-big);
+  align-content: center;
+  gap: 1px;
+}
+
+.round-label {
+  font-size: 0.625rem;
+  font-weight: 750;
+  line-height: 1;
+}
+
+.round[aria-pressed='true'] {
+  background: var(--accent);
+  color: var(--paper);
+}
+
+/* The compass needle points north on the map, turned against the view's heading. */
+.compass-needle {
+  rotate: var(--heading, 0rad);
+}
+
+/* Names and shortcuts of the round controls, on hover and keyboard focus only. */
+.tip {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-end: calc(100% + var(--space-m));
+  display: none;
+  align-items: center;
+  gap: var(--space-s);
+  padding: var(--space-xs) var(--space-s);
+  border-radius: 6px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 0.75rem;
+  font-weight: 650;
+  white-space: nowrap;
+  translate: 0 -50%;
+  pointer-events: none;
+}
+
+.round:focus-visible .tip {
+  display: flex;
+}
+
+/* Press feedback everywhere: the control sinks into its hard shadow. */
+.action:not(.quiet):active:not(:disabled),
+.round:not(.stack .round):active:not(:disabled) {
+  translate: 0 calc(var(--lift) - 1px);
+  box-shadow: var(--shadow-pressed);
+}
+
+.action:active:not(:disabled, .primary),
+.round:active:not(:disabled, [aria-pressed='true']) {
+  background: var(--paper-press);
+}
+
+.action.primary:active:not(:disabled) {
+  background: var(--accent-press);
+}
+
+.stack .round:active:not(:disabled) svg {
+  scale: 0.88;
+}
+
 /* High-contrast modes replace both colours: keep the fill as the system's own highlight. */
 @media (forced-colors: active) {
-  .button[aria-pressed='true'] {
+  .round[aria-pressed='true'] {
     background: Highlight;
     color: HighlightText;
     forced-color-adjust: none;
   }
 }
 
-.button:disabled {
+:is(.action, .round):disabled {
   opacity: 0.5;
   cursor: default;
 }
 
-.button kbd {
-  padding-inline: var(--space-xs);
-  border: 1px solid currentColor;
-  border-radius: 3px;
-  font: 600 0.6875rem / 1.4 var(--font-mono);
-}
-
 @media (hover: none) {
-  .button kbd {
+  .action kbd {
     display: none;
   }
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .button:hover:not(:disabled, [aria-pressed='true']) {
+  .action:hover:not(:disabled, .primary),
+  .round:hover:not(:disabled, [aria-pressed='true']) {
     background: var(--paper-press);
+  }
+
+  .action.primary:hover:not(:disabled) {
+    background: var(--accent-press);
+  }
+
+  .round:hover:not(:disabled) .tip {
+    display: flex;
   }
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .button {
+  .action,
+  .round {
     transition:
-      transform 140ms var(--ease-out),
-      background-color 140ms var(--ease-out);
+      translate 120ms var(--ease-out),
+      box-shadow 120ms var(--ease-out),
+      background-color 120ms var(--ease-out);
+  }
+
+  .stack .round svg {
+    transition: scale 120ms var(--ease-out);
   }
 }
 
-/* Narrow screens: a tab-bar layout, icon over label, so all four controls fit at 320px. */
-@container (inline-size < 30rem) {
-  .button {
-    flex-direction: column;
-    justify-content: center;
-    gap: 2px;
-    min-inline-size: 3.75rem;
-    padding-block: var(--space-xs);
-    padding-inline: var(--space-xs);
-    font-size: 0.6875rem;
-  }
-
-  .button kbd {
-    display: none;
-  }
-}
-
-/* The walk button and the view toolbar share a row; Walk goes above where the row runs out. */
-.dock {
+/* The street plate: inset in the corner panel, the accent's enamel under a paper rim. */
+.sign-slot {
   display: flex;
-  flex-wrap: wrap;
+}
+
+.sign {
+  display: flex;
+  align-items: center;
   justify-content: center;
-  gap: var(--space-s);
+  max-inline-size: 17rem;
+  min-block-size: 40px;
+  margin-inline-start: 2px;
+  padding: var(--space-xs) var(--space-m);
+  border-radius: var(--radius-inner);
+  background: var(--sign);
+  color: var(--paper);
+  /* The enamel's rim, a little inside the edge. */
+  box-shadow:
+    inset 0 0 0 3px var(--sign),
+    inset 0 0 0 4.5px var(--paper);
+  font-size: 0.875rem;
+  font-weight: 750;
+  line-height: 1.25;
+  letter-spacing: 0.015em;
+  text-align: center;
+  text-wrap: balance;
+}
+
+.sign-name {
+  animation: fade-in 200ms var(--ease-out);
+}
+
+/* It slides in from the Map button's side; each new name follows it in. */
+@media (prefers-reduced-motion: no-preference) {
+  .sign {
+    animation: sign-in 240ms var(--ease-out);
+  }
+
+  .sign-name {
+    animation: name-in 300ms var(--ease-out);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes sign-in {
+  from {
+    opacity: 0;
+    translate: -0.5rem 0;
+  }
+}
+
+@keyframes name-in {
+  from {
+    opacity: 0;
+    translate: -0.375rem 0;
+  }
 }
 
 .hint {
   display: block;
-  max-inline-size: 100%;
+  max-inline-size: min(30rem, 100%);
   margin: 0;
-  padding-block: var(--space-xs);
-  padding-inline: var(--space-m);
+  padding: var(--space-xs) var(--space-m);
+  border-radius: var(--radius);
   font-size: 0.8125rem;
   font-weight: 600;
-  line-height: 1.4;
+  line-height: 1.5;
   text-align: center;
   /* Read, not touched: taps go through to the map. */
   pointer-events: none;
@@ -344,25 +557,22 @@ button {
   }
 }
 
-/* Walking by touch, the toolbar keeps to the end edge, clear of the thumb that steers. */
-@media (pointer: coarse) {
-  .app[data-walk='walk'] .hud-bottom {
-    align-items: flex-end;
-  }
-}
-
 /* The thumb stick, under the thumb that steers: a ring and the knob that follows it. */
-.stick {
+.stick,
+.stick-ghost {
   position: absolute;
-  inset-block-start: 0;
-  inset-inline-start: 0;
   inline-size: 104px;
   block-size: 104px;
-  margin-block-start: -52px;
-  margin-inline-start: -52px;
   border: var(--border) solid var(--ink);
   border-radius: 50%;
   background: color-mix(in oklch, var(--paper) 45%, transparent);
+}
+
+.stick {
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  margin-block-start: -52px;
+  margin-inline-start: -52px;
   box-shadow: var(--shadow-hard);
 }
 
@@ -372,6 +582,21 @@ button {
   border: var(--border) solid var(--ink);
   border-radius: 50%;
   background: var(--paper);
+}
+
+/* Before the first step on a touch screen: where the left thumb walks, dashed and see-through. */
+.stick-ghost {
+  inset-block-end: calc(18% + env(safe-area-inset-bottom, 0px));
+  inset-inline-start: calc(12% + env(safe-area-inset-left, 0px));
+  display: none;
+  border-style: dashed;
+  opacity: 0.8;
+}
+
+@media (pointer: coarse) {
+  .stick-ghost {
+    display: block;
+  }
 }
 
 /* Marks where "Start here" begins: ink on a paper halo, readable over any street. */
@@ -393,10 +618,6 @@ button {
 }
 
 .credits {
-  /* Out of the flow, in the top-end corner: it never pushes or squeezes the HUD. */
-  position: absolute;
-  inset-block-start: calc(var(--space-l) + env(safe-area-inset-top, 0px));
-  inset-inline-end: max(var(--space-l), env(safe-area-inset-right, 0px));
   display: flex;
   align-items: flex-start;
   gap: var(--space-xs);
@@ -420,6 +641,7 @@ button {
   display: grid;
   justify-items: end;
   margin: 0;
+  margin-block-start: var(--space-s);
   color: color-mix(in oklch, var(--ink) 85%, var(--paper));
   font-size: 0.625rem;
   font-weight: 600;
@@ -437,12 +659,14 @@ button {
   text-decoration: none;
 }
 
+/* Centred on the brand's row; its 44px hit area reaches past the visual (below). */
 .credits-toggle {
   position: relative;
   display: grid;
   place-items: center;
   inline-size: 1.25rem;
   block-size: 1.25rem;
+  margin-block: 12px;
   padding: 0;
   border: 0;
   border-radius: 50%;
@@ -452,7 +676,6 @@ button {
   cursor: pointer;
 }
 
-/* 44px hit area around the 20px visual. */
 .credits-toggle::before {
   content: '';
   position: absolute;

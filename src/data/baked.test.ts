@@ -3,6 +3,7 @@ import { expect, test } from 'bun:test';
 import { AREA, VIEW_AREA } from './area.ts';
 import { ringInArea } from './geometry.ts';
 import { unpackCity } from './format.ts';
+import { StreetIndex } from './streets.ts';
 
 // Guards the committed city file: it must decode, match the area and stay plausible.
 test('public/data/city.bin decodes into a plausible Leuven', async () => {
@@ -24,5 +25,10 @@ test('public/data/city.bin decodes into a plausible Leuven', async () => {
   expect(city.water.length).toBeGreaterThan(0);
   expect(city.woods.length + city.pitches.length + city.parking.length).toBeGreaterThan(0);
   expect(city.trees.length / 2).toBeGreaterThan(100);
-  expect(city.labels.map((l) => l.name)).toContain('Stadhuis');
+  // The street sign reads OSM's names: the square at the origin, a street off it.
+  expect(city.streetNames).toContain('Naamsestraat');
+  expect(city.streets.length).toBeGreaterThan(500);
+  const streets = new StreetIndex(city);
+  expect(streets.nameAt(0, 0)).toBe('Grote Markt');
+  expect(city.plazaNames.some((n) => city.streetNames[n] === 'Oude Markt')).toBe(true);
 });

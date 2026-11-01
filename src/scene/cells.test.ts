@@ -24,7 +24,6 @@ const house = (id: number, ring: Float32Array): Building => ({
 const city: City = {
   area: [{ minX: 0, minZ: 0, maxX: 2 * S, maxZ: S }],
   bounds: { minX: 0, minZ: 0, maxX: 2 * S, maxZ: S },
-  labels: [],
   // The second house starts in the first cell and overhangs into the second.
   buildings: [house(1, box(10, 10, 8, 8)), house(2, box(S - 4, 10, 8, 8))],
   roads: [box(S - 50, 100, 100, 10)],
@@ -66,6 +65,9 @@ const city: City = {
   ],
   tanks: [{ height: 15, ring: box(S + 100, 100, 6, 6) }],
   parapets: [new Float32Array([40, 120, 40, 130])],
+  streetNames: [],
+  streets: [],
+  plazaNames: [],
 };
 
 test('the area is cut into cells, and each thing goes to one', () => {

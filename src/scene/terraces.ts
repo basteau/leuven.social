@@ -3,7 +3,7 @@ import { orientedRect, pointInRing } from '../data/geometry.ts';
 import type { LineBuilder, MeshBuilder, V3 } from './mesh-builder.ts';
 import { PARASOLS, pick } from './palette.ts';
 
-/** Squares that get café terraces, by label. Oude Markt is known as the longest bar in Europe. */
+/** Squares that get café terraces, by name. Oude Markt is known as the longest bar in Europe. */
 const TERRACE_SQUARES = new Set(['Oude Markt']);
 /** Rows run along the square's long sides, this far in from its edge (m). */
 const ROWS = [4, 8, 12];
@@ -27,10 +27,8 @@ export interface Parasol {
 /** Where the café parasols go: rows along the long sides of each terrace square. */
 export function terraceParasols(city: City): Parasol[] {
   const parasols: Parasol[] = [];
-  for (const label of city.labels) {
-    if (!TERRACE_SQUARES.has(label.name)) continue;
-    const square = city.plazas.find((ring) => pointInRing(ring, label.x, label.z));
-    if (!square) continue;
+  for (const [p, square] of city.plazas.entries()) {
+    if (!TERRACE_SQUARES.has(city.streetNames[city.plazaNames[p] ?? -1] ?? '')) continue;
     const { cx, cz, ux, uz, halfLength, halfWidth } = orientedRect(square);
     // Only trees near the square can be in the way: look at those, not all of the city's.
     const reach = Math.hypot(halfLength, halfWidth) + TREE_CLEARANCE;

@@ -1,9 +1,9 @@
 /**
  * The compact binary city format ("LVN1"), served gzipped from public/data/.
  *
- * Layout: magic "LVN1", version, area rectangles, labels (with the zoom they show from), buildings,
- * carriageways, markings, ten polygon layers (roads, plazas, green, water, platforms, railway
- * land, platform roofs, woods, pitches, car parks), paths, rails, trees, props, tanks, parapets.
+ * Layout: magic "LVN1", version, area rectangles, buildings, carriageways, markings, ten polygon
+ * layers (roads, plazas, green, water, platforms, railway land, platform roofs, woods, pitches,
+ * car parks), paths, rails, trees, props, tanks, parapets, street names.
  * Coordinates are decimetres, zigzag varints, delta-encoded within each ring. A ring starts from
  * where the ring before it in the same list started (the first from 0, 0): the bake writes
  * neighbours next to each other, so the jump is short.
@@ -18,6 +18,8 @@
  * Props are a kind per prop, then their positions as one ring, then a turn (a byte: 256ths of a
  * full turn) and a size in decimetres each.
  * Tanks are a height in decimetres and a footprint each; parapets are open lines.
+ * Street names are a table of strings, then each street as its name's place in the table and a
+ * centre line, then one number per plaza: 0 for none, else its name's place plus one.
  */
 
 import * as Binary from '@portable/binary';
@@ -36,7 +38,7 @@ import type { Bounds, Building, Carriageway, City, Marking, Prop, Rail } from '.
 import { boundsOf } from './geometry.ts';
 
 const MAGIC = 'LVN1';
-const VERSION = 11;
+const VERSION = 12;
 const DM = 10; // units per metre
 const ZIGZAG = { encoding: 'zigzag' } as const;
 const TURN = Math.PI * 2;
@@ -98,14 +100,6 @@ export function encodeCity(city: City): Uint8Array {
   w.varint(city.area.length);
   for (const { minX, minZ, maxX, maxZ } of city.area) {
     for (const v of [minX, minZ, maxX, maxZ]) w.varint(Math.round(v * DM), ZIGZAG);
-  }
-
-  w.varint(city.labels.length);
-  for (const label of city.labels) {
-    writeString(w, label.name);
-    w.varint(Math.round(label.x * DM), ZIGZAG);
-    w.varint(Math.round(label.z * DM), ZIGZAG);
-    w.varint(Math.round(label.minZoom * DM));
   }
 
   w.varint(city.buildings.length);
@@ -195,6 +189,16 @@ export function encodeCity(city: City): Uint8Array {
   w.varint(city.parapets.length);
   at = origin();
   for (const line of city.parapets) writeRing(w, line, at);
+
+  w.varint(city.streetNames.length);
+  for (const name of city.streetNames) writeString(w, name);
+  w.varint(city.streets.length);
+  at = origin();
+  for (const street of city.streets) {
+    w.varint(street.name);
+    writeRing(w, street.line, at);
+  }
+  for (const name of city.plazaNames) w.varint(name + 1);
   return w.toBytes();
 }
 
@@ -213,12 +217,6 @@ export function decodeCity(bytes: Uint8Array): City {
     return { minX, minZ, maxX, maxZ };
   });
   if (area.length === 0) throw new CityFormatError('The city covers no area.');
-
-  const labels = Array.from({ length: r.varint() }, () => {
-    const name = r.string(r.varint());
-    const [x, z] = [r.varint(ZIGZAG) / DM, r.varint(ZIGZAG) / DM];
-    return { name, x, z, minZoom: r.varint() / DM };
-  });
 
   let previous = 0;
   let at = origin();
@@ -312,11 +310,22 @@ export function decodeCity(bytes: Uint8Array): City {
   }));
   const tanks = list((from) => ({ height: r.varint() / DM, ring: readRing(r, from) }));
   const parapets = list((from) => readRing(r, from));
+
+  const streetNames = Array.from({ length: r.varint() }, () => r.string(r.varint()));
+  const streets = list((from) => {
+    const name = r.varint();
+    if (name >= streetNames.length) throw new CityFormatError(`Bad street name ${name}.`);
+    return { name, line: readRing(r, from) };
+  });
+  const plazaNames = plazas.map(() => {
+    const name = r.varint() - 1;
+    if (name >= streetNames.length) throw new CityFormatError(`Bad square name ${name}.`);
+    return name;
+  });
   if (r.remaining !== 0) throw new CityFormatError(`${r.remaining} trailing bytes.`);
   return {
     area,
     bounds: boundsOf(area),
-    labels,
     buildings,
     roads,
     carriageways,
@@ -337,6 +346,9 @@ export function decodeCity(bytes: Uint8Array): City {
     props,
     tanks,
     parapets,
+    streetNames,
+    streets,
+    plazaNames,
   };
 }
 

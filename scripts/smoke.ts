@@ -67,7 +67,7 @@ async function expectHealthyPage(viewport: string): Promise<void> {
     "['ready', 'error'].includes(document.documentElement.dataset.state)",
   );
   const page = await evalJson<Record<string, string> & { frame: Record<string, string> }>(
-    'JSON.stringify({ ...document.documentElement.dataset, frame: { ...document.querySelector("canvas")?.dataset }, labels: document.querySelectorAll(".map-label").length })',
+    'JSON.stringify({ ...document.documentElement.dataset, frame: { ...document.querySelector("canvas")?.dataset } })',
   );
   const problems: string[] = [];
   if (page.state !== 'ready') problems.push(`state is "${page.state}"`);
@@ -94,7 +94,6 @@ async function expectHealthyPage(viewport: string): Promise<void> {
   if (!(megabytes <= MAX_GEOMETRY_MB))
     problems.push(`${megabytes.toFixed(1)} MB of geometry (max ${MAX_GEOMETRY_MB})`);
   measured.push(`${vertices.toLocaleString()} vertices, ${megabytes.toFixed(1)} MB`);
-  if (Number(page.labels) === 0) problems.push('no landmark labels');
   const { errors } = await browserJson<{ errors: { text: string }[] }>('errors');
   for (const e of errors) problems.push(`page error: ${e.text.split('\n')[0]}`);
   const { messages } = await browserJson<{ messages: { type: string; text: string }[] }>('console');
@@ -187,6 +186,12 @@ async function expectWalking(): Promise<void> {
   // The walker publishes where it stands once it has stopped and stopped idling.
   await browser('wait', '--fn', `${canvasData('walker')} !== ${JSON.stringify(start)}`);
   await expectHealthyPage('desktop walking');
+  // The street sign names where the walker stands, from OSM's names in city.bin.
+  await browser('wait', '--fn', `!!document.querySelector('.sign-name')?.textContent`);
+  const street = await evalJson<string>(
+    `JSON.stringify(document.querySelector('.sign-name').textContent)`,
+  );
+  console.log(`ok  street sign while walking: ${street}`);
   await browser('screenshot', `${ARTIFACTS}smoke-walk.png`);
   // Dispatched rather than pressed: agent-browser's Escape leaves the page hidden, so the checks
   // after it would run in a background tab that draws no frames.

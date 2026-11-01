@@ -12,7 +12,6 @@ const SQUARE = new Float32Array([-50, -20, 50, -20, 50, 20, -50, 20]);
 const city = (over: Partial<City> = {}): City => ({
   area: [{ minX: -100, minZ: -100, maxX: 100, maxZ: 100 }],
   bounds: { minX: -100, minZ: -100, maxX: 100, maxZ: 100 },
-  labels: [{ name: 'Oude Markt', x: 0, z: 0, minZoom: 0 }],
   buildings: [],
   roads: [],
   carriageways: [],
@@ -33,6 +32,9 @@ const city = (over: Partial<City> = {}): City => ({
   props: [],
   tanks: [],
   parapets: [],
+  streetNames: ['Grote Markt', 'Oude Markt'],
+  streets: [],
+  plazaNames: [1],
   ...over,
 });
 
@@ -56,12 +58,8 @@ describe('terraceParasols', () => {
   });
 
   test('only squares named for terraces get them', () => {
-    expect(
-      terraceParasols(city({ labels: [{ name: 'Grote Markt', x: 0, z: 0, minZoom: 0 }] })),
-    ).toEqual([]);
-    expect(
-      terraceParasols(city({ labels: [{ name: 'Oude Markt', x: 90, z: 0, minZoom: 0 }] })),
-    ).toEqual([]);
+    expect(terraceParasols(city({ plazaNames: [0] }))).toEqual([]);
+    expect(terraceParasols(city({ plazaNames: [-1] }))).toEqual([]);
   });
 });
 
