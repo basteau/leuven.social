@@ -239,6 +239,22 @@ kbd {
   gap: var(--space-s);
 }
 
+/*
+ * Short screens (a phone on its side): a column would reach up to Mute in the corner, so the rail
+ * lies down in a row. Run takes the compass's place at its start, so zoom and turn stay put.
+ */
+@media (max-height: 26rem) {
+  .rail {
+    flex-direction: row;
+    /* The reset lets grid items shrink; a row of controls never should. */
+    min-inline-size: max-content;
+  }
+
+  .rail .big {
+    order: -1;
+  }
+}
+
 .bar {
   grid-area: bar;
   justify-self: center;
