@@ -6,7 +6,7 @@ import {
   GAUGE,
   PLATFORM_HEIGHT,
   addMasts,
-  addParapet,
+  addRailParapet,
   addPlatform,
   addRailLines,
   addCanopyBay,
@@ -94,7 +94,7 @@ test('rails and masts are ink lines: two per track segment, two per mast', () =>
 
 test('a parapet is a low wall with its top outlined', () => {
   const [mesh, lines] = [new MeshBuilder(), new LineBuilder()];
-  addParapet(mesh, lines, { ax: 0, az: 2.4, bx: 10, bz: 2.4, nx: 0, nz: 1 });
+  addRailParapet(mesh, lines, { ax: 0, az: 2.4, bx: 10, bz: 2.4, nx: 0, nz: 1 });
   const g = mesh.build();
   expect(g.getAttribute('position').count).toBe(3 * 2 * 3);
   expect(g.getAttribute('normal').getZ(0)).toBe(1);

@@ -59,7 +59,7 @@ export interface Mast {
 }
 
 /** One stretch of a bridge parapet: from a to b, with (nx, nz) pointing away from the track. */
-export interface Parapet {
+export interface RailParapet {
   ax: number;
   az: number;
   bx: number;
@@ -71,7 +71,7 @@ export interface Parapet {
 /** Masts and parapets for the whole railway: both depend on the neighbouring tracks. */
 export interface Railway {
   masts: Mast[];
-  parapets: Parapet[];
+  parapets: RailParapet[];
 }
 
 const BUCKET = 16;
@@ -136,7 +136,7 @@ function frame(ax: number, az: number, bx: number, bz: number) {
 export function planRailway(rails: readonly Rail[]): Railway {
   const distance = trackDistance(rails);
   const masts: Mast[] = [];
-  const parapets: Parapet[] = [];
+  const parapets: RailParapet[] = [];
   for (const [r, { line, kind, bridge, electrified }] of rails.entries()) {
     let travelled = 0;
     let next = MAST_SPACING / 2;
@@ -236,7 +236,7 @@ export function addMasts(lines: LineBuilder, masts: readonly Mast[]): void {
 }
 
 /** A low wall along a bridge deck, outlined along its top. */
-export function addParapet(mesh: MeshBuilder, lines: LineBuilder, p: Parapet): void {
+export function addRailParapet(mesh: MeshBuilder, lines: LineBuilder, p: RailParapet): void {
   const { ax, az, bx, bz, nx, nz } = p;
   const [tx, tz] = [nx * PARAPET_THICKNESS, nz * PARAPET_THICKNESS];
   const [h, y0] = [PARAPET_HEIGHT, Y.ballast];

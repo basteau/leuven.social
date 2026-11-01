@@ -3,6 +3,7 @@ import { expect, test } from 'bun:test';
 import type { Building, City } from '../data/city.ts';
 import { partyWalls } from './buildings.ts';
 import { CELL_SIZE, buildCell, partition } from './cells.ts';
+import type { MeshBuilder } from './mesh-builder.ts';
 
 const S = CELL_SIZE;
 const box = (x: number, z: number, w: number, d: number) =>
@@ -47,6 +48,14 @@ const city: City = {
   canopies: [box(S - 51, 150, 102, 12)],
   trees: new Float32Array([20, 300, S + 20, 300]),
   treeHeights: new Float32Array([9, 0]),
+  // A bench in each cell, and the Totem in the second.
+  props: [
+    { kind: 'bench', x: 30, z: 30, angle: 0, size: 0 },
+    { kind: 'bench', x: S + 30, z: 30, angle: 0, size: 0 },
+    { kind: 'needle', x: S + 60, z: 60, angle: 0, size: 23 },
+  ],
+  tanks: [{ height: 15, ring: box(S + 100, 100, 6, 6) }],
+  parapets: [new Float32Array([40, 120, 40, 130])],
 };
 
 test('the area is cut into cells, and each thing goes to one', () => {
@@ -63,6 +72,10 @@ test('the area is cut into cells, and each thing goes to one', () => {
   expect(Array.from(west.ground.paths[0]!.line)).toEqual([S - 20, 50, S, 50]);
   expect(Array.from(east.ground.paths[0]!.line)).toEqual([S, 50, S + 20, 50]);
   expect(east.parasols).toHaveLength(1);
+  expect(west.props.map((p) => p.kind)).toEqual(['bench']);
+  expect(east.props.map((p) => p.kind)).toEqual(['bench', 'needle']);
+  expect(east.tanks).toHaveLength(1);
+  expect(west.parapets).toHaveLength(1);
   // Ground across the seam is cut in two; ground inside one cell is passed through.
   expect(west.ground.roads).toHaveLength(1);
   expect(east.ground.roads).toHaveLength(1);
@@ -89,4 +102,20 @@ test('a cell builds into one mesh and one set of outlines', () => {
   expect(g.boundingBox!.min.y).toBeLessThan(0); // the slab
   expect(g.boundingBox!.max.y).toBeGreaterThanOrEqual(10); // the houses
   expect(lines.build().getAttribute('position').count).toBeGreaterThan(0);
+});
+
+const height = (m: MeshBuilder) => {
+  const g = m.build();
+  g.computeBoundingBox();
+  return g.boundingBox!.max.y;
+};
+
+test('small props get a mesh of their own, tall ones join the cell', () => {
+  const [west, east] = partition(city);
+  const walls = partyWalls(city.buildings);
+  const w = buildCell(west!, city.area, walls);
+  const e = buildCell(east!, city.area, walls);
+  expect(height(w.props)).toBeLessThan(2); // a bench
+  expect(height(e.props)).toBeLessThan(2); // only the bench: the needle is in the main mesh
+  expect(height(e.mesh)).toBeGreaterThan(20);
 });

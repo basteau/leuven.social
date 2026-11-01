@@ -6,7 +6,6 @@
   --paper: oklch(97% 0.015 85);
   --paper-press: color-mix(in oklch, var(--paper), var(--ink) 9%);
   --accent: oklch(47% 0.12 252);
-  --muted: color-mix(in oklch, var(--ink) 72%, var(--paper));
   --sky-top: oklch(83% 0.06 235);
   --sky-horizon: oklch(93% 0.05 75);
 
@@ -173,12 +172,6 @@ button {
   font-size: 1.25rem;
   line-height: 1.1;
   letter-spacing: -0.01em;
-}
-
-.brand p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.8125rem;
 }
 
 .notice {

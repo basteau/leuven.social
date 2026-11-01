@@ -3,9 +3,9 @@
  * budget check (scripts/) keep the result fast. Local metres, x = east, z = south.
  */
 
-import type { Bounds, Label } from './city.ts';
+import type { Bounds } from './city.ts';
 import { boundsOf } from './geometry.ts';
-import { toLocal } from './projection.ts';
+import type { LabelRef } from './labels.ts';
 
 /**
  * Abutting rectangles, never overlapping: everything inside the R23 ring with the station and
@@ -35,64 +35,43 @@ export const LANDMARK_FOOTPRINTS: readonly number[] = [
 export const VIEW_AREA: Bounds = boundsOf(AREA);
 
 /**
- * A label names a Wikidata item, and the bake places it at the item's coordinates (P625, from
- * the `wikidata-labels` download), or on the GRB footprint of the building it names. A place
- * without an item gives its own position and says where it comes from: docs/DATA.md lists
- * these under Exceptions.
+ * What gets a label, most important first: a label that would overlap an earlier one is hidden.
+ * Each is an id, never a typed-in name or coordinate: the bake reads both from the data
+ * (src/data/labels.ts), so a label moves and renames with OpenStreetMap. Each shows from
+ * `minZoom` (default: always), so the far view names landmarks and big sites across the whole
+ * map while churches, squares and small sights wait until there's room for them.
  */
-export type Landmark = { name: string } & (
-  { wikidata: string; footprint?: number } | { lon: number; lat: number; source: string }
-);
-
-export const LANDMARKS: readonly Landmark[] = [
-  { name: 'Stadhuis', wikidata: 'Q940882' },
-  { name: 'Sint-Pieterskerk', wikidata: 'Q17722' },
-  { name: 'Oude Markt', wikidata: 'Q2792167' },
-  { name: 'Fonske', wikidata: 'Q2107804' },
-  { name: 'Universiteitsbibliotheek', wikidata: 'Q139854572' },
-  { name: 'M Leuven', wikidata: 'Q2362660' },
-  // Wikidata's point is on the tracks; the label belongs on the station building.
-  { name: 'Station Leuven', wikidata: 'Q801090', footprint: 2870209 },
-  { name: 'Groot Begijnhof', wikidata: 'Q1049301' },
-  { name: 'Arenbergkasteel', wikidata: 'Q1522076' },
-  { name: 'Abdij van Park', wikidata: 'Q476178' },
-  { name: 'Sint-Donatuspark', wikidata: 'Q2663022' },
-  { name: 'Sint-Michielskerk', wikidata: 'Q1502706' },
-  {
-    name: 'Arenbergpark',
-    lon: 4.6886,
-    lat: 50.8656,
-    source: "No Wikidata item: the middle of the park's lawn on the orthophoto",
-  },
+export const LANDMARKS: readonly (LabelRef & { minZoom?: number })[] = [
+  { wikidata: 'Q940882' }, // Stadhuis
+  { wikidata: 'Q17722' }, // Sint-Pieterskerk
+  { wikidata: 'Q4766627' }, // Oude Markt
+  { wikidata: 'Q1519139' }, // Universiteitsbibliotheek
+  { grb: 2870209 }, // Station Leuven: OSM's station node isn't in the dumps, its name is on the footprint
+  { wikidata: 'Q1049301' }, // Groot Begijnhof
+  { wikidata: 'Q1522076' }, // Arenbergkasteel
+  { wikidata: 'Q476178' }, // Abdij van Park
+  // The big green and industrial sites, to find your way from far out.
+  { wikidata: 'Q1944313' }, // Vaartkom
+  { osm: 'way/987152632' }, // Keizersberg
+  { wikidata: 'Q2565202' }, // Kruidtuin
+  { wikidata: 'Q2523485' }, // Brouwerij Stella Artois
+  { osm: 'way/69413017' }, // Park Philipssite
+  { wikidata: 'Q1502706' }, // Sint-Michielskerk
+  { wikidata: 'Q2362660', minZoom: 1 }, // M-Museum
+  { wikidata: 'Q2663022', minZoom: 1 }, // Sint-Donatuspark
+  { osm: 'way/294999180', minZoom: 1 }, // Arenbergpark
+  { wikidata: 'Q2107804', minZoom: 1 }, // Fonske
+  // Churches and squares, once there's room.
+  { wikidata: 'Q28946510', minZoom: 1.5 }, // Sint-Geertruikerk
+  { wikidata: 'Q18380032', minZoom: 1.5 }, // Sint-Jacobskerk
+  { wikidata: 'Q2289620', minZoom: 1.5 }, // Sint-Kwintenskerk
+  { wikidata: 'Q2658903', minZoom: 2 }, // Martelarenplein
+  { wikidata: 'Q6469401', minZoom: 2 }, // Monseigneur Ladeuzeplein
+  { osm: 'way/48232563', minZoom: 2 }, // Hogeschoolplein
+  { wikidata: 'Q2202491', minZoom: 2 }, // Vismarkt
+  { wikidata: 'Q2491406', minZoom: 2 }, // Klein Begijnhof
+  { wikidata: 'Q112622460', minZoom: 2 }, // De Bruul
+  { wikidata: 'Q21771834', minZoom: 2 }, // Dijlepark
+  { wikidata: 'Q2166249', minZoom: 2.5 }, // Rector De Somerplein
+  { wikidata: 'Q22446282', minZoom: 2.5 }, // Totem
 ];
-
-/** The Wikidata items the labels need, sorted, each once. */
-export const LANDMARK_ITEMS: readonly string[] = [
-  ...new Set(LANDMARKS.flatMap((l) => ('wikidata' in l ? [l.wikidata] : []))),
-].toSorted();
-
-/**
- * Where each label goes, in local metres: on its footprint's centre, at its item's coordinates,
- * or where it says.
- */
-export function placeLandmarks(
-  landmarks: readonly Landmark[],
-  items: Readonly<Record<string, { lon: number; lat: number }>>,
-  footprintCentre: (id: number) => readonly [number, number] | undefined,
-): Label[] {
-  return landmarks.map((l) => {
-    if (!('wikidata' in l)) return label(l.name, toLocal(l.lon, l.lat));
-    if (l.footprint !== undefined) {
-      const centre = footprintCentre(l.footprint);
-      if (!centre) throw new Error(`${l.name}: footprint ${l.footprint} is not in the city`);
-      return label(l.name, centre);
-    }
-    const item = items[l.wikidata];
-    if (!item) {
-      throw new Error(`No coordinates for ${l.name} (${l.wikidata}): run bun run data:fetch`);
-    }
-    return label(l.name, toLocal(item.lon, item.lat));
-  });
-}
-
-const label = (name: string, [x, z]: readonly [number, number]): Label => ({ name, x, z });

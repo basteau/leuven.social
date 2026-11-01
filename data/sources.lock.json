@@ -96,12 +96,5 @@
     "bytes": 87989559,
     "sha256": "dfef3f6ae72c2474161d66a398e5ca322abc630ddc57b54c0bbaf1053027309d",
     "fetched": "2026-11-01"
-  },
-  "wikidata-labels": {
-    "plan": "9e71a2ab0385c753",
-    "files": 1,
-    "bytes": 543,
-    "sha256": "edc96d5a4376d28a98c55a237b89aa54a9b1ecab2960d2e3dfe57b62ef469f38",
-    "fetched": "2026-10-31"
   }
 }

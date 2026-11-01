@@ -31,6 +31,7 @@ Leuven as a tiny city you could hold in your hands: a warm, crisp, low-poly dior
 - **Hero landmarks get their real silhouette.** Low-poly halls, towers and spires fitted to the LiDAR: the Stadhuis' steep roof with dormers and six turrets, Sint-Pieterskerk's cross, flèche and squat west work, the Universiteitsbibliotheek's tower, Station Leuven's gabled middle and pavilions, Arenbergkasteel's corner towers, the Abdij van Park church tower. Enough to recognise at zoom 2–4, never sculpted detail.
 - **Stepped gables say "Flemish town".** Nearly half the gables in the hero squares are stepped, a fifth elsewhere in the centre, none on the fringe. Narrow gables stay plain, since the steps would be smaller than a game pixel.
 - **Squares show what happens on them.** Oude Markt gets rows of café parasols along its facades; the middle stays open.
+- **Streets have furniture.** From zoom 2, the lamps, benches, bike racks, bus shelters and statues OpenStreetMap knows, drawn a third larger than life so they stay a few pixels. Below zoom 2 they would be noise, so they hide. Jan Fabre's Totem on Ladeuzeplein (a 23 m needle with its jewel beetle) shows at every zoom.
 - To add a landmark, fit parts in `src/scene/landmark-models.ts` against a LiDAR height plot of its footprint, list the footprint in `LANDMARK_FOOTPRINTS` (`src/data/area.ts`), rebake, then check it from all four rotations.
 
 ### Railways
@@ -53,6 +54,8 @@ Values live in `src/scene/palette.ts`; change them there only. Each building's c
 | Pitched roofs          | Their real colour from the air, snapped to ten swatches: slate, black glazed and red tiles, terracotta, zinc, moss                                                                                        | Leuven is mostly slate with red tiles between; the aerial photo knows which is which                                            |
 | Flat roofs             | Light warm greys, picked by the same swatches                                                                                                                                                             | Read as quiet backdrop, never darker than the streets                                                                           |
 | Paths                  | Pale slabs when paved, sand for gravel trails                                                                                                                                                             | Parks and the Dijle walks read as places to walk, not as roads                                                                  |
+| Street furniture       | Iron-dark lamp posts with warm lanterns, wood benches, glass bus shelters, bronze statues on pale stone, bikes in the colours Leuven rides                                                                | Lamps, benches and full bike racks are what make a street read as Leuven's up close; they hide when zoomed out                  |
+| Bridges and tanks      | Warm quay-stone parapets, pale aluminium tanks                                                                                                                                                            | A bridge reads as one by its parapets; the brewery by its tanks                                                                 |
 | Railways               | Grey ballast under pale concrete sleepers on running lines, rusty ballast and dark timber in the yards, ink rails and catenary masts, pale concrete platforms, gravel railway land, a white platform roof | Leuven's railway is a wide band through the east of the city; it should read as tracks from any zoom without turning into noise |
 | Trees                  | One low-poly tree, scaled to the LiDAR height of each one                                                                                                                                                 | Parks and gardens are as wooded as they really are                                                                              |
 | Windows                | Deep blue-grey glass, ~7% lit warm (`#f3c873`)                                                                                                                                                            | The sun catching a few panes; reads as life without noise                                                                       |
@@ -71,7 +74,6 @@ Tokens are oklch, in `src/app/app.css`:
 | `--ink`    | Text, borders, hard shadows. Same family as the scene outlines. |
 | `--paper`  | Panel fill, a warm cream                                        |
 | `--accent` | KU Leuven-ish blue, only for the selected state of a toggle     |
-| `--muted`  | Secondary text                                                  |
 
 ### Panels
 
@@ -110,6 +112,7 @@ Tokens are oklch, in `src/app/app.css`:
 
 - Small ink-bordered tags anchored above landmarks.
 - Their order in `LANDMARKS` is their priority: a label that would overlap an earlier one, or cross the screen edge, is hidden.
+- Names and places come from OpenStreetMap; `LANDMARKS` only lists ids. Each shows from its own zoom. Landmarks and the big parks and sites show from the start, so the far view can be read across the whole map; churches and squares from zoom 1.5–2, small sights (the Totem) only up close.
 - They're decorative: the map has a text description for screen readers.
 
 ### Keyboard
