@@ -79,8 +79,11 @@ const mirror = (p: Part, bone: BoneName): Part => ({
 // Each limb part hangs from the bone whose pivot is above it: thigh and upper arm from the
 // hip and shoulder, shin and forearm from the knee and elbow.
 const LEG: Part[] = [
-  { bone: 'legL', min: [0.02, 0.44, -0.08], max: [0.18, 0.84, 0.08], color: WALKER.trousers },
-  { bone: 'shinL', min: [0.03, 0.1, -0.075], max: [0.17, 0.47, 0.075], color: WALKER.trousers },
+  { bone: 'legL', min: [0.02, 0.47, -0.08], max: [0.18, 0.84, 0.08], color: WALKER.trousers },
+  // The knee: a block round the joint that turns with the shin, so a bent leg stays one piece
+  // instead of two boxes opening a notch.
+  { bone: 'shinL', min: [0.025, 0.39, -0.085], max: [0.175, 0.51, 0.085], color: WALKER.trousers },
+  { bone: 'shinL', min: [0.03, 0.1, -0.075], max: [0.17, 0.42, 0.075], color: WALKER.trousers },
   { bone: 'shinL', min: [0.02, 0, -0.09], max: [0.19, 0.12, 0.14], color: WALKER.shoes },
 ];
 const ARM: Part[] = [
@@ -290,6 +293,13 @@ export const restPose = (): Pose => ({
 export const legReach = (thigh: number, knee: number) =>
   THIGH * Math.cos(thigh) + SHIN * Math.cos(thigh + knee);
 
+/**
+ * The knee's give as its foot lands and takes the weight: a smooth bump over the first quarter
+ * of the stride after the leg is furthest forward (`swing` and `through` of that leg's phase).
+ */
+const loading = (swing: number, through: number) =>
+  (4 * Math.max(0, swing) * Math.max(0, -through)) ** 2 / 4;
+
 /** The furthest the head turns toward where the camera looks (radians). */
 const LOOK_LIMIT = 1.1;
 
@@ -318,12 +328,14 @@ export function poseAt(
   // Running carries the thighs a little forward of straight down.
   out.legL = -reach * swing - 0.12 * run;
   out.legR = reach * swing - 0.12 * run;
-  // A knee folds while its leg swings through (the left from phase -π/2 to π/2), and running
-  // keeps both a little bent to take the landing.
-  const fold = 0.65 * walk + 1.15 * run;
+  // A knee folds while its leg swings through (the left from phase -π/2 to π/2), easing in and
+  // out of it rather than starting with a kink; it gives a little as the foot lands and takes
+  // the weight (the left from π/2 to π), and running keeps both a little bent.
+  const fold = 0.7 * walk + 1.15 * run;
+  const land = 0.22 * walk + 0.15 * run;
   const give = 0.04 * walk + 0.2 * run;
-  out.kneeL = fold * Math.max(0, through) + give;
-  out.kneeR = fold * Math.max(0, -through) + give;
+  out.kneeL = fold * Math.max(0, through) ** 2 + land * loading(swing, through) + give;
+  out.kneeR = fold * Math.max(0, -through) ** 2 + land * loading(-swing, -through) + give;
   out.arm = (0.55 * walk + 0.35 * run) * swing;
   out.elbow = REST_ELBOW - 0.15 * walk - 1.1 * run;
   out.hips =
