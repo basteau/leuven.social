@@ -8,7 +8,7 @@
  * where the ring before it in the same list started (the first from 0, 0): the bake writes
  * neighbours next to each other, so the jump is short.
  * A building is its id (zigzag, the change from the building before), then tier (2 bits), kind
- * (4 bits) and roof (2 bits) packed into one byte, then its height, roof rise and roof colour
+ * (3 bits) and roof (3 bits) packed into one byte, then its height, roof rise and roof colour
  * (0 = none, else 0xRRGGBB + 1), outer ring and courtyards.
  * Carriageways and markings are a kind byte each, then a ring (markings: a line).
  * Paths are a width in decimetres shifted left one bit over a paved flag, then a centre line.
@@ -38,7 +38,7 @@ import type { Bounds, Building, Carriageway, City, Marking, Prop, Rail } from '.
 import { boundsOf } from './geometry.ts';
 
 const MAGIC = 'LVN1';
-const VERSION = 12;
+const VERSION = 13;
 const DM = 10; // units per metre
 const ZIGZAG = { encoding: 'zigzag' } as const;
 const TURN = Math.PI * 2;
@@ -108,7 +108,7 @@ export function encodeCity(city: City): Uint8Array {
   for (const b of city.buildings) {
     w.varint(b.id - id, ZIGZAG);
     id = b.id;
-    w.uint8(TIERS.indexOf(b.tier) | (KINDS.indexOf(b.kind) << 2) | (ROOFS.indexOf(b.roof) << 6));
+    w.uint8(TIERS.indexOf(b.tier) | (KINDS.indexOf(b.kind) << 2) | (ROOFS.indexOf(b.roof) << 5));
     const height = Math.round(b.height * DM);
     w.varint(height);
     w.varint(Math.max(0, height - Math.round(b.eave * DM)));
@@ -224,8 +224,8 @@ export function decodeCity(bytes: Uint8Array): City {
     const id = (previous += r.varint(ZIGZAG));
     const packed = r.uint8();
     const tier = TIERS[packed & 0b11];
-    const kind = KINDS[(packed >> 2) & 0b1111];
-    const roof = ROOFS[packed >> 6];
+    const kind = KINDS[(packed >> 2) & 0b111];
+    const roof = ROOFS[packed >> 5];
     if (!tier || !kind || !roof) throw new CityFormatError(`Bad building flags ${packed}.`);
     const height = r.varint();
     const eave = (height - r.varint()) / DM;

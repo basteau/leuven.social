@@ -70,6 +70,25 @@ describe('planRoof', () => {
     expect(steep.eave).toBeCloseTo(14 - 3 * 1.5);
   });
 
+  test('a roof the LiDAR saw facing along the plot turns its ridge across it', () => {
+    // A 6 m wide, 12 m deep row house: its ridge runs along z, or across along x when turned.
+    const along = planRoof(building({ roof: 'gabled' }));
+    const across = planRoof(building({ roof: 'across' }));
+    expect(along.type === 'gable' && Math.abs(along.rect.uz)).toBeCloseTo(1);
+    expect(across.type === 'gable' && Math.abs(across.rect.ux)).toBeCloseTo(1);
+    if (across.type === 'gable') {
+      expect([across.rect.halfLength, across.rect.halfWidth]).toEqual([3, 6]);
+      // The rise comes from the 6 m half span now, capped by half the height.
+      expect(across.eave).toBeCloseTo(5);
+    }
+    expect(windingAgreesWithNormals(building({ roof: 'across' }))).toBe(true);
+    // A span too wide for a gable keeps its ridge along; an odd shape still gets a hip.
+    const deep = planRoof(building({ roof: 'across', ring: box(8, 24) }));
+    expect(deep.type === 'gable' && Math.abs(deep.rect.uz)).toBeCloseTo(1);
+    const ell = new Float32Array([0, 0, 10, 0, 10, 4, 4, 4, 4, 10, 0, 10]);
+    expect(planRoof(building({ roof: 'across', ring: ell })).type).toBe('hip');
+  });
+
   test('odd shapes get a hipped roof instead of a gable hanging over thin air', () => {
     const ell = new Float32Array([0, 0, 10, 0, 10, 4, 4, 4, 4, 10, 0, 10]);
     const plan = planRoof(building({ ring: ell }));
@@ -105,6 +124,12 @@ describe('cutAt', () => {
   });
 });
 
+/** The `facade` values a building's surfaces carry. */
+function facades(b: Building): Set<number> {
+  const facade = buildingsGeometry([b]).surfaces.getAttribute('facade');
+  return new Set(Array.from({ length: facade.count }, (_, i) => facade.getX(i)));
+}
+
 describe('buildingsGeometry', () => {
   test('a flat box is 4 walls and a 2-triangle roof, all facing outward', () => {
     const b = building({ roof: 'flat' });
@@ -134,13 +159,9 @@ describe('buildingsGeometry', () => {
     expect(values).toEqual(new Set([Math.fround(planRoof(b).eave + SHOP_FRONT), 0]));
   });
 
-  test('churches get no window grid', () => {
-    const facade = buildingsGeometry([
-      building({ kind: 'church', roof: 'flat' }),
-    ]).surfaces.getAttribute('facade');
-    expect(
-      Array.from({ length: facade.count }, (_, i) => facade.getX(i)).every((v) => v === 0),
-    ).toBe(true);
+  test('churches and sheds get no window grid', () => {
+    expect(facades(building({ kind: 'church', roof: 'flat' }))).toEqual(new Set([0]));
+    expect(facades(building({ kind: 'shed', roof: 'flat' }))).toEqual(new Set([0]));
   });
 });
 
@@ -212,6 +233,11 @@ describe('stepped gables', () => {
     expect(steppedCount('hero')).toBeGreaterThan(steppedCount('core'));
     expect(steppedCount('core')).toBeGreaterThan(0);
     expect(steppedCount('fringe')).toBe(0);
+  });
+
+  test('a ridge turned across the plot gets plain gables: they stand on the party walls', () => {
+    const plan = planRoof(wide({ id: steppedId, tier: 'hero', roof: 'across', ring: box(8, 14) }));
+    expect(plan.type === 'gable' && plan.stepped).toBe(false);
   });
 
   test('narrow gables stay plain: the steps would be smaller than a pixel', () => {

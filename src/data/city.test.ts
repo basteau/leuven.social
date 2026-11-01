@@ -1,6 +1,15 @@
 import { expect, test } from 'bun:test';
 
-import { pathFromOsm, kindFromOsm, railFromOsm, roofFromOsm, roofFromSurvey } from './city.ts';
+import {
+  KINDS,
+  ROOFS,
+  kindFromOsm,
+  pathFromOsm,
+  railFromOsm,
+  roofAcross,
+  roofFromOsm,
+  roofFromSurvey,
+} from './city.ts';
 
 test('OSM building values collapse into the kinds the renderer styles', () => {
   expect(kindFromOsm('terrace')).toBe('house');
@@ -81,4 +90,25 @@ test('tracks above ground are drawn, tunnels and dead lines are not', () => {
   expect(railFromOsm({ railway: 'abandoned' })).toBeNull();
   expect(railFromOsm({ railway: 'platform' })).toBeNull();
   expect(railFromOsm({})).toBeNull();
+});
+
+test('a gable turns across its footprint where the LiDAR saw its slopes face along it', () => {
+  // A plot running north–south (long side along z): slopes facing east–west keep the ridge along
+  // it, slopes facing north–south (90° from x) turn it across.
+  const deep = { ux: 0, uz: 1 };
+  expect(roofAcross('gabled', [0, 0.9], deep)).toBe('gabled');
+  expect(roofAcross('gabled', [90, 0.9], deep)).toBe('across');
+  expect(roofAcross('gabled', [100, 0.9], { ux: 0, uz: -1 })).toBe('across');
+  // A hip faces every way, and a broken roof too weakly one way to say.
+  expect(roofAcross('gabled', [90, 0.2], deep)).toBe('gabled');
+  expect(roofAcross('gabled', [45, 0.9], deep)).toBe('gabled');
+  // Only pitched roofs turn, and only surveyed ones.
+  expect(roofAcross('flat', [90, 0.9], deep)).toBe('flat');
+  expect(roofAcross('hipped', [90, 0.9], deep)).toBe('hipped');
+  expect(roofAcross('gabled', undefined, deep)).toBe('gabled');
+});
+
+test('kinds and roofs fit the three bits each the city format packs them in', () => {
+  expect(KINDS.length).toBeLessThanOrEqual(8);
+  expect(ROOFS.length).toBeLessThanOrEqual(8);
 });

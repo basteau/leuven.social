@@ -7,7 +7,13 @@
  */
 
 import { AREA, LANDMARK_FOOTPRINTS, VIEW_AREA } from '../src/data/area.ts';
-import { kindFromOsm, pathFromOsm, railFromOsm, roofFromSurvey } from '../src/data/city.ts';
+import {
+  kindFromOsm,
+  pathFromOsm,
+  railFromOsm,
+  roofAcross,
+  roofFromSurvey,
+} from '../src/data/city.ts';
 import type {
   Building,
   Carriageway,
@@ -88,6 +94,8 @@ interface LocalBuilding {
   pitch?: number;
   /** Orthophoto roof colour, white-balanced. */
   rgb?: [number, number, number] | null;
+  /** The axis the roof slopes face (degrees from x towards z) and how strongly, 0–1. */
+  facing?: [number, number];
   kind: string;
   roof: string | null;
   tier: Tier;
@@ -175,17 +183,18 @@ for (const b of local.buildings) {
       for (let i = hole.length - 2; i >= 0; i -= 2) cw.push(hole[i]!, hole[i + 1]!);
       return new Float32Array(cw);
     });
-  buildings.push({
+  const building: Building = {
     id: b.id,
     tier,
     kind: kindFromOsm(b.kind),
-    roof: roofFromSurvey(b.roof, b.pitch),
+    roof: roofAcross(roofFromSurvey(b.roof, b.pitch), b.facing, orientedRect(ring)),
     height,
     eave: Math.min(height, Math.max(2.5, b.eave ?? height)),
     roofColor: b.rgb ? (b.rgb[0] << 16) | (b.rgb[1] << 8) | b.rgb[2] : null,
     ring: new Float32Array(ring),
     holes,
-  });
+  };
+  buildings.push(building);
 }
 
 // The orthophoto's roof colours, white-balanced on the flat roofs (src/data/roof-colours.ts).
@@ -499,7 +508,7 @@ console.log(
     `rails ${rails.length} (${rails.filter((r) => r.bridge).length} on bridges, ${rails.reduce((sum, r) => sum + r.line.length / 2 - 1, 0)} segments), platforms ${city.platforms.length}, railway land ${railLand.length}, platform roofs ${canopies.length}`,
     `trees ${trees.heights.length} (${osmTrees.length / 2} mapped)`,
     `sheds under trees capped ${shedsCapped}, shop fronts ${shopFronts} (${buildings.filter((b) => b.kind === 'retail').length} retail)`,
-    `roofs ${buildings.filter((b) => b.roof === 'flat').length} flat, ${buildings.filter((b) => b.roofColor !== null).length} with a sampled colour, ${buildings.filter((b) => b.holes.length).length} with courtyards`,
+    `roofs ${buildings.filter((b) => b.roof === 'flat').length} flat, ${buildings.filter((b) => b.roof === 'across').length} with the ridge across, ${buildings.filter((b) => b.roofColor !== null).length} with a sampled colour, ${buildings.filter((b) => b.holes.length).length} with courtyards`,
     `props ${props.length} (${placed.nudged} nudged, ${placed.dropped} dropped, ${allTrees.heights.length - trees.heights.length} crowns cleared): ${Object.entries(
       Object.groupBy(props, (p) => p.kind),
     )

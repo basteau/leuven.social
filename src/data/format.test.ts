@@ -30,7 +30,7 @@ const city: City = {
       id: 9,
       tier: 'core',
       kind: 'house',
-      roof: 'gabled',
+      roof: 'across',
       height: 11.2,
       eave: 11.2,
       roofColor: 0x000000,

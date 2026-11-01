@@ -16,7 +16,14 @@ import { pick, roofColor, wallColor } from './palette.ts';
 
 export type RoofPlan =
   | { type: 'flat'; eave: number }
-  | { type: 'gable'; eave: number; ridge: number; rect: OrientedRect; stepped: boolean }
+  | {
+      type: 'gable';
+      eave: number;
+      ridge: number;
+      /** The ridge runs along `rect`'s u axis, from -halfLength to halfLength, at v = 0. */
+      rect: OrientedRect;
+      stepped: boolean;
+    }
   | {
       type: 'hip';
       eave: number;
@@ -52,6 +59,8 @@ const STEPPED: Record<Tier, readonly boolean[]> = {
  * it, or the roof would hang over thin air. Anything less rectangular gets a hipped roof.
  */
 const GABLE_FILL = 0.85;
+/** Half the widest span (m) a gable covers; wider rectangles get a hipped roof. */
+const MAX_GABLE_SPAN = 9;
 /** Footprint detail finer than this (m) is survey noise to a roof, and below a game pixel. */
 const ROOF_TOLERANCE = 0.25;
 /** Below this footprint area (m²) a pitched roof is too small to read: bins, kiosks. */
@@ -61,8 +70,9 @@ const MIN_PITCHED_AREA = 12;
  * Decides the roof from the footprint, the tags and the LiDAR survey. Heights include the roof,
  * so a pitched roof takes its rise out of the wall height: the surveyed rise (ridge minus eave)
  * where there is one, else a ~42° guess, capped so a steep roof never eats the whole building.
- * Row houses get gables along their long side; every other shape a hipped roof from its
- * straight skeleton, which follows L, T and U wings and courtyards.
+ * Near-rectangles get gables, their ridge along the long side unless the LiDAR saw it run across
+ * (roof 'across': a terraced house's ridge parallel to the street); every other shape a hipped
+ * roof from its straight skeleton, which follows L, T and U wings and courtyards.
  */
 export function planRoof(b: Building): RoofPlan {
   const flat = { type: 'flat', eave: b.height } as const;
@@ -71,18 +81,32 @@ export function planRoof(b: Building): RoofPlan {
   if (!explicit && (!PITCHED_KINDS.has(b.kind) || b.height > 24)) return flat;
   if (signedArea(b.ring) < MIN_PITCHED_AREA) return flat;
   const surveyed = b.height - b.eave >= 1.5 ? b.height - b.eave : 0;
-  const rect = orientedRect(b.ring);
+  const long = orientedRect(b.ring);
+  // Turned, the ridge runs along v: the same rectangle with its axes swapped. A span too wide to
+  // turn keeps the ridge along.
+  const turned: OrientedRect = {
+    ...long,
+    ux: -long.uz,
+    uz: long.ux,
+    halfLength: long.halfWidth,
+    halfWidth: long.halfLength,
+  };
+  const across = b.roof === 'across' && turned.halfWidth <= MAX_GABLE_SPAN;
+  const rect = across ? turned : long;
   const gable =
     b.roof !== 'hipped' &&
     b.holes.length === 0 &&
     rect.fill >= GABLE_FILL &&
     rect.halfWidth >= 1.5 &&
-    rect.halfWidth <= 9;
+    rect.halfWidth <= MAX_GABLE_SPAN;
   if (gable) {
     const guess = Math.max(rect.halfWidth * 0.9, 1.5);
     const rise = Math.min(surveyed || guess, surveyed ? rect.halfWidth * 1.5 : 6, b.height * 0.5);
-    // Steps need room: on a narrow or flat gable they'd be smaller than a game pixel.
-    const stepped = rect.halfWidth >= 2.5 && rise >= 2.5 && pick(STEPPED[b.tier], b.id * 13);
+    // Steps need room: on a narrow or flat gable they'd be smaller than a game pixel. A turned
+    // ridge puts its gables on the party walls, where nobody sees steps: they stand on the
+    // street end of a ridge that runs back from it.
+    const stepped =
+      !across && rect.halfWidth >= 2.5 && rise >= 2.5 && pick(STEPPED[b.tier], b.id * 13);
     return { type: 'gable', eave: b.height - rise, ridge: b.height, rect, stepped };
   }
   const ring = simplifyRing(b.ring, ROOF_TOLERANCE);
