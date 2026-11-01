@@ -264,8 +264,9 @@ export function pickWalkable(
   const [dx, dy, dz] = dir;
   if (dy >= 0) return null;
   const flat = Math.hypot(dx, dz);
-  // From where the ray is above every roof, in steps of half a metre across the ground.
-  const t0 = (oy - PICK_TOP) / -dy;
+  // From where the ray is above every roof (or from the eye, for one already below them), in
+  // steps of half a metre across the ground.
+  const t0 = Math.max(0, (oy - PICK_TOP) / -dy);
   const step = flat > 1e-6 ? PICK_STEP / flat : 1;
   const tGround = oy / -dy;
   let [x, z] = [ox + dx * tGround, oz + dz * tGround];
