@@ -215,6 +215,8 @@ export function createViewer(options: ViewerOptions): Viewer {
   const gradientMap = toonGradient();
   // One material for every cell: walls get windows, roads their texture and paint (paint.ts).
   const material = createFacadeMaterial(gradientMap);
+  // A mesh without a `facade` attribute (street furniture) reads 0: a plain surface.
+  Object.assign(material, { defaultAttributeValues: { facade: [0] } });
   const ink = new LineBasicMaterial({ color: OUTLINE });
 
   // Cells are built when they first come into view, and the rest while the page is idle, so
@@ -259,7 +261,8 @@ export function createViewer(options: ViewerOptions): Viewer {
     casters.castShadow = true;
     casters.layers.mask = SHADOW_LAYER;
     // Street furniture shares the material and its program: one more draw call, only up close.
-    const furniture = new Mesh(props.build({ facade: true }), material);
+    // It has no windows, so it leaves out the facade attribute and the shader reads its default.
+    const furniture = new Mesh(props.build(), material);
     furniture.castShadow = true;
     furniture.receiveShadow = true;
     const outlines = new LineSegments(lines.build(), ink);

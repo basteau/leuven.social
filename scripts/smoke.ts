@@ -25,7 +25,7 @@ const MAX_DRAW_CALLS = 100;
 const MAX_TRIANGLES = 600_000;
 /** What the whole city hands the GPU once every cell is built. */
 const MAX_VERTICES = 2_750_000;
-const MAX_GEOMETRY_MB = 68;
+const MAX_GEOMETRY_MB = 65;
 /** The longest the main thread may be busy at once while the page loads (ms). */
 const MAX_LONG_TASK_MS = 750;
 
