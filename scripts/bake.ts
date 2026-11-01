@@ -27,6 +27,7 @@ import {
   simplifyRing,
 } from '../src/data/geometry.ts';
 import { toLocal } from '../src/data/projection.ts';
+import { correctRoofColours } from '../src/data/roof-colours.ts';
 import { capShedsUnderTrees } from '../src/data/sheds.ts';
 import { mergeTrees } from '../src/data/trees.ts';
 import { DATA } from './data-files.ts';
@@ -137,6 +138,15 @@ for (const b of local.buildings) {
     holes,
   });
 }
+
+// The orthophoto's roof colours, white-balanced on the flat roofs (src/data/roof-colours.ts).
+const roofs = buildings.map((b) => ({
+  roofColor: b.roofColor,
+  flat: b.roof === 'flat',
+  ring: b.ring,
+}));
+correctRoofColours(roofs);
+for (const [i, b] of buildings.entries()) b.roofColor = roofs[i]!.roofColor;
 
 // Garden sheds whose LiDAR height is the tree over them (src/data/sheds.ts).
 const shedsCapped = capShedsUnderTrees(buildings, crowns.trees);
