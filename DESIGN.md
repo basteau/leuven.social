@@ -166,7 +166,7 @@ A tiny city sounds like a toy: felt and soft wood, never game-show beeps. Sounds
 
 - **On by default, never before a gesture.** The audio context is made on the first tap, click or key after sound is on, as browsers require.
 - **Mute** (top start, or M) is a toggle that fills while muted, so the corner stays calm while sound plays. The choice is remembered.
-- **Quiet:** a master level of 0.4 over voices of 0.03 to 0.2, so the loudest step peaks around a sixteenth of full scale.
+- **Quiet:** a master level of 0.4 over voices of 0.03 to about 0.2, so even a running step peaks around a twelfth of full scale.
 - **Silent while the tab is hidden,** and nothing plays per frame: each sound is scheduled when its event happens.
 - Every voice rises over at least 3 ms and falls exponentially (no clicks), and passes through a filter: lowpass on tones for warmth, a band on noise. These follow Raphael Salaja's `create-sound` and `generating-sounds-with-ai` rules.
 - No ambience loop: the city is quiet, and a loop would cost more than it gives.
