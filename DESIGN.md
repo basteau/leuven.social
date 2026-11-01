@@ -146,7 +146,7 @@ Tokens are oklch, in `src/app/app.css`:
 ### Credits
 
 - The data licences (ODbL for OpenStreetMap, GRB terms) require visible credit. OSM's attribution guidelines allow it to collapse only after it was shown.
-- It sits in the top-end corner: "© OpenStreetMap" and "© Digitaal Vlaanderen" as two 10 px linked lines with a paper halo, beside (or, on narrow headers, under) a 20 px © button with a 44 px hit area.
+- It sits in the top-end corner: "© OpenStreetMap" and "© Digitaal Vlaanderen" as two 10 px linked lines with a paper halo (each a 24 px target, reaching out above and below), beside (or, on narrow headers, under) a 20 px © button with a 44 px hit area.
 - It collapses to just the © after 5 seconds or on the first pan, zoom or click; the © brings it back. The smoke test fails if the credit isn't visible at start.
 
 ### No labels on the map

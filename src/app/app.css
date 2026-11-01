@@ -365,6 +365,13 @@ fieldset {
   box-shadow: none;
 }
 
+/* 40px wide inside the capsule's border; the hit area reaches out over it to 44px. */
+.stack .round::after {
+  position: absolute;
+  inset: min(0px, (100% - var(--control)) / 2);
+  content: '';
+}
+
 .stack .round + .round::before {
   position: absolute;
   inset-block-start: 0;
@@ -707,6 +714,20 @@ fieldset {
 .credits a {
   color: inherit;
   text-decoration: none;
+}
+
+/*
+ * Each line a 24px target, the WCAG minimum, with the lines where they were: the first reaches
+ * up and the last down, into space their padding takes back with a negative margin.
+ */
+.credits a:first-child {
+  padding-block-start: calc(24px - 1lh);
+  margin-block-start: calc(1lh - 24px);
+}
+
+.credits a:last-child {
+  padding-block-end: calc(24px - 1lh);
+  margin-block-end: calc(1lh - 24px);
 }
 
 /* Centred on the brand's row; its 44px hit area reaches past the visual (below). */
