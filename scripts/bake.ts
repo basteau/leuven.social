@@ -1,11 +1,18 @@
 /**
- * Bakes public/data/city.bin from the research downloads in data/ (see data/README.md).
- * Only this edge reads files; the transforms live in src/data and are unit-tested.
+ * Bakes public/data/city.bin from data/derived/ and the GRB downloads (`bun run data` makes
+ * both; see docs/DATA.md). Only this edge reads files; the transforms live in src/data and
+ * are unit-tested. Same inputs, same bytes: `bun run data:check` holds it to that.
  *
  *   bun run bake
  */
 
-import { AREA, LANDMARK_FOOTPRINTS, LANDMARKS, VIEW_AREA } from '../src/data/area.ts';
+import {
+  AREA,
+  LANDMARK_FOOTPRINTS,
+  LANDMARKS,
+  VIEW_AREA,
+  placeLandmarks,
+} from '../src/data/area.ts';
 import { kindFromOsm, pathFromOsm, roofFromSurvey } from '../src/data/city.ts';
 import type { Building, City, Path, Tier } from '../src/data/city.ts';
 import { packCity } from '../src/data/format.ts';
@@ -14,18 +21,20 @@ import {
   clipLine,
   clipRingToArea,
   normalizeRing,
+  orientedRect,
   ringInArea,
   signedArea,
   simplifyRing,
 } from '../src/data/geometry.ts';
 import { toLocal } from '../src/data/projection.ts';
 import { mergeTrees } from '../src/data/trees.ts';
+import { DATA } from './data-files.ts';
 
-const root = new URL('../', import.meta.url);
+const OUT = new URL('../public/data/city.bin', import.meta.url).pathname;
 const read = async <T>(path: string): Promise<T> => {
-  const file = Bun.file(new URL(path, root));
+  const file = Bun.file(`${DATA}/${path}`);
   if (!(await file.exists())) {
-    throw new Error(`Missing ${path}. Build it first: see data/README.md.`);
+    throw new Error(`Missing data/${path}. Make it first: bun run data (docs/DATA.md).`);
   }
   return (await file.json()) as T;
 };
@@ -90,14 +99,15 @@ const GREEN_LANDUSE = new Set(['grass', 'meadow', 'cemetery', 'forest', 'recreat
 /** Courtyards smaller than this are light wells: below a game pixel, and not worth the walls. */
 const MIN_COURTYARD = 12;
 
-const [local, crowns, wbn, wtz, osmAreas, osmRoads, osmPoints] = await Promise.all([
-  read<{ buildings: LocalBuilding[] }>('data/derived/leuven_buildings_local.json'),
-  read<{ trees: [number, number, number][] }>('data/derived/lidar_trees.json'),
-  read<Collection>('data/grb/grb_WBN.geojson'),
-  read<Collection>('data/grb/grb_WTZ.geojson'),
-  read<Collection>('data/derived/osm_areas.geojson'),
-  read<Collection>('data/derived/osm_roads.geojson'),
-  read<Collection>('data/derived/osm_points.geojson'),
+const [local, crowns, wbn, wtz, osmAreas, osmRoads, osmPoints, items] = await Promise.all([
+  read<{ buildings: LocalBuilding[] }>('derived/leuven_buildings_local.json'),
+  read<{ trees: [number, number, number][] }>('derived/lidar_trees.json'),
+  read<Collection>('grb/grb_WBN.geojson'),
+  read<Collection>('grb/grb_WTZ.geojson'),
+  read<Collection>('derived/osm_areas.geojson'),
+  read<Collection>('derived/osm_roads.geojson'),
+  read<Collection>('derived/osm_points.geojson'),
+  read<Record<string, { lon: number; lat: number }>>('wikidata/labels.json'),
 ]);
 
 const buildings: Building[] = [];
@@ -154,9 +164,11 @@ const trees = mergeTrees(
 const city: City = {
   area: [...AREA],
   bounds: VIEW_AREA,
-  labels: LANDMARKS.map(({ name, lon, lat }) => {
-    const [x, z] = toLocal(lon, lat);
-    return { name, x, z };
+  labels: placeLandmarks(LANDMARKS, items, (id) => {
+    const b = buildings.find((building) => building.id === id);
+    if (!b) return undefined;
+    const { cx, cz } = orientedRect(b.ring);
+    return [cx, cz];
   }),
   buildings,
   roads: layer(wbn.features, () => true),
@@ -179,7 +191,7 @@ const city: City = {
 };
 
 const bytes = await packCity(city);
-await Bun.write(new URL('public/data/city.bin', root), bytes);
+await Bun.write(OUT, bytes);
 
 const tiers = Object.groupBy(buildings, (b) => b.tier);
 console.log(
