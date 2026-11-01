@@ -13,6 +13,7 @@ import { packCity } from '../src/data/format.ts';
 import {
   areaIndex,
   clipLine,
+  uncoveredPieces,
   clipRingToArea,
   normalizeRing,
   orientedRect,
@@ -234,6 +235,24 @@ const water = [
   ...layer(osmAreas.features, (p) => p.natural === 'water'),
 ];
 
+// A path under a road surface or a square is never seen (44% of their length): keep the rest.
+const paved = new RingIndex();
+for (const ring of [...roads, ...plazas]) paved.add(ring);
+const shownPaths: Path[] = paths.flatMap((p) =>
+  uncoveredPieces(p.line, (x, z) => paved.contains(x, z)).map((piece): Path => ({
+    width: p.width,
+    paved: p.paved,
+    line: new Float32Array(piece),
+  })),
+);
+const pathLength = (list: Path[]) =>
+  list.reduce((sum, { line }) => {
+    for (let i = 0; i + 3 < line.length; i += 2) {
+      sum += Math.hypot(line[i + 2]! - line[i]!, line[i + 3]! - line[i + 1]!);
+    }
+    return sum;
+  }, 0);
+
 // Street furniture faces the nearest kerb, path or wall, and never stands in a house or the river.
 const edges = new EdgeIndex();
 for (const ring of [...roads, ...plazas, ...buildings.map((b) => b.ring)]) edges.add(ring);
@@ -314,7 +333,7 @@ const city: City = {
     MIN_GREEN_AREA,
   ),
   water,
-  paths,
+  paths: shownPaths,
   trees: new Float32Array(trees.positions),
   treeHeights: new Float32Array(trees.heights),
   props,
@@ -339,7 +358,7 @@ console.log(
       .join(', ')}`,
     `plazas ${city.plazas.length}, green ${city.green.length}, water ${city.water.length}`,
     `woods ${city.woods.length}, pitches ${city.pitches.length}, parking ${city.parking.length}`,
-    `paths ${paths.length} (${paths.filter((p) => !p.paved).length} unpaved)`,
+    `paths ${shownPaths.length} (${shownPaths.filter((p) => !p.paved).length} unpaved), ${(pathLength(shownPaths) / 1000).toFixed(0)} of ${(pathLength(paths) / 1000).toFixed(0)} km not under a road or square`,
     `trees ${trees.heights.length} (${osmTrees.length / 2} mapped), labels ${city.labels.length}`,
     `sheds under trees capped ${shedsCapped}, shop fronts ${shopFronts} (${buildings.filter((b) => b.kind === 'retail').length} retail)`,
     `roofs ${buildings.filter((b) => b.roof === 'flat').length} flat, ${buildings.filter((b) => b.roofColor !== null).length} with a sampled colour, ${buildings.filter((b) => b.holes.length).length} with courtyards`,
