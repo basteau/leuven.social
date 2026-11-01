@@ -50,6 +50,8 @@ export const PROPS = {
   roof: 0x4a5161,
   sign: 0xe8b94a,
   wheel: 0x2b2420,
+  /** A bike wheel's rim and spokes, read as one pale disc inside the tyre. */
+  spokes: 0xb7b3aa,
   /** Jan Fabre's jewel beetle on the Totem. */
   beetle: 0x2f8a6e,
 } as const;

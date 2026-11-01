@@ -20,9 +20,12 @@ import type { MeshBuilder, V3 } from './mesh-builder.ts';
 /** Props that stay in view at every zoom, in the cell's main mesh; the rest hide when far. */
 export const LARGE_PROPS: ReadonlySet<PropKind> = new Set(['needle']);
 /** Share of a rack's stands that hold a bike. Leuven's racks are rarely empty. */
-const OCCUPANCY = 0.8;
+const OCCUPANCY = 0.75;
 /** Half a bike tube's width: chunky, so a frame still shows its colour zoomed out (m). */
 const TUBE = 0.045;
+/** A wheel's pale hub (corner to middle), and half a saddle's width (m). */
+const HUB = 0.25;
+const SADDLE = 0.07;
 
 interface Frame {
   x: number;
@@ -158,8 +161,31 @@ function tube(
 }
 
 /**
- * A city bike, seen side on: hexagonal wheels, a filled rear triangle that carries its colour on
- * the map, top and down tubes, a fork and a handlebar across. 34 triangles.
+ * A diamond in a bike's plane, a hair to one side of the tyre and facing out that way: the
+ * wheel's pale rim and spokes, two triangles.
+ */
+function hub(
+  mesh: MeshBuilder,
+  f: Frame,
+  side: number,
+  u: number,
+  [v, y]: readonly [number, number],
+): void {
+  const w = u + side * 0.012;
+  mesh.quad(
+    at(f, w, v, y + HUB),
+    at(f, w, v + HUB, y),
+    at(f, w, v, y - HUB),
+    at(f, w, v - HUB, y),
+    PROPS.spokes,
+    away(f, side, 0),
+  );
+}
+
+/**
+ * A city bike, seen side on: hexagonal wheels, dark tyres round a pale hub on either face, a
+ * filled rear triangle that carries its colour on the map, top and down tubes, a fork, a saddle
+ * and a handlebar across. 41 triangles.
  */
 function addBike(mesh: MeshBuilder, f: Frame, u: number, v: number, color: number): void {
   const r = 0.33;
@@ -170,6 +196,8 @@ function addBike(mesh: MeshBuilder, f: Frame, u: number, v: number, color: numbe
       return at(f, u, c + Math.cos(t) * r, r + Math.sin(t) * r);
     });
     panel(mesh, rim, PROPS.wheel);
+    // On each face, so it reads as a tyre round a rim, not a black disc.
+    for (const side of [-1, 1]) hub(mesh, f, side, u, [c, r]);
   }
   const bracket = [v - 0.1, 0.3] as const;
   const seat = [v - 0.28, 0.9] as const;
@@ -178,16 +206,22 @@ function addBike(mesh: MeshBuilder, f: Frame, u: number, v: number, color: numbe
   tube(mesh, f, u, seat, head, color);
   tube(mesh, f, u, bracket, head, color);
   tube(mesh, f, u, [front, r], [v + 0.34, 1], color);
-  // The handlebar, across the bike: seen end on from the side, a dash from the front.
-  panel(
-    mesh,
-    [
-      at(f, u - HANDLEBAR, v + 0.34, 0.97),
-      at(f, u + HANDLEBAR, v + 0.34, 0.97),
-      at(f, u + HANDLEBAR, v + 0.34, 1.03),
-      at(f, u - HANDLEBAR, v + 0.34, 1.03),
-    ],
+  // The saddle: one dark triangle on the seat, its nose forward.
+  mesh.triangle(
+    at(f, u - SADDLE, v - 0.4, 0.915),
+    at(f, u + SADDLE, v - 0.4, 0.915),
+    at(f, u, v - 0.14, 0.915),
     PROPS.wheel,
+    [0, 1, 0],
+  );
+  // The handlebar, across the bike: a flat bar on top, which every view is from above.
+  mesh.quad(
+    at(f, u - HANDLEBAR, v + 0.31, 1),
+    at(f, u + HANDLEBAR, v + 0.31, 1),
+    at(f, u + HANDLEBAR, v + 0.37, 1),
+    at(f, u - HANDLEBAR, v + 0.37, 1),
+    PROPS.wheel,
+    [0, 1, 0],
   );
 }
 
