@@ -46,12 +46,6 @@ export const PROVIDERS = {
     credit: 'Bron: Luchtopnamen Digitaal Vlaanderen',
     ...DIGITAAL_VLAANDEREN,
   },
-  wikidata: {
-    name: 'Wikidata',
-    credit: 'Wikidata',
-    licence: 'CC0 1.0',
-    licenceUrl: 'https://creativecommons.org/publicdomain/zero/1.0/',
-  },
 } as const satisfies Record<string, Provider>;
 
 export type ProviderId = keyof typeof PROVIDERS;
