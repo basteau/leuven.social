@@ -32,27 +32,43 @@ Leuven as a tiny city you could hold in your hands: a warm, crisp, low-poly dior
 - **Hero landmarks get their real silhouette.** Low-poly halls, towers and spires fitted to the LiDAR: the Stadhuis' steep roof with dormers and six turrets, Sint-Pieterskerk's cross, flèche and squat west work, the Universiteitsbibliotheek's tower, Station Leuven's gabled middle and pavilions, Arenbergkasteel's corner towers, the Abdij van Park church tower. Enough to recognise at zoom 2–4, never sculpted detail.
 - **Stepped gables say "Flemish town".** Nearly half the gables in the hero squares are stepped, a fifth elsewhere in the centre, none on the fringe. Narrow gables stay plain, since the steps would be smaller than a game pixel.
 - **Squares show what happens on them.** Oude Markt gets rows of café parasols along its facades; the middle stays open.
+- **Roads say what they're made of.** Asphalt, setts and paving stones come from OSM, kerbs and cycle tracks from the GRB. Setts get a grain once a stone spans a pixel or two and joints once it spans a few; from afar they're just a warmer, lighter grey than asphalt and a greyer one than the squares.
+- **Paint is at least a pixel, or nothing.** Lane lines are never thinner than a pixel, and go only when zoomed far out; zebra bars appear once a bar spans about two pixels, and before that the crossing is a light grey patch.
+- **Streets have furniture.** From zoom 2, the lamps, benches, bike racks, bus shelters and statues OpenStreetMap knows, drawn a third larger than life so they stay a few pixels. Below zoom 2 they would be noise, so they hide. Jan Fabre's Totem on Ladeuzeplein (a 23 m needle with its jewel beetle) shows at every zoom.
 - To add a landmark, fit parts in `src/scene/landmark-models.ts` against a LiDAR height plot of its footprint, list the footprint in `LANDMARK_FOOTPRINTS` (`src/data/area.ts`), rebake, then check it from all four rotations.
+
+### Walking
+
+- **A Leuven student**, a little larger than life (2.2×) so they read at walking zoom: a coat in the HUD's accent blue, a mustard scarf, a brick-red backpack. Boxy, outlined in ink, toon-shaded like the city.
+- **Walk mode zooms to 7** and follows them, still isometric; Q/E still turn the view.
+- **Walkable** means road surfaces, squares and footpaths. Never inside buildings or their courtyards, gardens, green or water without a path across.
+- **Hidden behind a building**, the figure shows as a checkerboard silhouette in coat blue.
+- **A picked destination** gets ink-ringed pale dots along the way and a square target, Street View style.
 
 ### Palette
 
 Values live in `src/scene/palette.ts`; change them there only. Each building's colour is picked deterministically from its id, so it never changes between reloads.
 
-| Element                | Colours                                                                                                                                                               | Why                                                                                                          |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| House walls            | Red, dark brown and yellow brick, whitewash and warm plaster creams, each house nudged a little lighter, darker, warmer or cooler by its id                           | Leuven's streets: red-brown brick next to whitewashed and pastel fronts, never two identical houses in a row |
-| Civic and church walls | Sandstone and limestone                                                                                                                                               | The Gothic Stadhuis, Sint-Pieterskerk and the university halls                                               |
-| Landmarks              | Warm sandstone, pale limestone, red brick with cream trim, dark slate spires                                                                                          | Each hero is the lightest, most colourful building in its street                                             |
-| Café parasols          | Cream, brick red, mustard, orange, blue                                                                                                                               | A few warm dots of life on the squares                                                                       |
-| Pitched roofs          | Their real colour from the air, snapped to eight swatches: dark slate, slate, zinc, pale concrete, old dark red tiles, red tiles, terracotta, moss                    | Leuven is mostly slate with red tiles between; the aerial photo knows which is which                         |
-| Flat roofs             | Cool greys, a step darker than plaster walls, picked by the same swatches                                                                                             | Quiet backdrop that still separates a roof from its walls; never darker than the streets                     |
-| Paths                  | Pale slabs when paved, sand for gravel trails                                                                                                                         | Parks and the Dijle walks read as places to walk, not as roads                                               |
-| Trees                  | One low-poly tree, scaled to the LiDAR height of each one; each its own green (a little lighter or darker, yellower or bluer) and crown width, the tallest darkest    | Parks and gardens are as wooded as they really are, and read as many trees, not one stamp                    |
-| Windows                | Deep blue-grey glass, ~7% lit warm (`#f3c873`); each building its own bay width, window width and storey height from its real height                                  | The sun catching a few panes; rows that end under the eaves, and no two blocks with the same grid            |
-| Shop fronts            | A glazed ground floor under awnings (red, green, blue, mustard, brown, cream) where OSM maps a shop, café, bar or restaurant inside                                   | Shopping streets and squares read as lively at street level                                                  |
-| Ground                 | Garden green-beige base, lawn green, a deeper green under woods, bright mown pitches, asphalt car parks, warm grey roads, golden sand cobbles for squares, river blue | Squares should glow slightly against the roads; parks show where the woods and the playing fields are        |
-| Diorama slab           | Earth brown sides                                                                                                                                                     | Frames the city as an object                                                                                 |
-| Outlines               | `#2b2420` warm ink                                                                                                                                                    | Ties scene and HUD together (same ink as the panels)                                                         |
+| Element                | Colours                                                                                                                                                            | Why                                                                                                            |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| House walls            | Red, dark brown and yellow brick, whitewash and warm plaster creams, each house nudged a little lighter, darker, warmer or cooler by its id                        | Leuven's streets: red-brown brick next to whitewashed and pastel fronts, never two identical houses in a row   |
+| Civic and church walls | Sandstone and limestone                                                                                                                                            | The Gothic Stadhuis, Sint-Pieterskerk and the university halls                                                 |
+| Landmarks              | Warm sandstone, pale limestone, red brick with cream trim, dark slate spires                                                                                       | Each hero is the lightest, most colourful building in its street                                               |
+| Café parasols          | Cream, brick red, mustard, orange, blue                                                                                                                            | A few warm dots of life on the squares                                                                         |
+| Pitched roofs          | Their real colour from the air, snapped to eight swatches: dark slate, slate, zinc, pale concrete, old dark red tiles, red tiles, terracotta, moss                 | Leuven is mostly slate with red tiles between; the aerial photo knows which is which                           |
+| Flat roofs             | Cool greys, a step darker than plaster walls, picked by the same swatches                                                                                          | Quiet backdrop that still separates a roof from its walls; never darker than the streets                       |
+| Paths                  | Pale slabs when paved, sand for gravel trails                                                                                                                      | Parks and the Dijle walks read as places to walk, not as roads                                                 |
+| Street furniture       | Iron-dark lamp posts with warm lanterns, wood benches, glass bus shelters, bronze statues on pale stone, bikes in the colours Leuven rides                         | Lamps, benches and full bike racks are what make a street read as Leuven's up close; they hide when zoomed out |
+| Bridges and tanks      | Warm quay-stone parapets, pale aluminium tanks                                                                                                                     | A bridge reads as one by its parapets; the brewery by its tanks                                                |
+| Trees                  | One low-poly tree, scaled to the LiDAR height of each one; each its own green (a little lighter or darker, yellower or bluer) and crown width, the tallest darkest | Parks and gardens are as wooded as they really are, and read as many trees, not one stamp                      |
+| Windows                | Deep blue-grey glass, ~7% lit warm (`#f3c873`); each building its own bay width, window width and storey height from its real height                               | The sun catching a few panes; rows that end under the eaves, and no two blocks with the same grid              |
+| Shop fronts            | A glazed ground floor under awnings (red, green, blue, mustard, brown, cream) where OSM maps a shop, café, bar or restaurant inside                                | Shopping streets and squares read as lively at street level                                                    |
+| Ground                 | Garden green-beige base, lawn green, a deeper green under woods, bright mown pitches, asphalt car parks, golden sand cobbles for squares, river blue               | Squares should glow slightly against the roads; parks show where the woods and the playing fields are          |
+| Roads                  | Pale slab pavements; asphalt carriageways, darker on the ring and main roads; warm grey setts; pale stone paving; red cycle tracks                                 | Leuven from the air: pale pavements frame dark asphalt, the old centre is stone, Flemish cycle tracks are red  |
+| Road paint             | Off-white lane lines and zebras; a zebra's average grey from afar; red cyclist crossings                                                                           | The ring reads as a boulevard, and paint never shimmers                                                        |
+| Diorama slab           | Earth brown sides                                                                                                                                                  | Frames the city as an object                                                                                   |
+| Outlines               | `#2b2420` warm ink                                                                                                                                                 | Ties scene and HUD together (same ink as the panels)                                                           |
+| Walker                 | Coat `#2f62a8`, scarf `#e8b94a`, backpack `#b84c36`, hair `#7a4a2c`                                                                                                | Reads against grey streets, sandy squares and green parks; the coat matches the HUD                            |
 
 ## HUD
 
@@ -84,6 +100,8 @@ Tokens are oklch, in `src/app/app.css`:
 - Icon plus a visible text label.
 - A keyboard shortcut is shown on devices that have hover.
 - Below 30 rem of width the toolbar becomes a tab bar: icon above label, no shortcut hints.
+- **Walk** sits in its own panel beside the view toolbar and wraps above it when the row runs out. Picking a start shows a one-line hint, a reticle in the middle of the view, and **Start here** / **Cancel**. Walking swaps the toolbar for **Map** (back to the map view), **Turn left** and **Turn right**, under a one-line hint that names the keys only on devices with a fine pointer.
+- A spot that can't be walked to says so in the hint ("Can’t walk there. Pick a street or square.") until the next try.
 
 ### States
 
@@ -103,12 +121,15 @@ Tokens are oklch, in `src/app/app.css`:
 
 - Small ink-bordered tags anchored above landmarks.
 - Their order in `LANDMARKS` is their priority: a label that would overlap an earlier one, or cross the screen edge, is hidden.
+- Names and places come from OpenStreetMap; `LANDMARKS` only lists ids. Each shows from its own zoom. Landmarks and the big parks and sites show from the start, so the far view can be read across the whole map; churches and squares from zoom 1.5–2, small sights (the Totem) only up close.
 - They're decorative: the map has a text description for screen readers.
 
 ### Keyboard
 
 - The map is one focusable widget (`role="application"`, focused on load without a ring).
-- Arrow keys pan, `+`/`-` zoom, Q/E turn, R resets.
+- Arrow keys pan, `+`/`-` zoom, Q/E turn, R resets, W starts a walk.
+- Picking a start: Enter starts in the middle of the view, Escape cancels.
+- Walking: W A S D or the arrow keys walk relative to the screen, Escape returns to the map. Clicking or tapping a street walks there along a route.
 - Shortcuts only act while focus is inside the app.
 
 ## Motion
@@ -116,6 +137,7 @@ Tokens are oklch, in `src/app/app.css`:
 - **Rotation:** 280 ms ease-out. Instant with `prefers-reduced-motion`.
 - **Press feedback:** scale 0.97 over 140 ms ease-out.
 - **Hover:** only on devices with hover. Nothing else animates.
+- **Walking:** a procedural cycle. Legs and arms swing against each other, the hips drop as the legs spread so the soles stay down, with a little spring as they pass, a slight lean and a turn toward the heading. Standing still, the walker breathes and glances about for four seconds, then rests. The camera eases after the walker and into walk zoom. With `prefers-reduced-motion` the camera follows and zooms without easing, the figure appears without its pop, and there is no idle fidgeting; the walk cycle itself stays, since the user is moving the figure.
 - **Future motion:** anything new (traffic, people, day-night) goes through Emil Kowalski's animation skills. It must also respect reduced motion.
 
 ## Mobile and PWA

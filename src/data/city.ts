@@ -39,10 +39,68 @@ export interface Path {
   line: Float32Array;
 }
 
+/**
+ * What lies on the road surface beside the pavement, and what it's made of: the GRB surface cut
+ * along its kerbs (tools/build_road_zones.py), named from the OSM ways on it (src/data/roads.ts).
+ * Pedestrian streets count, by their paving; so do cycle tracks.
+ */
+export const CARRIAGEWAY_KINDS = ['street', 'main', 'sett', 'paving', 'cycleway'] as const;
+export type CarriagewayKind = (typeof CARRIAGEWAY_KINDS)[number];
+
+export interface Carriageway {
+  kind: CarriagewayKind;
+  ring: Float32Array;
+}
+
+/** Paint on the carriageway: lane dividers, painted cycle lanes and crossings. */
+export const MARKING_KINDS = ['dashed', 'solid', 'cycle-lane', 'zebra', 'bike-crossing'] as const;
+export type MarkingKind = (typeof MARKING_KINDS)[number];
+
+export interface Marking {
+  kind: MarkingKind;
+  /** A lane's centre line, or for crossings the line across the carriageway they follow. */
+  line: Float32Array;
+}
+
 export interface Label {
   name: string;
   x: number;
   z: number;
+  /** Shown from this zoom: landmarks and districts always (0), small sights only up close. */
+  minZoom: number;
+}
+
+/**
+ * Street furniture and small monuments, from OpenStreetMap points (src/data/props.ts). All of
+ * them stand in the way: none is walkable.
+ */
+export const PROP_KINDS = [
+  'lamp',
+  'bench',
+  'bikes',
+  'shelter',
+  'busstop',
+  'statue',
+  'fountain',
+  'pump',
+  'needle',
+] as const;
+export type PropKind = (typeof PROP_KINDS)[number];
+
+export interface Prop {
+  kind: PropKind;
+  x: number;
+  z: number;
+  /** Which way it faces (radians from +x towards +z): towards the nearest kerb, path or wall. */
+  angle: number;
+  /** Stands in a bike rack; a statue's or needle's tagged height (m); else 0. */
+  size: number;
+}
+
+/** A tank or silo (GRB structures): its footprint and LiDAR height. Solid, so not walkable. */
+export interface Tank {
+  height: number;
+  ring: Float32Array;
 }
 
 export interface Bounds {
@@ -58,7 +116,13 @@ export interface City {
   bounds: Bounds;
   labels: Label[];
   buildings: Building[];
+  /**
+   * The whole road surface, facade to facade (GRB), all of it walkable. It's pavement wherever no
+   * carriageway lies on it.
+   */
   roads: Float32Array[];
+  carriageways: Carriageway[];
+  markings: Marking[];
   plazas: Float32Array[];
   green: Float32Array[];
   water: Float32Array[];
@@ -73,6 +137,10 @@ export interface City {
   trees: Float32Array;
   /** Height of each tree in metres, from the LiDAR canopy. */
   treeHeights: Float32Array;
+  props: Prop[];
+  tanks: Tank[];
+  /** Bridge parapets: low walls along the sides of a bridge that face the water, as open lines. */
+  parapets: Float32Array[];
 }
 
 const KIND_BY_OSM: Record<string, Kind> = {

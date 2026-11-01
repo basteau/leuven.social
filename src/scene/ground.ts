@@ -1,9 +1,11 @@
 import { ShapeUtils, Vector2 } from 'three';
 
-import type { Bounds, Path } from '../data/city.ts';
+import type { Bounds, Carriageway, Path } from '../data/city.ts';
 import { areaOutline } from '../data/geometry.ts';
 import type { MeshBuilder } from './mesh-builder.ts';
-import { GROUND } from './palette.ts';
+import { SURFACE, SURFACE_OF, addPaint } from './paint.ts';
+import type { Marking } from './paint.ts';
+import { CARRIAGEWAYS, GROUND } from './palette.ts';
 
 /** How far the diorama slab drops below street level, in metres. */
 export const SLAB_DEPTH = 12;
@@ -27,21 +29,26 @@ export interface GroundLayers {
   parking: readonly Float32Array[];
   water: readonly Float32Array[];
   roads: readonly Float32Array[];
+  carriageways: readonly Carriageway[];
+  markings: readonly Marking[];
   plazas: readonly Float32Array[];
   paths: readonly Path[];
 }
 
-function addRings(mesh: MeshBuilder, rings: readonly Float32Array[], y: number, color: number) {
-  for (const ring of rings) {
-    const contour = Array.from(
-      { length: ring.length / 2 },
-      (_, i) => new Vector2(ring[i * 2]!, ring[i * 2 + 1]!),
-    );
-    for (const [i, j, k] of ShapeUtils.triangulateShape(contour, [])) {
-      const p = (idx: number) => [contour[idx]!.x, y, contour[idx]!.y] as const;
-      mesh.triangle(p(i!), p(j!), p(k!), color, UP);
-    }
+/** A flat polygon; `surface` names its texture for the ground shader (paint.ts). */
+function addRing(mesh: MeshBuilder, ring: Float32Array, y: number, color: number, surface = 0) {
+  const contour = Array.from(
+    { length: ring.length / 2 },
+    (_, i) => new Vector2(ring[i * 2]!, ring[i * 2 + 1]!),
+  );
+  for (const [i, j, k] of ShapeUtils.triangulateShape(contour, [])) {
+    const p = (idx: number) => [contour[idx]!.x, y, contour[idx]!.y] as const;
+    mesh.triangle(p(i!), p(j!), p(k!), color, UP, -surface);
   }
+}
+
+function addRings(mesh: MeshBuilder, rings: readonly Float32Array[], y: number, color: number) {
+  for (const ring of rings) addRing(mesh, ring, y, color);
 }
 
 /**
@@ -71,7 +78,8 @@ function addPaths(mesh: MeshBuilder, paths: readonly Path[], y: number) {
 
 /**
  * The diorama inside `within` (one cell): the earth slab's top and the sides hanging from the
- * area's outline, then water, paths, roads and squares on top. Layers come already clipped to the cell.
+ * area's outline, then water, paths, the road surface and its paint, and squares on top. Layers come
+ * already clipped to the cell.
  */
 export function addGround(
   mesh: MeshBuilder,
@@ -103,6 +111,11 @@ export function addGround(
   addRings(mesh, layers.water, 0.1, GROUND.water);
   // Above the water (footbridges), under the road surfaces that already cover their crossings.
   addPaths(mesh, layers.paths, 0.12);
-  addRings(mesh, layers.roads, 0.15, GROUND.road);
+  // The road surface is pavement, with the carriageways and cycle tracks laid on it.
+  for (const ring of layers.roads) addRing(mesh, ring, 0.15, GROUND.pavement, SURFACE.paving);
+  for (const { kind, ring } of layers.carriageways) {
+    addRing(mesh, ring, 0.155, CARRIAGEWAYS[kind], SURFACE_OF[kind]);
+  }
+  addPaint(mesh, layers.markings);
   addRings(mesh, layers.plazas, 0.2, GROUND.plaza);
 }

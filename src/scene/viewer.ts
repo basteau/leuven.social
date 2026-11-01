@@ -25,9 +25,10 @@ import { clampToArea } from '../data/geometry.ts';
 import { partyWalls } from './buildings.ts';
 import { buildCell, partition } from './cells.ts';
 import type { Cell } from './cells.ts';
-import { createFacadeMaterial } from './facade-material.ts';
+import { createFacadeMaterial, setPixelSize } from './facade-material.ts';
 import { LIGHT } from './lighting.ts';
 import { SLAB_DEPTH } from './ground.ts';
+import { LINE_LOD } from './paint.ts';
 import type { V3 } from './mesh-builder.ts';
 import { BOUNCE_LIGHT, OUTLINE, SKY_LIGHT, SUN } from './palette.ts';
 import {
@@ -40,6 +41,10 @@ import {
 } from './shadow-fit.ts';
 import type { ShadowSquare } from './shadow-fit.ts';
 import { terraceParasols } from './terraces.ts';
+import { createWalk } from './walk.ts';
+import type { WalkMode } from './walk.ts';
+
+export type { WalkMode } from './walk.ts';
 
 export interface ViewerOptions {
   canvas: HTMLCanvasElement;
@@ -49,6 +54,10 @@ export interface ViewerOptions {
   labelLayer: HTMLElement;
   city: City;
   reducedMotion: boolean;
+  /** Walk mode changed: picking a start, walking, or back on the map. */
+  onWalkModeChange?: (mode: WalkMode) => void;
+  /** A spot that can't be walked to was picked. */
+  onWalkBlocked?: () => void;
 }
 
 export interface ViewerStats {
@@ -61,6 +70,14 @@ export interface Viewer {
   /** Multiplies the zoom, within the controls' limits. */
   zoomBy(factor: number): void;
   resetView(): void;
+  /** Starts walk mode: the next click on the map says where. */
+  pickWalkStart(): void;
+  /** Starts walking from the street nearest the middle of the view. */
+  walkFromCentre(): void;
+  /** Back to the map. */
+  stopWalking(): void;
+  /** Walks toward a direction on screen while held: right and up, each from -1 to 1. */
+  steer(right: number, up: number): void;
   stats(): ViewerStats;
   dispose(): void;
 }
@@ -76,6 +93,8 @@ interface CellEntry {
   box: Box3;
   /** Its mesh and outlines once built; empty until then. */
   objects: Object3D[];
+  /** Where the fine road paint starts in its mesh (see buildCell). */
+  fineVertices: number;
 }
 
 /** Golden hour from the south-west, low enough for long shadows. */
@@ -87,6 +106,11 @@ const SHADOW_REACH = 60;
 /** Layer masks: the view draws layer 0, the shadow pass layer 1 (see `cull`). */
 const VIEW_LAYER = 1 << 0;
 const SHADOW_LAYER = 1 << 1;
+/**
+ * Zoom from which street furniture shows. Further out a lamp post is a stray pixel, and the
+ * frames that show the most city are the ones that can least afford it.
+ */
+const PROP_ZOOM = 2;
 /** Time the idle builder may take per slice before handing the main thread back (ms). */
 const IDLE_SLICE_MS = 8;
 
@@ -121,7 +145,7 @@ export function createViewer(options: ViewerOptions): Viewer {
 
   const scene = new Scene();
   const gradientMap = toonGradient();
-  // One material for every cell: ground and trees carry no facade, so they get no windows.
+  // One material for every cell: walls get windows, roads their texture and paint (paint.ts).
   const material = createFacadeMaterial(gradientMap);
   const ink = new LineBasicMaterial({ color: OUTLINE });
 
@@ -137,20 +161,39 @@ export function createViewer(options: ViewerOptions): Viewer {
       new Vector3(cell.bounds.maxX + 60, MAX_HEIGHT, cell.bounds.maxZ + 60),
     ),
     objects: [],
+    fineVertices: 0,
   }));
 
   function build(entry: CellEntry): void {
-    const { mesh, lines } = buildCell(entry.cell, city.area, walls);
+    const { mesh, lines, props, groundVertices, fineVertices } = buildCell(
+      entry.cell,
+      city.area,
+      walls,
+    );
     const surfaces = new Mesh(mesh.build({ facade: true }), material);
-    surfaces.castShadow = true;
-    surfaces.receiveShadow = true;
+    // Street furniture shares the material and its program: one more draw call, only up close.
+    const furniture = new Mesh(props.build({ facade: true }), material);
+    for (const m of [surfaces, furniture]) {
+      m.castShadow = true;
+      m.receiveShadow = true;
+      m.geometry.computeBoundingBox();
+    }
+    // The flat ground and its paint can't shade anything: the shadow pass draws what stands on it.
+    const { geometry } = surfaces;
+    let view = 0;
+    surfaces.onBeforeShadow = () => {
+      view = geometry.drawRange.count;
+      geometry.setDrawRange(groundVertices, fineVertices - groundVertices);
+    };
+    surfaces.onAfterShadow = () => geometry.setDrawRange(0, view);
+    entry.fineVertices = fineVertices;
     const outlines = new LineSegments(lines.build(), ink);
     // Cells are culled by their boxes below: three's bounding spheres are far looser.
-    entry.objects = [surfaces, outlines];
-    surfaces.geometry.computeBoundingBox();
+    entry.objects = [surfaces, outlines, furniture];
     entry.box.copy(surfaces.geometry.boundingBox!);
+    if (entry.cell.props.length) entry.box.union(furniture.geometry.boundingBox!);
     for (const object of entry.objects) object.frustumCulled = false;
-    scene.add(surfaces, outlines);
+    scene.add(surfaces, outlines, furniture);
   }
 
   scene.add(new HemisphereLight(SKY_LIGHT, BOUNCE_LIGHT, LIGHT.sky));
@@ -175,6 +218,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     ),
   );
   let shadow: ShadowSquare | undefined;
+  let propsShown = false;
   const shadowFrustum = new Frustum();
 
   const camera = new OrthographicCamera(-1, 1, 1, -1, 1, CAMERA_DISTANCE * 2);
@@ -200,7 +244,8 @@ export function createViewer(options: ViewerOptions): Viewer {
   }
 
   // Landmark labels are plain DOM, moved with transforms after each render. Their order is
-  // their priority: a label that would overlap an earlier one, or the screen edge, is hidden.
+  // their priority: a label that would overlap an earlier one, or the screen edge, is hidden,
+  // and so is one whose zoom hasn't been reached.
   const labelEls = city.labels.map((label) => {
     const el = document.createElement('span');
     el.className = 'map-label';
@@ -213,6 +258,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     el,
     w: el.offsetWidth,
     h: el.offsetHeight,
+    minZoom: city.labels[i]!.minZoom,
     world: new Vector3(city.labels[i]!.x, LABEL_HEIGHT, city.labels[i]!.z),
   }));
   const placed: [number, number, number, number][] = [];
@@ -264,6 +310,11 @@ export function createViewer(options: ViewerOptions): Viewer {
     });
     const need = shadowNeeds(light, ground);
     need.half += SHADOW_REACH;
+    // Furniture appearing or hiding changes what casts shadows: refit the square to the view,
+    // which is close up when it appears, so the redraw stays small.
+    const near = camera.zoom >= PROP_ZOOM;
+    if (near !== propsShown) shadow = undefined;
+    propsShown = near;
     if (shadow && shadowCovers(shadow, need)) return;
     shadow = fitShadow(need, SHADOW_MAP);
     sun.position.set(...shadowPoint(light, shadow.x, shadow.y, farthest + 10));
@@ -296,14 +347,16 @@ export function createViewer(options: ViewerOptions): Viewer {
    */
   function cull(): void {
     const shadowPass = renderer.shadowMap.needsUpdate;
-    for (const { box, objects } of cells) {
-      const [surfaces, outlines] = objects;
-      if (!surfaces || !outlines) continue;
+    for (const { box, cell, objects } of cells) {
+      const [surfaces, outlines, furniture] = objects;
+      if (!surfaces || !outlines || !furniture) continue;
       const inView = frustum.intersectsBox(box);
       const casts = shadowPass && shadowFrustum.intersectsBox(box);
       surfaces.layers.mask = (inView ? VIEW_LAYER : 0) | (casts ? SHADOW_LAYER : 0);
       surfaces.visible = inView || casts;
       outlines.visible = inView;
+      furniture.layers.mask = surfaces.layers.mask;
+      furniture.visible = surfaces.visible && propsShown && cell.props.length > 0;
     }
   }
 
@@ -325,8 +378,19 @@ export function createViewer(options: ViewerOptions): Viewer {
   }
 
   function render(): void {
+    // World metres per drawing-buffer pixel: how much road paint and texture is worth drawing.
+    const unit =
+      (camera.top - camera.bottom) / camera.zoom / renderer.getDrawingBufferSize(buffer).y;
+    setPixelSize(material, unit);
     camera.updateMatrixWorld();
     prepare();
+    // Fine road paint is drawn last in each cell, so a view too far out to see it can stop short.
+    for (const { objects, fineVertices } of cells) {
+      (objects[0] as Mesh | undefined)?.geometry.setDrawRange(
+        0,
+        unit > LINE_LOD ? fineVertices : Infinity,
+      );
+    }
     cull();
     const shadowPass = renderer.shadowMap.needsUpdate;
     renderer.render(scene, camera);
@@ -339,7 +403,11 @@ export function createViewer(options: ViewerOptions): Viewer {
     });
 
     placed.length = 0;
-    for (const { el, w, h, world } of labels) {
+    for (const { el, w, h, world, minZoom } of labels) {
+      if (camera.zoom < minZoom) {
+        el.hidden = true;
+        continue;
+      }
       projected.copy(world).project(camera);
       const x = ((projected.x + 1) / 2) * width;
       const y = ((1 - projected.y) / 2) * height;
@@ -355,6 +423,21 @@ export function createViewer(options: ViewerOptions): Viewer {
     }
   }
 
+  const walk = createWalk({
+    scene,
+    camera,
+    controls,
+    canvas,
+    keyTarget,
+    city,
+    gradientMap,
+    reducedMotion,
+    placeCamera,
+    render: renderNow,
+    ...(options.onWalkModeChange && { onModeChange: options.onWalkModeChange }),
+    ...(options.onWalkBlocked && { onBlocked: options.onWalkBlocked }),
+  });
+
   let frame = 0;
   function renderNow(): void {
     cancelAnimationFrame(frame);
@@ -362,7 +445,8 @@ export function createViewer(options: ViewerOptions): Viewer {
     render();
   }
   function invalidate(): void {
-    if (frame) return;
+    // While walking, the walk loop draws every frame itself.
+    if (frame || walk.animating) return;
     frame = requestAnimationFrame(() => {
       frame = 0;
       render();
@@ -402,13 +486,15 @@ export function createViewer(options: ViewerOptions): Viewer {
       const t = Math.min(1, (now - start) / ROTATE_MS);
       yaw = from + (to - from) * (1 - (1 - t) ** 3);
       placeCamera();
-      renderNow(); // already inside a frame: don't wait for the next one
+      // Already inside a frame: don't wait for the next one, unless the walk loop draws it.
+      if (!walk.animating) renderNow();
       spin = t < 1 ? requestAnimationFrame(step) : 0;
     };
     spin = requestAnimationFrame(step);
   }
 
   function zoomBy(factor: number): void {
+    walk.settle();
     camera.zoom = Math.min(controls.maxZoom, Math.max(controls.minZoom, camera.zoom * factor));
     camera.updateProjectionMatrix();
     controls.update();
@@ -417,6 +503,7 @@ export function createViewer(options: ViewerOptions): Viewer {
 
   function resetView(): void {
     cancelAnimationFrame(spin);
+    walk.settle();
     yaw = Math.PI / 4;
     camera.zoom = 1;
     camera.updateProjectionMatrix();
@@ -456,6 +543,10 @@ export function createViewer(options: ViewerOptions): Viewer {
     rotate,
     zoomBy,
     resetView,
+    pickWalkStart: () => walk.pick(),
+    walkFromCentre: () => walk.startAtCentre(),
+    stopWalking: () => walk.exit(),
+    steer: (x, y) => walk.steer(x, y),
     stats: () => ({
       drawCalls: renderer.info.render.calls,
       triangles: renderer.info.render.triangles,
@@ -464,6 +555,7 @@ export function createViewer(options: ViewerOptions): Viewer {
       cancelAnimationFrame(frame);
       cancelAnimationFrame(spin);
       cancelIdle(idleHandle);
+      walk.dispose();
       observer.disconnect();
       densityQuery?.removeEventListener('change', onDensity);
       canvas.removeEventListener('webglcontextrestored', onRestored);

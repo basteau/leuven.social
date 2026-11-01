@@ -2,15 +2,14 @@ import { expect, test } from 'bun:test';
 
 import { deltaE, toOklab } from '../data/colour.ts';
 import { groundOnScreen } from './lighting.ts';
-import { GROUND } from './palette.ts';
+import { CARRIAGEWAYS, GROUND } from './palette.ts';
 
 /** About twice a just-noticeable difference: two surfaces you can tell apart at a glance. */
 const DISTINCT = 0.05;
 
-test('every ground in shade stays distinguishable from road in the sun', () => {
-  const road = groundOnScreen(GROUND.road, true);
+test('every ground in shade stays distinguishable from asphalt in the sun', () => {
+  const road = groundOnScreen(CARRIAGEWAYS.street, true);
   for (const [name, colour] of Object.entries(GROUND)) {
-    if (name === 'road') continue;
     expect([name, deltaE(groundOnScreen(colour, false), road) > DISTINCT]).toEqual([name, true]);
   }
 });

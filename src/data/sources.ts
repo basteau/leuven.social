@@ -8,7 +8,7 @@
  * the map grows every download with it.
  */
 
-import { AREA, LANDMARK_ITEMS, VIEW_AREA } from './area.ts';
+import { AREA, VIEW_AREA } from './area.ts';
 import type { Bounds } from './city.ts';
 import type { ProviderId } from './providers.ts';
 import { toLambert72, toLonLat } from './projection.ts';
@@ -65,14 +65,7 @@ export interface WmtsSource extends Common {
   zoom: number;
 }
 
-/** Coordinates (P625) of some Wikidata items, through the wbgetentities API. */
-export interface WikidataSource extends Common {
-  kind: 'wikidata';
-  endpoint: string;
-  items: readonly string[];
-}
-
-export type Source = OverpassSource | WfsSource | WcsSource | WmtsSource | WikidataSource;
+export type Source = OverpassSource | WfsSource | WcsSource | WmtsSource;
 
 /**
  * The moment of OpenStreetMap to read. Overpass answers from its history ("attic") for this
@@ -118,7 +111,7 @@ export const SOURCES: readonly Source[] = [
     out: 'tags geom',
     tile: 0.025,
     output: 'osm/buildings.json',
-    usedBy: 'tools/build_leuven_data.py: tags joined onto GRB footprints',
+    usedBy: 'tools/build_leuven_data.py: tags joined onto GRB footprints; bake: labels',
   },
   {
     id: 'osm-ring',
@@ -140,7 +133,8 @@ export const SOURCES: readonly Source[] = [
     out: 'tags geom',
     tile: OVERPASS_TILE,
     output: 'osm/roads.json',
-    usedBy: 'bake: paths and pedestrian areas',
+    usedBy:
+      'bake: paths and pedestrian areas, labels; tools/build_road_zones.py: road surfaces, lanes and crossings',
   },
   {
     id: 'osm-areas',
@@ -156,7 +150,7 @@ export const SOURCES: readonly Source[] = [
     out: 'tags geom',
     tile: OVERPASS_TILE,
     output: 'osm/areas.json',
-    usedBy: 'bake: green, woods, pitches, car parks, water and plazas',
+    usedBy: 'bake: green, woods, pitches, car parks, water, plazas and labels',
   },
   {
     id: 'osm-points',
@@ -174,7 +168,7 @@ export const SOURCES: readonly Source[] = [
     out: 'tags center',
     tile: 0.025,
     output: 'osm/points.json',
-    usedBy: 'bake: mapped trees and shop fronts',
+    usedBy: 'bake: mapped trees, street furniture, shop fronts and labels',
   },
   {
     id: 'osm-rail-platforms',
@@ -192,12 +186,17 @@ export const SOURCES: readonly Source[] = [
   },
   grb('GBG', 'Building footprints, with courtyards', 'tools/build_leuven_data.py: every building'),
   grb('GBA', 'Building annexes', 'tools/build_leuven_data.py: keeps LiDAR trees off sheds'),
-  grb('WBN', 'Road surfaces', 'bake: roads'),
+  grb('WBN', 'Road surfaces', 'bake: roads; tools/build_road_zones.py: carriageways'),
+  grb(
+    'WGO',
+    'Road subdivision lines: kerbs, cycle and pedestrian zones',
+    'tools/build_road_zones.py: carriageways, pavements and cycle tracks',
+  ),
   grb('WTZ', 'Watercourses', 'bake: water'),
   grb(
     'KNW',
     'Structures: bridges, tanks, silos',
-    'tools/build_leuven_data.py: bridges and tanks (city-details branch)',
+    'tools/build_leuven_data.py: bridge parapets, and tanks with their LiDAR height',
   ),
   ...(['DTM', 'DSM'] as const).map((model): WcsSource => ({
     id: `dhmv-${model.toLowerCase()}`,
@@ -223,16 +222,6 @@ export const SOURCES: readonly Source[] = [
     zoom: 18,
     output: 'ortho/z18',
     usedBy: 'tools/build_leuven_data.py: roof colours (no imagery ships)',
-  },
-  {
-    id: 'wikidata-labels',
-    provider: 'wikidata',
-    kind: 'wikidata',
-    title: 'Coordinates of the labelled places (P625)',
-    endpoint: 'https://www.wikidata.org/w/api.php',
-    items: LANDMARK_ITEMS,
-    output: 'wikidata/labels.json',
-    usedBy: 'bake: where each label in LANDMARKS (src/data/area.ts) goes',
   },
 ];
 

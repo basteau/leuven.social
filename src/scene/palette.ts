@@ -3,7 +3,7 @@
  * terracotta roofs, sandy cobbles. DESIGN.md explains the choices; change them here only.
  */
 
-import type { Kind } from '../data/city.ts';
+import type { CarriagewayKind, Kind } from '../data/city.ts';
 import { fromOklab, toOklab } from '../data/colour.ts';
 
 export const WALLS: Record<Kind, readonly number[]> = {
@@ -35,6 +35,29 @@ export const LANDMARK = {
  * brand reds, cream, mustard, orange and a blue; no green, which read as a hedge from above.
  */
 export const PARASOLS = [0xf6eedc, 0xd2553f, 0xe8b94a, 0xe07b4f, 0x4a77a8] as const;
+
+/**
+ * Street furniture: dark lamp posts and shelters that read like the ink outlines, warm wood,
+ * pale stone, bronze, and bikes in the colours Leuven actually rides.
+ */
+export const PROPS = {
+  iron: 0x3b4150,
+  lantern: 0xf3dfa8,
+  wood: 0x9a6a42,
+  stone: 0xd2c6ab,
+  bronze: 0x7a6040,
+  glass: 0xa9c4cf,
+  roof: 0x4a5161,
+  sign: 0xe8b94a,
+  wheel: 0x2b2420,
+  /** Jan Fabre's jewel beetle on the Totem. */
+  beetle: 0x2f8a6e,
+} as const;
+/** Brewery tanks and silos in pale aluminium; bridge parapets in the warm stone of the quays. */
+export const STRUCTURES = { tank: 0xd4d2c8, tankTop: 0xb9b6ab, parapet: 0xc4ad85 } as const;
+export const BIKES = [
+  0x2f3a4a, 0x2b2420, 0xd2553f, 0xf6eedc, 0x8db36f, 0x5b6170, 0xe8b94a,
+] as const;
 
 export const PITCHED_ROOFS = [0x4f5666, 0x3c4354, 0x6c707a, 0x7a3e31, 0x9c4a35, 0xb85e3c];
 export const FLAT_ROOFS = [0x8e8f92, 0x9a9996, 0xa7a49d];
@@ -92,7 +115,8 @@ export const GROUND = {
   pitch: 0x8fbd5a,
   /** Car parks: asphalt like the streets, a shade lighter. */
   parking: 0x97938b,
-  road: 0x8b8780,
+  /** The road surface where no carriageway lies on it: pale slabs, like the footpaths. */
+  pavement: 0xb3afa6,
   plaza: 0xd9b98a,
   water: 0x5f9fc4,
   /** Paved footpaths: pale slabs, lighter than the roads. */
@@ -100,6 +124,22 @@ export const GROUND = {
   /** Gravel and earth trails through the parks. */
   trail: 0xd6bf90,
 } as const;
+
+/**
+ * Carriageways, by what they're made of (src/data/roads.ts). Asphalt darkens on the ring and main
+ * roads; setts are warm grey-brown and paving a pale stone, both greyer than the sand of the
+ * squares; cycle tracks are Flemish red asphalt.
+ */
+export const CARRIAGEWAYS: Record<CarriagewayKind, number> = {
+  cycleway: 0xa8604c,
+  street: 0x8b8780,
+  main: 0x77746f,
+  sett: 0xa69886,
+  paving: 0xb3aa9a,
+};
+
+/** Road paint: white lines and bars, the grey they average to from afar, and cycle-lane red. */
+export const PAINT = { line: 0xf1ede2, patch: 0xb0aca4, bike: 0xa8604c } as const;
 
 /**
  * Trees: one crown green that each tree strays from (lighter or darker, towards yellow or blue
@@ -116,6 +156,23 @@ export const TREE = {
 
 /** Shop awnings over the ground-floor windows: one canvas per bay. */
 export const AWNINGS = [0xd2553f, 0x2f6b4f, 0x4a77a8, 0xe8b94a, 0x7a3e31, 0xf6eedc] as const;
+
+/**
+ * The walker: a Leuven student in a coat of the HUD's accent blue, with a mustard scarf and a
+ * brick-red backpack, so they read against grey streets, sandy squares and green parks.
+ */
+export const WALKER = {
+  skin: 0xf0c49c,
+  hair: 0x7a4a2c,
+  coat: 0x2f62a8,
+  scarf: 0xe8b94a,
+  trousers: 0x3d4250,
+  shoes: 0x2b2420,
+  bag: 0xb84c36,
+} as const;
+
+/** The route hint: pale dots and a target, ringed in ink like the HUD. */
+export const ROUTE = { fill: 0xfaf3e3, ink: 0x2b2420 } as const;
 
 /** Window glass, and the few windows that catch the low sun. */
 export const WINDOW = { glass: 0x2f3a4a, lit: 0xf3c873 } as const;

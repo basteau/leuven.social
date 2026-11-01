@@ -18,6 +18,7 @@ before they are written, and the map projection is pinned below rather than left
 
 Inputs (src/data/sources.ts lists each one's source and licence):
   grb/grb_GBG.geojson, grb/grb_GBA.geojson   GRB buildings and annexes (EPSG:4326)
+  grb/grb_WBN.geojson, grb/grb_WGO.geojson   GRB road surfaces and their subdivision lines, for the road zones
   elevation/{DTM,DSM}/*.tif                 DHMV II 1 m rasters (EPSG:31370), tiled
   osm/{buildings,ring_r23,roads,areas,points}.json   Overpass answers (out geom / center)
   ortho/z18/{x}_{y}.png                     optional: orthophoto tiles for roof colours
@@ -25,6 +26,8 @@ Outputs (data/derived/):
   leuven_buildings.geojson   footprint + ground (m TAW) + height (m) + roof shape and colour + OSM tags
   leuven_buildings_local.json  compact game format: local metres, origin Grote Markt, x=east, z=south
   lidar_trees.json           tree crowns found in the LiDAR canopy, with their heights
+  grb_structures.json        GRB structures (bridges, tanks and silos) in local metres, with tank heights from the LiDAR
+  road_zones.json            carriageways, cycle tracks, lane lines and crossings (tools/build_road_zones.py)
   osm_roads.geojson, osm_areas.geojson, osm_points.geojson
   preview_heights.png
 """
@@ -330,6 +333,37 @@ json.dump({'units': 'm', 'axes': 'x=east, z=south', 'source': 'DHMV II DSM-DTM l
            'trees': trees_local}, open(OUT / 'lidar_trees.json', 'w'), separators=(',', ':'))
 print(f'lidar trees: {len(trees_local)}')
 
+# --- Structures (GRB KNW): what stands tall but isn't a building ---------------------------------------------------
+# Silos, tanks and chemical plant (most of them the brewery's) get their LiDAR height; bridges keep their outline
+# only, for their parapets. Pillars, grates, cabins, masts (a lattice the LiDAR sees through) and monuments (mostly
+# a statue's plinth, which OSM already has) are left out.
+KNW_KINDS = {1: 'bridge', 9: 'tank', 13: 'tank'}
+structures = []
+for f in json.load(open(DATA / 'grb/grb_KNW.geojson'))['features']:
+    kind = KNW_KINDS.get(f['properties']['TYPE'])
+    g = make_valid(shape(f['geometry'])) if kind else None
+    for p in [] if g is None else [g] if g.geom_type == 'Polygon' else [q for q in getattr(g, 'geoms', []) if q.geom_type == 'Polygon']:
+        height = 0.0
+        if kind != 'bridge':
+            # The top of a thin tank can fall between LiDAR pixels: look a metre around it.
+            pl = shapely.transform(p.buffer(0.00001), lambda a: np.column_stack(to_lambert(a[:, 0], a[:, 1])))
+            minx, miny, maxx, maxy = pl.bounds
+            c0, c1 = max(0, int((minx - X0) / RES)), min(dtm.shape[1], int((maxx - X0) / RES) + 1)
+            r0, r1 = max(0, int((Y1 - maxy) / RES)), min(dtm.shape[0], int((Y1 - miny) / RES) + 1)
+            if c1 <= c0 or r1 <= r0:
+                continue
+            cs, rs = np.meshgrid(np.arange(c0, c1), np.arange(r0, r1))
+            h = ndsm[r0:r1, c0:c1][contains_xy(pl, X0 + (cs + 0.5) * RES, Y1 - (rs + 0.5) * RES)]
+            h = h[~np.isnan(h)]
+            if not len(h):
+                continue
+            height = round(float(np.percentile(h, 90)), 1)
+        structures.append({'kind': kind, 'h': height, 'ring': [[round((x - ORIGIN[0]) * kx, 1), round(-(y - ORIGIN[1]) * kz, 1)]
+                                                                for x, y in p.exterior.coords[:-1]]})
+json.dump({'units': 'm', 'axes': 'x=east, z=south', 'source': 'GRB KNW structures, heights DHMV II DSM-DTM p90',
+           'structures': structures}, open(OUT / 'grb_structures.json', 'w'), separators=(',', ':'))
+print(f'structures: {len(structures)}')
+
 hs = np.array([f['properties']['height'] for f in feats])
 print(f'buildings: {len(feats)} (skipped {skipped}), with OSM tags: {len(osm_for)}; height median {np.median(hs):.1f} m, p99 {np.percentile(hs, 99):.1f} m, max {hs.max():.1f} m')
 tallest = sorted(feats, key=lambda f: -f['properties']['height_max'])[:12]
@@ -367,6 +401,11 @@ cnt = lambda k, v=None: sum(1 for p in pts if (k in p['properties']) and (v is N
 print(f'roads {len(roads)}, areas {len(areas)}, points {len(pts)}: trees {cnt("natural", ["tree"])}, '
       f'bars/pubs/cafes {cnt("amenity", ["bar", "pub", "cafe"])}, restaurants {cnt("amenity", ["restaurant", "fast_food"])}, '
       f'bike parkings {cnt("amenity", ["bicycle_parking"])}, historic {cnt("historic")}, tourism {cnt("tourism")}')
+
+# --- Road surfaces ---------------------------------------------------------------------------------------------------
+import build_road_zones  # tools/build_road_zones.py, beside this script
+
+build_road_zones.main(DATA)
 
 # --- Preview --------------------------------------------------------------------------------------------------------
 import matplotlib

@@ -62,6 +62,13 @@
     "sha256": "74578ebcc7c4c7a42c1519f57dcf98328226543a3ce096d584fbbd3592dc0cb0",
     "fetched": "2026-10-31"
   },
+  "grb-wgo": {
+    "plan": "ae14be0b2c2f35d2",
+    "files": 1,
+    "bytes": 6918068,
+    "sha256": "ed44791392b31e87655752a3109594a90568bf964f2f6c9011156d461a95adae",
+    "fetched": "2026-11-01"
+  },
   "grb-wtz": {
     "plan": "63e6028b6bdadd43",
     "files": 1,
@@ -95,13 +102,6 @@
     "files": 1016,
     "bytes": 83513598,
     "sha256": "f302cd1d6672284be7277b3bb05c546c2d0e0c612049c66ecaf646464a0c9875",
-    "fetched": "2026-10-31"
-  },
-  "wikidata-labels": {
-    "plan": "9e71a2ab0385c753",
-    "files": 1,
-    "bytes": 543,
-    "sha256": "edc96d5a4376d28a98c55a237b89aa54a9b1ecab2960d2e3dfe57b62ef469f38",
     "fetched": "2026-10-31"
   }
 }

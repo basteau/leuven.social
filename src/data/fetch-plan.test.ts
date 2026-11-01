@@ -4,7 +4,6 @@ import {
   SourceError,
   checkOverpass,
   checkWfsPage,
-  checkWikidata,
   digestFiles,
   gridTiles,
   isPng,
@@ -13,7 +12,6 @@ import {
   mercatorTiles,
   mergeOverpass,
   mergeWfs,
-  mergeWikidata,
   outputFiles,
   overpassQuery,
   quarter,
@@ -21,20 +19,12 @@ import {
   wcsFile,
   wcsUrl,
   wfsUrl,
-  wikidataUrls,
   wmtsFile,
   wmtsUrl,
 } from './fetch-plan.ts';
 import type { Feature, OsmElement } from './fetch-plan.ts';
 import { toLocal } from './projection.ts';
-import type {
-  OverpassSource,
-  Source,
-  WcsSource,
-  WfsSource,
-  WikidataSource,
-  WmtsSource,
-} from './sources.ts';
+import type { OverpassSource, Source, WcsSource, WfsSource, WmtsSource } from './sources.ts';
 import { SOURCES } from './sources.ts';
 
 const box = { west: 4.6, south: 50.8, east: 4.7, north: 50.85 };
@@ -241,52 +231,6 @@ test('sha256 and digestFiles hash content, not listing order', async () => {
 test('outputFiles lists one file for merged sources and one per tile otherwise', () => {
   expect(filesOf('overpass')).toHaveLength(1);
   expect(filesOf('wfs')).toHaveLength(1);
-  expect(filesOf('wikidata')).toEqual(['wikidata/labels.json']);
   expect(filesOf('wcs').every((f) => /^elevation\/DTM\/\d+_\d+\.tif$/.test(f))).toBe(true);
   expect(filesOf('wmts').length).toBeGreaterThan(100);
-});
-
-const wikidata: WikidataSource = {
-  id: 'wikidata-test',
-  provider: 'wikidata',
-  kind: 'wikidata',
-  title: 'Test',
-  endpoint: 'https://example.test/w/api.php',
-  items: Array.from({ length: 60 }, (_, i) => `Q${i + 1}`),
-  output: 'wikidata/test.json',
-  usedBy: 'tests',
-};
-const coord = (latitude: number, longitude: number, rank = 'normal') => ({
-  rank,
-  mainsnak: { datavalue: { value: { latitude, longitude } } },
-});
-
-test('wikidataUrls asks for the claims of at most 50 items at a time', () => {
-  const urls = wikidataUrls(wikidata);
-  expect(urls).toHaveLength(2);
-  const p = new URL(urls[1]!).searchParams;
-  expect(p.get('action')).toBe('wbgetentities');
-  expect(p.get('ids')).toBe('Q51|Q52|Q53|Q54|Q55|Q56|Q57|Q58|Q59|Q60');
-  expect(p.get('props')).toBe('claims');
-});
-
-test('checkWikidata refuses API errors and answers without entities', () => {
-  expect(checkWikidata('{"entities":{}}').entities).toEqual({});
-  expect(() => checkWikidata('{"error":{"code":"no-such-entity"}}')).toThrow('no-such-entity');
-  expect(() => checkWikidata('{"success":1}')).toThrow('no entities');
-});
-
-test('mergeWikidata keeps only coordinates, preferring the preferred statement', () => {
-  const merged = mergeWikidata(
-    [
-      { entities: { Q2: { claims: { P625: [coord(1, 2), coord(3, 4, 'preferred')] } } } },
-      { entities: { Q1: { claims: { P625: [coord(5, 6)], P31: [] } } } },
-    ],
-    ['Q2', 'Q1'],
-  );
-  expect(merged).toEqual({ Q1: { lon: 6, lat: 5 }, Q2: { lon: 4, lat: 3 } });
-  expect(Object.keys(merged)).toEqual(['Q1', 'Q2']);
-  expect(() => mergeWikidata([{ entities: { Q3: { missing: '' } } }], ['Q3'])).toThrow(
-    'Q3 has no coordinates',
-  );
 });
