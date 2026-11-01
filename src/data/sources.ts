@@ -111,7 +111,7 @@ export const SOURCES: readonly Source[] = [
     out: 'tags geom',
     tile: 0.025,
     output: 'osm/buildings.json',
-    usedBy: 'tools/build_leuven_data.py: tags joined onto GRB footprints; bake: labels',
+    usedBy: 'tools/build_leuven_data.py: tags joined onto GRB footprints',
   },
   {
     id: 'osm-ring',
@@ -134,7 +134,7 @@ export const SOURCES: readonly Source[] = [
     tile: OVERPASS_TILE,
     output: 'osm/roads.json',
     usedBy:
-      'bake: paths and pedestrian areas, labels; tools/build_road_zones.py: road surfaces, lanes and crossings',
+      'bake: paths, pedestrian areas and street names; tools/build_road_zones.py: road surfaces, lanes and crossings',
   },
   {
     id: 'osm-areas',
@@ -151,7 +151,7 @@ export const SOURCES: readonly Source[] = [
     tile: OVERPASS_TILE,
     output: 'osm/areas.json',
     usedBy:
-      'bake: green, woods, pitches, car parks, water, plazas, labels, railway tracks and railway land',
+      'bake: green, woods, pitches, car parks, water, plazas and their names, railway tracks and railway land',
   },
   {
     id: 'osm-points',
@@ -169,7 +169,7 @@ export const SOURCES: readonly Source[] = [
     out: 'tags center',
     tile: 0.025,
     output: 'osm/points.json',
-    usedBy: 'bake: mapped trees, street furniture, shop fronts and labels',
+    usedBy: 'bake: mapped trees, street furniture and shop fronts',
   },
   {
     id: 'osm-rail-platforms',

@@ -6,7 +6,7 @@
  *   bun run bake
  */
 
-import { AREA, LANDMARK_FOOTPRINTS, LANDMARKS, VIEW_AREA } from '../src/data/area.ts';
+import { AREA, LANDMARK_FOOTPRINTS, VIEW_AREA } from '../src/data/area.ts';
 import { kindFromOsm, pathFromOsm, railFromOsm, roofFromSurvey } from '../src/data/city.ts';
 import type {
   Building,
@@ -34,8 +34,6 @@ import {
   simplifyRing,
 } from '../src/data/geometry.ts';
 import { toLocal } from '../src/data/projection.ts';
-import { elementCentre, findElement, labelName } from '../src/data/labels.ts';
-import type { OsmElement } from '../src/data/labels.ts';
 import { EdgeIndex, RingIndex, placeProps } from '../src/data/props.ts';
 import { carriagewayKind, crossingMarking } from '../src/data/roads.ts';
 import type { RoadRole } from '../src/data/roads.ts';
@@ -43,7 +41,7 @@ import { correctRoofColours } from '../src/data/roof-colours.ts';
 import { capShedsUnderTrees } from '../src/data/sheds.ts';
 import { isShopFront, markShopFronts } from '../src/data/shops.ts';
 import { bridgeParapets, tankOutline } from '../src/data/structures.ts';
-import { SOURCES } from '../src/data/sources.ts';
+import { joinLines, nameTable, streetName } from '../src/data/streets.ts';
 import { mergeTrees } from '../src/data/trees.ts';
 import { DATA } from './data-files.ts';
 
@@ -85,8 +83,6 @@ interface LocalBuilding {
   rgb?: [number, number, number] | null;
   kind: string;
   roof: string | null;
-  /** OSM's name for the building, joined by point (see tools/build_leuven_data.py). */
-  name?: string | null;
   tier: Tier;
   ring: [number, number][];
   holes?: [number, number][][];
@@ -118,12 +114,15 @@ function areaRings(f: Feature): number[][] {
   return clipRingToArea(simplifyRing(ring, GROUND_SIMPLIFY), AREA);
 }
 
-const layer = (features: Feature[], keep: (p: Props) => boolean, minArea = 0) =>
+/** The rings of the features `keep` picks, each with the feature it came from. */
+const featureRings = (features: Feature[], keep: (p: Props) => boolean, minArea = 0) =>
   features
     .filter((f) => keep(f.properties))
-    .flatMap(areaRings)
-    .filter((r) => r.length >= 6 && Math.abs(signedArea(r)) >= minArea)
-    .map((r) => new Float32Array(r));
+    .flatMap((f) => areaRings(f).map((r) => ({ f, r })))
+    .filter(({ r }) => r.length >= 6 && Math.abs(signedArea(r)) >= minArea)
+    .map(({ f, r }) => ({ props: f.properties, ring: new Float32Array(r) }));
+const layer = (features: Feature[], keep: (p: Props) => boolean, minArea = 0) =>
+  featureRings(features, keep, minArea).map(({ ring }) => ring);
 
 const GREEN_LEISURE = new Set(['park', 'garden', 'playground']);
 const GREEN_LANDUSE = new Set([
@@ -306,10 +305,14 @@ const trees = mergeTrees(
 );
 
 const roads = layer(wbn.features, () => true);
-const plazas = [
-  ...layer(osmAreas.features, (p) => p.place === 'square' || p['area:highway'] !== undefined),
-  ...layer(osmRoads.features, closedPedestrianArea),
+const squares = [
+  ...featureRings(
+    osmAreas.features,
+    (p) => p.place === 'square' || p['area:highway'] !== undefined,
+  ),
+  ...featureRings(osmRoads.features, closedPedestrianArea),
 ];
+const plazas = squares.map(({ ring }) => ring);
 const water = [
   ...layer(wtz.features, () => true),
   ...layer(osmAreas.features, (p) => p.natural === 'water'),
@@ -355,31 +358,31 @@ const parapets = knw.structures
   .flatMap((line) => AREA.flatMap((rect) => clipLine(line, rect)))
   .map((line) => new Float32Array(line));
 
-// Labels: names and places read from the OSM element (or GRB footprint) each one refers to,
-// in every Overpass download of the manifest.
-const osmElements = (
-  await Promise.all(
-    SOURCES.filter((s) => s.kind === 'overpass').map((s) =>
-      read<{ elements: OsmElement[] }>(s.output),
-    ),
-  )
-).flatMap((dump) => dump.elements);
-const labels = LANDMARKS.map((ref) => {
-  const minZoom = ref.minZoom ?? 0;
-  if ('grb' in ref) {
-    const name = local.buildings.find((building) => building.id === ref.grb)?.name;
-    const b = buildings.find((building) => building.id === ref.grb);
-    if (!name || !b) throw new Error(`Label: GRB footprint ${ref.grb} has no OSM name.`);
-    const { cx: x, cz: z } = orientedRect(b.ring);
-    return { name, x, z, minZoom };
-  }
-  const element = findElement(ref, osmElements);
-  const name = element?.tags && labelName(element.tags);
-  const centre = element && elementCentre(element);
-  if (!name || !centre) throw new Error(`Label: no named OSM element for ${JSON.stringify(ref)}.`);
-  const [x, z] = toLocal(...centre);
-  return { name, x, z, minZoom };
-});
+// The street sign: every named road and path as a centre line, and every named square, sharing
+// one table of names (src/data/streets.ts). Simplified to a metre: the sign needs no more.
+const STREET_SIMPLIFY = 1;
+const waysByName = Map.groupBy(
+  osmRoads.features.flatMap((f) => {
+    const name = streetName(f.properties);
+    return name && f.geometry.type === 'LineString' ? [{ name, line: lineOf(f) }] : [];
+  }),
+  (way) => way.name,
+);
+// A street's ways meet at shared nodes: joined, each corner is stored once.
+const streetLines = [...waysByName].flatMap(([name, ways]) =>
+  joinLines(ways.map((way) => way.line))
+    .map((line) => simplifyLine(line, STREET_SIMPLIFY))
+    .flatMap((line) => AREA.flatMap((rect) => clipLine(line, rect)))
+    .filter((piece) => piece.length >= 4)
+    .map((piece) => ({ name, line: new Float32Array(piece) })),
+);
+const squareNames = squares.map(({ props }) => props.name?.trim() || null);
+const names = nameTable([...streetLines.map((s) => s.name), ...squareNames]);
+// Grouped by name, so a street's ways sit together in the file.
+const streets = streetLines
+  .map((s, i) => ({ name: names.index[i]!, line: s.line }))
+  .toSorted((a, b) => a.name - b.name);
+const plazaNames = names.index.slice(streetLines.length);
 
 const STRIP = 50; // sorted in strips, so neighbours are near each other and deltas stay small
 const props = placeProps(
@@ -394,7 +397,6 @@ const props = placeProps(
 const city: City = {
   area: [...AREA],
   bounds: VIEW_AREA,
-  labels,
   buildings,
   roads,
   carriageways,
@@ -423,6 +425,9 @@ const city: City = {
   props,
   tanks,
   parapets,
+  streetNames: names.table,
+  streets,
+  plazaNames,
 };
 
 const bytes = await packCity(city);
@@ -444,14 +449,14 @@ console.log(
     `woods ${city.woods.length}, pitches ${city.pitches.length}, parking ${city.parking.length}`,
     `paths ${shownPaths.length} (${shownPaths.filter((p) => !p.paved).length} unpaved), ${(pathLength(shownPaths) / 1000).toFixed(0)} of ${(pathLength(paths) / 1000).toFixed(0)} km not under a road or square`,
     `rails ${rails.length} (${rails.filter((r) => r.bridge).length} on bridges, ${rails.reduce((sum, r) => sum + r.line.length / 2 - 1, 0)} segments), platforms ${city.platforms.length}, railway land ${railLand.length}, platform roofs ${canopies.length}`,
-    `trees ${trees.heights.length} (${osmTrees.length / 2} mapped), labels ${city.labels.length}`,
+    `trees ${trees.heights.length} (${osmTrees.length / 2} mapped)`,
     `sheds under trees capped ${shedsCapped}, shop fronts ${shopFronts} (${buildings.filter((b) => b.kind === 'retail').length} retail)`,
     `roofs ${buildings.filter((b) => b.roof === 'flat').length} flat, ${buildings.filter((b) => b.roofColor !== null).length} with a sampled colour, ${buildings.filter((b) => b.holes.length).length} with courtyards`,
     `props ${props.length}: ${Object.entries(Object.groupBy(props, (p) => p.kind))
       .map(([kind, list]) => `${list!.length} ${kind}`)
       .join(', ')}`,
     `tanks ${tanks.length}, bridge parapets ${parapets.length}`,
-    `labels: ${labels.map((l) => l.name).join(', ')}`,
+    `street names ${names.table.length}: ${streets.length} streets (${streets.reduce((sum, s) => sum + s.line.length / 2, 0)} points), ${plazaNames.filter((n) => n >= 0).length} of ${plazas.length} squares named`,
     `public/data/city.bin ${(bytes.length / 1024).toFixed(0)} KB gzipped`,
   ].join('\n'),
 );

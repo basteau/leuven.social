@@ -107,40 +107,11 @@ button {
   touch-action: none;
 }
 
-.label-layer {
+.overlay {
   position: absolute;
   inset: 0;
   overflow: clip;
   pointer-events: none;
-}
-
-.map-label {
-  /* A short ink tick points from the tag down to what it names. */
-  --tick: 8px;
-  position: absolute;
-  inset-block-start: 0;
-  inset-inline-start: 0;
-  translate: -50% calc(-100% - var(--tick));
-  padding-inline: var(--space-s);
-  border: var(--border) solid var(--ink);
-  border-radius: 4px;
-  background: var(--paper);
-  font-size: 0.75rem;
-  font-weight: 700;
-  line-height: 1.6;
-  white-space: nowrap;
-  box-shadow: 0 2px 0 var(--ink);
-}
-
-.map-label::after {
-  position: absolute;
-  inset-block-start: 100%;
-  inset-inline-start: 50%;
-  inline-size: var(--border);
-  block-size: var(--tick);
-  translate: -50% 0;
-  background: var(--ink);
-  content: '';
 }
 
 .hud {

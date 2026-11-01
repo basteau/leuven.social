@@ -81,12 +81,12 @@ export interface Marking {
   line: Float32Array;
 }
 
-export interface Label {
-  name: string;
-  x: number;
-  z: number;
-  /** Shown from this zoom: landmarks and districts always (0), small sights only up close. */
-  minZoom: number;
+/** A named road, path or stretch of one, for the street sign: its name and its centre line. */
+export interface Street {
+  /** Where its name is in `City.streetNames`. */
+  name: number;
+  /** Centre line as flat [x0, z0, x1, z1, …]. */
+  line: Float32Array;
 }
 
 /**
@@ -133,7 +133,6 @@ export interface City {
   /** Abutting rectangles that make up the map (see area.ts); `bounds` surrounds them. */
   area: Bounds[];
   bounds: Bounds;
-  labels: Label[];
   buildings: Building[];
   /**
    * The whole road surface, facade to facade (GRB), all of it walkable. It's pavement wherever no
@@ -168,6 +167,11 @@ export interface City {
   tanks: Tank[];
   /** Bridge parapets: low walls along the sides of a bridge that face the water, as open lines. */
   parapets: Float32Array[];
+  /** Every street and square name, sorted, each once (src/data/streets.ts). */
+  streetNames: string[];
+  streets: Street[];
+  /** Each square's name in `streetNames`, in the order of `plazas`; -1 where it has none. */
+  plazaNames: number[];
 }
 
 const KIND_BY_OSM: Record<string, Kind> = {

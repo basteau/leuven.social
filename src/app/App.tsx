@@ -84,7 +84,7 @@ export function App() {
   const appRef = useRef<HTMLElement>(null);
   const mapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const labelsRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
   const [status, setStatus] = useState<Status>({ state: 'loading' });
   const [attempt, setAttempt] = useState(0);
@@ -107,8 +107,8 @@ export function App() {
   useEffect(() => {
     const map = mapRef.current;
     const canvas = canvasRef.current;
-    const labelLayer = labelsRef.current;
-    if (!map || !canvas || !labelLayer) return;
+    const overlay = overlayRef.current;
+    if (!map || !canvas || !overlay) return;
     const abort = new AbortController();
     setStatus({ state: 'loading' });
     publish({ state: 'loading' });
@@ -123,7 +123,7 @@ export function App() {
         const viewer = createViewer({
           canvas,
           keyTarget: map,
-          labelLayer,
+          overlay,
           city,
           reducedMotion: reducedMotion() ?? false,
           onWalkModeChange: (mode) => {
@@ -290,7 +290,7 @@ export function App() {
       >
         <canvas ref={canvasRef} className="city" />
       </div>
-      <div ref={labelsRef} className="label-layer" aria-hidden="true" />
+      <div ref={overlayRef} className="overlay" aria-hidden="true" />
       {walkMode === 'pick' && <Reticle />}
 
       <header className="hud hud-top">

@@ -63,7 +63,7 @@ async function expectHealthyPage(viewport: string): Promise<void> {
     "['ready', 'error'].includes(document.documentElement.dataset.state)",
   );
   const page = await evalJson<Record<string, string> & { frame: Record<string, string> }>(
-    'JSON.stringify({ ...document.documentElement.dataset, frame: { ...document.querySelector("canvas")?.dataset }, labels: document.querySelectorAll(".map-label").length })',
+    'JSON.stringify({ ...document.documentElement.dataset, frame: { ...document.querySelector("canvas")?.dataset } })',
   );
   const problems: string[] = [];
   if (page.state !== 'ready') problems.push(`state is "${page.state}"`);
@@ -85,7 +85,6 @@ async function expectHealthyPage(viewport: string): Promise<void> {
       `${name} ${calls} calls, ${triangles.toLocaleString()} tris / ${cap.toLocaleString()} ${capName}`,
     );
   }
-  if (Number(page.labels) === 0) problems.push('no landmark labels');
   const { errors } = await browserJson<{ errors: { text: string }[] }>('errors');
   for (const e of errors) problems.push(`page error: ${e.text.split('\n')[0]}`);
   const { messages } = await browserJson<{ messages: { type: string; text: string }[] }>('console');

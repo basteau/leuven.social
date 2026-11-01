@@ -23,11 +23,11 @@ import { MapControls } from 'three/addons/controls/MapControls.js';
 
 import type { City } from '../data/city.ts';
 import { clampToArea } from '../data/geometry.ts';
+import { StreetIndex } from '../data/streets.ts';
 import { partyWalls } from './buildings.ts';
 import { buildCell, partition } from './cells.ts';
 import type { Cell, DetailMarks } from './cells.ts';
 import { createFacadeMaterial, setPixelSize } from './facade-material.ts';
-import { labelHeights } from './label-anchors.ts';
 import { LIGHT } from './lighting.ts';
 import { SLAB_DEPTH } from './ground.ts';
 import { LINE_LOD } from './paint.ts';
@@ -52,8 +52,8 @@ export interface ViewerOptions {
   canvas: HTMLCanvasElement;
   /** Focusable element whose arrow keys pan the map. */
   keyTarget: HTMLElement;
-  /** Absolutely positioned layer over the canvas that receives landmark labels. */
-  labelLayer: HTMLElement;
+  /** A layer over the canvas that takes no pointer events, for walk mode's thumb stick. */
+  overlay: HTMLElement;
   city: City;
   reducedMotion: boolean;
   /** Walk mode changed: picking a start, walking, or back on the map. */
@@ -62,6 +62,13 @@ export interface ViewerOptions {
   onWalkBlocked?: () => void;
   /** Walk mode's code couldn't be downloaded (it loads the first time someone walks). */
   onWalkUnavailable?: () => void;
+  /**
+   * The street or square under the walker, or under the middle of the view while picking a
+   * start, changed (null: none, or back on the map).
+   */
+  onStreetChange?: (name: string | null) => void;
+  /** Which way the view looks, clockwise from north (radians), whenever it turns. */
+  onHeading?: (heading: number) => void;
 }
 
 export interface ViewerStats {
@@ -97,8 +104,8 @@ const VIEW_HEIGHT = 560;
 const PITCH = Math.atan(1 / Math.SQRT2); // true isometric, ≈ 35.26°
 const CAMERA_DISTANCE = 2000;
 const ROTATE_MS = 280;
-/** Seen from the street, labels further than this would float over the houses in front (m). */
-const LABEL_REACH = 160;
+/** The street sign looks the name up again once the walker (or the view) has moved this far (m). */
+const STREET_STEP = 1;
 /**
  * From the street: shadows cover this far round the walker, whichever way it looks, with this
  * margin for roofs (m), and are redrawn once over 1.6× coarser than that needs. Close up, a
@@ -162,7 +169,7 @@ function toonGradient(): DataTexture {
 }
 
 export function createViewer(options: ViewerOptions): Viewer {
-  const { canvas, keyTarget, labelLayer, city, reducedMotion } = options;
+  const { canvas, keyTarget, overlay, city, reducedMotion } = options;
   // Dense screens are smooth already; only standard-density ones pay for multisampling.
   const density = Math.min(globalThis.devicePixelRatio || 1, 2);
   const renderer = new WebGLRenderer({ canvas, alpha: true, antialias: density < 1.5 });
@@ -288,28 +295,6 @@ export function createViewer(options: ViewerOptions): Viewer {
     camera.lookAt(t);
     controls.update();
   }
-
-  // Landmark labels are plain DOM, moved with transforms after each render. Their order is
-  // their priority: a label that would overlap an earlier one, or the screen edge, is hidden,
-  // and so is one whose zoom hasn't been reached.
-  const labelEls = city.labels.map((label) => {
-    const el = document.createElement('span');
-    el.className = 'map-label';
-    el.textContent = label.name;
-    return el;
-  });
-  labelLayer.append(...labelEls);
-  // Measure after all are in the DOM: one layout instead of one per label.
-  const anchors = labelHeights(city.labels, city.buildings);
-  const labels = labelEls.map((el, i) => ({
-    el,
-    w: el.offsetWidth,
-    h: el.offsetHeight,
-    minZoom: city.labels[i]!.minZoom,
-    world: new Vector3(city.labels[i]!.x, anchors[i]!, city.labels[i]!.z),
-  }));
-  const placed: [number, number, number, number][] = [];
-  const projected = new Vector3();
 
   let width = 0;
   let height = 0;
@@ -479,29 +464,36 @@ export function createViewer(options: ViewerOptions): Viewer {
       shadowPass,
     });
 
-    placed.length = 0;
-    const fromStreet = street !== undefined;
-    const zoom = VIEW_HEIGHT / viewSpan();
-    for (const { el, w, h, world, minZoom } of labels) {
-      const hidden = fromStreet ? world.distanceTo(view.position) > LABEL_REACH : zoom < minZoom;
-      if (hidden) {
-        el.hidden = true;
-        continue;
-      }
-      projected.copy(world).project(view);
-      const x = ((projected.x + 1) / 2) * width;
-      const y = ((1 - projected.y) / 2) * height;
-      const box: [number, number, number, number] = [x - w / 2, y - h, x + w / 2, y];
-      const fits =
-        projected.z < 1 && box[0] >= 0 && box[1] >= 0 && box[2] <= width && box[3] <= height;
-      const clash = placed.some(
-        (b) => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1],
-      );
-      el.hidden = !fits || clash;
-      if (el.hidden) continue;
-      placed.push(box);
-      el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
-    }
+    signStreet();
+    signHeading();
+  }
+
+  // The street sign: names are looked up only off the map, and again only after a step.
+  let streets: StreetIndex | undefined;
+  let signed: string | null = null;
+  const signedAt = { x: Number.NaN, z: Number.NaN };
+  function signStreet(): void {
+    if (!options.onStreetChange) return;
+    const t = controls.target;
+    let name: string | null = null;
+    if (walk && walk.mode !== 'map') {
+      if (Math.hypot(t.x - signedAt.x, t.z - signedAt.z) < STREET_STEP) return;
+      signedAt.x = t.x;
+      signedAt.z = t.z;
+      streets ??= new StreetIndex(city);
+      name = streets.nameAt(t.x, t.z, signed);
+    } else signedAt.x = Number.NaN;
+    if (name !== signed) options.onStreetChange((signed = name));
+  }
+
+  const facing = new Vector3();
+  let heading = Number.NaN;
+  function signHeading(): void {
+    if (!options.onHeading) return;
+    view.getWorldDirection(facing);
+    const now = Math.atan2(facing.x, -facing.z);
+    if (Math.abs(now - heading) < 1e-3) return;
+    options.onHeading((heading = now));
   }
 
   // Walking is its own chunk, downloaded the first time someone walks (or is about to).
@@ -516,7 +508,7 @@ export function createViewer(options: ViewerOptions): Viewer {
         camera,
         controls,
         canvas,
-        overlay: labelLayer,
+        overlay,
         city,
         gradientMap,
         fog,
@@ -531,7 +523,10 @@ export function createViewer(options: ViewerOptions): Viewer {
           view = to ?? camera;
         },
         render: renderNow,
-        ...(options.onWalkModeChange && { onModeChange: options.onWalkModeChange }),
+        onModeChange: (mode) => {
+          options.onWalkModeChange?.(mode);
+          signStreet();
+        },
         ...(options.onWalkBlocked && { onBlocked: options.onWalkBlocked }),
       });
       return walk;
@@ -692,7 +687,6 @@ export function createViewer(options: ViewerOptions): Viewer {
       canvas.removeEventListener('webglcontextrestored', onRestored);
       controls.removeEventListener('change', onChange);
       controls.dispose();
-      for (const { el } of labels) el.remove();
       scene.traverse((object: Object3D) => {
         const { geometry, material: m } = object as Partial<{
           geometry: BufferGeometry;
