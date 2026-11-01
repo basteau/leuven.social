@@ -1,7 +1,14 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { Building } from '../data/city.ts';
-import { addBuilding, buildingsGeometry, cutAt, partyWalls, planRoof } from './buildings.ts';
+import {
+  SHOP_FRONT,
+  addBuilding,
+  buildingsGeometry,
+  cutAt,
+  partyWalls,
+  planRoof,
+} from './buildings.ts';
 import { LANDMARK_MODELS } from './landmark-models.ts';
 import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
 import { pick } from './palette.ts';
@@ -115,6 +122,13 @@ describe('buildingsGeometry', () => {
     const facade = buildingsGeometry([building({})]).surfaces.getAttribute('facade');
     const values = new Set(Array.from({ length: facade.count }, (_, i) => facade.getX(i)));
     expect(values).toEqual(new Set([Math.fround(plan.eave), 0]));
+  });
+
+  test('shops, cafés and offices mark their walls for a shop front', () => {
+    const b = building({ kind: 'retail' });
+    const facade = buildingsGeometry([b]).surfaces.getAttribute('facade');
+    const values = new Set(Array.from({ length: facade.count }, (_, i) => facade.getX(i)));
+    expect(values).toEqual(new Set([Math.fround(planRoof(b).eave + SHOP_FRONT), 0]));
   });
 
   test('churches get no window grid', () => {
