@@ -1,6 +1,7 @@
 import { GreaterDepth, MeshBasicMaterial, MeshToonMaterial } from 'three';
 import type { Texture, WebGLProgramParametersWithUniforms } from 'three';
 
+import { linearVertexColors } from './mesh-builder.ts';
 import { WALKER } from './palette.ts';
 
 /** Every other pixel, in a checkerboard: see-through without blending or sorting. */
@@ -30,8 +31,10 @@ function withDither(shader: WebGLProgramParametersWithUniforms, discard: string)
 /** The walker's toon material: its blob shadow (the `dither` vertices) is a pixel checkerboard. */
 export function createCharacterMaterial(gradientMap: Texture): MeshToonMaterial {
   const material = new MeshToonMaterial({ vertexColors: true, gradientMap });
-  material.onBeforeCompile = (shader) =>
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = linearVertexColors(shader.vertexShader);
     withDither(shader, `if (vDither > 0.5 && ${CHECKER}) discard;`);
+  };
   material.customProgramCacheKey = () => 'walker-v1';
   return material;
 }

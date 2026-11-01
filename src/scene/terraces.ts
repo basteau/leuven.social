@@ -32,9 +32,16 @@ export function terraceParasols(city: City): Parasol[] {
     const square = city.plazas.find((ring) => pointInRing(ring, label.x, label.z));
     if (!square) continue;
     const { cx, cz, ux, uz, halfLength, halfWidth } = orientedRect(square);
+    // Only trees near the square can be in the way: look at those, not all of the city's.
+    const reach = Math.hypot(halfLength, halfWidth) + TREE_CLEARANCE;
+    const near: number[] = [];
+    for (let i = 0; i < city.trees.length; i += 2) {
+      const [x, z] = [city.trees[i]!, city.trees[i + 1]!];
+      if (Math.abs(x - cx) < reach && Math.abs(z - cz) < reach) near.push(x, z);
+    }
     const clearOfTrees = (x: number, z: number) => {
-      for (let i = 0; i < city.trees.length; i += 2) {
-        if (Math.hypot(city.trees[i]! - x, city.trees[i + 1]! - z) < TREE_CLEARANCE) return false;
+      for (let i = 0; i < near.length; i += 2) {
+        if (Math.hypot(near[i]! - x, near[i + 1]! - z) < TREE_CLEARANCE) return false;
       }
       return true;
     };

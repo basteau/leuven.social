@@ -37,6 +37,7 @@ import {
   wrap,
 } from './chase.ts';
 import type { Boom, Lens, Shot, Vec3 } from './chase.ts';
+import { linearVertexColors } from './mesh-builder.ts';
 import { SKY } from './palette.ts';
 import { passedVertices, routeMarker } from './route-marker.ts';
 import type { RouteMarker } from './route-marker.ts';
@@ -202,6 +203,9 @@ export function createWalk(host: WalkHost): Walk {
   const body = createCharacterMaterial(host.gradientMap);
   const xray = createXrayMaterial();
   const hint = new Mesh(undefined, new MeshBasicMaterial({ vertexColors: true }));
+  hint.material.onBeforeCompile = (shader) => {
+    shader.vertexShader = linearVertexColors(shader.vertexShader);
+  };
   hint.frustumCulled = false;
   hint.visible = false;
   let marker: RouteMarker | undefined;

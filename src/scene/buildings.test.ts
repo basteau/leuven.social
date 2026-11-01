@@ -33,7 +33,10 @@ const building = (over: Partial<Building>): Building => ({
 function windingAgreesWithNormals(b: Building): boolean {
   const g = buildingsGeometry([b]).surfaces;
   const p = g.getAttribute('position').array;
-  const n = g.getAttribute('normal').array;
+  const normal = g.getAttribute('normal');
+  const n = Array.from({ length: normal.count * 3 }, (_, i) =>
+    normal.getComponent(Math.floor(i / 3), i % 3),
+  );
   for (let i = 0; i < p.length; i += 9) {
     const [ux, uy, uz] = [p[i + 3]! - p[i]!, p[i + 4]! - p[i + 1]!, p[i + 5]! - p[i + 2]!];
     const [vx, vy, vz] = [p[i + 6]! - p[i]!, p[i + 7]! - p[i + 1]!, p[i + 8]! - p[i + 2]!];

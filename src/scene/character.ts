@@ -6,9 +6,9 @@ import {
   SkinnedMesh,
   Uint16BufferAttribute,
 } from 'three';
-import type { Material } from 'three';
+import type { InterleavedBufferAttribute, Material } from 'three';
 
-import { MeshBuilder } from './mesh-builder.ts';
+import { MeshBuilder, padded } from './mesh-builder.ts';
 import type { V3 } from './mesh-builder.ts';
 import { OUTLINE, WALKER } from './palette.ts';
 import { IDLE_SECONDS, WALK_SPEED, runBlend } from './walker.ts';
@@ -178,8 +178,9 @@ export function characterGeometry(): BufferGeometry {
 
   const count = pieces.reduce((n, p) => n + p.geometry.getAttribute('position').count, 0);
   const position = new Float32Array(count * 3);
-  const normal = new Int8Array(count * 3);
-  const color = new Float32Array(count * 3);
+  // Normals and colours as the builder writes them: bytes, padded to four.
+  const normal = new Int8Array(count * 4);
+  const color = new Uint8Array(count * 4);
   const skinIndex = new Uint16Array(count * 4);
   const skinWeight = new Float32Array(count * 4);
   const dither = new Uint8Array(count);
@@ -187,8 +188,10 @@ export function characterGeometry(): BufferGeometry {
   for (const piece of pieces) {
     const n = piece.geometry.getAttribute('position').count;
     position.set(piece.geometry.getAttribute('position').array, offset * 3);
-    normal.set(piece.geometry.getAttribute('normal').array as Int8Array, offset * 3);
-    color.set(piece.geometry.getAttribute('color').array, offset * 3);
+    const bytes = (name: string) =>
+      (piece.geometry.getAttribute(name) as InterleavedBufferAttribute).data.array;
+    normal.set(bytes('normal'), offset * 4);
+    color.set(bytes('color'), offset * 4);
     dither.fill(piece.dither, offset, offset + n);
     for (let i = offset; i < offset + n; i++) {
       skinIndex[i * 4] = piece.bone;
@@ -198,8 +201,8 @@ export function characterGeometry(): BufferGeometry {
   }
   const geometry = new BufferGeometry();
   geometry.setAttribute('position', new BufferAttribute(position, 3));
-  geometry.setAttribute('normal', new BufferAttribute(normal, 3, true));
-  geometry.setAttribute('color', new BufferAttribute(color, 3));
+  geometry.setAttribute('normal', padded(normal));
+  geometry.setAttribute('color', padded(color));
   geometry.setAttribute('skinIndex', new Uint16BufferAttribute(skinIndex, 4));
   geometry.setAttribute('skinWeight', new BufferAttribute(skinWeight, 4));
   geometry.setAttribute('dither', new BufferAttribute(dither, 1));

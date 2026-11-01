@@ -43,6 +43,16 @@ test('a surveyed tree grows to its height, within what the model can stretch to'
   expect(size(1, 60)).toBeCloseTo(MODEL_HEIGHT * 2.8, 1);
 });
 
+test('a tree can be written in parts, trunk and crown apart', () => {
+  const [trunk, crown] = [['trunk'], ['crown']].map((parts) => {
+    const mesh = new MeshBuilder();
+    addTree(mesh, 0, 0, 2, 0, parts as ['trunk'] | ['crown']);
+    return mesh.build().getAttribute('position').count / 3;
+  });
+  expect(trunk).toBe(8);
+  expect(crown).toBe(20);
+});
+
 test('every tree has its own green near the crown colour, older ones darker', () => {
   const greens = Array.from({ length: 100 }, (_, seed) => crownColor(seed, 10));
   expect(new Set(greens).size).toBeGreaterThan(30);

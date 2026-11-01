@@ -3,6 +3,7 @@ import type { Texture } from 'three';
 
 import { SHOP_FRONT } from './buildings.ts';
 import { LUMA, SHADE_CHROMA, SHADE_HUE, SHADE_RANGE } from './lighting.ts';
+import { linearVertexColors } from './mesh-builder.ts';
 import { ANGLES, LINE_LOD, PAINT_HALF, PAINT_KIND, STRIPE_LOD, SURFACE } from './paint.ts';
 import { AWNINGS, WINDOW } from './palette.ts';
 import { SLEEPER_CODE } from './rails.ts';
@@ -46,7 +47,7 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
     shader.uniforms.uGlass = { value: glass };
     shader.uniforms.uLit = { value: lit };
     shader.uniforms.uPixel = pixel;
-    shader.vertexShader = shader.vertexShader
+    shader.vertexShader = linearVertexColors(shader.vertexShader)
       .replace(
         '#include <common>',
         `#include <common>
