@@ -118,8 +118,18 @@ kbd {
   inset: 0;
 }
 
+/* The canvas would cover the map's own ring, so the ring is drawn on a layer above it. */
 .map:focus-visible {
+  outline-color: transparent;
+}
+
+.map:focus-visible::after {
+  position: absolute;
+  inset: 0;
+  outline: 3px solid var(--accent);
   outline-offset: -3px;
+  pointer-events: none;
+  content: '';
 }
 
 .city {
