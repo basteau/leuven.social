@@ -58,6 +58,13 @@ const city: City = {
   pitches: [square(60, 40, 9)],
   parking: [square(80, 40, 9)],
   paths: [{ width: 2.5, paved: false, line: new Float32Array([0, 0, 10, 5, 20, 5]) }],
+  rails: [
+    { kind: 'main', bridge: true, electrified: true, line: new Float32Array([0, 0, 100, 40]) },
+    { kind: 'yard', bridge: false, electrified: false, line: new Float32Array([5, 5, 50, 5]) },
+  ],
+  platforms: [square(20, 20, 8)],
+  railLand: [square(-20, 20, 40)],
+  canopies: [square(15, 15, 18)],
   trees: new Float32Array([1.5, 2.5, -40, 60.1]),
   treeHeights: new Float32Array([8, 21.5]),
   props: [
@@ -97,6 +104,10 @@ describe('city format', () => {
     expect(decoded.markings).toEqual(city.markings);
     expect(decoded.plazas).toHaveLength(0);
     expect(decoded.paths).toEqual(city.paths);
+    expect(decoded.rails).toEqual(city.rails);
+    expect(decoded.platforms.map((p) => Array.from(p))).toEqual(city.platforms.map(exact));
+    expect(decoded.railLand.map((p) => Array.from(p))).toEqual(city.railLand.map(exact));
+    expect(decoded.canopies.map((p) => Array.from(p))).toEqual(city.canopies.map(exact));
     expect([...decoded.trees]).toEqual([1.5, 2.5, -40, 60.1].map((v) => Math.fround(v)));
     expect([...decoded.treeHeights]).toEqual([8, 21.5]);
     expect(decoded.props.map((p) => [p.kind, p.size])).toEqual([
@@ -140,5 +151,12 @@ describe('city format', () => {
     const trailing = new Uint8Array(bytes.length + 1);
     trailing.set(bytes);
     expect(() => decodeCity(trailing)).toThrow(CityFormatError);
+    // A rail kind this version doesn't know: find the flags byte where main and yard differ.
+    const rail = (kind: 'main' | 'yard') =>
+      encodeCity({ ...city, rails: [{ ...city.rails[1]!, kind }] });
+    const [main, yard] = [rail('main'), rail('yard')];
+    const flags = main.findIndex((b, i) => b !== yard[i]);
+    main[flags] = 2 << 2;
+    expect(() => decodeCity(main)).toThrow(CityFormatError);
   });
 });

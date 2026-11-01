@@ -2,13 +2,15 @@
  * The compact binary city format ("LVN1"), served gzipped from public/data/.
  *
  * Layout: magic "LVN1", version, area rectangles, labels (with the zoom they show from), buildings,
- * carriageways, markings, seven polygon layers (roads, plazas, green, water, woods, pitches,
- * parking), paths, trees, props, tanks, parapets.
+ * carriageways, markings, ten polygon layers (roads, plazas, green, water, platforms, railway
+ * land, platform roofs, woods, pitches, car parks), paths, rails, trees, props, tanks, parapets.
  * Coordinates are decimetres, zigzag varints, delta-encoded within each ring.
  * A building packs tier (2 bits), kind (4 bits) and roof (2 bits) into one byte, then its
  * height, roof rise and roof colour (0 = none, else 0xRRGGBB + 1), outer ring and courtyards.
  * Carriageways and markings are a kind byte each, then a ring (markings: a line).
  * Paths are a width in decimetres shifted left one bit over a paved flag, then a centre line.
+ * Rails are their kind shifted left two bits over an electrified and a bridge flag, then a
+ * centre line: the gauge is standard everywhere, so a track needs no more.
  * Trees are a ring of positions followed by their heights in decimetres.
  * Props are a kind per prop, then their positions as one ring, then a turn (a byte: 256ths of a
  * full turn) and a size in decimetres each.
@@ -18,17 +20,27 @@
 import * as Binary from '@portable/binary';
 import * as Compress from '@portable/compress';
 
-import { CARRIAGEWAY_KINDS, KINDS, MARKING_KINDS, PROP_KINDS, ROOFS, TIERS } from './city.ts';
-import type { Bounds, Building, Carriageway, City, Marking, Prop } from './city.ts';
+import {
+  CARRIAGEWAY_KINDS,
+  KINDS,
+  MARKING_KINDS,
+  PROP_KINDS,
+  RAIL_KINDS,
+  ROOFS,
+  TIERS,
+} from './city.ts';
+import type { Bounds, Building, Carriageway, City, Marking, Prop, Rail } from './city.ts';
 import { boundsOf } from './geometry.ts';
 
 const MAGIC = 'LVN1';
-const VERSION = 9;
+const VERSION = 10;
 const DM = 10; // units per metre
 const ZIGZAG = { encoding: 'zigzag' } as const;
 const TURN = Math.PI * 2;
 /** Refuse anything larger after decompression: the whole city must stay small. */
 export const MAX_CITY_BYTES = 16_000_000;
+
+type Rings = Float32Array[];
 
 export class CityFormatError extends Error {
   override name = 'CityFormatError';
@@ -108,8 +120,19 @@ export function encodeCity(city: City): Uint8Array {
     writeRing(w, marking.line);
   }
 
-  const layers = [city.roads, city.plazas, city.green, city.water, city.woods, city.pitches];
-  for (const layer of [...layers, city.parking]) {
+  const layers = [
+    city.roads,
+    city.plazas,
+    city.green,
+    city.water,
+    city.platforms,
+    city.railLand,
+    city.canopies,
+    city.woods,
+    city.pitches,
+    city.parking,
+  ];
+  for (const layer of layers) {
     w.varint(layer.length);
     for (const ring of layer) writeRing(w, ring);
   }
@@ -118,6 +141,14 @@ export function encodeCity(city: City): Uint8Array {
   for (const p of city.paths) {
     w.varint((Math.round(p.width * DM) << 1) | (p.paved ? 1 : 0));
     writeRing(w, p.line);
+  }
+
+  w.varint(city.rails.length);
+  for (const rail of city.rails) {
+    w.varint(
+      (RAIL_KINDS.indexOf(rail.kind) << 2) | (rail.electrified ? 2 : 0) | (rail.bridge ? 1 : 0),
+    );
+    writeRing(w, rail.line);
   }
 
   writeRing(w, city.trees);
@@ -201,21 +232,30 @@ export function decodeCity(bytes: Uint8Array): City {
     if (!kind) throw new CityFormatError('Bad marking kind.');
     return { kind, line: readRing(r) };
   });
-  const [roads, plazas, green, water, woods, pitches, parking] = Array.from({ length: 7 }, () =>
-    Array.from({ length: r.varint() }, () => readRing(r)),
-  ) as [
-    Float32Array[],
-    Float32Array[],
-    Float32Array[],
-    Float32Array[],
-    Float32Array[],
-    Float32Array[],
-    Float32Array[],
-  ];
+  const [roads, plazas, green, water, platforms, railLand, canopies, woods, pitches, parking] =
+    Array.from({ length: 10 }, () => Array.from({ length: r.varint() }, () => readRing(r))) as [
+      Rings,
+      Rings,
+      Rings,
+      Rings,
+      Rings,
+      Rings,
+      Rings,
+      Rings,
+      Rings,
+      Rings,
+    ];
 
   const paths = Array.from({ length: r.varint() }, () => {
     const packed = r.varint();
     return { width: (packed >> 1) / DM, paved: (packed & 1) === 1, line: readRing(r) };
+  });
+
+  const rails = Array.from({ length: r.varint() }, (): Rail => {
+    const packed = r.varint();
+    const kind = RAIL_KINDS[packed >> 2];
+    if (!kind) throw new CityFormatError(`Bad rail flags ${packed}.`);
+    return { kind, bridge: (packed & 1) === 1, electrified: (packed & 2) === 2, line: readRing(r) };
   });
 
   const trees = readRing(r);
@@ -255,6 +295,10 @@ export function decodeCity(bytes: Uint8Array): City {
     pitches,
     parking,
     paths,
+    rails,
+    platforms,
+    railLand,
+    canopies,
     trees,
     treeHeights,
     props,

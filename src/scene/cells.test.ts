@@ -43,6 +43,19 @@ const city: City = {
   parking: [],
   // A path from one cell into the other.
   paths: [{ width: 2, paved: true, line: new Float32Array([S - 20, 50, S + 20, 50]) }],
+  // An electrified track across both cells, and a platform beside it across the seam.
+  rails: [
+    {
+      kind: 'main',
+      bridge: false,
+      electrified: true,
+      line: new Float32Array([S - 100, 150, S + 100, 150]),
+    },
+  ],
+  platforms: [box(S - 90, 154, 120, 6)],
+  railLand: [box(S - 100, 140, 200, 30)],
+  // A two-bay platform roof straddling the seam: each bay goes to the cell of its centre.
+  canopies: [box(S - 51, 150, 102, 12)],
   trees: new Float32Array([20, 300, S + 20, 300]),
   treeHeights: new Float32Array([9, 0]),
   // A bench in each cell, and the Totem in the second.
@@ -90,23 +103,35 @@ test('the area is cut into cells, and each thing goes to one', () => {
     ['solid', [S, 108, S + 30, 108], 30],
   ]);
   expect(west.ground.green[0]).toEqual(city.green[0]!);
+  // Tracks are cut like paths; masts and platforms go where they stand.
+  expect(Array.from(west.rails[0]!.line)).toEqual([S - 100, 150, S, 150]);
+  expect(east.rails[0]!).toMatchObject({ kind: 'main', electrified: true });
+  expect(west.masts.length + east.masts.length).toBe(3);
+  expect(west.platforms).toHaveLength(1);
+  expect(Math.min(...east.platforms[0]!.filter((_, i) => i % 2 === 0))).toBe(S);
+  expect([west.ground.railLand.length, east.ground.railLand.length]).toEqual([1, 1]);
+  expect([west.canopies.length, east.canopies.length]).toEqual([1, 1]);
 });
 
 test('a cell builds into one mesh and one set of outlines', () => {
   const [west] = partition(city);
-  const { mesh, lines, groundVertices, fineVertices } = buildCell(
+  const { mesh, lines, groundVertices, fineVertices, detail } = buildCell(
     west!,
     city.area,
     partyWalls(city.buildings),
   );
+  // The rails of the track's one segment in this cell, then its masts, lead the outlines.
+  expect(detail.rails).toBe(2);
+  expect(detail.masts - detail.rails).toBe(2 * west!.masts.length);
   const g = mesh.build({ facade: true });
   const p = g.getAttribute('position');
   // Fine paint comes last: the lane line's dash and the zebra's bars, just over the road.
   expect(fineVertices).toBeLessThan(p.count);
   for (let i = fineVertices; i < p.count; i++) expect(p.getY(i)).toBeCloseTo(0.17);
-  // The ground comes first: everything after it stands above the squares.
+  // The ground comes first, track beds included (their sleeper band is its highest layer, at
+  // 0.3 m): everything after it stands above it.
   expect(groundVertices).toBeGreaterThan(0);
-  for (let i = 0; i < groundVertices; i++) expect(p.getY(i)).toBeLessThanOrEqual(0.2);
+  for (let i = 0; i < groundVertices; i++) expect(p.getY(i)).toBeLessThan(0.31);
   expect(
     Math.max(
       ...Array.from({ length: p.count - groundVertices }, (_, i) => p.getY(groundVertices + i)),

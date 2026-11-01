@@ -24,7 +24,7 @@ import type { City } from '../data/city.ts';
 import { clampToArea } from '../data/geometry.ts';
 import { partyWalls } from './buildings.ts';
 import { buildCell, partition } from './cells.ts';
-import type { Cell } from './cells.ts';
+import type { Cell, DetailMarks } from './cells.ts';
 import { createFacadeMaterial, setPixelSize } from './facade-material.ts';
 import { labelHeights } from './label-anchors.ts';
 import { LIGHT } from './lighting.ts';
@@ -93,6 +93,8 @@ interface CellEntry {
   box: Box3;
   /** Its mesh and outlines once built; empty until then. */
   objects: Object3D[];
+  /** Where the rails and the catenary masts end in its outlines, which only show zoomed in. */
+  detail: DetailMarks;
   /** Where the fine road paint starts in its mesh (see buildCell). */
   fineVertices: number;
 }
@@ -113,6 +115,14 @@ const SHADOW_LAYER = 1 << 1;
 const PROP_ZOOM = 2;
 /** Time the idle builder may take per slice before handing the main thread back (ms). */
 const IDLE_SLICE_MS = 8;
+/**
+ * The largest screen pixel, in metres, at which rails and catenary masts show. Any bigger and
+ * a track's two rails come under two pixels apart, so a yard's tracks merge into one dark
+ * hatch; the sleeper band alone reads as the track there. In pixels rather than zoom levels,
+ * so a dense phone screen gets the detail sooner than a standard one.
+ */
+const RAIL_PIXEL = 0.5;
+const MAST_PIXEL = 0.9;
 
 /** requestIdleCallback where there is one (not in Safari), else the next frame or so. */
 const idle = (run: () => void) =>
@@ -161,15 +171,17 @@ export function createViewer(options: ViewerOptions): Viewer {
       new Vector3(cell.bounds.maxX + 60, MAX_HEIGHT, cell.bounds.maxZ + 60),
     ),
     objects: [],
+    detail: { rails: 0, masts: 0 },
     fineVertices: 0,
   }));
 
   function build(entry: CellEntry): void {
-    const { mesh, lines, props, groundVertices, fineVertices } = buildCell(
+    const { mesh, lines, props, groundVertices, fineVertices, detail } = buildCell(
       entry.cell,
       city.area,
       walls,
     );
+    entry.detail = detail;
     const surfaces = new Mesh(mesh.build({ facade: true }), material);
     // Street furniture shares the material and its program: one more draw call, only up close.
     const furniture = new Mesh(props.build({ facade: true }), material);
@@ -348,9 +360,12 @@ export function createViewer(options: ViewerOptions): Viewer {
    */
   function cull(): void {
     const shadowPass = renderer.shadowMap.needsUpdate;
-    for (const { box, cell, objects } of cells) {
-      const [surfaces, outlines, furniture] = objects;
+    const pixel = (camera.top - camera.bottom) / camera.zoom / buffer.y;
+    for (const { box, cell, objects, detail } of cells) {
+      const [surfaces, outlines, furniture] = objects as [Mesh?, LineSegments?, Mesh?];
       if (!surfaces || !outlines || !furniture) continue;
+      const skip = pixel > MAST_PIXEL ? detail.masts : pixel > RAIL_PIXEL ? detail.rails : 0;
+      outlines.geometry.setDrawRange(skip * 2, Infinity);
       const inView = frustum.intersectsBox(box);
       const casts = shadowPass && shadowFrustum.intersectsBox(box);
       surfaces.layers.mask = (inView ? VIEW_LAYER : 0) | (casts ? SHADOW_LAYER : 0);

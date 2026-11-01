@@ -116,6 +116,11 @@ export class MeshBuilder {
 export class LineBuilder {
   #points: number[] = [];
 
+  /** Segments so far: a mark for drawing only part of the outlines (see `setDrawRange`). */
+  get segments(): number {
+    return this.#points.length / 6;
+  }
+
   segment(a: V3, b: V3): void {
     this.#points.push(a[0], a[1], a[2], b[0], b[1], b[2]);
   }

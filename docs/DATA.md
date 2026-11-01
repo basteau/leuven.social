@@ -39,6 +39,7 @@ public/data/city.bin ◀─ bun run bake ◀─ data/derived/ ◀─ bun run dat
 3. **Bake.** `scripts/bake.ts` keeps what lies in `AREA`, projects it to local metres, simplifies it and writes the binary `LVN1` format (`src/data/format.ts`).
    - Buildings are kept whole when every corner is inside the area; ground polygons are clipped to it.
    - Footprint vertices within 0.25 m (core) or 0.5 m (fringe) of the line through their neighbours are dropped; hero footprints keep every vertex, since landmark models are fitted to them. Ground polygons lose vertices within 0.3 m, and patches of green under 25 m² go.
+   - Railway tracks are stored as centre lines (Douglas–Peucker to 10 cm), not polygons: the gauge is standard everywhere, so the renderer derives the ballast, sleepers and both rails. Tunnels, covered tracks and anything below ground are left out. Rails are their own layer (`City.rails`), so walking can keep off them; platforms (`City.platforms`, multipolygons joined from their outer ways) are walkable.
 
 ## Sources
 
@@ -77,6 +78,17 @@ New data comes through the manifest and the pipeline, never by a manual download
 3. Run `bun run data:fetch` (it downloads only the new source), use it in the build or the bake, then `bun run data` and `bun run verify`.
 4. Commit the code, `data/sources.lock.json` and `public/data/city.bin` together. If what you draw from it is a choice rather than data, add it to [Exceptions](#exceptions).
 
+## Railways
+
+| Layer                 | Data                                                                                           | Source id            |
+| --------------------- | ---------------------------------------------------------------------------------------------- | -------------------- |
+| Tracks (`City.rails`) | OSM `railway=rail` ways                                                                        | `osm-areas`          |
+| Railway land          | OSM `landuse=railway`                                                                          | `osm-areas`          |
+| Platforms             | OSM `railway=platform` ways and multipolygon relations, with their members (`out geom`)        | `osm-rail-platforms` |
+| Platform roofs        | GRB annexes surveyed as `afdak` (canopy), over 2000 m² and on railway land: Leuven's wave roof | `grb-gba`            |
+
+The roof's height (9.5 m at the valleys, 16 m at the crowns) and the catenary, gauge and platform constants are code constants in `src/scene/rails.ts`, each with its source. The GRB `SBN`/`WRL` rail layers were checked and left out: their rails match OSM's centre lines, and the rail parcels are wider than the ballast.
+
 ## What the data decides
 
 Prefer reading the world over guessing it. Each of these replaced a rule of thumb:
@@ -97,6 +109,7 @@ Prefer reading the world over guessing it. Each of these replaced a rule of thum
 | Asphalt, setts or paving  | OSM `surface` of the road along each carriageway; ring and main roads darker                                                                                                                                             | `carriagewayKind` in `src/data/roads.ts`                                                  |
 | Lane lines, cycle lanes   | OSM `lanes`, `oneway` and `cycleway:*` on the road, spaced across the carriageway's measured width, stopping at junctions (GRB `kruispuntzone`)                                                                          | `lane_layout` in `tools/build_road_zones.py`                                              |
 | Zebras, cyclist crossings | OSM crossing ways and their `crossing` / `crossing:markings` tags, clipped to the carriageway                                                                                                                            | `crossingMarking` in `src/data/roads.ts`                                                  |
+| Railway tracks            | OSM `railway=rail`, one way per track: running line or yard, bridge, electrified                                                                                                                                         | `railFromOsm` in `src/data/city.ts`                                                       |
 | Bridge parapets           | GRB structures (KNW) of type bridge: the sides whose outside is water get a low stone wall                                                                                                                               | `bridgeParapets` in `src/data/structures.ts`                                              |
 | Tanks and silos           | GRB structures (KNW) of type silo/tank and chemical plant, at their LiDAR p90 height; under 2.5 m left out                                                                                                               | `tankOutline` in `src/data/structures.ts`, `tools/build_leuven_data.py`                   |
 | Street furniture          | OSM lamps, benches, bike racks (and their capacity), bus stops (and shelters), statues, fountains, pumps; turned to face the nearest kerb, path or wall; none inside a building or the river                             | `propFromOsm`, `placeProps` in `src/data/props.ts`                                        |
@@ -144,7 +157,7 @@ Known limits of the data itself: the LiDAR was flown in 2013–2015, so building
 
 ## The area
 
-`AREA` is a few abutting, non-overlapping rectangles, so the diorama can follow the city instead of a single box: today the R23 ring with the station, and a band through Heverlee from Arenbergpark and its castle to the Abdij van Park. The slab's earth sides hang from the outline of their union, and the camera's target stays inside it.
+`AREA` is a few abutting, non-overlapping rectangles, so the diorama can follow the city instead of a single box: today the R23 ring with the station and its whole track bundle, and a band through Heverlee from Arenbergpark and its castle to the Abdij van Park. The slab's earth sides hang from the outline of their union, and the camera's target stays inside it.
 
 ## Growing the map
 
