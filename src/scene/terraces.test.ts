@@ -15,6 +15,8 @@ const city = (over: Partial<City> = {}): City => ({
   labels: [{ name: 'Oude Markt', x: 0, z: 0, minZoom: 0 }],
   buildings: [],
   roads: [],
+  carriageways: [],
+  markings: [],
   plazas: [SQUARE],
   green: [],
   water: [],

@@ -38,7 +38,7 @@ function release(this: { array: unknown }): void {
  * Three bytes padded to four: the GPU reads 4-byte aligned vertex data directly, where WebGL on
  * Metal (Safari, Chrome on a Mac) would otherwise convert the whole buffer first.
  */
-function padded(array: Int8Array | Uint8Array): InterleavedBufferAttribute {
+export function padded(array: Int8Array | Uint8Array): InterleavedBufferAttribute {
   return new InterleavedBufferAttribute(new InterleavedBuffer(array, 4), 3, 0, true);
 }
 
@@ -128,7 +128,11 @@ export class MeshBuilder {
     this.#count++;
   }
 
-  triangle(a: V3, b: V3, c: V3, color: number, hint: V3, facade = 0): void {
+  /**
+   * `facade` is the wall-top height the window shader reads, or on the ground a negative surface
+   * or paint code (see paint.ts); paint gives each vertex its own.
+   */
+  triangle(a: V3, b: V3, c: V3, color: number, hint: V3, facade: number | V3 = 0): void {
     const ux = b[0] - a[0];
     const uy = b[1] - a[1];
     const uz = b[2] - a[2];
@@ -145,14 +149,30 @@ export class MeshBuilder {
     ny = (ny / len) * flip;
     nz = (nz / len) * flip;
     this.#color = color;
-    this.#vertex(a, nx, ny, nz, facade);
-    this.#vertex(flip < 0 ? c : b, nx, ny, nz, facade);
-    this.#vertex(flip < 0 ? b : c, nx, ny, nz, facade);
+    const [fa, fb, fc] = typeof facade === 'number' ? [facade, facade, facade] : facade;
+    this.#vertex(a, nx, ny, nz, fa);
+    if (flip < 0) {
+      this.#vertex(c, nx, ny, nz, fc);
+      this.#vertex(b, nx, ny, nz, fb);
+    } else {
+      this.#vertex(b, nx, ny, nz, fb);
+      this.#vertex(c, nx, ny, nz, fc);
+    }
   }
 
-  quad(a: V3, b: V3, c: V3, d: V3, color: number, hint: V3, facade = 0): void {
-    this.triangle(a, b, c, color, hint, facade);
-    this.triangle(a, c, d, color, hint, facade);
+  /** Corners in order; `facade` as for `triangle`, or one value per corner. */
+  quad(
+    a: V3,
+    b: V3,
+    c: V3,
+    d: V3,
+    color: number,
+    hint: V3,
+    facade: number | readonly [number, number, number, number] = 0,
+  ): void {
+    const [fa, fb, fc, fd] = typeof facade === 'number' ? [facade, facade, facade, facade] : facade;
+    this.triangle(a, b, c, color, hint, [fa, fb, fc]);
+    this.triangle(a, c, d, color, hint, [fa, fc, fd]);
   }
 
   /**

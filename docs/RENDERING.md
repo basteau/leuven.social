@@ -14,10 +14,23 @@ The aim is a city that opens instantly and costs nothing while you look at it, o
 - **Bridges and tanks are walls.** Bridge parapets (low walls along the sides that face the water) and the brewery's tanks are extruded straight into the cell mesh with outlines, a few hundred triangles in all.
 - **Trees grow to their surveyed height.** About 9600 of them: OSM's mapped trees plus LiDAR crowns of 10 m and up, spaced by crown size so canopies close with as few trees as possible. They cost 28 triangles each; the shadow pass draws only their 20-face crowns, as a trunk's shadow hides in its crown's.
 - **Detail in the shader, not in geometry.** Windows are drawn by `facade-material.ts` from world position, with one row per 3.2 m floor and a few lit by the low sun. Walls carry their top height in a `facade` attribute. When a window is smaller than a screen pixel, it fades to an average tint instead of shimmering. This adds no triangles.
+- **Roads in the same mesh, detail in the same shader.** The GRB road surface is drawn as pavement, with carriageways, cycle tracks and paint laid a few millimetres above it (`ground.ts`, `paint.ts`).
+  - Road faces carry a texture code in the `facade` attribute: hard-edged patches of newer asphalt, the grain and joints of setts, paving joints. Each fades out before it's finer than a couple of pixels, so nothing crawls while the map pans; joints are drawn at least a pixel wide.
+  - Paint vertices carry the direction across their mark. The vertex shader widens a lane line to a whole pixel on screen, whatever the rotation, and swaps a zebra's bars for their average grey until a bar spans about two pixels.
+  - Paint that only shows zoomed in (lane lines, zebra bars, cyclist-crossing blocks) is drawn last in each cell's mesh. A view where a pixel spans more than 1.2 m stops the draw range short of it, so a zoomed-out frame doesn't pay for it.
 - **Render on demand.** Nothing renders unless the camera or the view changes, so an idle map uses no GPU.
 - **Static shadows, fitted to the view.** The city doesn't move, so the shadow map renders only on load and when the view leaves the square it covers (or zooms in far enough to deserve sharper shadows). The square is fitted to what's on screen, with 30% room to pan, a size stepped in 19% increments and a centre snapped to whole texels, so shadow edges don't swim when it moves (`shadow-fit.ts`). Its texels stay as small as the old whole-map shadows were at zoom 1 and get sharper zoomed in. On a frame that redraws it, the casting cells show a shadow-only mesh on the shadow camera's layer, so the shadow pass draws only them and the view only what's in view. That mesh shares its cell's buffers and starts past the flat ground and the tree trunks, which each cell writes first: neither can cast a shadow anyone would see.
 - **No hidden walls, no idle vertices.** A wall between two touching buildings is drawn only above the lower one (`partyWalls`). The bake drops footprint vertices within 0.25 m (0.5 m on the fringe) of the line through their neighbours; hero footprints keep theirs, as landmark models are fitted to them. Trees are a 4-sided open trunk and a 20-face crown, 28 triangles.
 - **One rendering path.** The canvas renders at device resolution, capped at 2×. Only standard-density screens (below 1.5×) get multisampling; dense screens are smooth without it.
+
+## Walking
+
+Walk mode puts a figure on the streets (`character.ts`) and follows it with the camera. It must cost next to nothing on top of the map:
+
+- **Walkability is built on demand.** `WalkGrid` (`src/data/walkable.ts`) rasterises roads, squares and paths at 1 m, minus building footprints, in 64 m tiles the first time something asks about them. A click costs one A* search (`route.ts`) inside a window around both ends, a few milliseconds, then string-pulling into a handful of straight legs.
+- **Two draw calls for the figure.** It's a few boxes on a seven-bone `SkinnedMesh`. The ink outline is an inverted hull in the same geometry, and the blob shadow is dithered by the shader instead of blended, so figure, outline and shadow are one call. Its x-ray twin, a checkerboard silhouette drawn only where a building hides it, is the second. The route hint is one more while a walk is under way; dots behind the walker drop off by moving its draw range.
+- **Animate only while something moves.** The walk loop runs while the walker moves, turns or idles (four seconds after stopping, none with reduced motion), and while the camera eases. Then it stops, and the map is back to rendering on demand. Nothing is allocated per frame.
+- **The figure doesn't cast into the static shadow map**, but it receives it, so it darkens in the shade of the houses it passes.
 
 ## Budgets
 
@@ -39,7 +52,7 @@ Shadow-redraw frames draw the casting cells a second time, but happen only on lo
 
 The three.js chunk loads in parallel with the city data, so the HUD paints before the engine arrives.
 
-The smoke test checks the first frame (which also draws the shadow map) and the latest frame at every step: default view, after the controls, zoomed in, zoomed all the way out, and on a phone. Each visible cell is two draw calls (three from zoom 2, with its furniture), and a frame that redraws shadows adds one or two per casting cell; draw calls are cheap here because every cell shares one material and program, so the budget watches triangles first. Typical numbers for the whole ring plus Heverlee: 34 calls and 184k triangles at the default view, 12 and 84k zoomed in, 92 and 385k zoomed out, 78 and 531k for the first frame.
+The smoke test checks the first frame (which also draws the shadow map) and the latest frame at every step: default view, after the controls, zoomed in, zoomed all the way out, walking a few steps, back on the map, and on a phone. Each visible cell is two draw calls (three from zoom 2, with its furniture), and a frame that redraws shadows adds one or two per casting cell; draw calls are cheap here because every cell shares one material and program, so the budget watches triangles first. Typical numbers for the whole ring plus Heverlee: 34 calls and 239k triangles at the default view, 18 and 123k zoomed in, 94 and 534k zoomed out, 78 and 645k for the first frame, 14 and 84k walking.
 
 ## Growing the city
 

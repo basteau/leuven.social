@@ -26,8 +26,9 @@ import { clampToArea } from '../data/geometry.ts';
 import { partyWalls } from './buildings.ts';
 import { buildCell, partition } from './cells.ts';
 import type { Cell } from './cells.ts';
-import { createFacadeMaterial } from './facade-material.ts';
+import { createFacadeMaterial, setPixelSize } from './facade-material.ts';
 import { SLAB_DEPTH } from './ground.ts';
+import { LINE_LOD } from './paint.ts';
 import type { V3 } from './mesh-builder.ts';
 import { BOUNCE_LIGHT, OUTLINE, SKY_LIGHT, SUN } from './palette.ts';
 import {
@@ -40,6 +41,10 @@ import {
 } from './shadow-fit.ts';
 import type { ShadowSquare } from './shadow-fit.ts';
 import { terraceParasols } from './terraces.ts';
+import { createWalk } from './walk.ts';
+import type { WalkMode } from './walk.ts';
+
+export type { WalkMode } from './walk.ts';
 
 export interface ViewerOptions {
   canvas: HTMLCanvasElement;
@@ -49,6 +54,10 @@ export interface ViewerOptions {
   labelLayer: HTMLElement;
   city: City;
   reducedMotion: boolean;
+  /** Walk mode changed: picking a start, walking, or back on the map. */
+  onWalkModeChange?: (mode: WalkMode) => void;
+  /** A spot that can't be walked to was picked. */
+  onWalkBlocked?: () => void;
 }
 
 export interface ViewerStats {
@@ -61,6 +70,14 @@ export interface Viewer {
   /** Multiplies the zoom, within the controls' limits. */
   zoomBy(factor: number): void;
   resetView(): void;
+  /** Starts walk mode: the next click on the map says where. */
+  pickWalkStart(): void;
+  /** Starts walking from the street nearest the middle of the view. */
+  walkFromCentre(): void;
+  /** Back to the map. */
+  stopWalking(): void;
+  /** Walks toward a direction on screen while held: right and up, each from -1 to 1. */
+  steer(right: number, up: number): void;
   stats(): ViewerStats;
   dispose(): void;
 }
@@ -76,6 +93,8 @@ interface CellEntry {
   box: Box3;
   /** Its mesh, outlines and shadow casters once built; empty until then. */
   objects: Object3D[];
+  /** Where the fine road paint starts in its mesh (see buildCell). */
+  fineVertices: number;
 }
 
 /** Golden hour from the south-west, low enough for long shadows. */
@@ -129,7 +148,7 @@ export function createViewer(options: ViewerOptions): Viewer {
 
   const scene = new Scene();
   const gradientMap = toonGradient();
-  // One material for every cell: ground and trees carry no facade, so they get no windows.
+  // One material for every cell: walls get windows, roads their texture and paint (paint.ts).
   const material = createFacadeMaterial(gradientMap);
   const ink = new LineBasicMaterial({ color: OUTLINE });
 
@@ -145,17 +164,23 @@ export function createViewer(options: ViewerOptions): Viewer {
       new Vector3(cell.bounds.maxX + 60, MAX_HEIGHT, cell.bounds.maxZ + 60),
     ),
     objects: [],
+    fineVertices: 0,
   }));
 
   function build(entry: CellEntry): void {
-    const { mesh, lines, props, shadowFrom } = buildCell(entry.cell, city.area, walls);
+    const { mesh, lines, props, shadowFrom, fineVertices } = buildCell(
+      entry.cell,
+      city.area,
+      walls,
+    );
     const surfaces = new Mesh(mesh.build({ facade: true }), material);
     surfaces.receiveShadow = true;
-    // The shadow pass draws the same buffers from past the ground and the trunks, as a mesh of
-    // its own on the shadow camera's layer: no copy, no extra upload, one draw call as before.
+    // The shadow pass draws the same buffers from past the ground and the trunks up to the fine
+    // road paint, as a mesh of its own on the shadow camera's layer: no copy, no extra upload,
+    // one draw call as before.
     const shape = new BufferGeometry();
     shape.setAttribute('position', surfaces.geometry.getAttribute('position'));
-    shape.setDrawRange(shadowFrom, Infinity);
+    shape.setDrawRange(shadowFrom, fineVertices - shadowFrom);
     // Its bounds are its cell's: computing them would need the array the upload let go of.
     shape.boundingBox = surfaces.geometry.boundingBox;
     shape.boundingSphere = surfaces.geometry.boundingSphere;
@@ -166,6 +191,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     const furniture = new Mesh(props.build({ facade: true }), material);
     furniture.castShadow = true;
     furniture.receiveShadow = true;
+    entry.fineVertices = fineVertices;
     const outlines = new LineSegments(lines.build(), ink);
     // Cells are culled by their boxes below: three's bounding spheres are far looser.
     entry.objects = [surfaces, outlines, casters, furniture];
@@ -357,8 +383,19 @@ export function createViewer(options: ViewerOptions): Viewer {
   }
 
   function render(): void {
+    // World metres per drawing-buffer pixel: how much road paint and texture is worth drawing.
+    const unit =
+      (camera.top - camera.bottom) / camera.zoom / renderer.getDrawingBufferSize(buffer).y;
+    setPixelSize(material, unit);
     camera.updateMatrixWorld();
     prepare();
+    // Fine road paint is drawn last in each cell, so a view too far out to see it can stop short.
+    for (const { objects, fineVertices } of cells) {
+      (objects[0] as Mesh | undefined)?.geometry.setDrawRange(
+        0,
+        unit > LINE_LOD ? fineVertices : Infinity,
+      );
+    }
     cull();
     const shadowPass = renderer.shadowMap.needsUpdate;
     renderer.render(scene, camera);
@@ -391,6 +428,21 @@ export function createViewer(options: ViewerOptions): Viewer {
     }
   }
 
+  const walk = createWalk({
+    scene,
+    camera,
+    controls,
+    canvas,
+    keyTarget,
+    city,
+    gradientMap,
+    reducedMotion,
+    placeCamera,
+    render: renderNow,
+    ...(options.onWalkModeChange && { onModeChange: options.onWalkModeChange }),
+    ...(options.onWalkBlocked && { onBlocked: options.onWalkBlocked }),
+  });
+
   let frame = 0;
   function renderNow(): void {
     cancelAnimationFrame(frame);
@@ -398,7 +450,8 @@ export function createViewer(options: ViewerOptions): Viewer {
     render();
   }
   function invalidate(): void {
-    if (frame) return;
+    // While walking, the walk loop draws every frame itself.
+    if (frame || walk.animating) return;
     frame = requestAnimationFrame(() => {
       frame = 0;
       render();
@@ -438,13 +491,15 @@ export function createViewer(options: ViewerOptions): Viewer {
       const t = Math.min(1, (now - start) / ROTATE_MS);
       yaw = from + (to - from) * (1 - (1 - t) ** 3);
       placeCamera();
-      renderNow(); // already inside a frame: don't wait for the next one
+      // Already inside a frame: don't wait for the next one, unless the walk loop draws it.
+      if (!walk.animating) renderNow();
       spin = t < 1 ? requestAnimationFrame(step) : 0;
     };
     spin = requestAnimationFrame(step);
   }
 
   function zoomBy(factor: number): void {
+    walk.settle();
     camera.zoom = Math.min(controls.maxZoom, Math.max(controls.minZoom, camera.zoom * factor));
     camera.updateProjectionMatrix();
     controls.update();
@@ -453,6 +508,7 @@ export function createViewer(options: ViewerOptions): Viewer {
 
   function resetView(): void {
     cancelAnimationFrame(spin);
+    walk.settle();
     yaw = Math.PI / 4;
     camera.zoom = 1;
     camera.updateProjectionMatrix();
@@ -499,6 +555,10 @@ export function createViewer(options: ViewerOptions): Viewer {
     rotate,
     zoomBy,
     resetView,
+    pickWalkStart: () => walk.pick(),
+    walkFromCentre: () => walk.startAtCentre(),
+    stopWalking: () => walk.exit(),
+    steer: (x, y) => walk.steer(x, y),
     stats: () => ({
       drawCalls: renderer.info.render.calls,
       triangles: renderer.info.render.triangles,
@@ -507,6 +567,7 @@ export function createViewer(options: ViewerOptions): Viewer {
       cancelAnimationFrame(frame);
       cancelAnimationFrame(spin);
       cancelIdle(idleHandle);
+      walk.dispose();
       observer.disconnect();
       densityQuery?.removeEventListener('change', onDensity);
       canvas.removeEventListener('webglcontextrestored', onRestored);
