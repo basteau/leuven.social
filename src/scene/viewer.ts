@@ -98,8 +98,14 @@ const CAMERA_DISTANCE = 2000;
 const ROTATE_MS = 280;
 /** Seen from the street, labels further than this would float over the houses in front (m). */
 const LABEL_REACH = 160;
-/** Around the walker, shadows reach this far, whichever way it looks (m). */
-const WALK_SHADOW = 60;
+/**
+ * From the street: shadows cover this far round the walker, whichever way it looks, with this
+ * margin for roofs (m), and are redrawn once over 1.6× coarser than that needs. Close up, a
+ * shadow texel spans many pixels, so the square stays tight: about 12 cm a texel.
+ */
+const WALK_SHADOW = 45;
+const WALK_SHADOW_REACH = 30;
+const WALK_SHADOW_COARSER = 1.6;
 interface CellEntry {
   cell: Cell;
   box: Box3;
@@ -370,13 +376,13 @@ export function createViewer(options: ViewerOptions): Viewer {
           })
         : around(t.x, t.z, reach);
     const need = shadowNeeds(light, ground);
-    need.half += SHADOW_REACH;
+    need.half += view === camera ? SHADOW_REACH : WALK_SHADOW_REACH;
     // Furniture appearing or hiding changes what casts shadows: refit the square to the view,
     // which is close up when it appears, so the redraw stays small.
     const near = span <= VIEW_HEIGHT / PROP_ZOOM;
     if (near !== propsShown) shadow = undefined;
     propsShown = near;
-    if (shadow && shadowCovers(shadow, need)) return;
+    if (shadow && shadowCovers(shadow, need, view === camera ? 4 : WALK_SHADOW_COARSER)) return;
     shadow = fitShadow(need, SHADOW_MAP);
     sun.position.set(...shadowPoint(light, shadow.x, shadow.y, farthest + 10));
     sun.target.position.set(...shadowPoint(light, shadow.x, shadow.y, 0));
