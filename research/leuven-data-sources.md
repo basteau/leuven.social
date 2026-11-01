@@ -7,7 +7,7 @@ Checked 2026-10-31.
 
 Flemish services work natively in **EPSG:31370 (Belgian Lambert 72)**, and most also serve EPSG:4326 or 3857. Leuven's municipality code (NIS) is **24062**. Wikidata ID: **Q118958**.
 
-Everything marked ✅ below has already been downloaded into [`../data`](../data) for the game extent.
+Everything marked ✅ below is fetched into [`../data`](../data) by `bun run data:fetch`, from the list in [`../src/data/sources.ts`](../src/data/sources.ts).
 
 ---
 
@@ -84,7 +84,7 @@ Everything marked ✅ below has already been downloaded into [`../data`](../data
 
   - Footprints are good because Belgian OSM imported GRB. **Heights are poor, so use LiDAR.**
   - Across the whole game extent, 797 buildings are tagged `roof:shape=gabled`, 192 `flat` and 90 `hipped`. The other ~19.8k have no roof tag.
-- **Queries used** are in [`../data/osm/queries`](../data/osm/queries). The R23 ring query: `way["ref"="R23"](50.86,4.675,50.898,4.73); out geom;`
+- **Queries used** are in [`../src/data/sources.ts`](../src/data/sources.ts); `bun run data:fetch` runs them tiled over the map area, as of a pinned date (`[date:"…"]`, from Overpass's history).
 
 ### 1d. Overture Maps buildings
 - Release `2026-10-21.0` (verified via https://stac.overturemaps.org/catalog.json). GeoParquet at `s3://overturemaps-us-west-2/release/2026-10-21.0/theme=buildings/type=building/*`.

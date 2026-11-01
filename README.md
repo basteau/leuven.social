@@ -25,7 +25,8 @@ Controls:
 | `bun run verify:quick` | Format check, lint, types and tests with coverage, in parallel, in under a second. Runs on every commit.                         |
 | `bun run verify`       | The above, plus the production build, size budgets and a headless-browser smoke test (screenshots in `.artifacts/`). Runs in CI. |
 | `bun run format`       | Formats everything                                                                                                               |
-| `bun run bake`         | Rebuilds `public/data/city.bin` from the raw data. See docs/DATA.md.                                                             |
+| `bun run data`         | Rebuilds `public/data/city.bin` from scratch: downloads the open data, builds and bakes it (needs uv). See docs/DATA.md.         |
+| `bun run data:check`   | Rebuilds from the downloads in `data/` and checks the result is byte for byte the committed `city.bin`.                          |
 | `bun run deploy`       | Builds and publishes to https://leuven.exe.xyz/. See docs/DEPLOY.md.                                                             |
 
 Read [AGENTS.md](AGENTS.md) first; it links to everything else:

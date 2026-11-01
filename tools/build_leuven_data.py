@@ -1,17 +1,31 @@
-"""Build game-ready Leuven data from the raw downloads in ../data.
+# /// script
+# requires-python = ">=3.12"
+# dependencies = [
+#   "matplotlib==3.11.2",
+#   "numpy==2.5.4",
+#   "pillow==13.0.0",
+#   "pyproj==3.8.0",
+#   "shapely==2.2.0",
+#   "tifffile==2026.10.15",
+# ]
+# ///
+"""Build game-ready Leuven data from the raw downloads in data/ (`bun run data:fetch`).
 
-uv run --with numpy --with tifffile --with shapely --with pyproj --with matplotlib \
-    python -I tools/build_leuven_data.py data
+bun run data:build    (uv run --locked --script tools/build_leuven_data.py data)
 
-Inputs (see data/README.md):
-  grb/grb_GBG.geojson                GRB main buildings (EPSG:4326)
-  elevation/leuven_{DTM,DSM}_1m_tile{1-8}.tif   DHMV II 1 m rasters (EPSG:31370)
-  osm/raw_*.json                     Overpass dumps (out geom)
-  ortho/z18/{x}_{y}.png              optional: orthophoto tiles for roof colours (data/README.md)
+The same downloads give the same bytes: inputs are read in a fixed order, numbers are rounded
+before they are written, and the map projection is pinned below rather than left to PROJ.
+
+Inputs (src/data/sources.ts lists each one's source and licence):
+  grb/grb_GBG.geojson, grb/grb_GBA.geojson   GRB buildings and annexes (EPSG:4326)
+  elevation/{DTM,DSM}/*.tif                 DHMV II 1 m rasters (EPSG:31370), tiled
+  osm/{buildings,ring_r23,roads,areas,points}.json   Overpass answers (out geom / center)
+  ortho/z18/{x}_{y}.png                     optional: orthophoto tiles for roof colours
 Outputs (data/derived/):
   leuven_buildings.geojson   footprint + ground (m TAW) + height (m) + roof shape and colour + OSM tags
   leuven_buildings_local.json  compact game format: local metres, origin Grote Markt, x=east, z=south
   lidar_trees.json           tree crowns found in the LiDAR canopy, with their heights
+  grb_structures.json        GRB structures (bridges, tanks and silos) in local metres, with tank heights from the LiDAR
   osm_roads.geojson, osm_areas.geojson, osm_points.geojson
   preview_heights.png
 """
@@ -24,6 +38,7 @@ import numpy as np
 import shapely
 import tifffile
 from pyproj import Transformer
+from pyproj.enums import TransformDirection
 from shapely import STRtree, contains_xy, make_valid
 from shapely.geometry import LineString, Point, Polygon, mapping, shape
 
@@ -31,13 +46,27 @@ DATA = Path(sys.argv[1] if len(sys.argv) > 1 else 'data')
 OUT = DATA / 'derived'
 OUT.mkdir(exist_ok=True)
 ORIGIN = (4.70139, 50.87917)  # Grote Markt (lon, lat)
-to_lambert = Transformer.from_crs('EPSG:4326', 'EPSG:31370', always_xy=True).transform
+# WGS84 -> Belgian Lambert 72 through "BD72 to WGS 84 (3)": what PROJ picks for EPSG:4326 -> 31370
+# when no grid files are installed. Spelled out so an installed grid can't change the result;
+# src/data/projection.ts implements the same operation.
+LAMBERT72 = Transformer.from_pipeline(
+    '+proj=pipeline +step +proj=unitconvert +xy_in=deg +xy_out=rad +step +proj=push +v_3 '
+    '+step +proj=cart +ellps=WGS84 +step +inv +proj=helmert +x=-106.8686 +y=52.2978 +z=-103.7239 '
+    '+rx=-0.3366 +ry=0.457 +rz=-1.8422 +s=-1.2747 +convention=coordinate_frame '
+    '+step +inv +proj=cart +ellps=intl +step +proj=pop +v_3 +step +proj=lcc +lat_0=90 '
+    '+lon_0=4.36748666666667 +lat_1=51.1666672333333 +lat_2=49.8333339 +x_0=150000.013 '
+    '+y_0=5400088.438 +ellps=intl')
+to_lambert = LAMBERT72.transform
 
 
-# --- Rasters: mosaic the four 1500x1300 tiles using their GeoTIFF tie points -----------------------------------------
+def to_wgs(x, y):
+    return LAMBERT72.transform(x, y, direction=TransformDirection.INVERSE)
+
+
+# --- Rasters: mosaic the tiles using their GeoTIFF tie points ----------------------------------------------------------
 def load_mosaic(kind):
     tiles = []
-    for path in sorted(DATA.glob(f'elevation/leuven_{kind}_1m_tile*.tif')):
+    for path in sorted(DATA.glob(f'elevation/{kind}/*.tif')):
         with tifffile.TiffFile(path) as tif:
             page = tif.pages[0]
             tie = page.tags['ModelTiepointTag'].value  # (i, j, k, x, y, z)
@@ -148,12 +177,8 @@ def roof_colour(poly_ll):
 
 # --- OSM building tags, joined by representative point -------------------------------------------------------------
 def osm_elements(name):
-    files = sorted(DATA.glob(f'osm/raw_{name}*.json'))
-    seen = {}
-    for f in files:
-        for e in json.load(open(f))['elements']:
-            seen[(e['type'], e['id'])] = e
-    return list(seen.values())
+    """One Overpass layer, already deduplicated and in type and id order (scripts/fetch.ts)."""
+    return json.load(open(DATA / f'osm/{name}.json'))['elements']
 
 
 def way_geom(e):
@@ -171,13 +196,16 @@ osm_pts = [g.representative_point() for _, g in osm_b]
 KEEP = ['building', 'name', 'building:levels', 'roof:shape', 'roof:levels', 'amenity', 'shop', 'historic', 'building:colour', 'roof:colour']
 
 # --- Detail tiers: hand-built hero zones > generic but faithful core inside R23 > cheap fringe outside it ---------------
+# Which neighbourhoods get the most detail is a design choice, not data (docs/DATA.md, Exceptions). Centres are the
+# Wikidata coordinates (P625) of each square or landmark, except Ladeuzeplein and Martelarenplein, moved between the
+# square and its library or station so one circle holds both.
 HERO_ZONES = {  # name: (lon, lat, radius m)
-    'Grote Markt (Stadhuis, Sint-Pieterskerk)': (4.70139, 50.87917, 170),
-    'Oude Markt': (4.69944, 50.87806, 120),
-    'Ladeuzeplein (Universiteitsbibliotheek)': (4.70690, 50.87820, 140),
-    'Martelarenplein (station)': (4.71560, 50.88100, 150),
-    'Groot Begijnhof': (4.69694, 50.87167, 170),
-    'Kasteel van Arenberg (Heverlee)': (4.68306, 50.86333, 220),
+    'Grote Markt (Stadhuis, Sint-Pieterskerk)': (4.70139, 50.87917, 170),  # Q4766627
+    'Oude Markt': (4.69944, 50.87806, 120),  # Q2792167
+    'Ladeuzeplein (Universiteitsbibliotheek)': (4.70690, 50.87820, 140),  # Q6469401, Q139854572
+    'Martelarenplein (station)': (4.71560, 50.88100, 150),  # Q2658903, Q801090
+    'Groot Begijnhof': (4.69694, 50.87167, 170),  # Q1049301
+    'Kasteel van Arenberg (Heverlee)': (4.68306, 50.86333, 220),  # Q1522076
 }
 ring_pts = [(p['lon'], p['lat']) for e in osm_elements('ring_r23') for p in e.get('geometry', []) if p]
 RING = make_valid(Polygon(ring_pts).convex_hull)  # R23 is close to convex; hull is fine for tiering
@@ -238,9 +266,10 @@ for f in json.load(open(DATA / 'grb/grb_GBA.geojson'))['features']:
         cs, rs = np.meshgrid(np.arange(c0, c1), np.arange(r0, r1))
         built[r0:r1, c0:c1] |= contains_xy(pl.buffer(1.0), X0 + (cs + 0.5) * RES, Y1 - (rs + 0.5) * RES)
 
-# Grey-world white balance over all sampled roofs: the winter mosaic has a cool cast, and the
+# Grey-world white balance over the sampled roofs in the ring and hero zones: the winter mosaic has a cool cast, and the
 # viewer snaps these colours to its palette, which expects neutral slate to come out neutral.
-rgbs = np.array([f['properties']['roof_rgb'] for f in feats if 'roof_rgb' in f['properties']], np.float32)
+# Fringe roofs don't count, so how far past the map the downloads reach doesn't shift every colour.
+rgbs = np.array([f['properties']['roof_rgb'] for f in feats if 'roof_rgb' in f['properties'] and f['properties']['tier'] != 'fringe'], np.float32)
 if len(rgbs):
     balance = rgbs.mean(0).mean() / rgbs.mean(0)
     for f in feats:
@@ -273,13 +302,17 @@ def lidar_trees(min_height=10.0, max_height=35.0):
     rough = slope > 25
     rough_near = sum(np.roll(np.roll(rough, dy, 0), dx, 1) for dy in (-1, 0, 1) for dx in (-1, 0, 1)) >= 3
     rows, cols = np.nonzero(peak & (canopy >= min_height) & rough_near)
-    order = np.argsort(-canopy[rows, cols])
+    # Stable, so equal heights go in raster order (north to south, west to east) whatever the raster's extent.
+    order = np.argsort(-canopy[rows, cols], kind='stable')
+    # Buckets as wide as the largest room, so looking one bucket around finds every clash and the result doesn't
+    # depend on where the raster happens to start.
+    bucket = math.ceil(2.1 * 2.6 * (max_height / 6.8) ** 0.8 / RES)
     kept, grid = [], {}
     for k in order:
         r_, c_ = int(rows[k]), int(cols[k])
         h = float(canopy[r_, c_])
         room = max(6.0, 2.1 * 2.6 * (h / 6.8) ** 0.8)
-        cell = (r_ // 8, c_ // 8)
+        cell = (r_ // bucket, c_ // bucket)
         clash = any(math.hypot(r_ - r2, c_ - c2) * RES < max(room, room2)
                     for dy in (-1, 0, 1) for dx in (-1, 0, 1) for r2, c2, room2 in grid.get((cell[0] + dy, cell[1] + dx), ()))
         if clash:
@@ -289,7 +322,6 @@ def lidar_trees(min_height=10.0, max_height=35.0):
     return kept
 
 
-to_wgs = Transformer.from_crs('EPSG:31370', 'EPSG:4326', always_xy=True).transform
 crowns = lidar_trees()
 trees_local = []
 for x, y, h in crowns:
@@ -298,6 +330,37 @@ for x, y, h in crowns:
 json.dump({'units': 'm', 'axes': 'x=east, z=south', 'source': 'DHMV II DSM-DTM local maxima outside GRB buildings',
            'trees': trees_local}, open(OUT / 'lidar_trees.json', 'w'), separators=(',', ':'))
 print(f'lidar trees: {len(trees_local)}')
+
+# --- Structures (GRB KNW): what stands tall but isn't a building ---------------------------------------------------
+# Silos, tanks and chemical plant (most of them the brewery's) get their LiDAR height; bridges keep their outline
+# only, for their parapets. Pillars, grates, cabins, masts (a lattice the LiDAR sees through) and monuments (mostly
+# a statue's plinth, which OSM already has) are left out.
+KNW_KINDS = {1: 'bridge', 9: 'tank', 13: 'tank'}
+structures = []
+for f in json.load(open(DATA / 'grb/grb_KNW.geojson'))['features']:
+    kind = KNW_KINDS.get(f['properties']['TYPE'])
+    g = make_valid(shape(f['geometry'])) if kind else None
+    for p in [] if g is None else [g] if g.geom_type == 'Polygon' else [q for q in getattr(g, 'geoms', []) if q.geom_type == 'Polygon']:
+        height = 0.0
+        if kind != 'bridge':
+            # The top of a thin tank can fall between LiDAR pixels: look a metre around it.
+            pl = shapely.transform(p.buffer(0.00001), lambda a: np.column_stack(to_lambert(a[:, 0], a[:, 1])))
+            minx, miny, maxx, maxy = pl.bounds
+            c0, c1 = max(0, int((minx - X0) / RES)), min(dtm.shape[1], int((maxx - X0) / RES) + 1)
+            r0, r1 = max(0, int((Y1 - maxy) / RES)), min(dtm.shape[0], int((Y1 - miny) / RES) + 1)
+            if c1 <= c0 or r1 <= r0:
+                continue
+            cs, rs = np.meshgrid(np.arange(c0, c1), np.arange(r0, r1))
+            h = ndsm[r0:r1, c0:c1][contains_xy(pl, X0 + (cs + 0.5) * RES, Y1 - (rs + 0.5) * RES)]
+            h = h[~np.isnan(h)]
+            if not len(h):
+                continue
+            height = round(float(np.percentile(h, 90)), 1)
+        structures.append({'kind': kind, 'h': height, 'ring': [[round((x - ORIGIN[0]) * kx, 1), round(-(y - ORIGIN[1]) * kz, 1)]
+                                                                for x, y in p.exterior.coords[:-1]]})
+json.dump({'units': 'm', 'axes': 'x=east, z=south', 'source': 'GRB KNW structures, heights DHMV II DSM-DTM p90',
+           'structures': structures}, open(OUT / 'grb_structures.json', 'w'), separators=(',', ':'))
+print(f'structures: {len(structures)}')
 
 hs = np.array([f['properties']['height'] for f in feats])
 print(f'buildings: {len(feats)} (skipped {skipped}), with OSM tags: {len(osm_for)}; height median {np.median(hs):.1f} m, p99 {np.percentile(hs, 99):.1f} m, max {hs.max():.1f} m')
@@ -314,7 +377,7 @@ roads = [{'type': 'Feature', 'properties': e['tags'], 'geometry': mapping(LineSt
          for e in osm_elements('roads') + osm_elements('ring_r23') if e['type'] == 'way' and len(e.get('geometry', [])) >= 2]
 json.dump({'type': 'FeatureCollection', 'features': roads}, open(OUT / 'osm_roads.geojson', 'w'), separators=(',', ':'))
 areas = []
-for e in osm_elements('water_landuse'):
+for e in osm_elements('areas'):
     if e['type'] == 'way':
         g = way_geom(e)
         if g is not None:
@@ -327,7 +390,7 @@ for e in osm_elements('water_landuse'):
                     areas.append({'type': 'Feature', 'properties': {**e.get('tags', {}), '_relation': e['id']}, 'geometry': mapping(g)})
 json.dump({'type': 'FeatureCollection', 'features': areas}, open(OUT / 'osm_areas.geojson', 'w'), separators=(',', ':'))
 pts = []
-for e in osm_elements('trees_pois'):
+for e in osm_elements('points'):
     ll = (e['lon'], e['lat']) if 'lon' in e else (e['center']['lon'], e['center']['lat']) if 'center' in e else None
     if ll:
         pts.append({'type': 'Feature', 'properties': {**e.get('tags', {}), '_osm': f"{e['type']}/{e['id']}"}, 'geometry': mapping(Point(ll))})

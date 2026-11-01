@@ -1,0 +1,51 @@
+# Rebuilds the city from scratch, from the sources in src/data/sources.ts, and reports whether
+# the result is the committed public/data/city.bin. Monthly and by hand only: the fetch is
+# ~230 MB and Overpass is often busy. Drift in a live source (GRB, the orthophoto mosaic) is
+# reported, not failed: see "Reproducibility" in docs/DATA.md.
+name: data
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 4 3 * *'
+permissions:
+  contents: read
+concurrency:
+  group: data
+  cancel-in-progress: false
+jobs:
+  reproduce:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+      - uses: astral-sh/setup-uv@v6
+      - run: bun install --frozen-lockfile
+      - run: bun run data
+      - name: Compare with the committed city
+        run: |
+          {
+            echo '## Reproduction'
+            if git diff --quiet -- data/sources.lock.json; then
+              echo '- Downloads: identical to data/sources.lock.json'
+            else
+              echo '- Downloads that changed upstream:'
+              echo '```diff'
+              git diff -- data/sources.lock.json
+              echo '```'
+            fi
+            if git diff --quiet -- public/data/city.bin; then
+              echo '- public/data/city.bin: reproduced byte for byte'
+            else
+              echo '- public/data/city.bin: differs from the committed one'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: city
+          path: |
+            public/data/city.bin
+            data/sources.lock.json
+            data/derived/preview_heights.png
