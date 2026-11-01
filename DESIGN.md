@@ -7,7 +7,7 @@ Leuven as a tiny city you could hold in your hands: a warm, crisp, low-poly dior
 1. **The city is the interface.** The map fills the screen. HUD panels are small, few, and float at the edges. Every new control has to justify covering the city.
 2. **Recognisable, not literal.** Real footprints and real heights make it unmistakably Leuven. Simplified shapes and a limited palette make it charming. Spend detail where people look: hero landmarks first.
 3. **Crisp over smooth.**
-   - Hard shadows, a 3-step toon ramp, dark ink outlines.
+   - Hard shadows with a softened rim, a 3-step toon ramp, dark ink outlines.
    - No blur, no glows, no soft gradients inside the scene.
    - Smoothness belongs to motion, not to surfaces.
 4. **Fast is a feature.** It opens instantly and costs nothing when idle. A visual idea that breaks a budget in docs/RENDERING.md needs a cheaper version.
