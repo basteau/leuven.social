@@ -6,10 +6,17 @@ import { WINDOW } from './palette.ts';
 /**
  * The building material: toon shading plus procedural windows, drawn from world position on
  * faces whose `facade` attribute holds the wall-top height. Windows cost no geometry, and when
- * a window shrinks below a pixel they fade into an average wall tint instead of flickering.
+ * a window shrinks below two pixels they fade into an average wall tint instead of flickering.
  */
 export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
-  const material = new MeshToonMaterial({ vertexColors: true, gradientMap });
+  // Faces sit a hair behind their ink lines, so outlines draw solid instead of dashed.
+  const material = new MeshToonMaterial({
+    vertexColors: true,
+    gradientMap,
+    polygonOffset: true,
+    polygonOffsetFactor: 1,
+    polygonOffsetUnits: 1,
+  });
   const glass = new Color(WINDOW.glass);
   const lit = new Color(WINDOW.lit);
 
@@ -53,8 +60,10 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
           float window = step(0.28, f.x) * step(f.x, 0.72) * step(0.34, f.y) * step(f.y, 0.78);
           // Only between the ground-floor sill and just under the eaves.
           window *= step(1.0, p.y) * step(p.y, vFacade - 0.7);
+          // A window narrower than about two device pixels aliases into stripes, so the grid
+          // fades to its average tint between three and two pixels per window.
           float pixel = max(fwidth(p.x), fwidth(p.y));
-          float detail = 1.0 - smoothstep(0.5, 1.1, pixel);
+          float detail = 1.0 - smoothstep(0.38, 0.57, pixel);
           float coverage = mix(0.18 * step(1.0, p.y), window, detail);
           float glow = step(0.93, fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453));
           diffuseColor.rgb = mix(diffuseColor.rgb, mix(uGlass, uLit, glow * detail), coverage * 0.8);
