@@ -260,5 +260,8 @@ test('a trackpad swipe looks around; a pinch or a mouse wheel zooms', () => {
   expect(wheelKind({ ...at, deltaX: -4, deltaY: 1 })).toBe('swipe');
   expect(wheelKind({ ...at, deltaY: 100, wheelDeltaY: -120 })).toBe('wheel');
   expect(wheelKind({ ...at, deltaY: -7, wheelDeltaY: 21 })).toBe('swipe');
+  // A swipe that moves 40 px reads 120, like a notch, but keeps the trackpad's ratio.
+  expect(wheelKind({ ...at, deltaY: -40, wheelDeltaY: 120 })).toBe('swipe');
+  expect(wheelKind({ ...at, deltaY: 4, wheelDeltaY: -120 })).toBe('wheel');
   expect(wheelKind({ ...at, deltaY: 5 })).toBe('swipe');
 });

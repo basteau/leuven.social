@@ -267,6 +267,8 @@ export function wheelKind(event: Wheel): 'pinch' | 'swipe' | 'wheel' {
   if (event.deltaMode !== 0) return 'wheel';
   if (event.deltaX !== 0) return 'swipe';
   const notch = event.wheelDeltaY;
+  // Chrome and Safari give a trackpad's movement as -3 × its delta; a mouse's as 120 a notch.
+  if (notch && Math.abs(notch + 3 * event.deltaY) < 1) return 'swipe';
   if (notch && Number.isInteger(notch / 120)) return 'wheel';
   return 'swipe';
 }
