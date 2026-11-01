@@ -26,7 +26,7 @@ import { partyWalls } from './buildings.ts';
 import { buildCell, partition } from './cells.ts';
 import type { Cell } from './cells.ts';
 import { createFacadeMaterial, setPixelSize } from './facade-material.ts';
-import { labelHeight } from './label-anchors.ts';
+import { labelHeights } from './label-anchors.ts';
 import { LIGHT } from './lighting.ts';
 import { SLAB_DEPTH } from './ground.ts';
 import { LINE_LOD } from './paint.ts';
@@ -254,16 +254,13 @@ export function createViewer(options: ViewerOptions): Viewer {
   });
   labelLayer.append(...labelEls);
   // Measure after all are in the DOM: one layout instead of one per label.
+  const anchors = labelHeights(city.labels, city.buildings);
   const labels = labelEls.map((el, i) => ({
     el,
     w: el.offsetWidth,
     h: el.offsetHeight,
     minZoom: city.labels[i]!.minZoom,
-    world: new Vector3(
-      city.labels[i]!.x,
-      labelHeight(city.labels[i]!.x, city.labels[i]!.z, city.buildings),
-      city.labels[i]!.z,
-    ),
+    world: new Vector3(city.labels[i]!.x, anchors[i]!, city.labels[i]!.z),
   }));
   const placed: [number, number, number, number][] = [];
   const projected = new Vector3();
