@@ -25,7 +25,7 @@ import type { City } from '../data/city.ts';
 import { clampToArea } from '../data/geometry.ts';
 import { partyWalls } from './buildings.ts';
 import { buildCell, partition } from './cells.ts';
-import type { Cell } from './cells.ts';
+import type { Cell, DetailMarks } from './cells.ts';
 import { createFacadeMaterial, setPixelSize } from './facade-material.ts';
 import { SLAB_DEPTH } from './ground.ts';
 import { LINE_LOD } from './paint.ts';
@@ -94,6 +94,8 @@ interface CellEntry {
   box: Box3;
   /** Its mesh, outlines and shadow casters once built; empty until then. */
   objects: Object3D[];
+  /** Where the rails and the catenary masts end in its outlines, which only show zoomed in. */
+  detail: DetailMarks;
   /** Where the fine road paint starts in its mesh (see buildCell). */
   fineVertices: number;
 }
@@ -126,6 +128,14 @@ const FRAME_TRIANGLES = 600_000;
 const PROP_ZOOM = 2;
 /** Time the idle builder may take per slice before handing the main thread back (ms). */
 const IDLE_SLICE_MS = 8;
+/**
+ * The largest screen pixel, in metres, at which rails and catenary masts show. Any bigger and
+ * a track's two rails come under two pixels apart, so a yard's tracks merge into one dark
+ * hatch; the sleeper band alone reads as the track there. In pixels rather than zoom levels,
+ * so a dense phone screen gets the detail sooner than a standard one.
+ */
+const RAIL_PIXEL = 0.5;
+const MAST_PIXEL = 0.9;
 
 /** Triangles a mesh draws within its draw range. */
 function drawn({ geometry }: Mesh): number {
@@ -187,17 +197,19 @@ export function createViewer(options: ViewerOptions): Viewer {
       new Vector3(cell.bounds.maxX + 60, MAX_HEIGHT, cell.bounds.maxZ + 60),
     ),
     objects: [],
+    detail: { rails: 0, masts: 0 },
     fineVertices: 0,
   }));
 
   /** Vertices and bytes of geometry the built cells hand the GPU. */
   const held = { vertices: 0, bytes: 0 };
   function build(entry: CellEntry): void {
-    const { mesh, lines, props, shadowFrom, fineVertices } = buildCell(
+    const { mesh, lines, props, shadowFrom, fineVertices, detail } = buildCell(
       entry.cell,
       city.area,
       walls,
     );
+    entry.detail = detail;
     const surfaces = new Mesh(mesh.build({ facade: true }), material);
     surfaces.receiveShadow = true;
     // The shadow pass draws the same buffers from past the ground and the trunks up to the fine
@@ -420,9 +432,12 @@ export function createViewer(options: ViewerOptions): Viewer {
       calls++;
       triangles += drawn(mesh);
     };
-    for (const { box, cell, objects } of cells) {
+    const pixel = (camera.top - camera.bottom) / camera.zoom / buffer.y;
+    for (const { box, cell, objects, detail } of cells) {
       const [surfaces, outlines, casters, furniture] = objects as [Mesh?, Mesh?, Mesh?, Mesh?];
       if (!surfaces || !outlines || !casters || !furniture) continue;
+      const skip = pixel > MAST_PIXEL ? detail.masts : pixel > RAIL_PIXEL ? detail.rails : 0;
+      outlines.geometry.setDrawRange(skip * 2, Infinity);
       const inView = frustum.intersectsBox(box);
       surfaces.visible = inView;
       outlines.visible = inView;

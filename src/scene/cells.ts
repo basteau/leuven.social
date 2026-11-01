@@ -1,4 +1,4 @@
-import type { Bounds, Building, Carriageway, City, Path, Prop, Tank } from '../data/city.ts';
+import type { Bounds, Building, Carriageway, City, Path, Prop, Rail, Tank } from '../data/city.ts';
 import { clipLine, clipRing } from '../data/geometry.ts';
 import { addBuilding } from './buildings.ts';
 import type { PartyWalls } from './buildings.ts';
@@ -7,6 +7,17 @@ import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
 import { addFinePaint } from './paint.ts';
 import type { Marking } from './paint.ts';
 import { LARGE_PROPS, addProp } from './props.ts';
+import {
+  addCanopyBay,
+  addMasts,
+  addPlatform,
+  addRailLines,
+  addRailParapet,
+  addTracks,
+  canopyBays,
+  planRailway,
+} from './rails.ts';
+import type { CanopyBay, Mast, RailParapet } from './rails.ts';
 import { addParapet, addTank } from './structures.ts';
 import { addParasol } from './terraces.ts';
 import type { Parasol } from './terraces.ts';
@@ -22,7 +33,7 @@ export const CELL_SIZE = 350;
 export interface Cell {
   bounds: Bounds;
   buildings: Building[];
-  ground: { [K in 'green' | 'water' | 'roads' | 'plazas']: Float32Array[] } & {
+  ground: { [K in 'green' | 'water' | 'roads' | 'plazas' | 'railLand']: Float32Array[] } & {
     carriageways: Carriageway[];
     markings: Marking[];
     paths: Path[];
@@ -34,6 +45,13 @@ export interface Cell {
   props: Prop[];
   tanks: Tank[];
   parapets: Float32Array[];
+  /** Track pieces clipped to the cell, and what stands along them. */
+  rails: Rail[];
+  masts: Mast[];
+  railParapets: RailParapet[];
+  platforms: Float32Array[];
+  /** Bays of platform roofs, each in the cell of its centre. */
+  canopies: CanopyBay[];
 }
 
 const cellOf = (v: number) => Math.floor(v / CELL_SIZE);
@@ -81,6 +99,7 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
             carriageways: [],
             markings: [],
             plazas: [],
+            railLand: [],
             paths: [],
           },
           trees: [],
@@ -88,6 +107,11 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
           props: [],
           tanks: [],
           parapets: [],
+          rails: [],
+          masts: [],
+          railParapets: [],
+          platforms: [],
+          canopies: [],
         });
       }
     }
@@ -104,6 +128,10 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
   // Like buildings, tanks and parapets go whole to the cell of their first point.
   for (const t of city.tanks) at(t.ring[0]!, t.ring[1]!)?.tanks.push(t);
   for (const line of city.parapets) at(line[0]!, line[1]!)?.parapets.push(line);
+  const railway = planRailway(city.rails);
+  for (const m of railway.masts) at(m.x, m.z)?.masts.push(m);
+  for (const p of railway.parapets) at(p.ax, p.az)?.railParapets.push(p);
+  for (const b of city.canopies.flatMap(canopyBays)) at(b.cx, b.cz)?.canopies.push(b);
 
   const span = (flat: ArrayLike<number>) => {
     let [minX, minZ, maxX, maxZ] = [Infinity, Infinity, -Infinity, -Infinity];
@@ -128,13 +156,15 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
       if (piece.length >= 6) add(cell, Float32Array.from(piece));
     }
   };
-  for (const layer of ['green', 'water', 'roads', 'plazas'] as const) {
+  for (const layer of ['green', 'water', 'roads', 'plazas', 'railLand'] as const) {
     for (const ring of city[layer]) cut(ring, (cell, piece) => cell.ground[layer].push(piece));
   }
+  // Platforms too: their walls and edges are left out along a cut (see `addPlatform`).
+  for (const ring of city.platforms) cut(ring, (cell, piece) => cell.platforms.push(piece));
   for (const { kind, ring } of city.carriageways) {
     cut(ring, (cell, piece) => cell.ground.carriageways.push({ kind, ring: piece }));
   }
-  // Paths and lane lines are cut the same way, piece by piece along the cells they cross.
+  // Paths, tracks and lane lines are cut the same way, piece by piece along the cells they cross.
   const cutLine = (line: Float32Array, add: (cell: Cell, piece: Float32Array) => void) => {
     for (const cell of span(line)) {
       for (const piece of clipLine(line, cell.bounds)) add(cell, Float32Array.from(piece));
@@ -142,6 +172,9 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
   };
   for (const { width, paved, line } of city.paths) {
     cutLine(line, (cell, piece) => cell.ground.paths.push({ width, paved, line: piece }));
+  }
+  for (const rail of city.rails) {
+    cutLine(rail.line, (cell, piece) => cell.rails.push({ ...rail, line: piece }));
   }
   for (const { kind, line } of city.markings) {
     // A crossing stays whole, in the cell of its start, so its bars keep their rhythm; a lane
@@ -155,6 +188,16 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
     }
   }
   return [...cells.values()];
+}
+
+/**
+ * Where the zoom-dependent detail ends in a cell's outlines, in segments: the rails come first,
+ * then the catenary masts, then everything that always shows. A zoomed-out view starts drawing
+ * past them (see `setDrawRange`), so they cost no extra draw call.
+ */
+export interface DetailMarks {
+  rails: number;
+  masts: number;
 }
 
 /**
@@ -174,16 +217,26 @@ export function buildCell(
   props: MeshBuilder;
   shadowFrom: number;
   fineVertices: number;
+  detail: DetailMarks;
 } {
   const mesh = new MeshBuilder();
   const lines = new LineBuilder();
   const props = new MeshBuilder();
   const { trees } = cell;
   addGround(mesh, area, cell.bounds, cell.ground);
+  // Track beds are flat ground too, so they join it before the shadow pass's start.
+  addTracks(mesh, cell.rails);
   for (let i = 0; i < trees.length; i += 4) {
     addTree(mesh, trees[i]!, trees[i + 1]!, trees[i + 2]!, trees[i + 3]!, ['trunk']);
   }
   const shadowFrom = mesh.vertices;
+  addRailLines(lines, cell.rails);
+  const rails = lines.segments;
+  addMasts(lines, cell.masts);
+  const detail = { rails, masts: lines.segments };
+  for (const p of cell.railParapets) addRailParapet(mesh, lines, p);
+  for (const ring of cell.platforms) addPlatform(mesh, lines, ring, cell.bounds);
+  for (const bay of cell.canopies) addCanopyBay(mesh, lines, bay);
   for (const b of cell.buildings) addBuilding(mesh, lines, b, walls);
   for (let i = 0; i < trees.length; i += 4) {
     addTree(mesh, trees[i]!, trees[i + 1]!, trees[i + 2]!, trees[i + 3]!, ['crown']);
@@ -194,5 +247,5 @@ export function buildCell(
   for (const p of cell.props) addProp(LARGE_PROPS.has(p.kind) ? mesh : props, p);
   const fineVertices = mesh.vertices;
   addFinePaint(mesh, cell.ground.markings);
-  return { mesh, lines, props, shadowFrom, fineVertices };
+  return { mesh, lines, props, shadowFrom, fineVertices, detail };
 }

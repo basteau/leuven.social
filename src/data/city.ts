@@ -39,6 +39,25 @@ export interface Path {
   line: Float32Array;
 }
 
+export const RAIL_KINDS = ['main', 'yard'] as const;
+export type RailKind = (typeof RAIL_KINDS)[number];
+
+/**
+ * One railway track along its centre line: standard gauge, two rails 1.435 m apart. Rails are a
+ * layer of their own so anything that moves on foot can keep off them; platforms are the part
+ * of the railway people walk on.
+ */
+export interface Rail {
+  /** A running line (main or branch, and the crossovers between them) or a yard or siding track. */
+  kind: RailKind;
+  /** Carried over a road or the water. */
+  bridge: boolean;
+  /** Under a contact wire, so catenary masts stand along it. */
+  electrified: boolean;
+  /** Centre line as flat [x0, z0, x1, z1, …]. */
+  line: Float32Array;
+}
+
 /**
  * What lies on the road surface beside the pavement, and what it's made of: the GRB surface cut
  * along its kerbs (tools/build_road_zones.py), named from the OSM ways on it (src/data/roads.ts).
@@ -127,6 +146,14 @@ export interface City {
   green: Float32Array[];
   water: Float32Array[];
   paths: Path[];
+  /** Railway tracks above ground. Not walkable: cross them only where a road or path does. */
+  rails: Rail[];
+  /** Railway platforms, raised to train-floor height. */
+  platforms: Float32Array[];
+  /** Railway land (OSM `landuse=railway`): the gravel and ballast around the tracks. */
+  railLand: Float32Array[];
+  /** Roofs over the platforms (GRB `afdak` on railway land), drawn as vaulted bays. */
+  canopies: Float32Array[];
   /** Flat [x0, z0, x1, z1, …] tree positions. */
   trees: Float32Array;
   /** Height of each tree in metres, from the LiDAR canopy. */
@@ -247,4 +274,23 @@ export function pathFromOsm(tags: Record<string, string | undefined>): Omit<Path
   // Untagged paths: a park path is a trail, a footway in town is paved.
   const surface = tags.surface ?? (highway === 'path' || highway === 'track' ? 'ground' : 'paved');
   return { width, paved: !UNPAVED.has(surface) };
+}
+
+const YARD_SERVICES = new Set(['yard', 'siding', 'spur']);
+const off = (value: string | undefined) => value === undefined || value === 'no';
+
+/**
+ * Which OSM ways are tracks worth drawing, and how. Tunnels, covered tracks and anything below
+ * ground stay hidden, as do abandoned, razed and disused lines. Leuven maps one way per track,
+ * all standard gauge.
+ */
+export function railFromOsm(tags: Record<string, string | undefined>): Omit<Rail, 'line'> | null {
+  if (tags.railway !== 'rail') return null;
+  if (!off(tags.tunnel) || !off(tags.covered) || tags.indoor === 'yes') return null;
+  if (Number(tags.layer) < 0) return null;
+  return {
+    kind: YARD_SERVICES.has(tags.service ?? '') ? 'yard' : 'main',
+    bridge: !off(tags.bridge),
+    electrified: !off(tags.electrified),
+  };
 }

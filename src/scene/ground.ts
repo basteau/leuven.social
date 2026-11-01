@@ -18,6 +18,7 @@ export interface GroundLayers {
   carriageways: readonly Carriageway[];
   markings: readonly Marking[];
   plazas: readonly Float32Array[];
+  railLand: readonly Float32Array[];
   paths: readonly Path[];
 }
 
@@ -90,6 +91,7 @@ export function addGround(
   }
   // Layers stack a few centimetres apart; the orthographic depth buffer resolves that cleanly.
   addRings(mesh, layers.green, 0.05, GROUND.green);
+  addRings(mesh, layers.railLand, 0.07, GROUND.railway);
   addRings(mesh, layers.water, 0.1, GROUND.water);
   // Above the water (footbridges), under the road surfaces that already cover their crossings.
   addPaths(mesh, layers.paths, 0.12);

@@ -150,7 +150,7 @@ export const SOURCES: readonly Source[] = [
     out: 'tags geom',
     tile: OVERPASS_TILE,
     output: 'osm/areas.json',
-    usedBy: 'bake: green, water, plazas and labels',
+    usedBy: 'bake: green, water, plazas, labels, railway tracks and railway land',
   },
   {
     id: 'osm-points',
@@ -182,10 +182,14 @@ export const SOURCES: readonly Source[] = [
     out: 'geom',
     tile: OVERPASS_TILE,
     output: 'osm/rail_platforms.json',
-    usedBy: 'bake: station platforms (railways branch)',
+    usedBy: 'bake: station platforms',
   },
   grb('GBG', 'Building footprints, with courtyards', 'tools/build_leuven_data.py: every building'),
-  grb('GBA', 'Building annexes', 'tools/build_leuven_data.py: keeps LiDAR trees off sheds'),
+  grb(
+    'GBA',
+    'Building annexes',
+    'tools/build_leuven_data.py: keeps LiDAR trees off sheds; bake: platform roofs',
+  ),
   grb('WBN', 'Road surfaces', 'bake: roads; tools/build_road_zones.py: carriageways'),
   grb(
     'WGO',

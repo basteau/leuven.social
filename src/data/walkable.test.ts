@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
+import type { City } from './city.ts';
 import { town } from './walkable.fixture.ts';
 import { WalkGrid, pickWalkable } from './walkable.ts';
 
@@ -17,11 +18,21 @@ describe('WalkGrid', () => {
     expect(grid.walkable(15, 130)).toBe(false);
   });
 
-  test('only roads, squares and paths open ground: any other layer, rails included, stays closed', () => {
-    const tracks = Float32Array.of(100, 0, 110, 0, 110, 120, 100, 120);
-    const withRails = new WalkGrid({ ...town, rails: [tracks] } as typeof town);
+  test('only roads, squares and paths open ground: tracks, railway land and platforms stay closed', () => {
+    const land = Float32Array.of(100, 0, 120, 0, 120, 120, 100, 120);
+    const railway: Pick<City, 'rails' | 'railLand' | 'platforms'> = {
+      rails: [
+        { kind: 'main', bridge: true, electrified: true, line: Float32Array.of(105, 0, 105, 120) },
+      ],
+      railLand: [land],
+      // Raised to train-floor height, which the walker (at street level) can't climb onto.
+      platforms: [Float32Array.of(110, 10, 114, 10, 114, 30, 110, 30)],
+    };
+    const withRails = new WalkGrid({ ...town, ...railway });
     expect(withRails.walkable(105, 20)).toBe(false);
-    expect(withRails.walkable(105, 45)).toBe(true); // the street it crosses is still the street
+    expect(withRails.walkable(112, 20)).toBe(false);
+    expect(withRails.walkable(117, 90)).toBe(false);
+    expect(withRails.walkable(105, 45)).toBe(true); // the street under the bridge is still the street
   });
 
   test('a building closes the road under it and keeps its height', () => {

@@ -13,6 +13,8 @@ import {
   ringInArea,
   ringInside,
   signedArea,
+  joinRings,
+  simplifyLine,
   simplifyRing,
   clipLine,
 } from './geometry.ts';
@@ -123,6 +125,36 @@ describe('simplifyRing', () => {
   test('never collapses below a triangle', () => {
     expect(simplifyRing([0, 0, 10, 0.01, 20, 0, 10, 0.02], 1).length).toBeGreaterThanOrEqual(6);
   });
+});
+
+test('simplifyLine keeps the ends and the shape of a curve, and drops what lies on a straight', () => {
+  expect(simplifyLine([0, 0, 5, 0.05, 10, 0], 0.1)).toEqual([0, 0, 10, 0]);
+  expect(simplifyLine([0, 0, 5, 3, 10, 0, 15, 0.02, 20, 0], 0.1)).toEqual([
+    0, 0, 5, 3, 10, 0, 20, 0,
+  ]);
+  expect(simplifyLine([0, 0, 1, 1], 5)).toEqual([0, 0, 1, 1]);
+  // A loop back to its start still keeps the far point.
+  expect(simplifyLine([0, 0, 5, 0, 0, 0], 0.1)).toEqual([0, 0, 5, 0, 0, 0]);
+});
+
+test('joinRings chains open ways into closed rings, either way round', () => {
+  const square = [
+    [0, 0, 10, 0],
+    [10, 10, 10, 0], // runs backwards
+    [10, 10, 0, 10, 0, 0],
+  ];
+  const [ring] = joinRings(square);
+  expect(ring).toHaveLength(8);
+  expect(Math.abs(signedArea(ring!))).toBe(100);
+  // Already closed, and a chain that never closes.
+  expect(joinRings([[0, 0, 4, 0, 4, 4, 0, 0]])).toEqual([[0, 0, 4, 0, 4, 4]]);
+  expect(
+    joinRings([
+      [0, 0, 4, 0],
+      [4, 0, 4, 4],
+      [9, 9],
+    ]),
+  ).toEqual([]);
 });
 
 test('clipLine keeps the parts of a line inside the area, split where it leaves', () => {

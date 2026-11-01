@@ -215,6 +215,11 @@ export class LineBuilder {
   #length = 0;
   #bounds = new Bounds();
 
+  /** Segments so far: a mark for drawing only part of the outlines (see `setDrawRange`). */
+  get segments(): number {
+    return this.#length / 6;
+  }
+
   segment(a: V3, b: V3): void {
     if (this.#length + 6 > this.#points.length) {
       const next = new Float32Array(this.#points.length * 2);

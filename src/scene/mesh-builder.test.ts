@@ -106,3 +106,10 @@ test('carries a facade value per vertex, and keeps it with its vertex when a tri
   expect([p.getX(1), p.getZ(1)]).toEqual([1, 1]);
   expect([f.getX(6), f.getX(7), f.getX(8)]).toEqual([5, 5, 5]);
 });
+
+test('lines count their segments', () => {
+  const lines = new LineBuilder();
+  lines.segment([0, 0, 0], [1, 0, 0]);
+  lines.segment([0, 0, 0], [0, 1, 0]);
+  expect(lines.segments).toBe(2);
+});
