@@ -24,7 +24,8 @@ Inputs (src/data/sources.ts lists each one's source and licence):
   ortho/z18/{x}_{y}.png                     optional: orthophoto tiles for roof colours
 Outputs (data/derived/):
   leuven_buildings.geojson   footprint + ground (m TAW) + height (m) + roof shape and colour + OSM tags
-  leuven_buildings_local.json  compact game format: local metres, origin Grote Markt, x=east, z=south
+  leuven_buildings_local.json  compact game format: local metres, origin Grote Markt, x=east, z=south; with the axis
+                             the roof slopes face (`facing`) and a church's tower (`tower`)
   lidar_trees.json           tree crowns found in the LiDAR canopy, with their heights
   grb_structures.json        GRB structures (bridges, tanks and silos) in local metres, with tank heights from the LiDAR
   road_zones.json            carriageways, cycle tracks, lane lines and crossings (tools/build_road_zones.py)
@@ -123,11 +124,103 @@ def sample(poly_l72):
     # Slopes 1 m in from the walls, so the drop off the eaves doesn't count as roof.
     inner = poly_l72.buffer(-1.0)
     mi = contains_xy(inner, xs, ys) if not inner.is_empty else m
-    s = slope[r0:r1, c0:c1][mi if mi.sum() >= 3 else m]
+    roof = mi if mi.sum() >= 3 else m
+    s = slope[r0:r1, c0:c1][roof]
     s = s[~np.isnan(s)]
     pitch = float(((s > 15) & (s < 60)).mean()) if len(s) else 0.0
     return (float(np.median(g)), float(np.percentile(h, 90)), float(np.median(h)), float(h.max()),
-            float(np.percentile(h, 15)), pitch)
+            float(np.percentile(h, 15)), pitch, facing(r0, r1, c0, c1, roof))
+
+
+def facing(r0, r1, c0, c1, roof):
+    """Which way the roof's slopes face: the main axis of the slope vectors of its pitched pixels (15-60 degrees),
+    each weighted by its steepness squared (their structure tensor). Returns that axis in degrees from local x (east)
+    towards z (south), 0-180, and how strongly the slopes keep to it, 0 (every way, or flat) to 1 (one axis: a
+    gable). Raster rows run south, so a row step is a step in local z; Lambert's grid is within 0.3 degrees of it."""
+    gx, gz = _gx[r0:r1, c0:c1][roof], _gy[r0:r1, c0:c1][roof]
+    s = np.hypot(gx, gz)
+    k = (s > math.tan(math.radians(15))) & (s < math.tan(math.radians(60)))
+    if k.sum() < 4:
+        return None
+    gx, gz = gx[k].astype(np.float64), gz[k].astype(np.float64)
+    xx, zz, xz = (gx * gx).sum(), (gz * gz).sum(), (gx * gz).sum()
+    angle = math.degrees(0.5 * math.atan2(2 * xz, xx - zz)) % 180
+    return round(angle) % 180, round(math.hypot(xx - zz, 2 * xz) / (xx + zz), 2)
+
+
+# --- Church towers: what the p90 height leaves out ----------------------------------------------------------------------
+# A church's p90 is its nave roof; its tower or spire is a few dozen pixels that rise far above it. OSM building values
+# that the viewer draws as a church (KIND_BY_OSM in src/data/city.ts).
+CHURCHES = {'church', 'cathedral', 'chapel'}
+TOWER_RISE = 8.0  # m over the p90: a tower or spire, not a ridge, a dormer or a chimney
+TOWER_BODY = 1.5  # m over the p90: what the tower's body is grown into, below its spire
+TOWER_MIN_PIXELS = 4  # a ridge turret's spire is 2 x 2 m; less is a chimney or noise
+TOWER_PIXELS = 6  # from here the group is a tower's top, with a body of its own under it
+
+
+def components(mask):
+    """8-connected pixel groups of a small boolean array, in raster order of their first pixel."""
+    seen = np.zeros_like(mask)
+    groups = []
+    for r, c in zip(*np.nonzero(mask)):
+        if seen[r, c]:
+            continue
+        seen[r, c] = True
+        group, todo = [], [(int(r), int(c))]
+        while todo:
+            y, x = todo.pop()
+            group.append((y, x))
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    v, u = y + dy, x + dx
+                    if 0 <= v < mask.shape[0] and 0 <= u < mask.shape[1] and mask[v, u] and not seen[v, u]:
+                        seen[v, u] = True
+                        todo.append((v, u))
+        groups.append(sorted(group))
+    return groups
+
+
+def church_tower(poly_l72):
+    """The tower (or ridge turret) of a church footprint, as (x, y) in Lambert 72, the radius of a square tower of its
+    area (centre to corner), the top of its walls and the tip of its spire, in m above ground; None without one.
+
+    Seeds are the pixels over p90 + TOWER_RISE. Only a compact group counts: at least TOWER_MIN_PIXELS, filling 40% of
+    its bounding box, no more than 2.5 times as long as wide. A crane's jib is a thin line and fails; so does the
+    scatter of a tree's tips. A group under TOWER_PIXELS is a slender spire on the ridge: its walls end at the p90.
+    A tower's body is its group grown into its neighbours over p90 + TOWER_BODY, within twice its own radius plus
+    2 m (so never into the whole nave), and its walls end at the lowest quarter of that body's heights."""
+    minx, miny, maxx, maxy = poly_l72.bounds
+    c0, c1 = max(0, int((minx - X0) / RES)), min(dtm.shape[1], int((maxx - X0) / RES) + 1)
+    r0, r1 = max(0, int((Y1 - maxy) / RES)), min(dtm.shape[0], int((Y1 - miny) / RES) + 1)
+    if c1 <= c0 or r1 <= r0:
+        return None
+    cs, rs = np.meshgrid(np.arange(c0, c1), np.arange(r0, r1))
+    h = ndsm[r0:r1, c0:c1]
+    m = contains_xy(poly_l72, X0 + (cs + 0.5) * RES, Y1 - (rs + 0.5) * RES) & ~np.isnan(h)
+    if m.sum() < 20:
+        return None
+    h = np.where(m, h, -np.inf)
+    p90 = float(np.percentile(h[m], 90))
+    best = None
+    for group in components(h > p90 + TOWER_RISE):
+        ys, xs = np.array([g[0] for g in group]), np.array([g[1] for g in group])
+        long, short = sorted((int(ys.max() - ys.min()) + 1, int(xs.max() - xs.min()) + 1), reverse=True)
+        if len(group) >= TOWER_MIN_PIXELS and len(group) >= 0.4 * long * short and long <= 2.5 * short:
+            if best is None or len(group) > len(best):
+                best = group
+    if best is None:
+        return None
+    cy, cx = np.mean([g[0] for g in best]), np.mean([g[1] for g in best])
+    body, top = best, p90
+    if len(best) >= TOWER_PIXELS:
+        reach = (2 * math.sqrt(len(best) / math.pi) + 2) / RES
+        near = (rs - r0 - cy) ** 2 + (cs - c0 - cx) ** 2 <= reach ** 2
+        seed = max(best, key=lambda g: h[g])  # the tip: the first of equals, in raster order
+        body = next(g for g in components((h > p90 + TOWER_BODY) & near) if seed in set(g))
+        top = max(float(np.percentile([h[g] for g in body], 25)), p90)
+        cy, cx = np.mean([g[0] for g in body]), np.mean([g[1] for g in body])
+    tip = max(float(h[g]) for g in body)
+    return X0 + (c0 + cx + 0.5) * RES, Y1 - (r0 + cy + 0.5) * RES, math.sqrt(len(body) / 2) * RES, top, tip
 
 
 # --- Orthophoto roof colours: the median of each roof's sunlit pixels -------------------------------------------------
@@ -225,13 +318,16 @@ for idx in range(len(osm_pts)):
 lat0 = math.radians(ORIGIN[1])
 kx, kz = 111320 * math.cos(lat0), 110574  # metres per degree: good to ~0.1% over 3 km
 feats, local, skipped = [], [], 0
+towers = []
 for i, (f, g) in enumerate(zip(grb, geoms)):
-    s = sample(shapely.transform(g, lambda a: np.column_stack(to_lambert(a[:, 0], a[:, 1]))))
+    g_l72 = shapely.transform(g, lambda a: np.column_stack(to_lambert(a[:, 0], a[:, 1])))
+    s = sample(g_l72)
     if s is None:
         skipped += 1
         continue
-    ground, h90, hmed, hmax, h15, pitch = s
+    ground, h90, hmed, hmax, h15, pitch, faces = s
     tags = osm_for.get(i, {})
+    tower = church_tower(g_l72) if tags.get('building') in CHURCHES else None
     rgb = roof_colour(g)
     props = {
         'oidn': f['properties']['OIDN'], 'grb_type': f['properties']['LBLTYPE'],
@@ -251,11 +347,20 @@ for i, (f, g) in enumerate(zip(grb, geoms)):
     feats.append({'type': 'Feature', 'properties': props, 'geometry': mapping(g)})
     polys = [g] if g.geom_type == 'Polygon' else [p for p in getattr(g, 'geoms', []) if p.geom_type == 'Polygon']
     to_local = lambda coords: [[round((x - ORIGIN[0]) * kx, 1), round(-(y - ORIGIN[1]) * kz, 1)] for x, y in coords[:-1]]
+    if tower:
+        lon, lat = to_wgs(tower[0], tower[1])
+        towers.append((props.get('name') or props['oidn'], round(h90, 1), [round(v, 1) for v in tower[2:]]))
     for p in polys:
-        local.append({'id': props['oidn'], 'h': props['height'], 'eave': props['eave'], 'pitch': props['roof_pitch'],
-                      'rgb': props.get('roof_rgb'), 'g': props['ground_taw'], 'kind': tags.get('building', 'yes'),
-                      'roof': tags.get('roof:shape'), 'name': tags.get('name'), 'tier': props['tier'],
-                      'ring': to_local(p.exterior.coords), 'holes': [to_local(h.coords) for h in p.interiors]})
+        entry = {'id': props['oidn'], 'h': props['height'], 'eave': props['eave'], 'pitch': props['roof_pitch'],
+                 'rgb': props.get('roof_rgb'), 'g': props['ground_taw'], 'kind': tags.get('building', 'yes'),
+                 'roof': tags.get('roof:shape'), 'name': tags.get('name'), 'tier': props['tier'],
+                 'ring': to_local(p.exterior.coords), 'holes': [to_local(h.coords) for h in p.interiors]}
+        if faces:
+            entry['facing'] = list(faces)
+        if tower and p.contains(Point(lon, lat)):
+            entry['tower'] = [round((lon - ORIGIN[0]) * kx, 1), round(-(lat - ORIGIN[1]) * kz, 1),
+                              *(round(v, 1) for v in tower[2:])]
+        local.append(entry)
 
 # Annexes (GRB GBA: garages, sheds, extensions) are not drawn, but they aren't trees either.
 for f in json.load(open(DATA / 'grb/grb_GBA.geojson'))['features']:
@@ -365,6 +470,9 @@ json.dump({'units': 'm', 'axes': 'x=east, z=south', 'source': 'GRB KNW structure
 print(f'structures: {len(structures)}')
 
 hs = np.array([f['properties']['height'] for f in feats])
+print(f'church towers: {len(towers)} (name, p90, [radius, top, tip])')
+for t in towers:
+    print('  ', *t)
 print(f'buildings: {len(feats)} (skipped {skipped}), with OSM tags: {len(osm_for)}; height median {np.median(hs):.1f} m, p99 {np.percentile(hs, 99):.1f} m, max {hs.max():.1f} m')
 tallest = sorted(feats, key=lambda f: -f['properties']['height_max'])[:12]
 for f in tallest:
