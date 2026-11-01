@@ -145,6 +145,23 @@ export const TREE = {
   tints: [0xffffff, 0xe3eed6, 0xd2e0c2, 0xf4f1dc],
 } as const;
 
+/**
+ * The walker: a Leuven student in a coat of the HUD's accent blue, with a mustard scarf and a
+ * brick-red backpack, so they read against grey streets, sandy squares and green parks.
+ */
+export const WALKER = {
+  skin: 0xf0c49c,
+  hair: 0x7a4a2c,
+  coat: 0x2f62a8,
+  scarf: 0xe8b94a,
+  trousers: 0x3d4250,
+  shoes: 0x2b2420,
+  bag: 0xb84c36,
+} as const;
+
+/** The route hint: pale dots and a target, ringed in ink like the HUD. */
+export const ROUTE = { fill: 0xfaf3e3, ink: 0x2b2420 } as const;
+
 /** Window glass, and the few windows that catch the low sun. */
 export const WINDOW = { glass: 0x2f3a4a, lit: 0xf3c873 } as const;
 
