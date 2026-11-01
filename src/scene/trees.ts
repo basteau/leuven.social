@@ -17,8 +17,13 @@ function triangles(geometry: BufferGeometry): V3[] {
 }
 
 // A four-sided open trunk is all a pixel can show: its caps hide in the crown and the ground.
-const TRUNK = triangles(new CylinderGeometry(0.3, 0.4, 3, 4, 1, true).translate(0, 1.5, 0));
-const CROWN = triangles(new IcosahedronGeometry(2.6, 0).translate(0, 4.6, 0));
+const TRUNK_BASE = 0.4;
+const CROWN_RADIUS = 2.6;
+const CROWN_Y = 4.6;
+/** Between the crown's inner radius (0.79) and its corners (0.85): what a passing camera meets. */
+const CROWN_INNER = CROWN_RADIUS * 0.82;
+const TRUNK = triangles(new CylinderGeometry(0.3, TRUNK_BASE, 3, 4, 1, true).translate(0, 1.5, 0));
+const CROWN = triangles(new IcosahedronGeometry(CROWN_RADIUS, 0).translate(0, CROWN_Y, 0));
 /** Height of the model at scale 1, from the ground to the crown's top vertex (m). */
 export const MODEL_HEIGHT = 6.8;
 /** Triangles per tree, for budgets and tests. */
@@ -37,6 +42,35 @@ export function crownColor(seed: number, height: number): number {
 }
 const UNITS = Array.from({ length: 64 }, (_, i) => i);
 
+/**
+ * How much a tree is scaled up and spread out from its model: to its surveyed height (LiDAR), a
+ * little narrower than tall; without one, the seed picks a size. Crowns spread a fifth wider
+ * than the model: the LiDAR trees are spaced by crown size, so a canopy closes with as few trees
+ * as possible. Some are slimmer, some broader.
+ */
+export function treeSize(seed: number, height = 0): { scale: number; wide: number } {
+  const scale = height > 0 ? treeScale(height) : 0.8 + pick([0, 0.15, 0.3, 0.45], seed);
+  return { scale, wide: 1.2 * scale ** 0.8 * pick([0.86, 0.94, 1, 1.06, 1.14], seed * 3) };
+}
+
+/**
+ * A tree as solid shapes, in metres: its trunk's radius at the ground, and the middle height,
+ * horizontal and vertical radii of its crown (the model's 20-face crown, a little inside its
+ * corners). For anything that has to keep out of a tree, like the walking camera.
+ */
+export function treeSolid(
+  seed: number,
+  height = 0,
+): { trunk: number; crownY: number; crownWide: number; crownTall: number } {
+  const { scale, wide } = treeSize(seed, height);
+  return {
+    trunk: TRUNK_BASE * wide,
+    crownY: CROWN_Y * scale,
+    crownWide: CROWN_INNER * wide,
+    crownTall: CROWN_INNER * scale,
+  };
+}
+
 export type TreePart = 'trunk' | 'crown';
 
 /**
@@ -53,10 +87,7 @@ export function addTree(
   height = 0,
   parts: readonly TreePart[] = ['trunk', 'crown'],
 ): void {
-  const scale = height > 0 ? treeScale(height) : 0.8 + pick([0, 0.15, 0.3, 0.45], seed);
-  // Crowns spread a fifth wider than the model: the LiDAR trees are spaced by crown size, so a
-  // canopy closes with as few trees as possible. Some are slimmer, some broader.
-  const wide = 1.2 * scale ** 0.8 * pick([0.86, 0.94, 1, 1.06, 1.14], seed * 3);
+  const { scale, wide } = treeSize(seed, height);
   const turn = (seed * 2.399) % (Math.PI * 2);
   const [c, s] = [Math.cos(turn), Math.sin(turn)];
   const place = ([px, py, pz]: V3): V3 => [
@@ -66,7 +97,7 @@ export function addTree(
   ];
   for (const [part, shape, color, centreY] of [
     ['trunk', TRUNK, TREE.trunk, 1.5],
-    ['crown', CROWN, crownColor(seed, height || scale * MODEL_HEIGHT), 4.6],
+    ['crown', CROWN, crownColor(seed, height || scale * MODEL_HEIGHT), CROWN_Y],
   ] as const) {
     if (!parts.includes(part)) continue;
     for (let i = 0; i < shape.length; i += 3) {

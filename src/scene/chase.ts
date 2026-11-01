@@ -115,19 +115,28 @@ export function boomDirection(yaw: number, pitch: number, out: Vec3): Vec3 {
 }
 
 /**
+ * Whether a point is inside something besides the houses and the ground that the camera keeps
+ * out of, such as a tree; things that hold `from`, where the boom starts, don't count.
+ */
+export type Solid = (x: number, y: number, z: number, from: Vec3) => boolean;
+
+/**
  * How far the camera can back away from `from` along `dir` (up to `max`) before it would sit
- * inside a building or under the ground, less a margin. It walks the boom in steps, then
- * halves the step it hit in a few times, so the length changes smoothly as the walker moves
- * rather than jumping a step at a time. Never less than one step.
+ * inside a building, under the ground or in something `solid`, less a margin. It walks the boom
+ * in steps, then halves the step it hit in a few times, so the length changes smoothly as the
+ * walker moves rather than jumping a step at a time. Never less than one step.
  */
 export function freeLength(
   heightAt: (x: number, z: number) => number,
   from: Vec3,
   dir: Vec3,
   max: number,
+  solid?: Solid,
 ): number {
-  const blocked = (t: number) =>
-    from[1] + dir[1] * t < heightAt(from[0] + dir[0] * t, from[2] + dir[2] * t) + CLEARANCE;
+  const blocked = (t: number) => {
+    const [x, y, z] = [from[0] + dir[0] * t, from[1] + dir[1] * t, from[2] + dir[2] * t];
+    return y < heightAt(x, z) + CLEARANCE || (solid !== undefined && solid(x, y, z, from));
+  };
   for (let t = STEP; t <= max; t += STEP) {
     // Rising above every roof, it's clear the rest of the way.
     if (dir[1] >= 0 && from[1] + dir[1] * t > ROOF_LIMIT) return max;
@@ -165,15 +174,16 @@ export function boomReach(
   yaw: number,
   pitch: number,
   max: number,
+  solid?: Solid,
 ): number {
   const along = (turn: number) =>
-    freeLength(heightAt, from, boomDirection(yaw + turn, pitch, ray), max);
+    freeLength(heightAt, from, boomDirection(yaw + turn, pitch, ray), max, solid);
   return reachGoal(along(0), along(-WHISKER), along(WHISKER));
 }
 
 /**
  * Eases the boom toward a free length: in quickly, out gently. `inside` says the camera,
- * where it is now, would sit in a house or under ground: then it is in at once.
+ * where it is now, would sit in a house, a tree or under ground: then it is in at once.
  */
 export function settleReach(reach: number, goal: number, dt: number, inside = false): number {
   if (inside && goal < reach) return goal;
@@ -267,6 +277,103 @@ export function recentreWeight(heading: number, yaw: number): number {
 export function headLook(heading: number, boomYaw: number): number {
   const look = wrap(boomYaw + Math.PI - heading);
   return Math.abs(look) <= Math.PI / 2 ? look : wrap(look - Math.PI);
+}
+
+/** How close the camera may come to a trunk or a crown (m). */
+const TREE_CLEARANCE = 0.3;
+/** Side of the squares trees are filed under for lookups (m). */
+const TREE_BUCKET = 16;
+
+/**
+ * Trees as the camera boom meets them: a post of the trunk's radius up to the middle of the
+ * crown, and the crown as an ellipsoid. Filed once into 16 m squares by the ground they cover,
+ * so a lookup reads the few trees of one square; nothing is built per frame.
+ */
+export class TreeObstacles {
+  /** x, z, trunk radius, crown middle height, crown radius across and up; each with clearance. */
+  readonly #shape: Float32Array;
+  readonly #start: Int32Array;
+  readonly #items: Int32Array;
+  readonly #x0: number;
+  readonly #z0: number;
+  readonly #cols: number;
+  readonly #rows: number;
+
+  /** `shapes` holds six numbers a tree: x, z, trunk radius, crown middle height, crown radii across and up. */
+  constructor(shapes: ArrayLike<number>) {
+    const n = Math.floor(shapes.length / 6);
+    this.#shape = new Float32Array(n * 6);
+    let [x0, z0, x1, z1] = [Infinity, Infinity, -Infinity, -Infinity];
+    for (let i = 0; i < n; i++) {
+      const at = (k: number) => shapes[i * 6 + k] ?? 0;
+      const [x, z, trunk, wide] = [at(0), at(1), at(2), at(4)];
+      this.#shape.set(
+        [x, z, trunk + TREE_CLEARANCE, at(3), wide + TREE_CLEARANCE, at(5) + TREE_CLEARANCE],
+        i * 6,
+      );
+      const r = Math.max(trunk, wide) + TREE_CLEARANCE;
+      [x0, z0, x1, z1] = [
+        Math.min(x0, x - r),
+        Math.min(z0, z - r),
+        Math.max(x1, x + r),
+        Math.max(z1, z + r),
+      ];
+    }
+    if (n === 0) [x0, z0, x1, z1] = [0, 0, 0, 0];
+    this.#x0 = x0;
+    this.#z0 = z0;
+    this.#cols = Math.floor((x1 - x0) / TREE_BUCKET) + 1;
+    this.#rows = Math.floor((z1 - z0) / TREE_BUCKET) + 1;
+    // Counted, then filled: one flat list of trees per square, every square they reach into.
+    this.#start = new Int32Array(this.#cols * this.#rows + 1);
+    const each = (i: number, visit: (bucket: number) => void) => {
+      const [x, z] = [this.#shape[i * 6]!, this.#shape[i * 6 + 1]!];
+      const r = Math.max(this.#shape[i * 6 + 2]!, this.#shape[i * 6 + 4]!);
+      const [c0, c1] = [this.#col(x - r), this.#col(x + r)];
+      const [r0, r1] = [this.#row(z - r), this.#row(z + r)];
+      for (let row = r0; row <= r1; row++) {
+        for (let col = c0; col <= c1; col++) visit(row * this.#cols + col);
+      }
+    };
+    for (let i = 0; i < n; i++) each(i, (b) => this.#start[b + 1]!++);
+    for (let b = 0; b < this.#cols * this.#rows; b++) this.#start[b + 1]! += this.#start[b]!;
+    this.#items = new Int32Array(this.#start[this.#cols * this.#rows]!);
+    const fill = this.#start.slice(0, -1);
+    for (let i = 0; i < n; i++) each(i, (b) => (this.#items[fill[b]!++] = i));
+  }
+
+  #col(x: number): number {
+    return Math.min(this.#cols - 1, Math.max(0, Math.floor((x - this.#x0) / TREE_BUCKET)));
+  }
+
+  #row(z: number): number {
+    return Math.min(this.#rows - 1, Math.max(0, Math.floor((z - this.#z0) / TREE_BUCKET)));
+  }
+
+  #inside(i: number, x: number, y: number, z: number): boolean {
+    const s = this.#shape;
+    const [dx, dz] = [x - s[i * 6]!, z - s[i * 6 + 1]!];
+    const flat = dx * dx + dz * dz;
+    const [trunk, middle, wide, tall] = [
+      s[i * 6 + 2]!,
+      s[i * 6 + 3]!,
+      s[i * 6 + 4]!,
+      s[i * 6 + 5]!,
+    ];
+    if (y < middle && flat < trunk * trunk) return true;
+    const dy = y - middle;
+    return flat / (wide * wide) + (dy * dy) / (tall * tall) < 1;
+  }
+
+  /** Whether (x, y, z) is in a tree, leaving out any tree that holds `from` (the boom's start). */
+  readonly solid: Solid = (x, y, z, from) => {
+    const bucket = this.#row(z) * this.#cols + this.#col(x);
+    for (let k = this.#start[bucket]!; k < this.#start[bucket + 1]!; k++) {
+      const i = this.#items[k]!;
+      if (this.#inside(i, x, y, z) && !this.#inside(i, from[0], from[1], from[2])) return true;
+    }
+    return false;
+  };
 }
 
 /** One end of the flight between the map and the walk. */

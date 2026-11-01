@@ -8,6 +8,7 @@ import {
   PITCH,
   PITCH_RANGE,
   SHORT_BOOM,
+  TreeObstacles,
   boomDirection,
   boomReach,
   chaseFov,
@@ -230,6 +231,38 @@ describe('tight spots', () => {
     // Above the head counts from the top of it, below the feet from the soles.
     expect(figureOpacity(0, 2.4 + 0.4 + 0.65, 0)).toBeCloseTo(0.5, 1);
     expect(figureOpacity(0, -0.5, 0)).toBe(0);
+  });
+});
+
+describe('trees', () => {
+  // One tree at (10, 0): a 0.5 m trunk, its crown from 3 to 7 m up and 3 m across each way.
+  const trees = new TreeObstacles([10, 0, 0.5, 5, 3, 2, -400, 300, 0.4, 4, 2, 2]);
+  const away: Vec3 = [0, 2.6, 0];
+
+  test('a trunk and a crown are solid, round them is open', () => {
+    expect(trees.solid(10, 1, 0, away)).toBe(true);
+    expect(trees.solid(10.6, 1, 0, away)).toBe(true); // within the clearance
+    expect(trees.solid(11.5, 1, 0, away)).toBe(false);
+    expect(trees.solid(12.5, 5, 0, away)).toBe(true);
+    expect(trees.solid(10, 7.2, 0, away)).toBe(true);
+    expect(trees.solid(10, 8, 0, away)).toBe(false);
+    expect(trees.solid(-400, 4, 300, away)).toBe(true);
+    // Far from any, and off the edge of where the trees are filed.
+    expect(trees.solid(100, 4, 100, away)).toBe(false);
+    expect(trees.solid(-9000, 4, 9000, away)).toBe(false);
+  });
+
+  test('a tree the boom starts in is left out, so the camera stays put under a low crown', () => {
+    expect(trees.solid(11, 5, 0, [10, 4, 1])).toBe(false);
+    expect(trees.solid(-400, 4, 300, [10, 4, 1])).toBe(true);
+  });
+
+  test('the boom stops short of a tree behind the walker', () => {
+    const free = freeLength(() => 0, [0, 2.6, 0], [1, 0, 0], 20, trees.solid);
+    expect(free).toBeGreaterThan(9 - 2);
+    expect(free).toBeLessThan(10 - 0.5);
+    expect(freeLength(() => 0, [0, 2.6, 0], [-1, 0, 0], 20, trees.solid)).toBe(20);
+    expect(new TreeObstacles([]).solid(0, 0, 0, away)).toBe(false);
   });
 });
 
