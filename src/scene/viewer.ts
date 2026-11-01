@@ -26,6 +26,7 @@ import { partyWalls } from './buildings.ts';
 import { buildCell, partition } from './cells.ts';
 import type { Cell } from './cells.ts';
 import { createFacadeMaterial, setPixelSize } from './facade-material.ts';
+import { labelHeight } from './label-anchors.ts';
 import { LIGHT } from './lighting.ts';
 import { SLAB_DEPTH } from './ground.ts';
 import { LINE_LOD } from './paint.ts';
@@ -87,7 +88,6 @@ const VIEW_HEIGHT = 560;
 const PITCH = Math.atan(1 / Math.SQRT2); // true isometric, ≈ 35.26°
 const CAMERA_DISTANCE = 2000;
 const ROTATE_MS = 280;
-const LABEL_HEIGHT = 28;
 interface CellEntry {
   cell: Cell;
   box: Box3;
@@ -259,7 +259,11 @@ export function createViewer(options: ViewerOptions): Viewer {
     w: el.offsetWidth,
     h: el.offsetHeight,
     minZoom: city.labels[i]!.minZoom,
-    world: new Vector3(city.labels[i]!.x, LABEL_HEIGHT, city.labels[i]!.z),
+    world: new Vector3(
+      city.labels[i]!.x,
+      labelHeight(city.labels[i]!.x, city.labels[i]!.z, city.buildings),
+      city.labels[i]!.z,
+    ),
   }));
   const placed: [number, number, number, number][] = [];
   const projected = new Vector3();

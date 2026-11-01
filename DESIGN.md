@@ -119,7 +119,7 @@ Tokens are oklch, in `src/app/app.css`:
 
 ### Labels on the map
 
-- Small ink-bordered tags anchored above landmarks.
+- Small ink-bordered tags with a short ink tick pointing to what they name: just above a building's real top (a landmark's highest spire), or just above the ground for a square, park or statue.
 - Their order in `LANDMARKS` is their priority: a label that would overlap an earlier one, or cross the screen edge, is hidden.
 - Names and places come from OpenStreetMap; `LANDMARKS` only lists ids. Each shows from its own zoom. Landmarks and the big parks and sites show from the start, so the far view can be read across the whole map; churches and squares from zoom 1.5–2, small sights (the Totem) only up close.
 - They're decorative: the map has a text description for screen readers.
