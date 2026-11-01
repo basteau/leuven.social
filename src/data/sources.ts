@@ -65,14 +65,7 @@ export interface WmtsSource extends Common {
   zoom: number;
 }
 
-/** Coordinates (P625) of some Wikidata items, through the wbgetentities API. */
-export interface WikidataSource extends Common {
-  kind: 'wikidata';
-  endpoint: string;
-  items: readonly string[];
-}
-
-export type Source = OverpassSource | WfsSource | WcsSource | WmtsSource | WikidataSource;
+export type Source = OverpassSource | WfsSource | WcsSource | WmtsSource;
 
 /**
  * The moment of OpenStreetMap to read. Overpass answers from its history ("attic") for this

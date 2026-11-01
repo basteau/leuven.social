@@ -13,7 +13,6 @@ import {
   WFS_LIMIT,
   checkOverpass,
   checkWfsPage,
-  checkWikidata,
   gridTiles,
   isPng,
   isTiff,
@@ -21,14 +20,12 @@ import {
   mercatorTiles,
   mergeOverpass,
   mergeWfs,
-  mergeWikidata,
   overpassQuery,
   quarter,
   sha256,
   wcsFile,
   wcsUrl,
   wfsUrl,
-  wikidataUrls,
   wmtsFile,
   wmtsUrl,
 } from '../src/data/fetch-plan.ts';
@@ -46,7 +43,6 @@ import type {
   Source,
   WcsSource,
   WfsSource,
-  WikidataSource,
   WmtsSource,
 } from '../src/data/sources.ts';
 import { DATA, hashSource, readLock, removeStale, writeLock } from './data-files.ts';
@@ -232,19 +228,6 @@ function wmtsPlan(source: WmtsSource): Plan {
   );
 }
 
-function wikidataPlan(source: WikidataSource): Plan {
-  const urls = wikidataUrls(source);
-  return {
-    requests: urls,
-    files: [source.output],
-    run: async () => {
-      const results = [];
-      for (const url of urls) results.push(await request(url, (b) => checkWikidata(text(b))));
-      await Bun.write(`${DATA}/${source.output}`, json(mergeWikidata(results, source.items)));
-    },
-  };
-}
-
 function plan(source: Source): Plan {
   switch (source.kind) {
     case 'overpass':
@@ -255,8 +238,6 @@ function plan(source: Source): Plan {
       return wcsPlan(source);
     case 'wmts':
       return wmtsPlan(source);
-    case 'wikidata':
-      return wikidataPlan(source);
   }
 }
 
