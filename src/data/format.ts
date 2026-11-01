@@ -1,11 +1,13 @@
 /**
  * The compact binary city format ("LVN1"), served gzipped from public/data/.
  *
- * Layout: magic "LVN1", version, area rectangles, labels (with the zoom they show from), buildings, four polygon layers, paths,
- * trees.
+ * Layout: magic "LVN1", version, area rectangles, labels (with the zoom they show from), buildings,
+ * carriageways, markings, four polygon layers (roads, plazas, green, water), paths, trees, props,
+ * tanks, parapets.
  * Coordinates are decimetres, zigzag varints, delta-encoded within each ring.
  * A building packs tier (2 bits), kind (4 bits) and roof (2 bits) into one byte, then its
  * height, roof rise and roof colour (0 = none, else 0xRRGGBB + 1), outer ring and courtyards.
+ * Carriageways and markings are a kind byte each, then a ring (markings: a line).
  * Paths are a width in decimetres shifted left one bit over a paved flag, then a centre line.
  * Trees are a ring of positions followed by their heights in decimetres.
  * Props are a kind per prop, then their positions as one ring, then a turn (a byte: 256ths of a
@@ -16,12 +18,12 @@
 import * as Binary from '@portable/binary';
 import * as Compress from '@portable/compress';
 
-import { KINDS, PROP_KINDS, ROOFS, TIERS } from './city.ts';
-import type { Bounds, Building, City, Prop } from './city.ts';
+import { CARRIAGEWAY_KINDS, KINDS, MARKING_KINDS, PROP_KINDS, ROOFS, TIERS } from './city.ts';
+import type { Bounds, Building, Carriageway, City, Marking, Prop } from './city.ts';
 import { boundsOf } from './geometry.ts';
 
 const MAGIC = 'LVN1';
-const VERSION = 7;
+const VERSION = 8;
 const DM = 10; // units per metre
 const ZIGZAG = { encoding: 'zigzag' } as const;
 const TURN = Math.PI * 2;
@@ -93,6 +95,17 @@ export function encodeCity(city: City): Uint8Array {
     writeRing(w, b.ring);
     w.varint(b.holes.length);
     for (const hole of b.holes) writeRing(w, hole);
+  }
+
+  w.varint(city.carriageways.length);
+  for (const { kind, ring } of city.carriageways) {
+    w.uint8(CARRIAGEWAY_KINDS.indexOf(kind));
+    writeRing(w, ring);
+  }
+  w.varint(city.markings.length);
+  for (const marking of city.markings) {
+    w.uint8(MARKING_KINDS.indexOf(marking.kind));
+    writeRing(w, marking.line);
   }
 
   for (const layer of [city.roads, city.plazas, city.green, city.water]) {
@@ -177,6 +190,16 @@ export function decodeCity(bytes: Uint8Array): City {
     };
   });
 
+  const carriageways = Array.from({ length: r.varint() }, (): Carriageway => {
+    const kind = CARRIAGEWAY_KINDS[r.uint8()];
+    if (!kind) throw new CityFormatError('Bad carriageway kind.');
+    return { kind, ring: readRing(r) };
+  });
+  const markings = Array.from({ length: r.varint() }, (): Marking => {
+    const kind = MARKING_KINDS[r.uint8()];
+    if (!kind) throw new CityFormatError('Bad marking kind.');
+    return { kind, line: readRing(r) };
+  });
   const [roads, plazas, green, water] = [0, 1, 2, 3].map(() =>
     Array.from({ length: r.varint() }, () => readRing(r)),
   ) as [Float32Array[], Float32Array[], Float32Array[], Float32Array[]];
@@ -214,6 +237,8 @@ export function decodeCity(bytes: Uint8Array): City {
     labels,
     buildings,
     roads,
+    carriageways,
+    markings,
     plazas,
     green,
     water,
