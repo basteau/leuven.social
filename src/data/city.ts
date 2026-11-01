@@ -62,6 +62,12 @@ export interface City {
   plazas: Float32Array[];
   green: Float32Array[];
   water: Float32Array[];
+  /** Woods and scrub: a darker floor under the trees. */
+  woods: Float32Array[];
+  /** Sports pitches. */
+  pitches: Float32Array[];
+  /** Car parks outside the road surface. */
+  parking: Float32Array[];
   paths: Path[];
   /** Flat [x0, z0, x1, z1, …] tree positions. */
   trees: Float32Array;

@@ -86,6 +86,12 @@ export const GROUND = {
   base: 0xb4be8e,
   earth: 0x6b4f3a,
   green: 0x86b064,
+  /** The floor of woods and scrub: a deeper, cooler green under the trees. */
+  woods: 0x6a9450,
+  /** Sports pitches: mown, the brightest green on the map. */
+  pitch: 0x8fbd5a,
+  /** Car parks: asphalt like the streets, a shade lighter. */
+  parking: 0x97938b,
   road: 0x8b8780,
   plaza: 0xd9b98a,
   water: 0x5f9fc4,

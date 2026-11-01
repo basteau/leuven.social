@@ -156,7 +156,7 @@ export const SOURCES: readonly Source[] = [
     out: 'tags geom',
     tile: OVERPASS_TILE,
     output: 'osm/areas.json',
-    usedBy: 'bake: green, water and plazas',
+    usedBy: 'bake: green, woods, pitches, car parks, water and plazas',
   },
   {
     id: 'osm-points',
@@ -174,7 +174,7 @@ export const SOURCES: readonly Source[] = [
     out: 'tags center',
     tile: 0.025,
     output: 'osm/points.json',
-    usedBy: 'bake: mapped trees',
+    usedBy: 'bake: mapped trees and shop fronts',
   },
   {
     id: 'osm-rail-platforms',

@@ -3,6 +3,7 @@ import { clipLine, clipRing } from '../data/geometry.ts';
 import { addBuilding } from './buildings.ts';
 import type { PartyWalls } from './buildings.ts';
 import { addGround } from './ground.ts';
+import { GROUND_RINGS } from './ground.ts';
 import type { GroundLayers } from './ground.ts';
 import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
 import { addParasol } from './terraces.ts';
@@ -43,7 +44,16 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
             maxZ: (j + 1) * CELL_SIZE,
           },
           buildings: [],
-          ground: { green: [], water: [], roads: [], plazas: [], paths: [] },
+          ground: {
+            green: [],
+            water: [],
+            woods: [],
+            pitches: [],
+            parking: [],
+            roads: [],
+            plazas: [],
+            paths: [],
+          },
           trees: [],
           parasols: [],
         });
@@ -60,7 +70,7 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
   for (const p of parasols) at(p.x, p.z)?.parasols.push(p);
 
   // Ground polygons are flat, so they can be cut along cell edges without a visible seam.
-  for (const layer of ['green', 'water', 'roads', 'plazas'] as const) {
+  for (const layer of GROUND_RINGS) {
     for (const ring of city[layer]) {
       let [minX, minZ, maxX, maxZ] = [Infinity, Infinity, -Infinity, -Infinity];
       for (let k = 0; k < ring.length; k += 2) {

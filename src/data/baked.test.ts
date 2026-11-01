@@ -17,6 +17,7 @@ test('public/data/city.bin decodes into a plausible Leuven', async () => {
   expect(city.buildings.some((b) => b.tier === 'hero')).toBe(true);
   expect(city.roads.length).toBeGreaterThan(50);
   expect(city.water.length).toBeGreaterThan(0);
+  expect(city.woods.length + city.pitches.length + city.parking.length).toBeGreaterThan(0);
   expect(city.trees.length / 2).toBeGreaterThan(100);
   expect(city.labels.map((l) => l.name)).toContain('Stadhuis');
 });

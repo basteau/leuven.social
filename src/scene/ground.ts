@@ -9,8 +9,22 @@ import { GROUND } from './palette.ts';
 export const SLAB_DEPTH = 12;
 const UP = [0, 1, 0] as const;
 
+/** The ground's polygon layers, which cells cut along their edges. */
+export const GROUND_RINGS = [
+  'green',
+  'woods',
+  'pitches',
+  'parking',
+  'water',
+  'roads',
+  'plazas',
+] as const;
+
 export interface GroundLayers {
   green: readonly Float32Array[];
+  woods: readonly Float32Array[];
+  pitches: readonly Float32Array[];
+  parking: readonly Float32Array[];
   water: readonly Float32Array[];
   roads: readonly Float32Array[];
   plazas: readonly Float32Array[];
@@ -82,6 +96,10 @@ export function addGround(
   }
   // Layers stack a few centimetres apart; the orthographic depth buffer resolves that cleanly.
   addRings(mesh, layers.green, 0.05, GROUND.green);
+  // Woods, pitches and car parks lie in or beside parks, each a centimetre above the last.
+  addRings(mesh, layers.woods, 0.06, GROUND.woods);
+  addRings(mesh, layers.pitches, 0.07, GROUND.pitch);
+  addRings(mesh, layers.parking, 0.08, GROUND.parking);
   addRings(mesh, layers.water, 0.1, GROUND.water);
   // Above the water (footbridges), under the road surfaces that already cover their crossings.
   addPaths(mesh, layers.paths, 0.12);

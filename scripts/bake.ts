@@ -96,8 +96,15 @@ const layer = (features: Feature[], keep: (p: Props) => boolean, minArea = 0) =>
     .filter((r) => r.length >= 6 && Math.abs(signedArea(r)) >= minArea)
     .map((r) => new Float32Array(r));
 
-const GREEN_LEISURE = new Set(['park', 'garden', 'playground', 'pitch']);
-const GREEN_LANDUSE = new Set(['grass', 'meadow', 'cemetery', 'forest', 'recreation_ground']);
+const GREEN_LEISURE = new Set(['park', 'garden', 'playground']);
+const GREEN_LANDUSE = new Set([
+  'grass',
+  'meadow',
+  'cemetery',
+  'recreation_ground',
+  'village_green',
+]);
+const WOODS = (p: Props) => p.landuse === 'forest' || p.natural === 'wood' || p.natural === 'scrub';
 
 /** Courtyards smaller than this are light wells: below a game pixel, and not worth the walls. */
 const MIN_COURTYARD = 12;
@@ -204,6 +211,13 @@ const city: City = {
     (p) => GREEN_LEISURE.has(p.leisure ?? '') || GREEN_LANDUSE.has(p.landuse ?? ''),
     MIN_GREEN_AREA,
   ),
+  woods: layer(osmAreas.features, WOODS, MIN_GREEN_AREA),
+  pitches: layer(osmAreas.features, (p) => p.leisure === 'pitch', MIN_GREEN_AREA),
+  parking: layer(
+    osmAreas.features,
+    (p) => p.amenity === 'parking' && p.parking !== 'underground' && p.parking !== 'multi-storey',
+    MIN_GREEN_AREA,
+  ),
   water: [
     ...layer(wtz.features, () => true),
     ...layer(osmAreas.features, (p) => p.natural === 'water'),
@@ -221,6 +235,7 @@ console.log(
   [
     `buildings ${buildings.length} (hero ${tiers.hero?.length ?? 0}, core ${tiers.core?.length ?? 0})`,
     `roads ${city.roads.length}, plazas ${city.plazas.length}, green ${city.green.length}, water ${city.water.length}`,
+    `woods ${city.woods.length}, pitches ${city.pitches.length}, parking ${city.parking.length}`,
     `paths ${paths.length} (${paths.filter((p) => !p.paved).length} unpaved)`,
     `trees ${trees.heights.length} (${osmTrees.length / 2} mapped), labels ${city.labels.length}`,
     `sheds under trees capped ${shedsCapped}, shop fronts ${shopFronts} (${buildings.filter((b) => b.kind === 'retail').length} retail)`,

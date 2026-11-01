@@ -1,7 +1,7 @@
 /**
  * The compact binary city format ("LVN1"), served gzipped from public/data/.
  *
- * Layout: magic "LVN1", version, area rectangles, labels, buildings, four polygon layers, paths,
+ * Layout: magic "LVN1", version, area rectangles, labels, buildings, seven polygon layers, paths,
  * trees.
  * Coordinates are decimetres, zigzag varints, delta-encoded within each ring.
  * A building packs tier (2 bits), kind (4 bits) and roof (2 bits) into one byte, then its
@@ -18,7 +18,7 @@ import type { Bounds, Building, City } from './city.ts';
 import { boundsOf } from './geometry.ts';
 
 const MAGIC = 'LVN1';
-const VERSION = 4;
+const VERSION = 5;
 const DM = 10; // units per metre
 const ZIGZAG = { encoding: 'zigzag' } as const;
 /** Refuse anything larger after decompression: the whole city must stay small. */
@@ -90,7 +90,8 @@ export function encodeCity(city: City): Uint8Array {
     for (const hole of b.holes) writeRing(w, hole);
   }
 
-  for (const layer of [city.roads, city.plazas, city.green, city.water]) {
+  const layers = [city.roads, city.plazas, city.green, city.water, city.woods, city.pitches];
+  for (const layer of [...layers, city.parking]) {
     w.varint(layer.length);
     for (const ring of layer) writeRing(w, ring);
   }
@@ -152,9 +153,17 @@ export function decodeCity(bytes: Uint8Array): City {
     };
   });
 
-  const [roads, plazas, green, water] = [0, 1, 2, 3].map(() =>
+  const [roads, plazas, green, water, woods, pitches, parking] = Array.from({ length: 7 }, () =>
     Array.from({ length: r.varint() }, () => readRing(r)),
-  ) as [Float32Array[], Float32Array[], Float32Array[], Float32Array[]];
+  ) as [
+    Float32Array[],
+    Float32Array[],
+    Float32Array[],
+    Float32Array[],
+    Float32Array[],
+    Float32Array[],
+    Float32Array[],
+  ];
 
   const paths = Array.from({ length: r.varint() }, () => {
     const packed = r.varint();
@@ -173,6 +182,9 @@ export function decodeCity(bytes: Uint8Array): City {
     plazas,
     green,
     water,
+    woods,
+    pitches,
+    parking,
     paths,
     trees,
     treeHeights,
