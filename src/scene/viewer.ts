@@ -127,6 +127,19 @@ const PROP_ZOOM = 2;
 /** Time the idle builder may take per slice before handing the main thread back (ms). */
 const IDLE_SLICE_MS = 8;
 
+/** Triangles a mesh draws within its draw range. */
+function drawn({ geometry }: Mesh): number {
+  const { start, count } = geometry.drawRange;
+  return Math.min(count, geometry.getAttribute('position').count - start) / 3;
+}
+
+const SCREEN_CORNERS = [
+  [-1, -1],
+  [1, -1],
+  [1, 1],
+  [-1, 1],
+] as const;
+
 /** requestIdleCallback where there is one (not in Safari), else the next frame or so. */
 const idle = (run: () => void) =>
   'requestIdleCallback' in globalThis
@@ -276,15 +289,19 @@ export function createViewer(options: ViewerOptions): Viewer {
     return el;
   });
   labelLayer.append(...labelEls);
-  // Measure after all are in the DOM: one layout instead of one per label.
+  // Measure after all are in the DOM: one layout instead of one per label. Each remembers what it
+  // last showed, so a frame only writes to the labels that changed.
   const labels = labelEls.map((el, i) => ({
     el,
     w: el.offsetWidth,
     h: el.offsetHeight,
     minZoom: city.labels[i]!.minZoom,
     world: new Vector3(city.labels[i]!.x, LABEL_HEIGHT, city.labels[i]!.z),
+    shown: true,
+    transform: '',
   }));
-  const placed: [number, number, number, number][] = [];
+  /** The boxes of the labels placed so far this frame, four numbers each. */
+  const placed = new Float64Array(labels.length * 4);
   const projected = new Vector3();
 
   let width = 0;
@@ -311,6 +328,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   const viewProjection = new Matrix4();
   const corner = new Vector3();
   const forward = new Vector3();
+  const ground = SCREEN_CORNERS.map((): [number, number, number] => [0, 0, 0]);
   /** Builds any cell the camera can see, and fits the shadow map to the view. */
   function prepare(): void {
     viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
@@ -321,16 +339,11 @@ export function createViewer(options: ViewerOptions): Viewer {
 
     // The ground under the screen's corners, as far as shadows can reach into the view.
     camera.getWorldDirection(forward);
-    const ground = [
-      [-1, -1],
-      [1, -1],
-      [1, 1],
-      [-1, 1],
-    ].map(([x, y]): V3 => {
-      corner.set(x!, y!, -1).unproject(camera);
+    for (const [i, [x, y]] of SCREEN_CORNERS.entries()) {
+      corner.set(x, y, -1).unproject(camera);
       corner.addScaledVector(forward, -corner.y / forward.y);
-      return [corner.x, 0, corner.z];
-    });
+      [ground[i]![0], ground[i]![2]] = [corner.x, corner.z];
+    }
     const need = shadowNeeds(light, ground);
     need.half += SHADOW_REACH;
     // Furniture appearing or hiding changes what casts shadows: refit the square to the view,
@@ -373,9 +386,8 @@ export function createViewer(options: ViewerOptions): Viewer {
     const shadowPass = renderer.shadowMap.needsUpdate;
     let [calls, triangles] = [0, 0];
     const draw = (mesh: Mesh) => {
-      const { start, count } = mesh.geometry.drawRange;
       calls++;
-      triangles += Math.min(count, mesh.geometry.getAttribute('position').count - start) / 3;
+      triangles += drawn(mesh);
     };
     for (const { box, cell, objects } of cells) {
       const [surfaces, outlines, casters, furniture] = objects as [Mesh?, Mesh?, Mesh?, Mesh?];
@@ -416,6 +428,13 @@ export function createViewer(options: ViewerOptions): Viewer {
   }
 
   const peak = { drawCalls: 0, triangles: 0 };
+  /** Sets the canvas's data attributes that changed: a DOM write per frame is a style recalc. */
+  function publish(values: Record<string, number | boolean>): void {
+    for (const key in values) {
+      const value = String(values[key]);
+      if (canvas.dataset[key] !== value) canvas.dataset[key] = value;
+    }
+  }
   function render(): void {
     // World metres per drawing-buffer pixel: how much road paint and texture is worth drawing.
     const unit =
@@ -445,7 +464,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     const { calls, triangles } = renderer.info.render;
     peak.drawCalls = Math.max(peak.drawCalls, calls);
     peak.triangles = Math.max(peak.triangles, triangles);
-    Object.assign(canvas.dataset, {
+    publish({
       drawCalls: calls,
       triangles,
       shadowPass,
@@ -459,24 +478,32 @@ export function createViewer(options: ViewerOptions): Viewer {
       return;
     }
 
-    placed.length = 0;
-    for (const { el, w, h, world, minZoom } of labels) {
-      if (camera.zoom < minZoom) {
-        el.hidden = true;
-        continue;
+    let count = 0;
+    for (const label of labels) {
+      let show = camera.zoom >= label.minZoom;
+      let [left, top, right, bottom] = [0, 0, 0, 0];
+      if (show) {
+        projected.copy(label.world).project(camera);
+        const x = ((projected.x + 1) / 2) * width;
+        const y = ((1 - projected.y) / 2) * height;
+        [left, top, right, bottom] = [x - label.w / 2, y - label.h, x + label.w / 2, y];
+        show = left >= 0 && top >= 0 && right <= width && bottom <= height;
+        for (let i = 0; show && i < count * 4; i += 4) {
+          const clash =
+            left < placed[i + 2]! &&
+            right > placed[i]! &&
+            top < placed[i + 3]! &&
+            bottom > placed[i + 1]!;
+          show = !clash;
+        }
       }
-      projected.copy(world).project(camera);
-      const x = ((projected.x + 1) / 2) * width;
-      const y = ((1 - projected.y) / 2) * height;
-      const box: [number, number, number, number] = [x - w / 2, y - h, x + w / 2, y];
-      const fits = box[0] >= 0 && box[1] >= 0 && box[2] <= width && box[3] <= height;
-      const clash = placed.some(
-        (b) => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1],
-      );
-      el.hidden = !fits || clash;
-      if (el.hidden) continue;
-      placed.push(box);
-      el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+      if (show !== label.shown) label.el.hidden = !(label.shown = show);
+      if (!show) continue;
+      [placed[count * 4], placed[count * 4 + 1]] = [left, top];
+      [placed[count * 4 + 2], placed[count * 4 + 3]] = [right, bottom];
+      count++;
+      const transform = `translate(${(left + label.w / 2).toFixed(1)}px, ${bottom.toFixed(1)}px)`;
+      if (transform !== label.transform) label.el.style.transform = label.transform = transform;
     }
   }
 
