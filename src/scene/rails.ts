@@ -5,20 +5,26 @@ import { orientedRect } from '../data/geometry.ts';
 import type { LineBuilder, MeshBuilder, V3 } from './mesh-builder.ts';
 import { RAIL } from './palette.ts';
 
-/** Standard gauge: the distance between the two rails of every track in Belgium (m). */
+/** Standard gauge between the two rails (m): OSM tags every track in the area `gauge=1435`. */
 export const GAUGE = 1.435;
-/** Width of the ballast bed under one track; beds of neighbouring tracks run together. */
+/**
+ * Width of the ballast bed under one track (m), about what the orthophoto shows; beds of
+ * neighbouring tracks, 4.5 m apart, run together.
+ */
 const BALLAST = 4.4;
-/** Sleeper length, which is the band the sleeper pattern is drawn on. */
+/** Sleeper length (m), the usual 2.6 m of a standard-gauge concrete sleeper. */
 const SLEEPERS = 2.6;
 /**
  * Heights over the slab: above roads and squares (which tracks cross on bridges and level
  * crossings), with the rails just over the sleepers so the outlines don't sink into them.
  */
 const Y = { ballast: 0.25, sleepers: 0.3, rails: 0.38 } as const;
-/** Train-floor height of a Belgian platform. */
+/** Platform height (m), from the `height=0.76` OSM gives Leuven's platforms. */
 export const PLATFORM_HEIGHT = 0.76;
-/** Catenary masts: how far apart along a line, how far beside the track, and how tall. */
+/**
+ * Catenary masts: how far apart along a line (a typical span of the contact wire), how far
+ * beside the track and how tall, picked to match the orthophoto's shadows.
+ */
 const MAST_SPACING = 60;
 const MAST_OFFSET = 3.4;
 const MAST_HEIGHT = 7.2;

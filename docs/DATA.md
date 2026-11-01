@@ -18,6 +18,17 @@ OpenStreetMap (Overpass) ┘        (Python, via uv)       (GeoJSON, JSON)   (sc
    - Footprint vertices within 0.25 m (core) or 0.5 m (fringe) of the line through their neighbours are dropped; hero footprints keep every vertex, since landmark models are fitted to them. Ground polygons lose vertices within 0.3 m, and patches of green under 25 m² go.
    - Railway tracks are stored as centre lines (Douglas–Peucker to 10 cm), not polygons: the gauge is standard everywhere, so the renderer derives the ballast, sleepers and both rails. Tunnels, covered tracks and anything below ground are left out. Rails are their own layer (`City.rails`), so walking can keep off them; platforms (`City.platforms`, from `data/osm/raw_rail_platforms.json`, multipolygons joined from their outer ways) are walkable.
 
+## Railways
+
+| Layer                 | Source                                                                                                                                      | Fetched by                                                | Licence                                                                 |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Tracks (`City.rails`) | OSM `railway=rail` ways, in the water/landuse/rail Overpass dump                                                                            | `data/osm/queries/water_landuse*.overpassql`              | © OpenStreetMap contributors, ODbL                                      |
+| Railway land          | OSM `landuse=railway`, same dump                                                                                                            | same                                                      | same                                                                    |
+| Platforms             | OSM `railway=platform` ways and multipolygon relations, `out geom` from `https://overpass-api.de/api/interpreter` (two mirrors as fallback) | `bun run fetch:rail` → `data/osm/raw_rail_platforms.json` | same                                                                    |
+| Platform roofs        | GRB `GBA` annexes surveyed as `afdak` (canopy), over 2000 m² and on railway land: Leuven's wave roof                                        | the GRB WFS download (`GRB:GBA`)                          | "Bron: Grootschalig Referentie Bestand Vlaanderen, Digitaal Vlaanderen" |
+
+`fetch:rail` sorts elements by type and id, sorts tags, and rounds coordinates to 7 decimals, so the same map data always writes the same file. The roof's height (9.5 m at the valleys, 16 m at the crowns) and the catenary, gauge and platform constants are code constants in `src/scene/rails.ts`, each with its source. The GRB `SBN`/`WRL` rail layers were checked and left out: their rails match OSM's centre lines, and the rail parcels are wider than the ballast.
+
 ## What the data decides
 
 Prefer reading the world over guessing it. Each of these replaced a rule of thumb:

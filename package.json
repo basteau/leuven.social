@@ -25,6 +25,7 @@
     "budget": "bun scripts/budget.ts",
     "smoke": "bun scripts/smoke.ts",
     "bake": "bun scripts/bake.ts",
+    "fetch:rail": "bun scripts/fetch-rail.ts",
     "icons": "bun scripts/icons.ts",
     "deploy": "bun scripts/deploy.ts",
     "prepare": "git config core.hooksPath .githooks || true"
