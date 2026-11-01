@@ -9,6 +9,7 @@ import {
   PITCH_RANGE,
   boomDirection,
   chaseFov,
+  clearPitch,
   createBoom,
   easeBoom,
   flight,
@@ -184,6 +185,9 @@ describe('following', () => {
   });
 });
 
+/** A 20 m block from 10 to 20 m out along +z, the way a yaw of 0 points the boom. */
+const block = (_x: number, z: number) => (z > 10 && z < 20 ? 20 : 0);
+
 describe('the flight between map and street', () => {
   const map: Shot = { look: [0, 0, 0], yaw: 0.8, pitch: 0.6, fov: MAP_FOV, span: 400 };
   const street: Shot = { look: [10, 2.6, 4], yaw: 0.8, pitch: 0.3, fov: CHASE_FOV, span: 8 };
@@ -215,6 +219,24 @@ describe('the flight between map and street', () => {
   test('turns the short way round', () => {
     flight({ ...map, yaw: 3 }, { ...street, yaw: -3 }, 0.5, lens);
     expect(Math.abs(lens.yaw)).toBeCloseTo(Math.PI);
+  });
+
+  test('climbs over a roof in the way, and only as high as it must', () => {
+    const look: Vec3 = [0, 2.6, 0];
+    const low = 0.3;
+    const pitch = clearPitch(block, look, 0, 200, low);
+    expect(pitch).toBeGreaterThan(low);
+    const dir = boomDirection(0, pitch, [0, 0, 0]);
+    expect(freeLength(block, look, dir, 200)).toBe(200);
+    expect(freeLength(block, look, boomDirection(0, pitch - 0.02, [0, 0, 0]), 200)).toBeLessThan(
+      200,
+    );
+    // Nothing in the way, or the camera still short of the house: no climb at all.
+    expect(clearPitch(block, look, Math.PI, 200, low)).toBe(low);
+    expect(clearPitch(block, look, 0, 8, low)).toBe(low);
+    // Walled in on every side, it goes as high as the boom may.
+    expect(clearPitch(() => 1e3, look, 0, 50, low)).toBe(PITCH_RANGE[1]);
+    expect(clearPitch(block, look, 0, 50, PITCH_RANGE[1] + 0.1)).toBe(PITCH_RANGE[1] + 0.1);
   });
 
   test('the map turns back to its nearest quarter view', () => {

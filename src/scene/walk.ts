@@ -25,6 +25,7 @@ import {
   MAP_FOV,
   boomDirection,
   chaseFov,
+  clearPitch,
   createBoom,
   easeBoom,
   flight,
@@ -107,6 +108,14 @@ const STICK_SHARE = 0.42;
 const ISO_PITCH = Math.atan(1 / Math.SQRT2);
 /** Within this distance of the walker (m), the flight checks it can still see it. */
 const FLIGHT_CHECK = 400;
+/**
+ * Flying in over a square, the camera rises at once for a roof in the way, and sinks back
+ * once past it with this half-life (a share of the flight), so the flight stays one swoop.
+ */
+const LIFT_EASE = 0.12;
+/** The climb fades in as the flight comes from this far to this near (m). */
+const LIFT_FROM = 700;
+const LIFT_FULL = 200;
 /** Wheel events closer together than this (ms) are one gesture: a swipe stays a swipe. */
 const GESTURE_GAP_MS = 150;
 
@@ -263,6 +272,8 @@ export function createWalk(host: WalkHost): Walk {
   const chaseShot: Shot = { look: lookAt, yaw: 0, pitch: 0, fov: CHASE_FOV, span: 1 };
   const lens: Lens = { look: [0, 0, 0], yaw: 0, pitch: 0, fov: CHASE_FOV, distance: 1 };
   let mapZoomBefore = 1;
+  /** How high the flight climbs to see over the roofs (pitch, radians); NaN off the flight. */
+  let lift = Number.NaN;
 
   let keyRight = 0;
   let keyUp = 0;
@@ -322,6 +333,7 @@ export function createWalk(host: WalkHost): Walk {
     const cut = reducedMotion || document.hidden;
     flown = cut ? 1 : 0;
     flying = cut ? 0 : 1;
+    lift = Number.NaN;
     host.useView(view);
     publish();
     setMode('walk');
@@ -682,9 +694,13 @@ export function createWalk(host: WalkHost): Walk {
       if (flying) {
         flown = Math.min(1, Math.max(0, flown + (flying * elapsed) / FLIGHT));
         busy = true;
-        if (flying === 1 && flown === 1) flying = 0;
+        if (flying === 1 && flown === 1) {
+          flying = 0;
+          // Landed higher than the boom sits, over a roof: the boom takes over from up there.
+          if (lift > boom.pitch) boom.pitch = boom.aimPitch = lift;
+        }
       }
-      placeView();
+      placeView(dt);
       if (flying === -1 && flown === 0) land();
     }
 
@@ -694,13 +710,21 @@ export function createWalk(host: WalkHost): Walk {
   }
 
   /** Puts the walking camera where the boom (or the flight along it) says. */
-  function placeView(): void {
+  function placeView(dt = 0): void {
     const fov = chaseFov(canvas.clientWidth / Math.max(1, canvas.clientHeight), sprint);
     chaseShot.yaw = boom.yaw;
     chaseShot.pitch = boom.pitch;
     chaseShot.fov = fov;
     chaseShot.span = spanAt(boom.reach, fov);
     flight(mapShot, chaseShot, flown, lens);
+    if (flown < 1) {
+      // Over the roofs, not through them: rise at once for one in the way, sink back gently.
+      const need = clearPitch(heightAt, lens.look, lens.yaw, lens.distance, lens.pitch);
+      lift = !(lift > need) ? need : decay(lift, need, reducedMotion ? 0 : LIFT_EASE * FLIGHT, dt);
+      // Far out the view is as flat as the map's and no roof hides anything: climb only near.
+      const near = Math.min(1, Math.max(0, (LIFT_FROM - lens.distance) / (LIFT_FROM - LIFT_FULL)));
+      lens.pitch += Math.max(0, lift - lens.pitch) * near * near * (3 - 2 * near);
+    }
     boomDirection(lens.yaw, lens.pitch, out);
     const d = lens.distance;
     view.position.set(
@@ -802,6 +826,7 @@ export function createWalk(host: WalkHost): Walk {
         return;
       }
       flying = -1;
+      lift = Number.NaN;
       controls.enabled = false;
       wake();
     },

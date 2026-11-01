@@ -214,11 +214,38 @@ export function flight(a: Shot, b: Shot, t: number, out: Lens): Lens {
   const s = smoother(Math.min(1, Math.max(0, t)));
   for (let i = 0; i < 3; i++) out.look[i] = a.look[i]! + (b.look[i]! - a.look[i]!) * s;
   out.yaw = wrap(a.yaw + wrap(b.yaw - a.yaw) * s);
-  out.pitch = a.pitch + (b.pitch - a.pitch) * s;
+  // The tilt lags the rest, so the camera keeps sinking as it closes in: one arc down behind.
+  out.pitch = a.pitch + (b.pitch - a.pitch) * s * s;
   out.fov = a.fov + (b.fov - a.fov) * s;
   const span = Math.exp(Math.log(a.span) + (Math.log(b.span) - Math.log(a.span)) * s);
   out.distance = span / spanAt(1, out.fov);
   return out;
+}
+
+/**
+ * The lowest pitch, from `low` up to the boom's limit, at which a camera `distance` along the
+ * boom from `look` sees `look` over every roof: the flight climbs over the houses round a
+ * square instead of cutting in through them. Bisected, as a higher boom only clears more.
+ */
+export function clearPitch(
+  heightAt: (x: number, z: number) => number,
+  look: Vec3,
+  yaw: number,
+  distance: number,
+  low: number,
+): number {
+  const dir: Vec3 = [0, 0, 0];
+  const clear = (pitch: number) =>
+    freeLength(heightAt, look, boomDirection(yaw, pitch, dir), distance) >= distance;
+  let [lo, hi]: [number, number] = [low, PITCH_RANGE[1]];
+  if (lo >= hi || clear(lo)) return lo;
+  if (!clear(hi)) return hi;
+  for (let i = 0; i < 8; i++) {
+    const mid = (lo + hi) / 2;
+    if (clear(mid)) hi = mid;
+    else lo = mid;
+  }
+  return hi;
 }
 
 /** The parts of a wheel event that tell a trackpad from a mouse. */
