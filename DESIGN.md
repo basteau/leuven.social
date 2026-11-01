@@ -82,7 +82,7 @@ Values live in `src/scene/palette.ts`; change them there only. Each building's c
 
 ## HUD
 
-The HUD is a frame round the city: a corner at the top start, the credits at the top end, a rail of map controls at the bottom end and the mode's one or two actions in the middle of the bottom edge. The middle of the screen stays city.
+The HUD is a frame round the city: a corner at the top start, the credits and Mute at the top end, a rail of map controls at the bottom end and the mode's one or two actions in the middle of the bottom edge. The middle of the screen stays city.
 
 ### Tokens
 
@@ -156,7 +156,7 @@ Places aren't named over the city: floating tags covered the very streets they n
 ### Keyboard
 
 - The map is one focusable widget (`role="application"`, focused on load without a ring).
-- Arrow keys pan, `+`/`-` zoom, Q/E turn, R resets, W starts a walk.
+- Arrow keys pan, `+`/`-` zoom, Q/E turn, R resets, W starts a walk. M mutes or unmutes, in every mode.
 - Picking a start: Enter starts in the middle of the view, Escape cancels.
 - Walking: W A S D or the arrow keys walk relative to the screen, Shift runs, holding Q/E turns the view, `+`/`-` bring the camera closer or further, Escape returns to the map. Clicking or tapping a street walks there along a route, shown as a quiet trail of small dots that shrink toward a thin ring. On the move the camera drifts back behind the walker a moment after the last look around.
 - Shortcuts only act while focus is inside the app.
@@ -170,6 +170,26 @@ Places aren't named over the city: floating tags covered the very streets they n
 - **Walking and running:** a procedural cycle that blends from walk to run with speed. Legs and arms swing against each other, each knee folds as its leg swings through, the hips sit as high as the planted leg reaches so the soles stay down; running lengthens the stride, bends the elbows and leans in. The torso banks into turns and the head follows the camera. Standing still, the walker breathes and glances about for four seconds, then rests.
 - **The camera** flies between the map and the street in 1.4 s, its lens widening as it closes in so the first frame matches the isometric map. It follows on springs: its look point trails the walker by a hair and leads it a little at a run, the lens widens slightly and the boom lengthens when running, and walls pull it in quickly but smoothly (docs/RENDERING.md, "How walking should feel"). With `prefers-reduced-motion` it cuts instead of flying, follows without easing and doesn't recentre; the figure appears without its pop and doesn't fidget. The walk cycle itself stays, since the user is moving the figure.
 - **Future motion:** anything new (traffic, people, day-night) goes through Emil Kowalski's animation skills. It must also respect reduced motion.
+
+## Sound
+
+A tiny city sounds like a toy: felt and soft wood, never game-show beeps. Sounds are few, quiet, and made on the spot with Web Audio (`src/audio`), so there is nothing to download.
+
+| Event                | Sound                                                                                                                                                                                                                                                                      |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| HUD button           | A soft wooden knock: a short falling triangle tone, low-passed, under a 12 ms stick of noise                                                                                                                                                                               |
+| Toggle (Run)         | Two felted notes a fifth apart, rising for on, falling for off                                                                                                                                                                                                             |
+| Footsteps            | Each time a foot lands in the walk cycle: a heel thump, a triangle at ~150 Hz gliding down an octave, under a scuff of band-passed grit. Every step is a little different in pitch, level and timing, the right foot a touch lower; a run lands higher, harder and quicker |
+| Walk starts and ends | The flight's air (a noise band sweeping up or down) and two soft notes, rising going down to the street and falling coming back up                                                                                                                                         |
+| Walking to a spot    | A quiet tick on setting off, a lighter pair of notes on arriving                                                                                                                                                                                                           |
+
+- **On by default, never before a gesture.** The audio context is made on the first tap, click or key after sound is on, as browsers require.
+- **Mute** (M) is a round control in the very top-end corner, beside the credits: a setting, not a map control, so it stays out of the rail and out of thumb reach. It names itself in its tip, fills while muted so the corner stays calm while sound plays, and the choice is remembered.
+- **Quiet:** a master level of 0.4 over voices of 0.03 to about 0.2, so even a running step peaks around a twelfth of full scale.
+- **Silent while the tab is hidden,** and nothing plays per frame: each sound is scheduled when its event happens.
+- Every voice rises over at least 3 ms and falls exponentially (no clicks), and passes through a filter: lowpass on tones for warmth, a band on noise. These follow Raphael Salaja's `create-sound` and `generating-sounds-with-ai` rules.
+- No ambience loop: the city is quiet, and a loop would cost more than it gives.
+- Surfaces don't change the step yet: the walk grid doesn't know cobbles from paving.
 
 ## Mobile and PWA
 

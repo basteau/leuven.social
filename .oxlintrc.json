@@ -87,7 +87,8 @@
                   "react-dom",
                   "react-dom/*",
                   "**/scene/**",
-                  "**/app/**"
+                  "**/app/**",
+                  "**/audio/**"
                 ],
                 "message": "src/data is pure: no three.js, React or other layers (see docs/CODE.md)."
               }
@@ -110,6 +111,35 @@
               {
                 "group": ["react", "react-dom", "react-dom/*", "**/app/**"],
                 "message": "src/scene is framework-free: React stays in src/app (see docs/CODE.md)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/audio/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["node:*", "node:*/**", "bun:*", "bun"],
+                "message": "Keep code runtime-portable: use web APIs or @portable/* (see docs/CODE.md)."
+              },
+              {
+                "group": [
+                  "three",
+                  "three/*",
+                  "react",
+                  "react-dom",
+                  "react-dom/*",
+                  "**/data/**",
+                  "**/scene/**",
+                  "**/app/**"
+                ],
+                "message": "src/audio is plain Web Audio: no three.js, React or other layers (see docs/CODE.md)."
               }
             ]
           }
@@ -159,7 +189,8 @@
                   "react-dom",
                   "react-dom/*",
                   "**/scene/**",
-                  "**/app/**"
+                  "**/app/**",
+                  "**/audio/**"
                 ],
                 "message": "src/data is pure: no three.js, React or other layers (see docs/CODE.md)."
               }

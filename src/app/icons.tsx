@@ -97,3 +97,15 @@ export const GableIcon = () => (
     <path d="M10 21v-5h4v5" />
   </svg>
 );
+
+/** A speaker with sound coming out (on), or crossed out (off). */
+export const SoundIcon = (props: { on: boolean }) => (
+  <svg {...base}>
+    <path d="M4 9h3l5-4v14l-5-4H4z" />
+    {props.on ? (
+      <path d="M16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11" />
+    ) : (
+      <path d="M16 9.5l5 5M21 9.5l-5 5" />
+    )}
+  </svg>
+);

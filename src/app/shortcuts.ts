@@ -30,10 +30,11 @@ export interface ShortcutTarget {
   startWalk: () => void;
   /** A walking key went down: someone is walking with the keyboard. */
   onWalkKey: () => void;
+  toggleSound: () => void;
 }
 
 /**
- * The keyboard: arrows pan, + and - zoom, Q and E turn, R resets and W walks on the map; held
+ * The keyboard: arrows pan, + and - zoom, Q and E turn, M mutes, R resets and W walks on the map; held
  * keys walk, run and look while walking. Shortcuts act while focus is anywhere in the app, not
  * in the rest of the page.
  */
@@ -87,6 +88,7 @@ export function useShortcuts(target: ShortcutTarget): void {
         '+': () => viewer.zoomBy(1.25),
         '=': () => viewer.zoomBy(1.25),
         '-': () => viewer.zoomBy(0.8),
+        m: target.toggleSound,
         ...(mode === 'map' && { r: () => viewer.resetView(), w: target.startWalk }),
         ...(mode === 'pick' && !onControl && { enter: () => viewer.walkFromCentre() }),
         ...(mode !== 'map' && { escape: () => viewer.stopWalking() }),

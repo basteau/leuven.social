@@ -12,6 +12,7 @@ import {
 import type { Fog, OrthographicCamera, Scene, Texture } from 'three';
 import type { MapControls } from 'three/addons/controls/MapControls.js';
 
+import { createWalkSounds } from '../audio/walking.ts';
 import type { City } from '../data/city.ts';
 import { Router } from '../data/route.ts';
 import { WalkGrid, pickWalkable } from '../data/walkable.ts';
@@ -234,6 +235,7 @@ export function createWalk(host: WalkHost): Walk {
   hint.frustumCulled = false;
   hint.visible = false;
   let marker: RouteMarker | undefined;
+  const sounds = createWalkSounds();
   let walker: Walker | undefined;
   const pose = restPose();
   let appear = 1;
@@ -320,6 +322,7 @@ export function createWalk(host: WalkHost): Walk {
     host.useView(view);
     publish();
     setMode('walk');
+    sounds.enter();
     wake();
   }
 
@@ -354,6 +357,7 @@ export function createWalk(host: WalkHost): Walk {
     }
     [walker.x, walker.z] = [route[0]!, route[1]!];
     followRoute(walker, route);
+    sounds.routeStart();
     moving = true;
     hint.geometry.dispose();
     marker = routeMarker(route);
@@ -563,7 +567,11 @@ export function createWalk(host: WalkHost): Walk {
             walker.heading,
             walker.phase,
           ];
+          const routed = walker.route !== null;
           moving = stepWalker(walker, STEP, sx, sz, walkable, running || stick.run);
+          sounds.stride(walker.phase, walker.speed, runBlend(walker.speed));
+          // A route let go of without steering is a route walked to its end.
+          if (routed && !walker.route && !sx && !sz) sounds.routeEnd();
         }
         busy = moving || sx !== 0 || sz !== 0;
         if (reducedMotion) walker.still = Math.max(walker.still, 1e3); // no idle fidgeting
@@ -764,6 +772,7 @@ export function createWalk(host: WalkHost): Walk {
       presses.clear();
       setMode('map');
       if (!walked || !walker) return;
+      sounds.leave();
       walker.route = null;
       clearRoute();
       // Fly back up to the map, turned to the nearest of its four views.
