@@ -18,6 +18,8 @@ import {
   SoundIcon,
   WalkIcon,
 } from './icons.tsx';
+import { KEYCAPS, layoutKeycaps } from './input.ts';
+import type { KeyboardLayout, Keycaps } from './input.ts';
 import { useShortcuts } from './shortcuts.ts';
 import { StreetSign } from './street-sign.tsx';
 
@@ -28,13 +30,12 @@ const LOAD_TIMEOUT_MS = 20_000;
 
 const CREDITS_VISIBLE_MS = 5_000;
 
-const MAP_LABEL =
-  'Map of Leuven’s centre around Grote Markt, Oude Markt and Ladeuzeplein. Drag or use the arrow keys to pan; scroll, pinch or press plus and minus to zoom; Q and E turn the view; W starts a walk.';
-const MAP_LABELS: Record<WalkMode, string> = {
-  map: MAP_LABEL,
+/** The map's description, naming the keys as this keyboard types them. */
+const mapLabels = (k: Keycaps): Record<WalkMode, string> => ({
+  map: `Map of Leuven’s centre around Grote Markt, Oude Markt and Ladeuzeplein. Drag or use the arrow keys to pan; scroll, pinch or press plus and minus to zoom; ${k.KeyQ} and ${k.KeyE} turn the view; ${k.KeyW} starts a walk.`,
   pick: 'Map of Leuven. Click or tap a street to start walking there, or press Enter to start in the middle of the view. Escape cancels.',
-  walk: 'Walking in Leuven. W, A, S and D or the arrow keys walk, and hold Shift to run; drag to look around; click or tap a street to walk there; hold Q or E to turn the view; Escape returns to the map.',
-};
+  walk: `Walking in Leuven. ${k.KeyW}, ${k.KeyA}, ${k.KeyS} and ${k.KeyD} or the arrow keys walk, and hold Shift to run; drag to look around; click or tap a street to walk there; hold ${k.KeyQ} or ${k.KeyE} to turn the view; Escape returns to the map.`,
+});
 
 /** Walk mode downloads on first use; say so only if that takes long enough to notice. */
 const WALK_LOADING_MS = 250;
@@ -117,6 +118,12 @@ export function App() {
   });
   useEffect(() => sound.attach(), []);
   const [coach, setCoach] = useState(() => !coached());
+  // The shortcuts go by where keys sit; the hints say what those keys type here (Z Q S D on AZERTY).
+  const [keys, setKeys] = useState(KEYCAPS);
+  useEffect(() => {
+    const { keyboard } = navigator as Navigator & { keyboard?: KeyboardLayout };
+    void layoutKeycaps(keyboard).then(setKeys);
+  }, []);
   const coachTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   // The compass turns with every frame of a rotation: written straight to its style, not state.
   const compassRef = useRef<HTMLButtonElement | null>(null);
@@ -274,7 +281,7 @@ export function App() {
         tabIndex={0}
         role="application"
         aria-roledescription="map"
-        aria-label={MAP_LABELS[walkMode]}
+        aria-label={mapLabels(keys)[walkMode]}
       >
         <canvas ref={canvasRef} className="city" />
       </div>
@@ -385,7 +392,7 @@ export function App() {
             <legend className="sr-only">Turn</legend>
             <RoundButton
               label="Turn left"
-              shortcut="Q"
+              shortcut={keys.KeyQ}
               disabled={!ready}
               onPress={() => viewer()?.rotate(-1)}
             >
@@ -393,7 +400,7 @@ export function App() {
             </RoundButton>
             <RoundButton
               label="Turn right"
-              shortcut="E"
+              shortcut={keys.KeyE}
               disabled={!ready}
               onPress={() => viewer()?.rotate(1)}
             >
@@ -438,8 +445,9 @@ export function App() {
             ) : coaching ? (
               <>
                 <span className="hint-keys">
-                  <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> walk, hold <kbd>Shift</kbd> to
-                  run, drag to look. Click a street to go there.
+                  <kbd>{keys.KeyW}</kbd> <kbd>{keys.KeyA}</kbd> <kbd>{keys.KeyS}</kbd>{' '}
+                  <kbd>{keys.KeyD}</kbd> walk, hold <kbd>Shift</kbd> to run, drag to look. Click a
+                  street to go there.
                 </span>
                 <span className="hint-touch">
                   Left thumb walks, right thumb looks. Tap a street to go there.
@@ -450,7 +458,7 @@ export function App() {
           {walkMode === 'map' && (
             <ActionButton
               label="Walk"
-              shortcut="W"
+              shortcut={keys.KeyW}
               primary
               disabled={!ready}
               busy={walkLoad === 'loading'}

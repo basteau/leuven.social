@@ -157,6 +157,7 @@ Places aren't named over the city: floating tags covered the very streets they n
 
 - The map is one focusable widget (`role="application"`, focused on load without a ring).
 - Arrow keys pan, `+`/`-` zoom, Q/E turn, R resets, W starts a walk. M mutes or unmutes, in every mode.
+- W A S D and Q E go by where they sit on the keyboard, on the map as on foot, so on AZERTY they are Z Q S D and A E. Hints, tips and the map's description name them as the keyboard in use types them, where the browser can say (QWERTY's letters otherwise). Keys named for what they do (M, R) go by letter.
 - Picking a start: Enter starts in the middle of the view, Escape cancels.
 - Walking: W A S D or the arrow keys walk relative to the screen, Shift runs, holding Q/E turns the view, `+`/`-` bring the camera closer or further, Escape returns to the map. Clicking or tapping a street walks there along a route, shown as a quiet trail of small dots that shrink toward a thin ring. On the move the camera drifts back behind the walker a moment after the last look around.
 - Shortcuts only act while focus is inside the app.
