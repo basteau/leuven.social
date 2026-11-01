@@ -195,3 +195,9 @@ export function pick<T>(list: readonly T[], seed: number): T {
   h ^= h >>> 16;
   return list[(h >>> 0) % list.length]!;
 }
+
+/**
+ * The sky behind the walking camera, and the haze that fades the far city into it: the HUD's
+ * `--sky-top` and `--sky-horizon` (app.css), so the map's sky and the street's are one.
+ */
+export const SKY = { top: 0xa2cee9, horizon: 0xfce4c4 } as const;

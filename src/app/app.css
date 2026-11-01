@@ -222,6 +222,22 @@ button {
   background: var(--paper-press);
 }
 
+/* A toggle that's on (Run): filled, so it reads as on without relying on the colour alone. */
+.button[aria-pressed='true'],
+.button[aria-pressed='true']:active:not(:disabled) {
+  background: var(--accent);
+  color: var(--paper);
+}
+
+/* High-contrast modes replace both colours: keep the fill as the system's own highlight. */
+@media (forced-colors: active) {
+  .button[aria-pressed='true'] {
+    background: Highlight;
+    color: HighlightText;
+    forced-color-adjust: none;
+  }
+}
+
 .button:disabled {
   opacity: 0.5;
   cursor: default;
@@ -241,7 +257,7 @@ button {
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .button:hover:not(:disabled) {
+  .button:hover:not(:disabled, [aria-pressed='true']) {
     background: var(--paper-press);
   }
 }
@@ -300,7 +316,7 @@ button {
   box-shadow: none;
 }
 
-/* Keyboard walking is only worth mentioning where there is likely a keyboard. */
+/* Keys and the mouse where there is likely a keyboard; thumbs everywhere else. */
 .hint-keys {
   display: none;
 }
@@ -309,6 +325,40 @@ button {
   .hint-keys {
     display: inline;
   }
+
+  .hint-touch {
+    display: none;
+  }
+}
+
+/* Walking by touch, the toolbar keeps to the end edge, clear of the thumb that steers. */
+@media (pointer: coarse) {
+  .app[data-walk='walk'] .hud-bottom {
+    align-items: flex-end;
+  }
+}
+
+/* The thumb stick, under the thumb that steers: a ring and the knob that follows it. */
+.stick {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  inline-size: 104px;
+  block-size: 104px;
+  margin-block-start: -52px;
+  margin-inline-start: -52px;
+  border: var(--border) solid var(--ink);
+  border-radius: 50%;
+  background: color-mix(in oklch, var(--paper) 45%, transparent);
+  box-shadow: var(--shadow-hard);
+}
+
+.stick-knob {
+  position: absolute;
+  inset: 30px;
+  border: var(--border) solid var(--ink);
+  border-radius: 50%;
+  background: var(--paper);
 }
 
 /* Marks where "Start here" begins: ink on a paper halo, readable over any street. */

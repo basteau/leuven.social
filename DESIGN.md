@@ -38,8 +38,9 @@ Leuven as a tiny city you could hold in your hands: a warm, crisp, low-poly dior
 
 ### Walking
 
-- **A Leuven student**, a little larger than life (2.2×) so they read at walking zoom: a coat in the HUD's accent blue, a mustard scarf, a brick-red backpack. Boxy, outlined in ink, toon-shaded like the city.
-- **Walk mode zooms to 7** and follows them, still isometric; Q/E still turn the view.
+- **A Leuven student**, a little larger than life (1.3×, like the street furniture): a coat in the HUD's accent blue, a mustard scarf, a brick-red backpack. Boxy, outlined in ink, toon-shaded like the city, with knees and elbows so they can run.
+- **A street-level chase camera**, the way third-person games do it: the camera flies down from the map to just behind the walker, then rides a boom behind them. Drag to look around, scroll or pinch to bring it closer or further; it pulls in rather than look through a house. The far city fades into the warm haze of the map's horizon under a sky dome in the HUD's sky colours. Leaving flies back up to the nearest of the map's four views.
+- **Walk or run.** Shift (or the **Run** toggle, or a thumb pushed to the stick's rim) runs. The figure turns on the spot or in an arc, never skids, and leans into curves; its head turns toward where the camera looks.
 - **Walkable** means road surfaces, squares and footpaths. Never inside buildings or their courtyards, gardens, green or water without a path across.
 - **Hidden behind a building**, the figure shows as a checkerboard silhouette in coat blue.
 - **A picked destination** gets ink-ringed pale dots along the way and a square target, Street View style.
@@ -107,7 +108,8 @@ Tokens are oklch, in `src/app/app.css`:
 - Icon plus a visible text label.
 - A keyboard shortcut is shown on devices that have hover.
 - Below 30 rem of width the toolbar becomes a tab bar: icon above label, no shortcut hints.
-- **Walk** sits in its own panel beside the view toolbar and wraps above it when the row runs out. Picking a start shows a one-line hint, a reticle in the middle of the view, and **Start here** / **Cancel**. Walking swaps the toolbar for **Map** (back to the map view), **Turn left** and **Turn right**, under a one-line hint that names the keys only on devices with a fine pointer.
+- **Walk** sits in its own panel beside the view toolbar and wraps above it when the row runs out. Picking a start shows a one-line hint, a reticle in the middle of the view, and **Start here** / **Cancel**. Walking swaps the toolbar for **Map** (back to the map view), **Run** (a toggle, filled while on), **Turn left** and **Turn right**, under a one-line hint: keys and the mouse on devices with a fine pointer, thumbs everywhere else.
+- **On touch,** a thumb that lands on the left of the screen grows a stick under it (ink ring, paper knob) and steers; anywhere else it looks around. Pushed to the rim, the stick runs.
 - A spot that can't be walked to says so in the hint ("Can’t walk there. Pick a street or square.") until the next try.
 
 ### States
@@ -136,7 +138,7 @@ Tokens are oklch, in `src/app/app.css`:
 - The map is one focusable widget (`role="application"`, focused on load without a ring).
 - Arrow keys pan, `+`/`-` zoom, Q/E turn, R resets, W starts a walk.
 - Picking a start: Enter starts in the middle of the view, Escape cancels.
-- Walking: W A S D or the arrow keys walk relative to the screen, Escape returns to the map. Clicking or tapping a street walks there along a route.
+- Walking: W A S D or the arrow keys walk relative to the screen, Shift runs, holding Q/E turns the view, `+`/`-` bring the camera closer or further, Escape returns to the map. Clicking or tapping a street walks there along a route, and the camera swings round behind on the way.
 - Shortcuts only act while focus is inside the app.
 
 ## Motion
@@ -144,7 +146,8 @@ Tokens are oklch, in `src/app/app.css`:
 - **Rotation:** 280 ms ease-out. Instant with `prefers-reduced-motion`.
 - **Press feedback:** scale 0.97 over 140 ms ease-out.
 - **Hover:** only on devices with hover. Nothing else animates.
-- **Walking:** a procedural cycle. Legs and arms swing against each other, the hips drop as the legs spread so the soles stay down, with a little spring as they pass, a slight lean and a turn toward the heading. Standing still, the walker breathes and glances about for four seconds, then rests. The camera eases after the walker and into walk zoom. With `prefers-reduced-motion` the camera follows and zooms without easing, the figure appears without its pop, and there is no idle fidgeting; the walk cycle itself stays, since the user is moving the figure.
+- **Walking and running:** a procedural cycle that blends from walk to run with speed. Legs and arms swing against each other, each knee folds as its leg swings through, the hips sit as high as the planted leg reaches so the soles stay down; running lengthens the stride, bends the elbows and leans in. The torso banks into turns and the head follows the camera. Standing still, the walker breathes and glances about for four seconds, then rests.
+- **The camera** flies between the map and the street in 1.4 s, its lens widening as it closes in so the first frame matches the isometric map. Its look point trails the walker by a hair. With `prefers-reduced-motion` it cuts instead of flying, follows without easing and doesn't swing behind on routes; the figure appears without its pop and doesn't fidget. The walk cycle itself stays, since the user is moving the figure.
 - **Future motion:** anything new (traffic, people, day-night) goes through Emil Kowalski's animation skills. It must also respect reduced motion.
 
 ## Mobile and PWA

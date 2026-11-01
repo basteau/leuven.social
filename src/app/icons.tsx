@@ -43,6 +43,17 @@ export const WalkIcon = () => (
   </svg>
 );
 
+export const RunIcon = () => (
+  <svg {...base}>
+    <circle cx="15" cy="4.5" r="2" />
+    <path d="M13 8l-2 5" />
+    <path d="M11 13l3 3-1 5" />
+    <path d="M11 13l-3 3H4" />
+    <path d="M13 8l3 2.5 3-1" />
+    <path d="M13 8l-4 1-2 3" />
+  </svg>
+);
+
 export const MapIcon = () => (
   <svg {...base}>
     <path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z" />
