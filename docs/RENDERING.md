@@ -48,7 +48,7 @@ Shadow-redraw frames draw the casting cells a second time, but happen only on lo
 
 The three.js chunk loads in parallel with the city data, so the HUD paints before the engine arrives.
 
-The smoke test checks the first frame (which also draws the shadow map) and the latest frame at every step: default view, after the controls, zoomed in, zoomed all the way out, walking a few steps, back on the map, and on a phone. Each visible cell is two draw calls (three from zoom 2, with its furniture), and a frame that redraws shadows adds one or two per casting cell; draw calls are cheap here because every cell shares one material and program, so the budget watches triangles first. Typical numbers for the whole ring plus Heverlee: 34 calls and 184k triangles at the default view, 12 and 84k zoomed in, 92 and 385k zoomed out, 78 and 531k for the first frame, 10 and 65k walking.
+The smoke test checks the first frame (which also draws the shadow map) and the latest frame at every step: default view, after the controls, zoomed in, zoomed all the way out, walking a few steps, back on the map, and on a phone. Each visible cell is two draw calls (three from zoom 2, with its furniture), and a frame that redraws shadows adds one or two per casting cell; draw calls are cheap here because every cell shares one material and program, so the budget watches triangles first. Typical numbers for the whole ring plus Heverlee: 34 calls and 184k triangles at the default view, 12 and 84k zoomed in, 92 and 385k zoomed out, 78 and 531k for the first frame, 14 and 80k walking.
 
 ## Growing the city
 
