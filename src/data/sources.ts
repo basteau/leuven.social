@@ -172,6 +172,19 @@ export const SOURCES: readonly Source[] = [
     usedBy: 'bake: mapped trees, street furniture and shop fronts',
   },
   {
+    id: 'osm-furniture-ways',
+    provider: 'osm',
+    kind: 'overpass',
+    title: 'Benches and bike parkings mapped as lines or areas, with their geometry',
+    // osm-points keeps one centre per way; this gives the same ways their shape, for the way
+    // they run and how long they are.
+    statements: 'way["amenity"~"^(bench|bicycle_parking)$"];',
+    out: 'tags geom',
+    tile: OVERPASS_TILE,
+    output: 'osm/furniture_ways.json',
+    usedBy: 'tools/build_leuven_data.py: the axis and length of benches and racks drawn as ways',
+  },
+  {
     id: 'osm-rail-platforms',
     provider: 'osm',
     kind: 'overpass',
