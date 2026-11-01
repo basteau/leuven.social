@@ -38,6 +38,9 @@ const city: City = {
   plazas: [],
   green: [box(10, 200, 20, 20)],
   water: [],
+  woods: [],
+  pitches: [],
+  parking: [],
   // A path from one cell into the other.
   paths: [{ width: 2, paved: true, line: new Float32Array([S - 20, 50, S + 20, 50]) }],
   // An electrified track across both cells, and a platform beside it across the seam.

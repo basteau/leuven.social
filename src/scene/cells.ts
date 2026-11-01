@@ -2,7 +2,8 @@ import type { Bounds, Building, Carriageway, City, Path, Prop, Rail, Tank } from
 import { clipLine, clipRing } from '../data/geometry.ts';
 import { addBuilding } from './buildings.ts';
 import type { PartyWalls } from './buildings.ts';
-import { addGround } from './ground.ts';
+import { addGround, addSlabInk } from './ground.ts';
+import { GROUND_RINGS } from './ground.ts';
 import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
 import { addFinePaint } from './paint.ts';
 import type { Marking } from './paint.ts';
@@ -33,7 +34,7 @@ export const CELL_SIZE = 350;
 export interface Cell {
   bounds: Bounds;
   buildings: Building[];
-  ground: { [K in 'green' | 'water' | 'roads' | 'plazas' | 'railLand']: Float32Array[] } & {
+  ground: { [K in (typeof GROUND_RINGS)[number]]: Float32Array[] } & {
     carriageways: Carriageway[];
     markings: Marking[];
     paths: Path[];
@@ -95,6 +96,9 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
           ground: {
             green: [],
             water: [],
+            woods: [],
+            pitches: [],
+            parking: [],
             roads: [],
             carriageways: [],
             markings: [],
@@ -156,7 +160,7 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
       if (piece.length >= 6) add(cell, Float32Array.from(piece));
     }
   };
-  for (const layer of ['green', 'water', 'roads', 'plazas', 'railLand'] as const) {
+  for (const layer of GROUND_RINGS) {
     for (const ring of city[layer]) cut(ring, (cell, piece) => cell.ground[layer].push(piece));
   }
   // Platforms too: their walls and edges are left out along a cut (see `addPlatform`).
@@ -229,6 +233,8 @@ export function buildCell(
   const rails = lines.segments;
   addMasts(lines, cell.masts);
   const detail = { rails, masts: lines.segments };
+  // Every other outline follows the rails and masts, which the view leaves out from afar.
+  addSlabInk(lines, area, cell.bounds);
   for (const p of cell.railParapets) addRailParapet(mesh, lines, p);
   for (const ring of cell.platforms) addPlatform(mesh, lines, ring, cell.bounds);
   for (const bay of cell.canopies) addCanopyBay(mesh, lines, bay);

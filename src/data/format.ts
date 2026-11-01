@@ -2,8 +2,8 @@
  * The compact binary city format ("LVN1"), served gzipped from public/data/.
  *
  * Layout: magic "LVN1", version, area rectangles, labels (with the zoom they show from), buildings,
- * carriageways, markings, seven polygon layers (roads, plazas, green, water, platforms, railway
- * land, platform roofs), paths, rails, trees, props, tanks, parapets.
+ * carriageways, markings, ten polygon layers (roads, plazas, green, water, platforms, railway
+ * land, platform roofs, woods, pitches, car parks), paths, rails, trees, props, tanks, parapets.
  * Coordinates are decimetres, zigzag varints, delta-encoded within each ring.
  * A building packs tier (2 bits), kind (4 bits) and roof (2 bits) into one byte, then its
  * height, roof rise and roof colour (0 = none, else 0xRRGGBB + 1), outer ring and courtyards.
@@ -33,7 +33,7 @@ import type { Bounds, Building, Carriageway, City, Marking, Prop, Rail } from '.
 import { boundsOf } from './geometry.ts';
 
 const MAGIC = 'LVN1';
-const VERSION = 9;
+const VERSION = 10;
 const DM = 10; // units per metre
 const ZIGZAG = { encoding: 'zigzag' } as const;
 const TURN = Math.PI * 2;
@@ -128,6 +128,9 @@ export function encodeCity(city: City): Uint8Array {
     city.platforms,
     city.railLand,
     city.canopies,
+    city.woods,
+    city.pitches,
+    city.parking,
   ];
   for (const layer of layers) {
     w.varint(layer.length);
@@ -229,10 +232,19 @@ export function decodeCity(bytes: Uint8Array): City {
     if (!kind) throw new CityFormatError('Bad marking kind.');
     return { kind, line: readRing(r) };
   });
-  const [roads, plazas, green, water, platforms, railLand, canopies] = Array.from(
-    { length: 7 },
-    () => Array.from({ length: r.varint() }, () => readRing(r)),
-  ) as [Rings, Rings, Rings, Rings, Rings, Rings, Rings];
+  const [roads, plazas, green, water, platforms, railLand, canopies, woods, pitches, parking] =
+    Array.from({ length: 10 }, () => Array.from({ length: r.varint() }, () => readRing(r))) as [
+      Rings,
+      Rings,
+      Rings,
+      Rings,
+      Rings,
+      Rings,
+      Rings,
+      Rings,
+      Rings,
+      Rings,
+    ];
 
   const paths = Array.from({ length: r.varint() }, () => {
     const packed = r.varint();
@@ -279,6 +291,9 @@ export function decodeCity(bytes: Uint8Array): City {
     plazas,
     green,
     water,
+    woods,
+    pitches,
+    parking,
     paths,
     rails,
     platforms,

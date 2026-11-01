@@ -4,9 +4,11 @@
  */
 
 import type { CarriagewayKind, Kind } from '../data/city.ts';
+import { fromOklab, toOklab } from '../data/colour.ts';
 
 export const WALLS: Record<Kind, readonly number[]> = {
-  house: [0xb5523b, 0xc0674a, 0xa84a3a, 0xe8dcc4, 0xf0e6d0, 0xd9c7a8, 0xc98e6c],
+  // Red and dark brown brick, yellow brick, whitewash, cream and sand plaster.
+  house: [0xb5523b, 0xc0674a, 0xa84a3a, 0x94573f, 0xd6bd85, 0xe5d9c0, 0xebe2cc, 0xd9c7a8, 0xc98e6c],
   apartments: [0xd8cfc0, 0xc4b8a6, 0xb9a48a, 0xe2d6c2],
   retail: [0xe9dcc6, 0xd96f4e, 0xf2e8d5, 0xc8a882],
   civic: [0xe6dcc8, 0xd8c9a8, 0xcdbb94],
@@ -15,18 +17,24 @@ export const WALLS: Record<Kind, readonly number[]> = {
   other: [0xd6cbb8, 0xc7b8a0, 0xb8a58c],
 };
 
-/** Hero landmarks: their own stones and dark slate, so they stand out from the streets. */
+/**
+ * Hero landmarks: their own stones and dark slate. Each is the lightest, most colourful thing
+ * in its street, so the eye finds it first.
+ */
 export const LANDMARK = {
-  sandstone: 0xe4cf9f,
-  limestone: 0xd8cba8,
-  brick: 0xb35a40,
-  trim: 0xeee3c9,
+  sandstone: 0xf4dca2,
+  limestone: 0xf0e2bb,
+  brick: 0xc85c3a,
+  trim: 0xfaf0d8,
   slate: 0x4a5161,
   spire: 0x3b4150,
 } as const;
 
-/** Café parasols on the squares: each café keeps one colour along its stretch of terrace. */
-export const PARASOLS = [0xf6eedc, 0xd2553f, 0xe8b94a, 0xe07b4f, 0x8db36f] as const;
+/**
+ * Café parasols on the squares: each café keeps one colour along its stretch of terrace. Beer
+ * brand reds, cream, mustard, orange and a blue; no green, which read as a hedge from above.
+ */
+export const PARASOLS = [0xf6eedc, 0xd2553f, 0xe8b94a, 0xe07b4f, 0x4a77a8] as const;
 
 /**
  * Street furniture: dark lamp posts and shelters that read like the ink outlines, warm wood,
@@ -51,43 +59,31 @@ export const BIKES = [
   0x2f3a4a, 0x2b2420, 0xd2553f, 0xf6eedc, 0x8db36f, 0x5b6170, 0xe8b94a,
 ] as const;
 
-export const PITCHED_ROOFS = [0x4f5664, 0x5b6170, 0x46505e, 0xa9553e, 0xb8613f, 0x9b4a36];
-export const FLAT_ROOFS = [0xb3aa9c, 0xa89f92, 0xbfb6a6];
+export const PITCHED_ROOFS = [0x4f5666, 0x3c4354, 0x6c707a, 0x7a3e31, 0x9c4a35, 0xb85e3c];
+export const FLAT_ROOFS = [0x8e8f92, 0x9a9996, 0xa7a49d];
 
 /**
- * Roof colours sampled from the orthophotos snap to these swatches. `ref` is what that roof
- * looks like in the (hazy, winter) aerial photo; `pitched` and `flat` are how the diorama paints
- * it. Flat roofs stay light, never darker than the streets, so they read as quiet backdrop.
+ * Roof colours sampled from the orthophotos snap to these swatches. `ref` is what that roofing
+ * looks like in the white-balanced, stretched aerial photo (src/data/roof-colours.ts): the
+ * centres of Leuven's own roof colour clusters. `pitched` and `flat` are how the diorama paints
+ * it. Flat roofs are cool greys a step darker than the plaster walls, so a block doesn't read as
+ * one solid slab, but never darker than the streets.
  */
 export const ROOF_SWATCHES: readonly { ref: number; pitched: number; flat: number }[] = [
-  { ref: 0x48536a, pitched: 0x3c4354, flat: 0x958f86 }, // dark slate, glazed black tiles
-  { ref: 0x6c717c, pitched: 0x4a5161, flat: 0x9c958b }, // slate
-  { ref: 0x82878c, pitched: 0x585e6c, flat: 0xa39b8f }, // weathered slate, bitumen
-  { ref: 0x959a9a, pitched: 0x6a6f79, flat: 0xaba397 }, // grey tiles, zinc
-  { ref: 0xadb1ad, pitched: 0x81827f, flat: 0xb6aea1 }, // concrete tiles, gravel
-  { ref: 0xd0dace, pitched: 0x9a9a92, flat: 0xc8c1b2 }, // pale membrane, glass
-  { ref: 0x8c7d73, pitched: 0x7e3f30, flat: 0xa08a7a }, // dark red tiles
-  { ref: 0xada097, pitched: 0x9b4a36, flat: 0xae9a89 }, // old red tiles
-  { ref: 0xcebbaa, pitched: 0xb8613f, flat: 0xbaa794 }, // terracotta
-  { ref: 0x8c9c78, pitched: 0x667f4c, flat: 0x93a66d }, // moss, sedum
+  { ref: 0x5b5b7f, pitched: 0x3c4354, flat: 0x85878e }, // dark slate, glazed black tiles
+  { ref: 0x7e7e8b, pitched: 0x4f5666, flat: 0x8e8f92 }, // slate
+  { ref: 0x9f9e9a, pitched: 0x6c707a, flat: 0x9a9996 }, // zinc, grey tiles, bitumen
+  { ref: 0xcac8b4, pitched: 0x8e8b84, flat: 0xaeaaa0 }, // concrete tiles, pale membrane, glass
+  { ref: 0x9c7e81, pitched: 0x7a3e31, flat: 0x958680 }, // old dark red tiles
+  { ref: 0xbf9c8b, pitched: 0x9c4a35, flat: 0x9c8b80 }, // red tiles
+  { ref: 0xe5af8c, pitched: 0xb85e3c, flat: 0xa99482 }, // terracotta
+  { ref: 0x7e8c6c, pitched: 0x667f4c, flat: 0x8d9e6a }, // moss, sedum
 ];
-
-function linear(c: number): number {
-  const u = c / 255;
-  return u <= 0.04045 ? u / 12.92 : ((u + 0.055) / 1.055) ** 2.4;
-}
 
 /** Oklab with chroma weighted 3×: on a roof, hue tells tile from slate more than lightness. */
 function roofSpace(hex: number): [number, number, number] {
-  const [r, g, b] = [linear((hex >> 16) & 255), linear((hex >> 8) & 255), linear(hex & 255)];
-  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b);
-  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b);
-  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);
-  return [
-    0.2104542553 * l + 0.793617785 * m - 0.0040720468 * s,
-    3 * (1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s),
-    3 * (0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s),
-  ];
+  const [l, a, b] = toOklab(hex);
+  return [l, 3 * a, 3 * b];
 }
 
 const SWATCH_SPACE = ROOF_SWATCHES.map((s) => roofSpace(s.ref));
@@ -113,14 +109,20 @@ export const GROUND = {
   base: 0xb4be8e,
   earth: 0x6b4f3a,
   green: 0x86b064,
+  /** The floor of woods and scrub: a deeper, cooler green under the trees. */
+  woods: 0x6a9450,
+  /** Sports pitches: mown, the brightest green on the map. */
+  pitch: 0x8fbd5a,
+  /** Car parks: asphalt like the streets, a shade lighter. */
+  parking: 0x97938b,
   /** The road surface where no carriageway lies on it: pale slabs, like the footpaths. */
   pavement: 0xb3afa6,
-  plaza: 0xd7c6a3,
+  plaza: 0xd8bb90,
   water: 0x5f9fc4,
   /** Paved footpaths: pale slabs, lighter than the roads. */
   path: 0xb9b0a0,
   /** Gravel and earth trails through the parks. */
-  trail: 0xd8c79f,
+  trail: 0xd6bf90,
   /** Railway land: the gravel between and beside the tracks, paler than their ballast. */
   railway: 0xaca291,
 } as const;
@@ -156,11 +158,21 @@ export const CARRIAGEWAYS: Record<CarriagewayKind, number> = {
 /** Road paint: white lines and bars, the grey they average to from afar, and cycle-lane red. */
 export const PAINT = { line: 0xf1ede2, patch: 0xb0aca4, bike: 0xa8604c } as const;
 
+/**
+ * Trees: one crown green that each tree strays from (lighter or darker, towards yellow or blue
+ * green), so a park reads as many trees rather than one pattern. Old, tall trees are darker.
+ */
 export const TREE = {
   crown: 0x6a9a4a,
   trunk: 0x6b4a32,
-  tints: [0xffffff, 0xe3eed6, 0xd2e0c2, 0xf4f1dc],
+  /** Oklab spread: lightness, and a turn of the hue (radians) between yellow and blue green. */
+  jitter: { l: 0.035, hue: 0.16 },
+  /** Lightness lost by a 25 m tree against a 7 m one. */
+  age: 0.05,
 } as const;
+
+/** Shop awnings over the ground-floor windows: one canvas per bay. */
+export const AWNINGS = [0xd2553f, 0x2f6b4f, 0x4a77a8, 0xe8b94a, 0x7a3e31, 0xf6eedc] as const;
 
 /**
  * The walker: a Leuven student in a coat of the HUD's accent blue, with a mustard scarf and a
@@ -187,13 +199,35 @@ export const SUN = 0xffe2b8;
 export const SKY_LIGHT = 0xcfe3ff;
 export const BOUNCE_LIGHT = 0x9a8a70;
 
-/** Deterministic pick so a building keeps its colour across reloads and rebakes. */
-export function pick<T>(list: readonly T[], seed: number): T {
+/** How far a building's wall strays from its swatch: lightness, and each hue axis (Oklab). */
+const WALL_JITTER = { l: 0.035, ab: 0.007 } as const;
+
+/**
+ * A building's wall colour: a swatch for its kind, nudged a little lighter or darker, warmer
+ * or cooler by its id, so a row of houses painted from the same swatch still reads as separate
+ * houses. Deterministic, like `pick`.
+ */
+export function wallColor(kind: Kind, id: number): number {
+  const [l, a, b] = toOklab(pick(WALLS[kind], id));
+  const unit = (salt: number) => (hash(id * 31 + salt) / 0xffffffff) * 2 - 1;
+  return fromOklab([
+    l + unit(1) * WALL_JITTER.l,
+    a + unit(2) * WALL_JITTER.ab,
+    b + unit(3) * WALL_JITTER.ab,
+  ]);
+}
+
+function hash(seed: number): number {
   let h = Math.imul(seed ^ 0x9e3779b9, 0x85ebca6b);
   h ^= h >>> 13;
   h = Math.imul(h, 0xc2b2ae35);
   h ^= h >>> 16;
-  return list[(h >>> 0) % list.length]!;
+  return h >>> 0;
+}
+
+/** Deterministic pick so a building keeps its colour across reloads and rebakes. */
+export function pick<T>(list: readonly T[], seed: number): T {
+  return list[hash(seed) % list.length]!;
 }
 
 /**

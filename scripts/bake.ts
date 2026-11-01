@@ -22,6 +22,7 @@ import { packCity } from '../src/data/format.ts';
 import {
   areaIndex,
   clipLine,
+  uncoveredPieces,
   clipRingToArea,
   joinRings,
   normalizeRing,
@@ -38,6 +39,9 @@ import type { OsmElement } from '../src/data/labels.ts';
 import { EdgeIndex, RingIndex, placeProps } from '../src/data/props.ts';
 import { carriagewayKind, crossingMarking } from '../src/data/roads.ts';
 import type { RoadRole } from '../src/data/roads.ts';
+import { correctRoofColours } from '../src/data/roof-colours.ts';
+import { capShedsUnderTrees } from '../src/data/sheds.ts';
+import { isShopFront, markShopFronts } from '../src/data/shops.ts';
 import { bridgeParapets, tankOutline } from '../src/data/structures.ts';
 import { SOURCES } from '../src/data/sources.ts';
 import { mergeTrees } from '../src/data/trees.ts';
@@ -121,8 +125,15 @@ const layer = (features: Feature[], keep: (p: Props) => boolean, minArea = 0) =>
     .filter((r) => r.length >= 6 && Math.abs(signedArea(r)) >= minArea)
     .map((r) => new Float32Array(r));
 
-const GREEN_LEISURE = new Set(['park', 'garden', 'playground', 'pitch']);
-const GREEN_LANDUSE = new Set(['grass', 'meadow', 'cemetery', 'forest', 'recreation_ground']);
+const GREEN_LEISURE = new Set(['park', 'garden', 'playground']);
+const GREEN_LANDUSE = new Set([
+  'grass',
+  'meadow',
+  'cemetery',
+  'recreation_ground',
+  'village_green',
+]);
+const WOODS = (p: Props) => p.landuse === 'forest' || p.natural === 'wood' || p.natural === 'scrub';
 
 /** Courtyards smaller than this are light wells: below a game pixel, and not worth the walls. */
 const MIN_COURTYARD = 12;
@@ -170,6 +181,26 @@ for (const b of local.buildings) {
     holes,
   });
 }
+
+// The orthophoto's roof colours, white-balanced on the flat roofs (src/data/roof-colours.ts).
+const roofSamples = buildings.map((b) => ({
+  roofColor: b.roofColor,
+  flat: b.roof === 'flat',
+  ring: b.ring,
+}));
+correctRoofColours(roofSamples);
+for (const [i, b] of buildings.entries()) b.roofColor = roofSamples[i]!.roofColor;
+
+// Garden sheds whose LiDAR height is the tree over them (src/data/sheds.ts).
+const shedsCapped = capShedsUnderTrees(buildings, crowns.trees);
+
+// Shop fronts where OSM maps a shop, café or restaurant inside the footprint.
+const shopFronts = markShopFronts(
+  buildings,
+  osmPoints.features
+    .filter((f) => isShopFront(f.properties) && f.geometry.type === 'Point')
+    .flatMap((f) => toLocal(...(f.geometry.coordinates as [number, number]))),
+);
 
 const closedPedestrianArea = (p: Props) =>
   (p.highway === 'pedestrian' || p.highway === 'footway') && p.area === 'yes';
@@ -284,6 +315,24 @@ const water = [
   ...layer(osmAreas.features, (p) => p.natural === 'water'),
 ];
 
+// A path under a road surface or a square is never seen (44% of their length): keep the rest.
+const paved = new RingIndex();
+for (const ring of [...roads, ...plazas]) paved.add(ring);
+const shownPaths: Path[] = paths.flatMap((p) =>
+  uncoveredPieces(p.line, (x, z) => paved.contains(x, z)).map((piece): Path => ({
+    width: p.width,
+    paved: p.paved,
+    line: new Float32Array(piece),
+  })),
+);
+const pathLength = (list: Path[]) =>
+  list.reduce((sum, { line }) => {
+    for (let i = 0; i + 3 < line.length; i += 2) {
+      sum += Math.hypot(line[i + 2]! - line[i]!, line[i + 3]! - line[i + 1]!);
+    }
+    return sum;
+  }, 0);
+
 // Street furniture faces the nearest kerb, path or wall, and never stands in a house or the river.
 const edges = new EdgeIndex();
 for (const ring of [...roads, ...plazas, ...buildings.map((b) => b.ring)]) edges.add(ring);
@@ -356,8 +405,15 @@ const city: City = {
     (p) => GREEN_LEISURE.has(p.leisure ?? '') || GREEN_LANDUSE.has(p.landuse ?? ''),
     MIN_GREEN_AREA,
   ),
+  woods: layer(osmAreas.features, WOODS, MIN_GREEN_AREA),
+  pitches: layer(osmAreas.features, (p) => p.leisure === 'pitch', MIN_GREEN_AREA),
+  parking: layer(
+    osmAreas.features,
+    (p) => p.amenity === 'parking' && p.parking !== 'underground' && p.parking !== 'multi-storey',
+    MIN_GREEN_AREA,
+  ),
   water,
-  paths,
+  paths: shownPaths,
   rails,
   platforms,
   railLand,
@@ -385,9 +441,11 @@ console.log(
       .map(([k, v]) => `${k} ${v?.length}`)
       .join(', ')}`,
     `plazas ${city.plazas.length}, green ${city.green.length}, water ${city.water.length}`,
-    `paths ${paths.length} (${paths.filter((p) => !p.paved).length} unpaved)`,
+    `woods ${city.woods.length}, pitches ${city.pitches.length}, parking ${city.parking.length}`,
+    `paths ${shownPaths.length} (${shownPaths.filter((p) => !p.paved).length} unpaved), ${(pathLength(shownPaths) / 1000).toFixed(0)} of ${(pathLength(paths) / 1000).toFixed(0)} km not under a road or square`,
     `rails ${rails.length} (${rails.filter((r) => r.bridge).length} on bridges, ${rails.reduce((sum, r) => sum + r.line.length / 2 - 1, 0)} segments), platforms ${city.platforms.length}, railway land ${railLand.length}, platform roofs ${canopies.length}`,
     `trees ${trees.heights.length} (${osmTrees.length / 2} mapped), labels ${city.labels.length}`,
+    `sheds under trees capped ${shedsCapped}, shop fronts ${shopFronts} (${buildings.filter((b) => b.kind === 'retail').length} retail)`,
     `roofs ${buildings.filter((b) => b.roof === 'flat').length} flat, ${buildings.filter((b) => b.roofColor !== null).length} with a sampled colour, ${buildings.filter((b) => b.holes.length).length} with courtyards`,
     `props ${props.length}: ${Object.entries(Object.groupBy(props, (p) => p.kind))
       .map(([kind, list]) => `${list!.length} ${kind}`)

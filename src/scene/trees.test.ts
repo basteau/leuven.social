@@ -1,7 +1,9 @@
 import { expect, test } from 'bun:test';
 
 import { MeshBuilder } from './mesh-builder.ts';
-import { MODEL_HEIGHT, TREE_TRIANGLES, addTree } from './trees.ts';
+import { deltaE, toOklab } from '../data/colour.ts';
+import { TREE } from './palette.ts';
+import { MODEL_HEIGHT, TREE_TRIANGLES, addTree, crownColor } from './trees.ts';
 
 test('a tree is a slim trunk and a low-poly crown, all facing outward', () => {
   const mesh = new MeshBuilder();
@@ -39,4 +41,11 @@ test('a surveyed tree grows to its height, within what the model can stretch to'
   expect(size(1, 13.6)).toBeCloseTo(13.6, 0);
   expect(size(1, 1)).toBeCloseTo(MODEL_HEIGHT * 0.7, 1);
   expect(size(1, 60)).toBeCloseTo(MODEL_HEIGHT * 2.8, 1);
+});
+
+test('every tree has its own green near the crown colour, older ones darker', () => {
+  const greens = Array.from({ length: 100 }, (_, seed) => crownColor(seed, 10));
+  expect(new Set(greens).size).toBeGreaterThan(30);
+  for (const green of greens) expect(deltaE(green, TREE.crown)).toBeLessThan(0.08);
+  expect(toOklab(crownColor(5, 25))[0]).toBeLessThan(toOklab(crownColor(5, 7))[0]);
 });

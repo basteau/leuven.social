@@ -150,7 +150,8 @@ export const SOURCES: readonly Source[] = [
     out: 'tags geom',
     tile: OVERPASS_TILE,
     output: 'osm/areas.json',
-    usedBy: 'bake: green, water, plazas, labels, railway tracks and railway land',
+    usedBy:
+      'bake: green, woods, pitches, car parks, water, plazas, labels, railway tracks and railway land',
   },
   {
     id: 'osm-points',
@@ -168,7 +169,7 @@ export const SOURCES: readonly Source[] = [
     out: 'tags center',
     tile: 0.025,
     output: 'osm/points.json',
-    usedBy: 'bake: mapped trees, street furniture and labels',
+    usedBy: 'bake: mapped trees, street furniture, shop fronts and labels',
   },
   {
     id: 'osm-rail-platforms',

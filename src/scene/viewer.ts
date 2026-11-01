@@ -27,6 +27,8 @@ import { partyWalls } from './buildings.ts';
 import { buildCell, partition } from './cells.ts';
 import type { Cell, DetailMarks } from './cells.ts';
 import { createFacadeMaterial, setPixelSize } from './facade-material.ts';
+import { labelHeights } from './label-anchors.ts';
+import { LIGHT } from './lighting.ts';
 import { SLAB_DEPTH } from './ground.ts';
 import { LINE_LOD } from './paint.ts';
 import type { V3 } from './mesh-builder.ts';
@@ -91,7 +93,6 @@ const VIEW_HEIGHT = 560;
 const PITCH = Math.atan(1 / Math.SQRT2); // true isometric, ≈ 35.26°
 const CAMERA_DISTANCE = 2000;
 const ROTATE_MS = 280;
-const LABEL_HEIGHT = 28;
 /** Seen from the street, labels further than this would float over the houses in front (m). */
 const LABEL_REACH = 160;
 /** Around the walker, shadows reach this far, whichever way it looks (m). */
@@ -216,8 +217,8 @@ export function createViewer(options: ViewerOptions): Viewer {
     scene.add(surfaces, outlines, furniture);
   }
 
-  scene.add(new HemisphereLight(SKY_LIGHT, BOUNCE_LIGHT, 1.3));
-  const sun = new DirectionalLight(SUN, 2.2);
+  scene.add(new HemisphereLight(SKY_LIGHT, BOUNCE_LIGHT, LIGHT.sky));
+  const sun = new DirectionalLight(SUN, LIGHT.sun);
   const light = lightFrame(SUN_DIRECTION);
   sun.castShadow = true;
   sun.shadow.mapSize.set(SHADOW_MAP, SHADOW_MAP);
@@ -282,12 +283,13 @@ export function createViewer(options: ViewerOptions): Viewer {
   });
   labelLayer.append(...labelEls);
   // Measure after all are in the DOM: one layout instead of one per label.
+  const anchors = labelHeights(city.labels, city.buildings);
   const labels = labelEls.map((el, i) => ({
     el,
     w: el.offsetWidth,
     h: el.offsetHeight,
     minZoom: city.labels[i]!.minZoom,
-    world: new Vector3(city.labels[i]!.x, LABEL_HEIGHT, city.labels[i]!.z),
+    world: new Vector3(city.labels[i]!.x, anchors[i]!, city.labels[i]!.z),
   }));
   const placed: [number, number, number, number][] = [];
   const projected = new Vector3();

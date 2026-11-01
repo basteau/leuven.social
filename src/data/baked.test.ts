@@ -22,6 +22,7 @@ test('public/data/city.bin decodes into a plausible Leuven', async () => {
   expect(city.markings.filter((m) => m.kind === 'dashed').length).toBeGreaterThan(50);
   expect(city.markings.filter((m) => m.kind === 'zebra').length).toBeGreaterThan(50);
   expect(city.water.length).toBeGreaterThan(0);
+  expect(city.woods.length + city.pitches.length + city.parking.length).toBeGreaterThan(0);
   expect(city.trees.length / 2).toBeGreaterThan(100);
   expect(city.labels.map((l) => l.name)).toContain('Stadhuis');
 });
