@@ -1,5 +1,12 @@
+import type { Tower } from '../data/city.ts';
 import { orientedRect } from '../data/geometry.ts';
 import type { LineBuilder, MeshBuilder, V3 } from './mesh-builder.ts';
+
+/**
+ * Added to a wall's `facade` value (its top height) on a church: the facade shader draws tall
+ * pointed lancet windows instead of the window grid (facade-material.ts).
+ */
+export const LANCETS = 400;
 
 /**
  * Hero landmarks as a few low-poly parts placed in their footprint's frame: u runs along the
@@ -52,8 +59,8 @@ export interface LandmarkModel {
   base: number;
   wall: number;
   roof: number;
-  /** Whether the base and halls get the window grid; churches don't. */
-  windows: boolean;
+  /** Whether the base and halls get the window grid, or a church's lancets. */
+  windows: boolean | 'lancet';
   parts: readonly Part[];
 }
 
@@ -83,7 +90,7 @@ function addHall(mesh: MeshBuilder, lines: LineBuilder, f: Frame, h: Hall, m: La
     return [x - ox, y, z - oz];
   };
   const { length: L, width: W, eave, from = 0 } = h;
-  const facade = h.windows && m.windows ? eave : 0;
+  const facade = m.windows === 'lancet' ? eave + LANCETS : h.windows && m.windows ? eave : 0;
   const corners = [
     [-L, -W],
     [L, -W],
@@ -138,13 +145,12 @@ function addHall(mesh: MeshBuilder, lines: LineBuilder, f: Frame, h: Hall, m: La
 
 function addSpire(
   mesh: MeshBuilder,
-  lines: LineBuilder,
+  lines: Pick<LineBuilder, 'segment'>,
   f: Frame,
   s: Spire,
-  m: LandmarkModel,
+  wall: number,
+  roof: number,
 ): void {
-  const wall = s.wall ?? m.wall;
-  const roof = s.roof ?? m.roof;
   const from = s.from ?? 0;
   // Square towers sit square to the footprint; octagons put a face towards each axis too.
   const turn = Math.PI / s.sides;
@@ -187,6 +193,28 @@ export function addLandmark(
   const frame = orientedRect(ring);
   for (const part of model.parts) {
     if (part.type === 'hall') addHall(mesh, lines, frame, part, model);
-    else addSpire(mesh, lines, frame, part, model);
+    else addSpire(mesh, lines, frame, part, part.wall ?? model.wall, part.roof ?? model.roof);
   }
+}
+
+/** Under this radius (m) a church's tower is a slender spire on the ridge: an octagon. */
+const TURRET = 2;
+
+/**
+ * A church's tower from the LiDAR (tools/build_leuven_data.py), square to its footprint, in the
+ * church's walls under a slate spire: the same tower a landmark model would get.
+ */
+export function addTower(
+  mesh: MeshBuilder,
+  lines: Pick<LineBuilder, 'segment'>,
+  ring: ArrayLike<number>,
+  tower: Tower,
+  wall: number,
+  roof: number,
+): void {
+  const { ux, uz } = orientedRect(ring);
+  const sides = tower.radius < TURRET ? 8 : 4;
+  const { radius, top, tip } = tower;
+  const spire: Spire = { type: 'spire', u: 0, v: 0, radius, sides, top, tip };
+  addSpire(mesh, lines, { cx: tower.x, cz: tower.z, ux, uz }, spire, wall, roof);
 }

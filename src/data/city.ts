@@ -10,8 +10,30 @@ export type Tier = (typeof TIERS)[number];
 export const KINDS = ['other', 'house', 'apartments', 'retail', 'civic', 'church', 'shed'] as const;
 export type Kind = (typeof KINDS)[number];
 
-export const ROOFS = ['auto', 'flat', 'gabled', 'hipped'] as const;
+/**
+ * 'gabled' is any pitched roof; the renderer picks gable or hip from the footprint and puts a
+ * gable's ridge along its long side. 'across' is a pitched roof whose slopes the LiDAR saw facing
+ * along that side, so a gable's ridge runs across it: a terraced house on a deep plot, its ridge
+ * parallel to the street (`roofAcross`).
+ */
+export const ROOFS = ['auto', 'flat', 'gabled', 'hipped', 'across'] as const;
 export type Roof = (typeof ROOFS)[number];
+
+/**
+ * A church tower the LiDAR saw rising far over the nave: a square tower with a pointed spire, or
+ * a slender spire on the ridge (a turret) when its walls end at the roof (`top` equals the
+ * building's height).
+ */
+export interface Tower {
+  /** Centre, local metres. */
+  x: number;
+  z: number;
+  /** From the centre to a corner: a square tower of the area the LiDAR saw. */
+  radius: number;
+  /** Top of its walls and tip of its spire, metres above ground. */
+  top: number;
+  tip: number;
+}
 
 export interface Building {
   id: number;
@@ -27,6 +49,8 @@ export interface Building {
   ring: Float32Array;
   /** Courtyards: inner rings, clockwise in (x, z). */
   holes: Float32Array[];
+  /** A church's tower, where the LiDAR saw one. */
+  tower?: Tower;
 }
 
 /** A footpath, cycle path or park path, drawn as a ribbon on the ground. */
@@ -243,6 +267,32 @@ export function roofFromSurvey(osm: string | null | undefined, pitchedShare?: nu
   const tagged = roofFromOsm(osm);
   if (tagged !== 'auto' || pitchedShare === null || pitchedShare === undefined) return tagged;
   return pitchedShare >= PITCHED_SHARE ? 'gabled' : 'flat';
+}
+
+/**
+ * How strongly a roof's slopes must face along the footprint's long side to turn its ridge across:
+ * the share of their (squared) steepness along that side. Gables with the ridge along the long
+ * side measure under 0.35, turned ones over 0.65; between is a hip, or a roof too broken to say.
+ */
+export const ACROSS_SHARE = 0.65;
+
+/**
+ * Turns a pitched roof's ridge across the footprint where its slopes face along the long side
+ * (`facing` from tools/build_leuven_data.py: the axis they face, in degrees from x towards z, and
+ * how strongly they keep to it, 0–1). `along` is the footprint's long side as a unit vector.
+ */
+export function roofAcross(
+  roof: Roof,
+  facing: readonly [number, number] | null | undefined,
+  along: { ux: number; uz: number },
+): Roof {
+  if (roof !== 'gabled' || !facing) return roof;
+  const [degrees, strength] = facing;
+  const angle = (degrees * Math.PI) / 180;
+  // The share along u of slopes spread round one axis: ½(1 + strength · cos 2Δ).
+  const cos = Math.cos(angle) * along.ux + Math.sin(angle) * along.uz;
+  const share = 0.5 * (1 + strength * (2 * cos * cos - 1));
+  return share > ACROSS_SHARE ? 'across' : roof;
 }
 
 /** Path widths by OSM `highway=*` where the way has no usable `width` tag (m). */

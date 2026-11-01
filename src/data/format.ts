@@ -3,12 +3,12 @@
  *
  * Layout: magic "LVN1", version, area rectangles, buildings, carriageways, markings, eleven polygon
  * layers (roads, plazas, green, water, platforms, railway land, platform roofs, woods, pitches,
- * car parks, bridge decks), paths, rails, trees, props, tanks, parapets, street names.
+ * car parks, bridge decks), paths, rails, trees, props, tanks, parapets, street names, church towers.
  * Coordinates are decimetres, zigzag varints, delta-encoded within each ring. A ring starts from
  * where the ring before it in the same list started (the first from 0, 0): the bake writes
  * neighbours next to each other, so the jump is short.
  * A building is its id (zigzag, the change from the building before), then tier (2 bits), kind
- * (4 bits) and roof (2 bits) packed into one byte, then its height, roof rise and roof colour
+ * (3 bits) and roof (3 bits) packed into one byte, then its height, roof rise and roof colour
  * (0 = none, else 0xRRGGBB + 1), outer ring and courtyards.
  * Carriageways and markings are a kind byte each, then a ring (markings: a line).
  * Paths are a width in decimetres shifted left one bit over a paved flag, then a centre line.
@@ -20,6 +20,9 @@
  * Tanks are a height in decimetres and a footprint each; parapets are open lines.
  * Street names are a table of strings, then each street as its name's place in the table and a
  * centre line, then one number per plaza: 0 for none, else its name's place plus one.
+ * Church towers (v13) come last, as few as there are churches with one: each is its building's
+ * place in the list (the change from the tower before), its centre (zigzag decimetres), radius,
+ * wall top and tip (decimetres). The decoder hangs each on its building as `tower`.
  */
 
 import * as Binary from '@portable/binary';
@@ -108,7 +111,7 @@ export function encodeCity(city: City): Uint8Array {
   for (const b of city.buildings) {
     w.varint(b.id - id, ZIGZAG);
     id = b.id;
-    w.uint8(TIERS.indexOf(b.tier) | (KINDS.indexOf(b.kind) << 2) | (ROOFS.indexOf(b.roof) << 6));
+    w.uint8(TIERS.indexOf(b.tier) | (KINDS.indexOf(b.kind) << 2) | (ROOFS.indexOf(b.roof) << 5));
     const height = Math.round(b.height * DM);
     w.varint(height);
     w.varint(Math.max(0, height - Math.round(b.eave * DM)));
@@ -200,6 +203,17 @@ export function encodeCity(city: City): Uint8Array {
     writeRing(w, street.line, at);
   }
   for (const name of city.plazaNames) w.varint(name + 1);
+
+  const towers = city.buildings.flatMap((b, i) => (b.tower ? [{ i, ...b.tower }] : []));
+  w.varint(towers.length);
+  let place = 0;
+  for (const t of towers) {
+    w.varint(t.i - place);
+    place = t.i;
+    w.varint(Math.round(t.x * DM), ZIGZAG);
+    w.varint(Math.round(t.z * DM), ZIGZAG);
+    for (const v of [t.radius, t.top, t.tip]) w.varint(Math.round(v * DM));
+  }
   return w.toBytes();
 }
 
@@ -225,8 +239,8 @@ export function decodeCity(bytes: Uint8Array): City {
     const id = (previous += r.varint(ZIGZAG));
     const packed = r.uint8();
     const tier = TIERS[packed & 0b11];
-    const kind = KINDS[(packed >> 2) & 0b1111];
-    const roof = ROOFS[packed >> 6];
+    const kind = KINDS[(packed >> 2) & 0b111];
+    const roof = ROOFS[packed >> 5];
     if (!tier || !kind || !roof) throw new CityFormatError(`Bad building flags ${packed}.`);
     const height = r.varint();
     const eave = (height - r.varint()) / DM;
@@ -335,6 +349,14 @@ export function decodeCity(bytes: Uint8Array): City {
     if (name >= streetNames.length) throw new CityFormatError(`Bad square name ${name}.`);
     return name;
   });
+  let place = 0;
+  for (let n = r.varint(); n > 0; n--) {
+    const b = buildings[(place += r.varint())];
+    if (!b) throw new CityFormatError(`Bad tower building ${place}.`);
+    const [x, z] = [r.varint(ZIGZAG) / DM, r.varint(ZIGZAG) / DM];
+    const [radius, top, tip] = [r.varint() / DM, r.varint() / DM, r.varint() / DM];
+    b.tower = { x, z, radius, top, tip };
+  }
   if (r.remaining !== 0) throw new CityFormatError(`${r.remaining} trailing bytes.`);
   return {
     area,
