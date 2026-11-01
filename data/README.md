@@ -1,6 +1,6 @@
 # data/
 
-Raw downloads and derived files for the map: `AREA` in `src/data/area.ts` (the R23 ring with the station, and Heverlee from Arenbergpark to the Abdij van Park) plus a 100 m margin. Only this README and `sources.lock.json` are committed; the rest is about 230 MB.
+Raw downloads and derived files for the map: `AREA` in `src/data/area.ts` (the R23 ring with the station and its whole track bundle, and Heverlee from Arenbergpark to the Abdij van Park) plus a 100 m margin. Only this README and `sources.lock.json` are committed; the rest is about 230 MB.
 
 Make it all with `bun run data:fetch` (downloads) and `bun run data:build` (derived files), or `bun run data` to bake `public/data/city.bin` too. [docs/DATA.md](../docs/DATA.md) explains the pipeline; `src/data/sources.ts` lists every source with its request, licence and credit. Don't download into this folder by hand: add a source there instead.
 

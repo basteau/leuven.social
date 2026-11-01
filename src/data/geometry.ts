@@ -341,3 +341,72 @@ export function clipLine(line: ArrayLike<number>, b: Bounds): number[][] {
   flush();
   return pieces;
 }
+
+/**
+ * Douglas–Peucker for an open polyline (flat [x0, z0, …]): keeps both ends and every vertex
+ * that sits more than `tolerance` off the simplified line. Track curves keep their shape.
+ */
+export function simplifyLine(line: ArrayLike<number>, tolerance: number): number[] {
+  const n = line.length / 2;
+  if (n <= 2) return Array.from(line);
+  const keep = new Uint8Array(n);
+  keep[0] = keep[n - 1] = 1;
+  const stack: [number, number][] = [[0, n - 1]];
+  while (stack.length) {
+    const [a, b] = stack.pop()!;
+    const [ax, az, bx, bz] = [line[a * 2]!, line[a * 2 + 1]!, line[b * 2]!, line[b * 2 + 1]!];
+    const length = Math.hypot(bx - ax, bz - az);
+    let [worst, far] = [-1, tolerance];
+    for (let i = a + 1; i < b; i++) {
+      const [x, z] = [line[i * 2]!, line[i * 2 + 1]!];
+      const d =
+        length > 0
+          ? Math.abs((bx - ax) * (z - az) - (bz - az) * (x - ax)) / length
+          : Math.hypot(x - ax, z - az);
+      if (d > far) [worst, far] = [i, d];
+    }
+    if (worst < 0) continue;
+    keep[worst] = 1;
+    stack.push([a, worst], [worst, b]);
+  }
+  const out: number[] = [];
+  for (let i = 0; i < n; i++) if (keep[i]) out.push(line[i * 2]!, line[i * 2 + 1]!);
+  return out;
+}
+
+const meets = (a: readonly number[], i: number, b: readonly number[], j: number) =>
+  a[i] === b[j] && a[i + 1] === b[j + 1];
+const isClosed = (ring: readonly number[]) =>
+  ring.length >= 8 && meets(ring, 0, ring, ring.length - 2);
+
+/**
+ * Joins open polylines that share end points into closed rings, the way an OSM multipolygon's
+ * outer ways chain together. Rings come back without a closing duplicate; chains that never
+ * close are dropped.
+ */
+export function joinRings(lines: readonly (readonly number[])[]): number[][] {
+  const open = lines.filter((line) => line.length >= 4);
+  const rings: number[][] = [];
+  while (open.length) {
+    let ring = Array.from(open.pop()!);
+    for (let grown = true; grown && !isClosed(ring);) {
+      grown = false;
+      for (const [k, line] of open.entries()) {
+        const end = ring.length - 2;
+        let next: readonly number[];
+        if (meets(ring, end, line, 0)) next = line;
+        else if (meets(ring, end, line, line.length - 2)) {
+          const reversed: number[] = [];
+          for (let i = line.length - 2; i >= 0; i -= 2) reversed.push(line[i]!, line[i + 1]!);
+          next = reversed;
+        } else continue;
+        ring = ring.concat(next.slice(2));
+        open.splice(k, 1);
+        grown = true;
+        break;
+      }
+    }
+    if (isClosed(ring)) rings.push(ring.slice(0, -2));
+  }
+  return rings;
+}

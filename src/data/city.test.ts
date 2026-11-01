@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { pathFromOsm, kindFromOsm, roofFromOsm, roofFromSurvey } from './city.ts';
+import { pathFromOsm, kindFromOsm, railFromOsm, roofFromOsm, roofFromSurvey } from './city.ts';
 
 test('OSM building values collapse into the kinds the renderer styles', () => {
   expect(kindFromOsm('terrace')).toBe('house');
@@ -56,4 +56,29 @@ test('paths of their own are drawn, sidewalks, crossings and tunnels are not', (
   expect(pathFromOsm({ highway: 'pedestrian', area: 'yes' })).toBeNull();
   expect(pathFromOsm({ highway: 'residential' })).toBeNull();
   expect(pathFromOsm({})).toBeNull();
+});
+
+test('tracks above ground are drawn, tunnels and dead lines are not', () => {
+  const main = { railway: 'rail', usage: 'main', electrified: 'contact_line', gauge: '1435' };
+  expect(railFromOsm(main)).toEqual({ kind: 'main', bridge: false, electrified: true });
+  expect(railFromOsm({ ...main, bridge: 'yes', layer: '1' })).toEqual({
+    kind: 'main',
+    bridge: true,
+    electrified: true,
+  });
+  expect(railFromOsm({ railway: 'rail', service: 'crossover' })?.kind).toBe('main');
+  expect(railFromOsm({ railway: 'rail', service: 'siding', electrified: 'no' })).toEqual({
+    kind: 'yard',
+    bridge: false,
+    electrified: false,
+  });
+  expect(railFromOsm({ railway: 'rail', service: 'yard', bridge: 'no' })?.bridge).toBe(false);
+  expect(railFromOsm({ ...main, tunnel: 'yes', layer: '-1' })).toBeNull();
+  expect(railFromOsm({ railway: 'rail', service: 'yard', tunnel: 'building_passage' })).toBeNull();
+  expect(railFromOsm({ ...main, covered: 'yes' })).toBeNull();
+  expect(railFromOsm({ ...main, layer: '-1' })).toBeNull();
+  expect(railFromOsm({ ...main, indoor: 'yes' })).toBeNull();
+  expect(railFromOsm({ railway: 'abandoned' })).toBeNull();
+  expect(railFromOsm({ railway: 'platform' })).toBeNull();
+  expect(railFromOsm({})).toBeNull();
 });

@@ -3,6 +3,7 @@ import type { Texture } from 'three';
 
 import { ANGLES, LINE_LOD, PAINT_HALF, PAINT_KIND, STRIPE_LOD, SURFACE } from './paint.ts';
 import { WINDOW } from './palette.ts';
+import { SLEEPER_CODE } from './rails.ts';
 
 const f = (v: number) => v.toFixed(4);
 
@@ -14,6 +15,8 @@ const f = (v: number) => v.toFixed(4);
  *   joints, each fading out before it's finer than a pixel.
  * - Road paint (larger negative codes): the vertex shader widens a line to cover a whole pixel, or
  *   folds away a mark too fine to see and shows its average instead.
+ * - Railway sleepers (codes from `SLEEPER_CODE`, rails.ts): a band of them along each track, from
+ *   the distance along it, fading to their average tint when they get finer than a pixel.
  * None of it costs a triangle.
  */
 export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
@@ -41,7 +44,7 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
         '#include <begin_vertex>',
         `#include <begin_vertex>
         float paint = -facade;
-        if (paint >= ${f(ANGLES * 2)}) {
+        if (paint >= ${f(ANGLES * 2)} && paint < ${f(SLEEPER_CODE)}) {
           float kind = floor(paint / ${f(ANGLES * 2)});
           float rest = paint - kind * ${f(ANGLES * 2)};
           float side = mod(rest, 2.0) * 2.0 - 1.0;
@@ -82,6 +85,9 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
         varying vec3 vWorld;
         varying vec2 vWallNormal;
         const vec2 CELL = vec2(2.6, 3.2); // window bay width, floor height (m)
+        // Sleepers: one per metre, wider apart than the real 0.6 m so a standard screen still
+        // resolves them at the closest zoom.
+        const float SLEEPER_PITCH = 1.0;
         float hash2(vec2 c) { return fract(sin(dot(c, vec2(12.9898, 78.233))) * 43758.5453); }
         float noise2(vec2 p) {
           vec2 i = floor(p);
@@ -106,6 +112,11 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
           float coverage = mix(0.18 * step(1.0, p.y), window, detail);
           float glow = step(0.93, fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453));
           diffuseColor.rgb = mix(diffuseColor.rgb, mix(uGlass, uLit, glow * detail), coverage * 0.8);
+        } else if (vFacade < ${f(-SLEEPER_CODE + 0.5)}) {
+          float along = (-vFacade - ${f(SLEEPER_CODE)}) / SLEEPER_PITCH;
+          float detail = 1.0 - smoothstep(0.25, 0.4, fwidth(along));
+          float sleeper = mix(0.5, step(fract(along), 0.5), detail);
+          diffuseColor.rgb *= mix(0.84, 1.0, sleeper);
         } else if (vFacade < -0.5 && vFacade > ${f(-SURFACE.paving - 0.5)}) {
           float surface = floor(0.5 - vFacade);
           vec2 p = vWorld.xz;
@@ -138,7 +149,7 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
         }`,
       );
   };
-  material.customProgramCacheKey = () => 'facade-v2';
+  material.customProgramCacheKey = () => 'facade-v3';
   return material;
 }
 

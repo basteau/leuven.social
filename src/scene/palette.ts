@@ -121,6 +121,23 @@ export const GROUND = {
   path: 0xb9b0a0,
   /** Gravel and earth trails through the parks. */
   trail: 0xd8c79f,
+  /** Railway land: the gravel between and beside the tracks, paler than their ballast. */
+  railway: 0xaca291,
+} as const;
+
+/**
+ * Railways: running lines on grey ballast and concrete sleepers, yards on rusty ballast and
+ * old timber, platforms in pale concrete. Rails and masts are ink lines.
+ */
+export const RAIL = {
+  main: { ballast: 0x9a8f80, sleepers: 0xc9c0ae },
+  yard: { ballast: 0x8d7b68, sleepers: 0x7a6250 },
+  parapet: 0xb7ab95,
+  platform: 0xd9d0bd,
+  platformSide: 0xa79c88,
+  /** Leuven's platform roof is white steel and glass. */
+  canopy: 0xeeece4,
+  canopyEnd: 0xd3cfc3,
 } as const;
 
 /**
