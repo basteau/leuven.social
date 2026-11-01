@@ -13,6 +13,7 @@ import type { Fog, OrthographicCamera, Scene, Texture } from 'three';
 import type { MapControls } from 'three/addons/controls/MapControls.js';
 
 import type { City } from '../data/city.ts';
+import { createWalkSounds } from '../audio/walking.ts';
 import { Router } from '../data/route.ts';
 import { WalkGrid, pickWalkable } from '../data/walkable.ts';
 import { createCharacterMaterial, createXrayMaterial } from './character-material.ts';
@@ -205,6 +206,7 @@ export function createWalk(host: WalkHost): Walk {
   hint.frustumCulled = false;
   hint.visible = false;
   let marker: RouteMarker | undefined;
+  const sounds = createWalkSounds();
   let walker: Walker | undefined;
   const pose = restPose();
   let appear = 1;
@@ -275,6 +277,7 @@ export function createWalk(host: WalkHost): Walk {
     host.useView(view);
     publish();
     setMode('walk');
+    sounds.enter();
     wake();
   }
 
@@ -309,6 +312,7 @@ export function createWalk(host: WalkHost): Walk {
     }
     [walker.x, walker.z] = [route[0]!, route[1]!];
     followRoute(walker, route);
+    sounds.routeStart();
     hint.geometry.dispose();
     marker = routeMarker(route);
     hint.geometry = marker.geometry;
@@ -511,6 +515,7 @@ export function createWalk(host: WalkHost): Walk {
         const sx = -fz * right + fx * up;
         const sz = fx * right + fz * up;
         busy = stepWalker(walker, dt, sx, sz, walkable, running || stick.run);
+        sounds.stride(walker.phase, walker.speed, runBlend(walker.speed));
         busy ||= sx !== 0 || sz !== 0;
         if (reducedMotion) walker.still = Math.max(walker.still, 1e3); // no idle fidgeting
 
@@ -555,7 +560,10 @@ export function createWalk(host: WalkHost): Walk {
       character.mesh.rotation.y = walker.heading;
       busy ||= appear < 1;
 
-      if (marker && !walker.route) clearRoute();
+      if (marker && !walker.route) {
+        if (walker.speed === 0) sounds.routeEnd(); // arrived, rather than steered off it
+        clearRoute();
+      }
       if (marker) hint.geometry.setDrawRange(passedVertices(marker, walker.travelled), Infinity);
 
       // The camera's look point trails the walker by a hair, and the boom shortens for walls.
@@ -680,6 +688,7 @@ export function createWalk(host: WalkHost): Walk {
       presses.clear();
       setMode('map');
       if (!walked || !walker) return;
+      sounds.leave();
       walker.route = null;
       clearRoute();
       // Fly back up to the map, turned to the nearest of its four views.
