@@ -422,6 +422,13 @@ fieldset {
   display: flex;
 }
 
+/* Mute's tip would open over the credits beside it: it opens below instead. */
+.corner-end .tip {
+  inset-block-start: calc(100% + var(--space-s));
+  inset-inline-end: 0;
+  translate: none;
+}
+
 /* Press feedback everywhere: the control sinks into its hard shadow. */
 .action:not(.quiet):active:not(:disabled),
 .round:not(.stack .round):active:not(:disabled) {
