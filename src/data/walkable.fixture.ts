@@ -20,11 +20,14 @@ const building = (ring: Float32Array, height = 12): Building => ({
 
 /**
  * A street from west to east across two tiles, a house standing in its northern half, a
- * square to the south with a tank on it, a footpath running north off the street and a closed garden beyond.
+ * square to the south with a tank on it and a footpath running north off the street. The town
+ * stands in a lake: water closes everything its streets, squares and paths don't open, so the
+ * tests can tell open from closed ground.
  */
 export const town: WalkLayers = {
   area: [{ minX: 0, minZ: 0, maxX: 200, maxZ: 120 }],
   bounds: { minX: 0, minZ: 0, maxX: 200, maxZ: 120 },
+  water: [rect(0, 0, 200, 120)],
   roads: [rect(10, 40, 190, 50)],
   plazas: [rect(60, 50, 90, 80), rect(150, 100, 160, 110)],
   paths: [{ width: 1, paved: true, line: Float32Array.of(20, 41, 20, 10, 40, 5) }],

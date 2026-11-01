@@ -42,7 +42,7 @@ Leuven as a tiny city you could hold in your hands: a warm, crisp, low-poly dior
 - **A Leuven student**, a little larger than life (1.3×, like the street furniture): a coat in the HUD's accent blue, a mustard scarf, a brick-red backpack. Boxy, outlined in ink, toon-shaded like the city, with knees and elbows so they can run.
 - **A street-level chase camera**, the way third-person games do it: the camera flies down from the map to just behind the walker, then rides a boom behind them. Drag to look around, scroll or pinch to bring it closer or further; it pulls in rather than look through a house. The far city fades into the warm haze of the map's horizon under a sky dome in the HUD's sky colours. Leaving flies back up to the nearest of the map's four views.
 - **Walk or run.** Shift (or the **Run** toggle, or a thumb pushed to the stick's rim) runs. The figure turns on the spot or in an arc, never skids, and leans into curves; its head turns toward where the camera looks.
-- **Walkable** means road surfaces, squares and footpaths. Never inside buildings or their courtyards, gardens, green or water without a path across.
+- **Walkable** means anywhere a person could stroll: streets, squares, paths, lawns, car parks and open ground, and over every bridge. Never into buildings or their courtyards, tanks, the water, or through a bridge's parapet.
 - **Hidden behind a building**, the figure shows as a checkerboard silhouette in coat blue.
 - **A picked destination** gets ink-ringed pale dots along the way and a square target, Street View style.
 

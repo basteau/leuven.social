@@ -1,7 +1,9 @@
 /**
- * Where a person can walk: road surfaces (pavements included), squares and footpaths. Never
- * inside a building's footprint (its courtyards count too: they're private), and never on water
- * or green that no road or path crosses, so private gardens and the river stay out of reach.
+ * Where a person can walk: anywhere on the map's ground, lawns, car parks and verges included,
+ * except into a building or tank (its courtyards count too: they're private), into the water,
+ * onto railway land or up onto a platform. Roads, squares, footpaths and bridge decks open the
+ * ground again wherever they cross those, so a bridge carries you over the river and a level
+ * crossing over the tracks. Bridge parapets are low walls: they keep you on the deck.
  *
  * A raster of 1 m cells, filled in 64 m tiles the first time anything asks about them, so the
  * map pays nothing until someone walks, and then only for the streets they reach.
@@ -19,21 +21,29 @@ const MIN_HALF_WIDTH = 0.75;
 /** A cell's value: closed ground, walkable, or a building or tank (its height in metres + 1). */
 const CLOSED = 0;
 const OPEN = 1;
+/** A parapet's height (m), and the half width it closes so a diagonal one leaves no gap. */
+const PARAPET_HEIGHT = 1.1;
+const PARAPET_HALF = 0.75;
 
 export type WalkLayers = Pick<
   City,
   'area' | 'bounds' | 'roads' | 'plazas' | 'paths' | 'buildings' | 'tanks'
->;
+> &
+  Partial<Pick<City, 'water' | 'railLand' | 'platforms' | 'bridges' | 'parapets'>>;
 
 interface Shape {
   ring: ArrayLike<number>;
-  /** 1 for walkable surfaces, the height code for buildings. */
+  /** 0 for ground that closes, 1 for walkable surfaces, the height code for buildings. */
   value: number;
 }
 interface Ribbon {
   line: ArrayLike<number>;
   half: number;
+  /** As for a shape: open for a path, a height code for a parapet. */
+  value: number;
 }
+
+const heightCode = (height: number) => Math.min(254, Math.ceil(height)) + 1;
 
 const ringBox = (ring: ArrayLike<number>, pad = 0): Bounds => {
   let [minX, minZ, maxX, maxZ] = [Infinity, Infinity, -Infinity, -Infinity];
@@ -73,20 +83,30 @@ export class WalkGrid {
       const [c1, r1] = this.#tileOf(box.maxX, box.maxZ);
       for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) visit(r * this.#tilesX + c);
     };
-    for (const ring of [...city.roads, ...city.plazas]) {
+    const closing = [...(city.water ?? []), ...(city.railLand ?? []), ...(city.platforms ?? [])];
+    for (const ring of closing) {
+      each(ringBox(ring), (t) => this.#shapes[t]!.push({ ring, value: CLOSED }));
+    }
+    for (const ring of [...city.roads, ...city.plazas, ...(city.bridges ?? [])]) {
       each(ringBox(ring), (t) => this.#shapes[t]!.push({ ring, value: OPEN }));
     }
     for (const { line, width } of city.paths) {
       const half = Math.max(width / 2, MIN_HALF_WIDTH);
-      each(ringBox(line, half), (t) => this.#ribbons[t]!.push({ line, half }));
+      each(ringBox(line, half), (t) => this.#ribbons[t]!.push({ line, half, value: OPEN }));
     }
     // Tanks and silos are as solid as buildings, and as tall.
     for (const { ring, height } of [...city.buildings, ...city.tanks]) {
-      const value = Math.min(254, Math.ceil(height)) + 1;
+      const value = heightCode(height);
       each(ringBox(ring), (t) => this.#shapes[t]!.push({ ring, value }));
     }
-    // Buildings go last within each tile, so they cut through any road drawn under them.
+    for (const line of city.parapets ?? []) {
+      const ribbon = { line, half: PARAPET_HALF, value: heightCode(PARAPET_HEIGHT) };
+      each(ringBox(line, PARAPET_HALF), (t) => this.#ribbons[t]!.push(ribbon));
+    }
+    // Within each tile: what closes the ground, then what opens it again, then what stands on
+    // it, so a bridge crosses the river and a building cuts through the road under it.
     for (const list of this.#shapes) list.sort((a, b) => a.value - b.value);
+    for (const list of this.#ribbons) list.sort((a, b) => a.value - b.value);
   }
 
   #tileOf(x: number, z: number): [number, number] {
@@ -176,12 +196,14 @@ export class WalkGrid {
     const row0 = Math.floor(t / this.#tilesX) * TILE;
     const x0 = this.#origin[0] + col0 * WALK_CELL;
     const z0 = this.#origin[1] + row0 * WALK_CELL;
-    const shapes = this.#shapes[t]!;
-    // Surfaces are open, then paths, then buildings close what they stand on.
-    const surfaces = shapes.filter((s) => s.value === OPEN);
-    for (const s of surfaces) this.#fillRing(tile, s, x0, z0);
-    for (const ribbon of this.#ribbons[t]!) this.#fillRibbon(tile, ribbon, x0, z0);
-    for (const s of shapes) if (s.value !== OPEN) this.#fillRing(tile, s, x0, z0);
+    const [shapes, ribbons] = [this.#shapes[t]!, this.#ribbons[t]!];
+    // The ground is open; water and railway close it, surfaces and paths open it again, then
+    // buildings, tanks and parapets stand on it.
+    tile.fill(OPEN);
+    for (const s of shapes) if (s.value <= OPEN) this.#fillRing(tile, s, x0, z0);
+    for (const r of ribbons) if (r.value <= OPEN) this.#fillRibbon(tile, r, x0, z0);
+    for (const s of shapes) if (s.value > OPEN) this.#fillRing(tile, s, x0, z0);
+    for (const r of ribbons) if (r.value > OPEN) this.#fillRibbon(tile, r, x0, z0);
     // Paths can spill a little past the map's edge: nothing off the slab is walkable.
     for (let r = 0; r < TILE; r++) {
       const z = z0 + (r + 0.5) * WALK_CELL;
@@ -222,8 +244,8 @@ export class WalkGrid {
     }
   }
 
-  /** Opens the cells whose centres lie within half a width of the path's centre line. */
-  #fillRibbon(tile: Uint8Array, { line, half }: Ribbon, x0: number, z0: number): void {
+  /** Sets the cells whose centres lie within half a width of the line to its value. */
+  #fillRibbon(tile: Uint8Array, { line, half, value }: Ribbon, x0: number, z0: number): void {
     for (let i = 0; i + 3 < line.length; i += 2) {
       const [ax, az, bx, bz] = [line[i]!, line[i + 1]!, line[i + 2]!, line[i + 3]!];
       const c0 = Math.max(0, Math.floor((Math.min(ax, bx) - half - x0) / WALK_CELL));
@@ -237,7 +259,7 @@ export class WalkGrid {
         for (let c = c0; c <= c1; c++) {
           const px = x0 + (c + 0.5) * WALK_CELL;
           const s = Math.min(1, Math.max(0, ((px - ax) * dx + (pz - az) * dz) / length2));
-          if (Math.hypot(px - ax - s * dx, pz - az - s * dz) <= half) tile[r * TILE + c] = OPEN;
+          if (Math.hypot(px - ax - s * dx, pz - az - s * dz) <= half) tile[r * TILE + c] = value;
         }
       }
     }

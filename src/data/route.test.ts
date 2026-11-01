@@ -75,6 +75,8 @@ test('searches a wide open square to its edges before giving up', () => {
   const square = new WalkGrid({
     area: [{ minX: 0, minZ: 0, maxX: 400, maxZ: 400 }],
     bounds: { minX: 0, minZ: 0, maxX: 400, maxZ: 400 },
+    // Two squares in a lake: the far one can't be reached.
+    water: [Float32Array.of(0, 0, 400, 0, 400, 400, 0, 400)],
     roads: [],
     plazas: [
       Float32Array.of(0, 0, 300, 0, 300, 300, 0, 300),

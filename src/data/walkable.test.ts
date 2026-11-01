@@ -13,7 +13,7 @@ describe('WalkGrid', () => {
     expect(grid.walkable(75, 70)).toBe(true);
     expect(grid.walkable(20, 25)).toBe(true);
     expect(grid.walkable(30, 7.5)).toBe(true); // the diagonal leg stays connected
-    expect(grid.walkable(30, 25)).toBe(false); // garden
+    expect(grid.walkable(30, 25)).toBe(false); // the lake
     expect(grid.walkable(-5, 45)).toBe(false); // off the map
     expect(grid.walkable(15, 130)).toBe(false);
   });
@@ -33,6 +33,33 @@ describe('WalkGrid', () => {
     expect(withRails.walkable(112, 20)).toBe(false);
     expect(withRails.walkable(117, 90)).toBe(false);
     expect(withRails.walkable(105, 45)).toBe(true); // the street under the bridge is still the street
+  });
+
+  test('dry ground is open: lawns, verges and gardens, not only streets', () => {
+    const dry = new WalkGrid({ ...town, water: [] });
+    expect(dry.walkable(30, 25)).toBe(true);
+    expect(dry.walkable(120, 90)).toBe(true);
+    expect(dry.walkable(50, 42)).toBe(false); // still not through the house
+    expect(dry.walkable(65, 74)).toBe(false); // nor the tank
+  });
+
+  test('a bridge deck crosses the water, and its parapets keep you on it', () => {
+    const river = Float32Array.of(0, 60, 200, 60, 200, 80, 0, 80);
+    const deck = Float32Array.of(100, 58, 106, 58, 106, 82, 100, 82);
+    const bridged = new WalkGrid({
+      ...town,
+      water: [river],
+      bridges: [deck],
+      parapets: [Float32Array.of(100, 60, 100, 80), Float32Array.of(106, 60, 106, 80)],
+    });
+    expect(bridged.walkable(130, 70)).toBe(false); // the river
+    expect(bridged.walkable(103, 70)).toBe(true); // the deck
+    expect(bridged.walkable(103, 50)).toBe(true); // the bank
+    expect(bridged.walkable(100.2, 70)).toBe(false); // the parapet
+    expect(bridged.buildingHeight(100.2, 70)).toBe(2);
+    // A body on the deck keeps clear of the parapet like a wall.
+    expect(bridged.walkable(103, 70, 0.5)).toBe(true);
+    expect(bridged.walkable(101.3, 70, 0.6, -1, 0)).toBe(false);
   });
 
   test('a building closes the road under it and keeps its height', () => {
