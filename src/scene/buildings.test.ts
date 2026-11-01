@@ -163,6 +163,23 @@ describe('buildingsGeometry', () => {
     expect(facades(building({ kind: 'church', roof: 'flat' }))).toEqual(new Set([0]));
     expect(facades(building({ kind: 'shed', roof: 'flat' }))).toEqual(new Set([0]));
   });
+
+  test('a church tower stands square to its footprint and spires up to its tip', () => {
+    const tower = { x: 5, z: 2, radius: 2.5, top: 18, tip: 30 };
+    const b = building({ kind: 'church', roof: 'flat', ring: box(6, 12), tower });
+    expect(windingAgreesWithNormals(b)).toBe(true);
+    const plain = buildingsGeometry([{ ...b, tower: undefined }]).surfaces;
+    const { surfaces } = buildingsGeometry([b]);
+    // Four walls and four spire faces: 36 vertices.
+    expect(surfaces.getAttribute('position').count - plain.getAttribute('position').count).toBe(36);
+    surfaces.computeBoundingBox();
+    expect(surfaces.boundingBox!.max.y).toBeCloseTo(30);
+    // Square to the footprint: its corners stand 2.5/√2 m off its centre along x and z.
+    expect(surfaces.boundingBox!.max.x).toBeCloseTo(5 + 2.5 / Math.SQRT2);
+    // A slender spire on the ridge is an octagon.
+    const turret = buildingsGeometry([{ ...b, tower: { ...tower, radius: 1.4 } }]).surfaces;
+    expect(turret.getAttribute('position').count - plain.getAttribute('position').count).toBe(72);
+  });
 });
 
 const segments = (b: Building[]) =>

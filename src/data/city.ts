@@ -19,6 +19,22 @@ export type Kind = (typeof KINDS)[number];
 export const ROOFS = ['auto', 'flat', 'gabled', 'hipped', 'across'] as const;
 export type Roof = (typeof ROOFS)[number];
 
+/**
+ * A church tower the LiDAR saw rising far over the nave: a square tower with a pointed spire, or
+ * a slender spire on the ridge (a turret) when its walls end at the roof (`top` equals the
+ * building's height).
+ */
+export interface Tower {
+  /** Centre, local metres. */
+  x: number;
+  z: number;
+  /** From the centre to a corner: a square tower of the area the LiDAR saw. */
+  radius: number;
+  /** Top of its walls and tip of its spire, metres above ground. */
+  top: number;
+  tip: number;
+}
+
 export interface Building {
   id: number;
   tier: Tier;
@@ -33,6 +49,8 @@ export interface Building {
   ring: Float32Array;
   /** Courtyards: inner rings, clockwise in (x, z). */
   holes: Float32Array[];
+  /** A church's tower, where the LiDAR saw one. */
+  tower?: Tower;
 }
 
 /** A footpath, cycle path or park path, drawn as a ribbon on the ground. */

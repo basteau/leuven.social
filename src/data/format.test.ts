@@ -25,6 +25,7 @@ const city: City = {
       roofColor: null,
       ring: square(-10, -5, 20),
       holes: [new Float32Array([-5, 0, -5, 4, -1, 4, -1, 0])],
+      tower: { x: 6.3, z: -2.1, radius: 4.1, top: 26.4, tip: 43.7 },
     },
     {
       id: 9,
@@ -48,6 +49,7 @@ const city: City = {
       roofColor: 0xfedcba,
       ring: square(-480.2, 300.1, 4),
       holes: [],
+      tower: { x: -478, z: 302, radius: 1.4, top: 3, tip: 9.5 },
     },
   ],
   roads: [square(0, 0, 100)],
@@ -190,5 +192,11 @@ describe('city format', () => {
     const street = { ...city, streets: [{ ...city.streets[0]!, name: 2 }] };
     expect(() => decodeCity(encodeCity(street))).toThrow('Bad street name');
     expect(() => decodeCity(encodeCity({ ...city, plazaNames: [0, 2] }))).toThrow('Bad square');
+    // A tower on a building past the end of the list. Its last eight bytes are the building's
+    // place, the centre and radius (a byte each here), then top and tip (two each).
+    const towered = encodeCity({ ...city, buildings: [city.buildings[0]!] });
+    expect(towered[towered.length - 8]).toBe(0);
+    towered[towered.length - 8] = 5;
+    expect(() => decodeCity(towered)).toThrow('Bad tower building');
   });
 });

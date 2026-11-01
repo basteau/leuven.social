@@ -96,6 +96,8 @@ interface LocalBuilding {
   rgb?: [number, number, number] | null;
   /** The axis the roof slopes face (degrees from x towards z) and how strongly, 0–1. */
   facing?: [number, number];
+  /** A church tower: centre x, z, radius, wall top and spire tip (m). */
+  tower?: [number, number, number, number, number];
   kind: string;
   roof: string | null;
   tier: Tier;
@@ -194,6 +196,11 @@ for (const b of local.buildings) {
     ring: new Float32Array(ring),
     holes,
   };
+  // A landmark model has its own tower, fitted by hand.
+  if (b.tower && !LANDMARK_FOOTPRINTS.includes(b.id)) {
+    const [x, z, radius, top, tip] = b.tower;
+    building.tower = { x, z, radius, top, tip };
+  }
   buildings.push(building);
 }
 
@@ -515,6 +522,7 @@ console.log(
       .map(([kind, list]) => `${list!.length} ${kind}`)
       .join(', ')}`,
     `tanks ${tanks.length}, bridge parapets ${parapets.length}`,
+    `church towers ${buildings.filter((b) => b.tower).length}`,
     `street names ${names.table.length}: ${streets.length} streets (${streets.reduce((sum, s) => sum + s.line.length / 2, 0)} points), ${plazaNames.filter((n) => n >= 0).length} of ${plazas.length} squares named`,
     `public/data/city.bin ${(bytes.length / 1024).toFixed(0)} KB gzipped`,
   ].join('\n'),

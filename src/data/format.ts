@@ -3,7 +3,7 @@
  *
  * Layout: magic "LVN1", version, area rectangles, buildings, carriageways, markings, ten polygon
  * layers (roads, plazas, green, water, platforms, railway land, platform roofs, woods, pitches,
- * car parks), paths, rails, trees, props, tanks, parapets, street names.
+ * car parks), paths, rails, trees, props, tanks, parapets, street names, church towers.
  * Coordinates are decimetres, zigzag varints, delta-encoded within each ring. A ring starts from
  * where the ring before it in the same list started (the first from 0, 0): the bake writes
  * neighbours next to each other, so the jump is short.
@@ -20,6 +20,9 @@
  * Tanks are a height in decimetres and a footprint each; parapets are open lines.
  * Street names are a table of strings, then each street as its name's place in the table and a
  * centre line, then one number per plaza: 0 for none, else its name's place plus one.
+ * Church towers (v13) come last, as few as there are churches with one: each is its building's
+ * place in the list (the change from the tower before), its centre (zigzag decimetres), radius,
+ * wall top and tip (decimetres). The decoder hangs each on its building as `tower`.
  */
 
 import * as Binary from '@portable/binary';
@@ -199,6 +202,17 @@ export function encodeCity(city: City): Uint8Array {
     writeRing(w, street.line, at);
   }
   for (const name of city.plazaNames) w.varint(name + 1);
+
+  const towers = city.buildings.flatMap((b, i) => (b.tower ? [{ i, ...b.tower }] : []));
+  w.varint(towers.length);
+  let place = 0;
+  for (const t of towers) {
+    w.varint(t.i - place);
+    place = t.i;
+    w.varint(Math.round(t.x * DM), ZIGZAG);
+    w.varint(Math.round(t.z * DM), ZIGZAG);
+    for (const v of [t.radius, t.top, t.tip]) w.varint(Math.round(v * DM));
+  }
   return w.toBytes();
 }
 
@@ -322,6 +336,14 @@ export function decodeCity(bytes: Uint8Array): City {
     if (name >= streetNames.length) throw new CityFormatError(`Bad square name ${name}.`);
     return name;
   });
+  let place = 0;
+  for (let n = r.varint(); n > 0; n--) {
+    const b = buildings[(place += r.varint())];
+    if (!b) throw new CityFormatError(`Bad tower building ${place}.`);
+    const [x, z] = [r.varint(ZIGZAG) / DM, r.varint(ZIGZAG) / DM];
+    const [radius, top, tip] = [r.varint() / DM, r.varint() / DM, r.varint() / DM];
+    b.tower = { x, z, radius, top, tip };
+  }
   if (r.remaining !== 0) throw new CityFormatError(`${r.remaining} trailing bytes.`);
   return {
     area,

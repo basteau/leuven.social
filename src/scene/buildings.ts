@@ -7,12 +7,12 @@ import type { OrientedRect } from '../data/geometry.ts';
 import { straightSkeleton } from '../data/skeleton.ts';
 import type { Skeleton } from '../data/skeleton.ts';
 import { LANDMARK_MODELS } from './landmark-models.ts';
-import { addLandmark } from './landmarks.ts';
+import { addLandmark, addTower } from './landmarks.ts';
 import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
 import type { V3 } from './mesh-builder.ts';
 import { addParasol } from './terraces.ts';
 import type { Parasol } from './terraces.ts';
-import { pick, roofColor, wallColor } from './palette.ts';
+import { LANDMARK, pick, roofColor, wallColor } from './palette.ts';
 
 export type RoofPlan =
   | { type: 'flat'; eave: number }
@@ -427,6 +427,7 @@ export function addBuilding(
   const windowless = landmark ? !landmark.windows : WINDOWLESS.has(b.kind);
   const facade = windowless ? 0 : top + (b.kind === 'retail' ? SHOP_FRONT : 0);
   for (const r of [ring, ...holes]) addWalls(mesh, ink, r, top, wall, facade, walls);
+  if (b.tower && !landmark) addTower(mesh, ink, ring, b.tower, wall, LANDMARK.spire);
 
   if (plan.type === 'hip') {
     hipRoof(mesh, ink, plan, b);
