@@ -2,32 +2,93 @@
 
 The app loads a single file, `public/data/city.bin`, which is about 690 KB gzipped for the whole R23 ring plus Heverlee. It's committed, so a fresh clone runs without the raw data.
 
+Everything in it can be rebuilt from free, open data with one command: data + code = map. The few things that are not data are listed under [Exceptions](#exceptions).
+
+## Rebuild it
+
+You need [Bun](https://bun.sh) and [uv](https://docs.astral.sh/uv/). uv fetches Python and the pinned packages itself.
+
+| Command              | What it does                                                                                                |
+| -------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `bun run data`       | All three steps below: fetch, build, bake. About 230 MB of downloads the first time, then seconds.          |
+| `bun run data:fetch` | Downloads every source into `data/` and records it in `data/sources.lock.json`. Skips what it already has.  |
+| `bun run data:build` | `tools/build_leuven_data.py`: joins footprints, LiDAR, orthophotos and OSM into `data/derived/`.            |
+| `bun run bake`       | `scripts/bake.ts`: keeps what lies in `AREA`, projects, simplifies and writes `public/data/city.bin`.       |
+| `bun run data:check` | Rebuilds from the downloads in `data/` and fails unless the result is byte for byte the `city.bin` you had. |
+
+None of them takes options. To fetch a source again, delete its files and rerun `bun run data:fetch`; to see what changed upstream, `git diff data/sources.lock.json` after a fetch.
+
 ## Pipeline
 
 ```
-Flemish GRB footprints  ─┐
-DHMV II LiDAR (DTM/DSM) ─┤
-Orthophotos (WMTS)      ─┼─ tools/build_leuven_data.py ─▶ data/derived/ ─▶ bun run bake ─▶ public/data/city.bin
-OpenStreetMap (Overpass) ┘        (Python, via uv)       (GeoJSON, JSON)   (scripts/bake.ts)
+src/data/sources.ts ─▶ bun run data:fetch ─▶ data/{osm,grb,elevation,ortho}/ ─┐
+   (the manifest)        (scripts/fetch.ts)    + data/sources.lock.json       │
+                                                                              ▼
+public/data/city.bin ◀─ bun run bake ◀─ data/derived/ ◀─ bun run data:build (tools/build_leuven_data.py, via uv)
 ```
 
-1. **Raw downloads**, about 230 MB, gitignored. [data/README.md](../data/README.md) lists every source, licence and the exact queries. [research/leuven-data-sources.md](../research/leuven-data-sources.md) has the endpoints and gotchas.
-2. **`tools/build_leuven_data.py`** joins GRB footprints (with their courtyards) with LiDAR heights (DSM − DTM, p90), surveys each roof (eave, share of pitched pixels, orthophoto colour), finds tree crowns in the LiDAR canopy, adds OSM tags and assigns a detail tier.
-3. **`bun run bake`** keeps what lies in `AREA` (`src/data/area.ts`), projects it to local metres, simplifies it and writes the binary `LVN1` format (`src/data/format.ts`).
+1. **Fetch.** `src/data/sources.ts` declares every source: provider, licence, credit, the request, and where its file lands. Extents are not written anywhere: they are `AREA` (`src/data/area.ts`) plus 100 m, so growing the map grows every download. `scripts/fetch.ts` plans the requests with `src/data/fetch-plan.ts` and downloads them:
+   - **OpenStreetMap** through Overpass, as it was at `OSM_DATE` (Overpass answers from its history), tiled, with failover across mirrors. An answer with a `remark` (timeout, out of memory) is a failure, not data. Tiles are merged, deduplicated and sorted by type and id.
+   - **GRB** layers through the WFS, in boxes small enough to come back whole: a box that returns the 2,500-feature limit is split in four. Not `startIndex` paging: the server doesn't keep its sort order between requests, so pages skip and repeat features at their edges (the hand-paged download of October 2026 had lost 152 buildings that way).
+   - **DHMV II** LiDAR through the WCS as GeoTIFF tiles of at most 1650 × 1000 px on the Lambert 72 grid (larger requests fail). Tiles are checked for the TIFF signature, since errors come back as XML with HTTP 200.
+   - **Orthophotos** through the WMTS, z18 tiles over each rectangle of `AREA` plus 40 m, checked for the PNG signature.
+
+   Network errors, 429 and 5xx answers are retried with backoff. Every source's files are hashed into `data/sources.lock.json`.
+
+2. **Build.** `tools/build_leuven_data.py` joins GRB footprints (with their courtyards) with LiDAR heights (DSM − DTM, p90), surveys each roof (eave, share of pitched pixels, orthophoto colour), finds tree crowns in the LiDAR canopy, adds OSM tags and assigns a detail tier. Its packages are pinned in the script header and `tools/build_leuven_data.py.lock`.
+3. **Bake.** `scripts/bake.ts` keeps what lies in `AREA`, projects it to local metres, simplifies it and writes the binary `LVN1` format (`src/data/format.ts`).
    - Buildings are kept whole when every corner is inside the area; ground polygons are clipped to it.
    - Footprint vertices within 0.25 m (core) or 0.5 m (fringe) of the line through their neighbours are dropped; hero footprints keep every vertex, since landmark models are fitted to them. Ground polygons lose vertices within 0.3 m, and patches of green under 25 m² go.
-   - Railway tracks are stored as centre lines (Douglas–Peucker to 10 cm), not polygons: the gauge is standard everywhere, so the renderer derives the ballast, sleepers and both rails. Tunnels, covered tracks and anything below ground are left out. Rails are their own layer (`City.rails`), so walking can keep off them; platforms (`City.platforms`, from `data/osm/raw_rail_platforms.json`, multipolygons joined from their outer ways) are walkable.
+   - Railway tracks are stored as centre lines (Douglas–Peucker to 10 cm), not polygons: the gauge is standard everywhere, so the renderer derives the ballast, sleepers and both rails. Tunnels, covered tracks and anything below ground are left out. Rails are their own layer (`City.rails`), so walking can keep off them; platforms (`City.platforms`, multipolygons joined from their outer ways) are walkable.
 
 ## Railways
 
-| Layer                 | Source                                                                                                                                      | Fetched by                                                | Licence                                                                 |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------- |
-| Tracks (`City.rails`) | OSM `railway=rail` ways, in the water/landuse/rail Overpass dump                                                                            | `data/osm/queries/water_landuse*.overpassql`              | © OpenStreetMap contributors, ODbL                                      |
-| Railway land          | OSM `landuse=railway`, same dump                                                                                                            | same                                                      | same                                                                    |
-| Platforms             | OSM `railway=platform` ways and multipolygon relations, `out geom` from `https://overpass-api.de/api/interpreter` (two mirrors as fallback) | `bun run fetch:rail` → `data/osm/raw_rail_platforms.json` | same                                                                    |
-| Platform roofs        | GRB `GBA` annexes surveyed as `afdak` (canopy), over 2000 m² and on railway land: Leuven's wave roof                                        | the GRB WFS download (`GRB:GBA`)                          | "Bron: Grootschalig Referentie Bestand Vlaanderen, Digitaal Vlaanderen" |
+| Layer                 | Data                                                                                           | Source id            |
+| --------------------- | ---------------------------------------------------------------------------------------------- | -------------------- |
+| Tracks (`City.rails`) | OSM `railway=rail` ways                                                                        | `osm-areas`          |
+| Railway land          | OSM `landuse=railway`                                                                          | `osm-areas`          |
+| Platforms             | OSM `railway=platform` ways and multipolygon relations, with their members (`out geom`)        | `osm-rail-platforms` |
+| Platform roofs        | GRB annexes surveyed as `afdak` (canopy), over 2000 m² and on railway land: Leuven's wave roof | `grb-gba`            |
 
-`fetch:rail` sorts elements by type and id, sorts tags, and rounds coordinates to 7 decimals, so the same map data always writes the same file. The roof's height (9.5 m at the valleys, 16 m at the crowns) and the catenary, gauge and platform constants are code constants in `src/scene/rails.ts`, each with its source. The GRB `SBN`/`WRL` rail layers were checked and left out: their rails match OSM's centre lines, and the rail parcels are wider than the ballast.
+The roof's height (9.5 m at the valleys, 16 m at the crowns) and the catenary, gauge and platform constants are code constants in `src/scene/rails.ts`, each with its source. The GRB `SBN`/`WRL` rail layers were checked and left out: their rails match OSM's centre lines, and the rail parcels are wider than the ballast.
+
+## Sources
+
+| Id                                                                                        | What                                                                                       | Provider and licence                                                                                                                                                                                  |
+| ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `osm-buildings`, `osm-ring`, `osm-roads`, `osm-areas`, `osm-points`, `osm-rail-platforms` | Building tags, the R23 ring, paths, green, water, squares, mapped trees, station platforms | OpenStreetMap via Overpass. © OpenStreetMap contributors, [ODbL](https://opendatacommons.org/licenses/odbl/1-0/)                                                                                      |
+| `grb-gbg`, `grb-gba`, `grb-wbn`, `grb-wtz`, `grb-knw`                                     | Building footprints and annexes, road surfaces, watercourses, structures (bridges, tanks)  | GRB WFS. "Bron: Grootschalig Referentie Bestand Vlaanderen, Digitaal Vlaanderen", [Modellicentie Gratis Hergebruik v1.0](https://data.vlaanderen.be/id/licentie/modellicentie-gratis-hergebruik/v1.0) |
+| `dhmv-dtm`, `dhmv-dsm`                                                                    | LiDAR terrain and surface, 1 m (flown 2013–2015)                                           | DHMV II WCS. "Bron: Digitaal Hoogtemodel Vlaanderen II, Digitaal Vlaanderen", same licence                                                                                                            |
+| `ortho`                                                                                   | Most recent winter orthophoto mosaic, z18, for roof colours                                | Digitaal Vlaanderen WMTS `omwrgbmrvl`. "Bron: Luchtopnamen Digitaal Vlaanderen", same licence. No imagery ships.                                                                                      |
+| `wikidata-labels`                                                                         | Coordinates (P625) of the places the labels name                                           | Wikidata API, [CC0](https://creativecommons.org/publicdomain/zero/1.0/): no credit needed                                                                                                             |
+
+`osm-rail-platforms` and `grb-knw` feed the railway and city-detail layers.
+
+`src/data/sources.ts` has the exact requests; [research/leuven-data-sources.md](../research/leuven-data-sources.md) has background and gotchas for these services and others we don't use yet.
+
+## Reproducibility
+
+- **Same downloads, same bytes.** The build and bake read inputs in a fixed order, round numbers before writing them, write no timestamps, and pin the Lambert 72 transformation instead of leaving the choice to PROJ. Nothing depends on how far past `AREA` the downloads reach or how they were tiled: trees are spaced exactly and roof colours are balanced over the ring. `bun run data:check` holds them to it. It is checked on one machine at a time; floating point in the Python packages may differ between platforms, which the monthly workflow (`.github/workflows/data.yml`, on Linux) shows.
+- **Same requests, (nearly) same downloads.** What each source returns over time:
+
+  | Source        | Pinned by                       | Drifts when                                                                                                    |
+  | ------------- | ------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+  | OpenStreetMap | `OSM_DATE`                      | Never, unless a mapper's edit is redacted. Move `OSM_DATE` to take new edits.                                  |
+  | DHMV II LiDAR | The product (flown 2013–2015)   | Never: it is a finished survey.                                                                                |
+  | GRB           | Nothing: the WFS serves today's | Digitaal Vlaanderen updates footprints and roads continuously; features in this area changed in October 2026.  |
+  | Orthophotos   | Nothing: "most recent" mosaic   | A new winter flight replaces it, about once a year. The dated layers (`omwrgb24vl`, …) are a different mosaic. |
+
+  `data/sources.lock.json` records each source's files, size and hash, so `git diff data/sources.lock.json` after a fetch into an empty `data/` tells you exactly which source moved (the monthly workflow does this). Commit the lock together with `city.bin`.
+
+## Adding a source
+
+New data comes through the manifest and the pipeline, never by a manual download.
+
+1. Add an entry to `SOURCES` in `src/data/sources.ts`. Pick the kind (`overpass`, `wfs`, `wcs` or `wmts`), a kebab-case `id`, its `output` under `data/`, its provider (add one to `PROVIDERS`, with its licence and credit, if it is new) and what reads it in `usedBy`. Don't write coordinates: the request follows `AREA`.
+   - Another kind of service needs a planner and a check in `src/data/fetch-plan.ts` (tested) and a case in `scripts/fetch.ts`. Prefer open formats a script can read without a GIS stack: GeoJSON, JSON, GeoTIFF, PNG.
+2. List it in the Sources table above and in [data/README.md](../data/README.md). The sources test fails until this page names every id.
+3. Run `bun run data:fetch` (it downloads only the new source), use it in the build or the bake, then `bun run data` and `bun run verify`.
+4. Commit the code, `data/sources.lock.json` and `public/data/city.bin` together. If what you draw from it is a choice rather than data, add it to [Exceptions](#exceptions).
 
 ## What the data decides
 
@@ -43,6 +104,27 @@ Prefer reading the world over guessing it. Each of these replaced a rule of thum
 | Trees and their heights   | OSM's mapped trees plus LiDAR canopy crowns outside every building                    | `mergeTrees` in `src/data/trees.ts`         |
 | Paths                     | OSM footways, paths, cycleways, tracks and steps of their own, with width and surface | `pathFromOsm` in `src/data/city.ts`         |
 | Railway tracks            | OSM `railway=rail`, one way per track: running line or yard, bridge, electrified      | `railFromOsm` in `src/data/city.ts`         |
+
+## Exceptions
+
+Everything else on screen is read from the downloads. These are not, and each says what it rests on. Keep this list complete: if you add something drawn from a choice rather than from data, add it here.
+
+| What                                          | Where                                                                           | Rests on                                                                                                                                                                                                                                                                          |
+| --------------------------------------------- | ------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The area and the origin                       | `AREA` in `src/data/area.ts`, `ORIGIN` in `src/data/projection.ts`              | A framing choice: the R23 ring (OSM `ref=R23`) with the station, and Heverlee from Arenbergpark to the Abdij van Park. The origin is Grote Markt's Wikidata coordinate (Q4766627).                                                                                                |
+| Six hand-fitted landmark models               | `src/scene/landmark-models.ts`, `LANDMARK_FOOTPRINTS` in `src/data/area.ts`     | Each sits on its GRB footprint (by `OIDN`) and names its Wikidata item. Heights and part extents are read off DHMV II height plots of the footprint; the silhouette (turrets, spires, dormers) is modelled by hand after the real building.                                       |
+| Label names, and one label position           | `LANDMARKS` in `src/data/area.ts`                                               | Positions are Wikidata coordinates (P625), or the centre of the building's GRB footprint where Wikidata's point misses it (Station Leuven); the names are our short Dutch forms. Arenbergpark has no Wikidata item, so its label gives its own position, read off the orthophoto. |
+| Hero zones                                    | `HERO_ZONES` in `tools/build_leuven_data.py`                                    | Which neighbourhoods get the most detail is a design choice. Centres are Wikidata coordinates of the squares and landmarks; the radii are chosen.                                                                                                                                 |
+| Café parasols on Oude Markt                   | `TERRACE_SQUARES` in `src/scene/terraces.ts`                                    | The square's terraces (it is known as the longest bar in Europe). The square's outline is OSM's; rows, spacing and colours are chosen.                                                                                                                                            |
+| Colours, light and materials                  | `src/scene/palette.ts`, [DESIGN.md](../DESIGN.md)                               | Art direction. Roof colours are measured on the orthophotos, then snapped to the palette's swatches.                                                                                                                                                                              |
+| Façade detail: windows, stepped gables, walls | `src/scene/buildings.ts`, `src/scene/palette.ts`                                | Procedural, not observed: picked per building from its id, so it never changes between builds. The shares (about half the hero gables stepped, a fifth elsewhere in the centre) are chosen to read as Flemish.                                                                    |
+| Roofs nothing measured                        | `PITCHED_KINDS` in `src/scene/buildings.ts`                                     | Where neither OSM nor the LiDAR decides (a footprint without LiDAR pixels), the building kind from OSM picks pitched or flat, and anything over 24 m is flat.                                                                                                                     |
+| Height limits                                 | `scripts/bake.ts`, `MAX_HEIGHT` in `src/scene/viewer.ts`                        | 2.5 m minimum (a storey) and 90 m maximum, a guard against cranes and LiDAR noise. Nothing in the area reaches it: the tallest p90 height is 74 m (IMEC Tower).                                                                                                                   |
+| Tuning                                        | Next to each rule: `PITCHED_SHARE`, `SIMPLIFY`, `MIN_GREEN_AREA`, tree spacing… | Parameters of the rules in [What the data decides](#what-the-data-decides), documented where they are defined. They change how data is read, never what is placed.                                                                                                                |
+
+No download is ever edited by hand. When a source is wrong, fix it upstream (OSM is open to edits; move `OSM_DATE` forward to pick it up) or write a rule for it.
+
+Known limits of the data itself: the LiDAR was flown in 2013–2015, so buildings built or demolished since have wrong heights, and overhanging trees can inflate the height of small buildings.
 
 ## Coordinates
 
@@ -62,9 +144,8 @@ Prefer reading the world over guessing it. Each of these replaced a rule of thum
 ## Growing the map
 
 1. Change `AREA` in `src/data/area.ts`, and `LANDMARKS` if you want new labels.
-2. Run `bun run bake`, then `bun run verify`. The budgets tell you when the city got too heavy.
-
-The raw extent covers lat 50.857–50.892, lon 4.676–4.722; the area already reaches its east edge at the Abdij van Park. Growing past it means downloading more data first.
+2. Run `bun run data`: every download follows `AREA`, so the fetch picks up the new ground and drops tiles that fell outside it.
+3. Run `bun run verify`. The budgets tell you when the city got too heavy. Commit `city.bin` with `data/sources.lock.json`.
 
 ## Format changes
 
@@ -72,8 +153,11 @@ Bump `VERSION` in `format.ts` and the cache name in `public/sw.js` together. The
 
 ## Attribution
 
-The city data must be credited wherever it is shown. The HUD shows "© OpenStreetMap" and "© Digitaal Vlaanderen" in the top-end corner at start, then collapses them to a © button (DESIGN.md has the rules, and the smoke test checks it). Don't remove it or start it collapsed.
+The city data must be credited wherever it is shown. The HUD shows "© OpenStreetMap" and "© Digitaal Vlaanderen" in the top-end corner at start, then collapses them to a © button (DESIGN.md has the rules, and the smoke test checks it). Don't remove it or start it collapsed. Its links come from `CREDITS` in `src/data/providers.ts`, so a new provider whose licence asks for credit shows up there by itself.
 
-- **GRB and DHMV II:** "Bron: Grootschalig Referentie Bestand Vlaanderen, Digitaal Vlaanderen".
-- **Orthophotos** (roof colours only; no imagery ships): "Bron: Luchtopnamen Digitaal Vlaanderen", [Modellicentie Gratis Hergebruik v1.0](https://data.vlaanderen.be/id/licentie/modellicentie-gratis-hergebruik/v1.0). The HUD's "© Digitaal Vlaanderen" covers it.
+- **GRB:** "Bron: Grootschalig Referentie Bestand Vlaanderen, Digitaal Vlaanderen".
+- **DHMV II:** "Bron: Digitaal Hoogtemodel Vlaanderen II, Digitaal Vlaanderen".
+- **Orthophotos** (roof colours only; no imagery ships): "Bron: Luchtopnamen Digitaal Vlaanderen".
+- All three are under the [Modellicentie Gratis Hergebruik v1.0](https://data.vlaanderen.be/id/licentie/modellicentie-gratis-hergebruik/v1.0); the HUD's "© Digitaal Vlaanderen" covers them.
 - **OpenStreetMap:** "© OpenStreetMap contributors", ODbL. The combined building data is an ODbL derivative, so it stays open.
+- **Wikidata** (label positions): CC0, no credit required.
