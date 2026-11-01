@@ -34,6 +34,16 @@ function release(this: { array: unknown }): void {
   this.array = null;
 }
 
+/** Bytes of vertex data in a geometry, before its arrays are let go. */
+export function geometryBytes(geometry: BufferGeometry): number {
+  const buffers = new Set(
+    Object.values(geometry.attributes).map((a) =>
+      'isInterleavedBufferAttribute' in a ? a.data.array : a.array,
+    ),
+  );
+  return [...buffers].reduce((sum, array) => sum + array.byteLength, 0);
+}
+
 /**
  * Three bytes padded to four: the GPU reads 4-byte aligned vertex data directly, where WebGL on
  * Metal (Safari, Chrome on a Mac) would otherwise convert the whole buffer first.

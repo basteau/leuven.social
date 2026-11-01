@@ -29,6 +29,7 @@ import type { Cell } from './cells.ts';
 import { createFacadeMaterial, setPixelSize } from './facade-material.ts';
 import { SLAB_DEPTH } from './ground.ts';
 import { LINE_LOD } from './paint.ts';
+import { geometryBytes } from './mesh-builder.ts';
 import type { V3 } from './mesh-builder.ts';
 import { BOUNCE_LIGHT, OUTLINE, SKY_LIGHT, SUN } from './palette.ts';
 import {
@@ -105,10 +106,19 @@ const MAX_HEIGHT = 90;
 const SHADOW_REACH = 60;
 /**
  * Layer masks: the view draws layer 0, the shadow pass layer 1. A cell's shadow casters are only
- * on the shadow layer; its furniture joins whichever pass needs it (see `cull`).
+ * on the shadow layer; its furniture joins whichever pass needs it (see `cull`). The lights are
+ * on every layer, so a frame that draws only the shadow map can look at layer 2, where nothing
+ * else is, and still find the sun.
  */
 const VIEW_LAYER = 1 << 0;
 const SHADOW_LAYER = 1 << 1;
+const LIGHTS_ONLY = 1 << 2;
+/**
+ * What one frame may draw, as `scripts/smoke.ts` checks it. A shadow redraw that would take its
+ * frame past this gets a frame of its own, and the view follows on the next.
+ */
+const FRAME_CALLS = 100;
+const FRAME_TRIANGLES = 600_000;
 /**
  * Zoom from which street furniture shows. Further out a lamp post is a stray pixel, and the
  * frames that show the most city are the ones that can least afford it.
@@ -167,6 +177,8 @@ export function createViewer(options: ViewerOptions): Viewer {
     fineVertices: 0,
   }));
 
+  /** Vertices and bytes of geometry the built cells hand the GPU. */
+  const held = { vertices: 0, bytes: 0 };
   function build(entry: CellEntry): void {
     const { mesh, lines, props, shadowFrom, fineVertices } = buildCell(
       entry.cell,
@@ -195,14 +207,20 @@ export function createViewer(options: ViewerOptions): Viewer {
     const outlines = new LineSegments(lines.build(), ink);
     // Cells are culled by their boxes below: three's bounding spheres are far looser.
     entry.objects = [surfaces, outlines, casters, furniture];
+    for (const { geometry } of [surfaces, outlines, furniture]) {
+      held.vertices += geometry.getAttribute('position').count;
+      held.bytes += geometryBytes(geometry);
+    }
     entry.box.copy(surfaces.geometry.boundingBox!);
     if (entry.cell.props.length) entry.box.union(furniture.geometry.boundingBox!);
     for (const object of entry.objects) object.frustumCulled = false;
     scene.add(surfaces, outlines, casters, furniture);
   }
 
-  scene.add(new HemisphereLight(SKY_LIGHT, BOUNCE_LIGHT, 1.3));
+  const sky = new HemisphereLight(SKY_LIGHT, BOUNCE_LIGHT, 1.3);
   const sun = new DirectionalLight(SUN, 2.2);
+  for (const l of [sky, sun]) l.layers.enableAll();
+  scene.add(sky);
   const light = lightFrame(SUN_DIRECTION);
   sun.castShadow = true;
   sun.shadow.mapSize.set(SHADOW_MAP, SHADOW_MAP);
@@ -349,11 +367,18 @@ export function createViewer(options: ViewerOptions): Viewer {
   /**
    * Shows only the cells in view. On a frame that redraws the shadow map, the casters of the
    * cells that cast into it show too; they sit on the shadow camera's layer, so only it draws them.
+   * Returns whether the view and the shadow redraw fit in one frame's budget together.
    */
-  function cull(): void {
+  function cull(): boolean {
     const shadowPass = renderer.shadowMap.needsUpdate;
+    let [calls, triangles] = [0, 0];
+    const draw = (mesh: Mesh) => {
+      const { start, count } = mesh.geometry.drawRange;
+      calls++;
+      triangles += Math.min(count, mesh.geometry.getAttribute('position').count - start) / 3;
+    };
     for (const { box, cell, objects } of cells) {
-      const [surfaces, outlines, casters, furniture] = objects;
+      const [surfaces, outlines, casters, furniture] = objects as [Mesh?, Mesh?, Mesh?, Mesh?];
       if (!surfaces || !outlines || !casters || !furniture) continue;
       const inView = frustum.intersectsBox(box);
       surfaces.visible = inView;
@@ -362,7 +387,15 @@ export function createViewer(options: ViewerOptions): Viewer {
       casters.visible = casts;
       furniture.layers.mask = (inView ? VIEW_LAYER : 0) | (casts ? SHADOW_LAYER : 0);
       furniture.visible = (inView || casts) && propsShown && cell.props.length > 0;
+      if (inView) {
+        draw(surfaces);
+        calls++; // its outlines
+      }
+      if (casts) draw(casters);
+      if (furniture.visible && inView) draw(furniture);
+      if (furniture.visible && casts) draw(furniture);
     }
+    return calls <= FRAME_CALLS && triangles <= FRAME_TRIANGLES;
   }
 
   // Everything else is built in small slices while the page has nothing better to do.
@@ -382,6 +415,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     if (cells.some((entry) => !entry.objects.length)) idleHandle = idle(buildInBackground);
   }
 
+  const peak = { drawCalls: 0, triangles: 0 };
   function render(): void {
     // World metres per drawing-buffer pixel: how much road paint and texture is worth drawing.
     const unit =
@@ -396,16 +430,34 @@ export function createViewer(options: ViewerOptions): Viewer {
         unit > LINE_LOD ? fineVertices : Infinity,
       );
     }
-    cull();
+    const together = cull();
     const shadowPass = renderer.shadowMap.needsUpdate;
+    // A shadow redraw too big to share a frame with the view draws alone: the view looks at a
+    // layer that holds only the lights, and nothing clears or draws on the screen, which keeps
+    // showing the last frame. The view follows on the next one.
+    const alone = shadowPass && !together;
+    if (alone) [camera.layers.mask, renderer.autoClear] = [LIGHTS_ONLY, false];
     renderer.render(scene, camera);
-    // The cost of this very frame, for the smoke test and anyone debugging. Frames that redraw
-    // the static shadow map (on load, and when the view leaves its square) cost more.
+    if (alone) [camera.layers.mask, renderer.autoClear] = [VIEW_LAYER, true];
+    // The cost of this very frame and the most any frame cost, for the smoke test and anyone
+    // debugging, with what the GPU holds. Frames that redraw the static shadow map (on load, and
+    // when the view leaves its square) cost more.
+    const { calls, triangles } = renderer.info.render;
+    peak.drawCalls = Math.max(peak.drawCalls, calls);
+    peak.triangles = Math.max(peak.triangles, triangles);
     Object.assign(canvas.dataset, {
-      drawCalls: renderer.info.render.calls,
-      triangles: renderer.info.render.triangles,
+      drawCalls: calls,
+      triangles,
       shadowPass,
+      peakDrawCalls: peak.drawCalls,
+      peakTriangles: peak.triangles,
+      vertices: held.vertices,
+      geometryBytes: held.bytes,
     });
+    if (alone) {
+      invalidate();
+      return;
+    }
 
     placed.length = 0;
     for (const { el, w, h, world, minZoom } of labels) {
@@ -538,6 +590,7 @@ export function createViewer(options: ViewerOptions): Viewer {
       scene.remove(...entry.objects);
       entry.objects = [];
     }
+    [held.vertices, held.bytes] = [0, 0];
     shadow = undefined;
     renderer.shadowMap.needsUpdate = true;
     invalidate();

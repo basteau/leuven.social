@@ -45,14 +45,16 @@ The size and render budgets are enforced by `bun run verify`; if one is exceeded
 | City data                              | 1 MB   | `scripts/budget.ts` |
 | Draw calls per frame                   | 100    | `scripts/smoke.ts`  |
 | Triangles per frame                    | 600k   | `scripts/smoke.ts`  |
-| Triangles per shadow-redraw frame      | 800k   | `scripts/smoke.ts`  |
+| Vertices, every cell built             | 4M     | `scripts/smoke.ts`  |
+| Geometry on the GPU, every cell built  | 90 MB  | `scripts/smoke.ts`  |
+| Longest main-thread task while loading | 750 ms | `scripts/smoke.ts`  |
 | Console errors and warnings            | 0      | `scripts/smoke.ts`  |
 
-Shadow-redraw frames draw the casting cells a second time, but happen only on load and when the view leaves the shadow square, so they get their own cap; every other frame keeps 600k.
+Every frame keeps the same cap, shadow redraws included. A redraw draws the casting cells a second time, so when the view and the redraw together would pass the cap, the redraw gets a frame of its own: it draws only the shadow map, the screen keeps showing the last frame, and the view follows on the next one (`FRAME_CALLS`, `FRAME_TRIANGLES` in `viewer.ts`). Smaller redraws, such as those while walking, share their frame with the view as before.
 
 The three.js chunk loads in parallel with the city data, so the HUD paints before the engine arrives.
 
-The smoke test checks the first frame (which also draws the shadow map) and the latest frame at every step: default view, after the controls, zoomed in, zoomed all the way out, walking a few steps, back on the map, and on a phone. Each visible cell is two draw calls (three from zoom 2, with its furniture), and a frame that redraws shadows adds one or two per casting cell; draw calls are cheap here because every cell shares one material and program, so the budget watches triangles first. Typical numbers for the whole ring plus Heverlee: 34 calls and 239k triangles at the default view, 18 and 123k zoomed in, 94 and 534k zoomed out, 78 and 645k for the first frame, 14 and 84k walking.
+The viewer publishes the first frame, the latest and the most expensive frame of the visit, and the smoke test checks all three at every step: default view, after the controls, zoomed in, zoomed all the way out, dragged around out there (which redraws the shadow map for the most city at once), walking a few steps, back on the map, and on a phone. Each visible cell is two draw calls (three from zoom 2, with its furniture), and a frame that redraws shadows adds one or two per casting cell; draw calls are cheap here because every cell shares one material and program, so the budget watches triangles first. Typical numbers for the whole ring plus Heverlee: 34 calls and 239k triangles at the default view, 18 and 123k zoomed in, 94 and 534k zoomed out, 78 and 645k for the first frame, 14 and 84k walking.
 
 ## Growing the city
 

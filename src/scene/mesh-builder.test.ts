@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 
 import type { BufferAttribute } from 'three';
 
-import { LineBuilder, MeshBuilder, linearVertexColors } from './mesh-builder.ts';
+import { LineBuilder, MeshBuilder, geometryBytes, linearVertexColors } from './mesh-builder.ts';
 
 test('grows past its initial capacity without losing vertices', () => {
   const mesh = new MeshBuilder();
@@ -56,6 +56,8 @@ test("a vertex is 24 bytes: colours as the palette's sRGB bytes, normals as sign
     'data' in a ? bytes(a.data as never) : bytes(a as never),
   );
   expect(sizes.reduce((s, b) => s + b, 0) / 3).toBe(24);
+  expect(geometryBytes(g)).toBe(24 * 3);
+  expect(geometryBytes(new LineBuilder().build())).toBe(0);
 });
 
 test("vertex shaders turn the sRGB colours linear, as three's Color.setHex does", () => {
