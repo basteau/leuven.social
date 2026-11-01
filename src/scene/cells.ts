@@ -210,7 +210,7 @@ export interface DetailMarks {
  * ground comes first, then the tree trunks (from `trunksFrom`), and the rest from `shadowFrom`, so
  * the shadow pass can skip them: the ground can't shade anything, and seen from above a trunk's
  * shadow hides in its crown's. The fine road paint comes last (from `fineVertices`), so a
- * zoomed-out view can skip that.
+ * zoomed-out view can skip that. The marks count indices, as draw ranges do.
  */
 export function buildCell(
   cell: Cell,
@@ -232,11 +232,11 @@ export function buildCell(
   addGround(mesh, area, cell.bounds, cell.ground);
   // Track beds are flat ground too, so they join it before the shadow pass's start.
   addTracks(mesh, cell.rails);
-  const trunksFrom = mesh.vertices;
+  const trunksFrom = mesh.indices;
   for (let i = 0; i < trees.length; i += 4) {
     addTree(mesh, trees[i]!, trees[i + 1]!, trees[i + 2]!, trees[i + 3]!, ['trunk']);
   }
-  const shadowFrom = mesh.vertices;
+  const shadowFrom = mesh.indices;
   addRailLines(lines, cell.rails);
   const rails = lines.segments;
   addMasts(lines, cell.masts);
@@ -254,7 +254,7 @@ export function buildCell(
   for (const t of cell.tanks) addTank(mesh, lines, t);
   for (const line of cell.parapets) addParapet(mesh, lines, line);
   for (const p of cell.props) addProp(LARGE_PROPS.has(p.kind) ? mesh : props, p);
-  const fineVertices = mesh.vertices;
+  const fineVertices = mesh.indices;
   addFinePaint(mesh, cell.ground.markings);
   return { mesh, lines, props, trunksFrom, shadowFrom, fineVertices, detail };
 }

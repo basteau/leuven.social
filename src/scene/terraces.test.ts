@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import type { City } from '../data/city.ts';
 import { pointInRing } from '../data/geometry.ts';
-import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
+import { LineBuilder, MeshBuilder, unindexed } from './mesh-builder.ts';
 import { PARASOLS } from './palette.ts';
 import { addParasol, terraceParasols } from './terraces.ts';
 
@@ -67,7 +67,7 @@ test('a parasol is a canopy facing up and out with an underside, on a pole and a
   const mesh = new MeshBuilder();
   const lines = new LineBuilder();
   addParasol(mesh, lines, { x: 0, z: 0, ux: 1, uz: 0, color: PARASOLS[0] });
-  const g = mesh.build();
+  const g = unindexed(mesh.build());
   expect(g.getAttribute('position').count).toBe(26 * 3);
   const normals = g.getAttribute('normal');
   // The canopy's top faces up, its underside down.
@@ -76,5 +76,5 @@ test('a parasol is a canopy facing up and out with an underside, on a pole and a
   // The pole and foot reach the ground.
   g.computeBoundingBox();
   expect(g.boundingBox!.min.y).toBe(0);
-  expect(lines.build().getAttribute('position').count / 2).toBe(4);
+  expect(unindexed(lines.build()).getAttribute('position').count / 2).toBe(4);
 });

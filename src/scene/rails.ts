@@ -285,9 +285,7 @@ export function addPlatform(
     { length: ring.length / 2 },
     (_, i) => new Vector2(ring[i * 2]!, ring[i * 2 + 1]!),
   );
-  for (const [i, j, k] of ShapeUtils.triangulateShape(contour, [])) {
-    mesh.triangle(top(contour[i!]!), top(contour[j!]!), top(contour[k!]!), RAIL.platform, UP);
-  }
+  mesh.polygon(contour.map(top), ShapeUtils.triangulateShape(contour, []), RAIL.platform, UP);
   for (const [i, a] of contour.entries()) {
     const b = contour[(i + 1) % contour.length]!;
     if (onSeam(a, b, cell)) continue;

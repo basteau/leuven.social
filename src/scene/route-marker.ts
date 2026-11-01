@@ -24,7 +24,7 @@ const UP = [0, 1, 0] as const;
 /** Sides of a dot, and of the ring. */
 const DOT_SIDES = 6;
 const RING_SIDES = 16;
-/** Vertices per dot: a hexagon, four triangles. */
+/** Indices per dot, the unit of its draw range: a hexagon, four triangles. */
 export const DOT_VERTICES = (DOT_SIDES - 2) * 3;
 
 export interface RouteMarker {
@@ -86,7 +86,7 @@ export function routeMarker(route: Float32Array): RouteMarker {
   return { geometry: mesh.build(), dots: Float32Array.from(dots) };
 }
 
-/** How many leading vertices to skip once the walker has covered `travelled` metres. */
+/** How many leading indices to skip once the walker has covered `travelled` metres. */
 export function passedVertices(marker: RouteMarker, travelled: number): number {
   let passed = 0;
   while (passed < marker.dots.length && marker.dots[passed]! < travelled + 0.3) passed++;

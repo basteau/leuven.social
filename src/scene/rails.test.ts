@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import type { Rail } from '../data/city.ts';
-import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
+import { LineBuilder, MeshBuilder, unindexed } from './mesh-builder.ts';
 import { ANGLES, PAINT_KIND, SURFACE } from './paint.ts';
 import {
   GAUGE,
@@ -71,7 +71,7 @@ test('bridge parapets line only the sides no other bridge track runs beside', ()
 test('a track is a ballast bed and a sleeper band carrying the distance along it', () => {
   const mesh = new MeshBuilder();
   addTracks(mesh, [track(0, { line: new Float32Array([0, 0, 10, 0, 10, 0, 10, 20]) })]);
-  const g = mesh.build({ facade: true });
+  const g = unindexed(mesh.build({ facade: true }));
   const position = g.getAttribute('position');
   // Two segments (the zero-length one is skipped), two quads each.
   expect(position.count).toBe(2 * 2 * 2 * 3);
@@ -87,7 +87,7 @@ test('rails and masts are ink lines: two per track segment, two per mast', () =>
   const lines = new LineBuilder();
   addRailLines(lines, [track(0), track(5, { line: new Float32Array([0, 5, 0, 5]) })]);
   expect(lines.segments).toBe(2);
-  const g = lines.build();
+  const g = unindexed(lines.build());
   const position = g.getAttribute('position');
   expect(Math.abs(position.getZ(0) - position.getZ(2))).toBeCloseTo(GAUGE);
   addMasts(lines, planRailway([track(0)]).masts);
@@ -97,7 +97,7 @@ test('rails and masts are ink lines: two per track segment, two per mast', () =>
 test('a parapet is a low wall with its top outlined', () => {
   const [mesh, lines] = [new MeshBuilder(), new LineBuilder()];
   addRailParapet(mesh, lines, { ax: 0, az: 2.4, bx: 10, bz: 2.4, nx: 0, nz: 1 });
-  const g = mesh.build();
+  const g = unindexed(mesh.build());
   expect(g.getAttribute('position').count).toBe(3 * 2 * 3);
   expect(g.getAttribute('normal').getZ(0)).toBe(1);
   expect(lines.segments).toBe(2);
@@ -109,7 +109,7 @@ test('a platform cut at a cell border gets no wall or edge along the cut', () =>
   const [mesh, lines] = [new MeshBuilder(), new LineBuilder()];
   const cell = { minX: -100, minZ: -100, maxX: 10, maxZ: 100 };
   addPlatform(mesh, lines, new Float32Array([0, 0, 10, 0, 10, 4, 0, 4]), cell);
-  expect(mesh.build().getAttribute('position').count).toBe((2 + 3 * 2) * 3);
+  expect(unindexed(mesh.build()).getAttribute('position').count).toBe((2 + 3 * 2) * 3);
   expect(lines.segments).toBe(3);
   const bottom = { minX: -100, minZ: -100, maxX: 100, maxZ: 4 };
   addPlatform(mesh, lines, new Float32Array([0, 0, 10, 0, 10, 4, 0, 4]), bottom);
@@ -119,7 +119,7 @@ test('a platform cut at a cell border gets no wall or edge along the cut', () =>
 test('a platform is its outline raised to train-floor height, walls facing out', () => {
   const [mesh, lines] = [new MeshBuilder(), new LineBuilder()];
   addPlatform(mesh, lines, new Float32Array([0, 0, 10, 0, 10, 4, 0, 4]), far);
-  const g = mesh.build();
+  const g = unindexed(mesh.build());
   expect(g.getAttribute('position').count).toBe((2 + 4 * 2) * 3);
   g.computeBoundingBox();
   expect(g.boundingBox!.max.y).toBeCloseTo(PLATFORM_HEIGHT);
@@ -144,7 +144,7 @@ test('a platform roof is cut into bays of about 51 m along its long side', () =>
 test('a bay is a vault from valley to crown, ends filled, outlined, on four posts', () => {
   const [mesh, lines] = [new MeshBuilder(), new LineBuilder()];
   addCanopyBay(mesh, lines, { cx: 0, cz: 0, ux: 0, uz: 1, halfLength: 25, halfWidth: 30 });
-  const g = mesh.build();
+  const g = unindexed(mesh.build());
   // Four vault strips of two triangles, and four triangles at each end.
   expect(g.getAttribute('position').count).toBe((4 * 2 + 2 * 4) * 3);
   g.computeBoundingBox();

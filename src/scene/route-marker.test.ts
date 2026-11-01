@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import type { BufferAttribute, InterleavedBufferAttribute } from 'three';
 
+import { unindexed } from './mesh-builder.ts';
 import { DOT_VERTICES, passedVertices, routeMarker } from './route-marker.ts';
 
 /** The target: a ring of 16 quads and a centre dot. */
@@ -28,7 +29,7 @@ test('dots run along every leg, clear of both ends, then the target', () => {
   expect(dots[0]).toBeCloseTo(1.4);
   expect(dots.at(-1)!).toBeLessThanOrEqual(20 - 1.4);
   expect(dots.length).toBe(10);
-  const position = marker.geometry.getAttribute('position');
+  const position = unindexed(marker.geometry).getAttribute('position');
   expect(position.count).toBe(dots.length * DOT_VERTICES + TARGET_VERTICES);
   // A dot on the second leg lies on it, and dots shrink toward the end.
   const onSecond = dots.findIndex((d) => d > 12);
@@ -45,7 +46,7 @@ test('dots run along every leg, clear of both ends, then the target', () => {
 test('a short walk has a target and no dots', () => {
   const marker = routeMarker(Float32Array.of(0, 0, 2, 0));
   expect(marker.dots).toHaveLength(0);
-  expect(marker.geometry.getAttribute('position').count).toBe(TARGET_VERTICES);
+  expect(unindexed(marker.geometry).getAttribute('position').count).toBe(TARGET_VERTICES);
 });
 
 test('dots drop off as the walker passes them', () => {

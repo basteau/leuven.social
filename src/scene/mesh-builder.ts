@@ -34,14 +34,60 @@ function release(this: { array: unknown }): void {
   this.array = null;
 }
 
-/** Bytes of vertex data in a geometry, before its arrays are let go. */
+/** Bytes of vertex and index data in a geometry, before its arrays are let go. */
 export function geometryBytes(geometry: BufferGeometry): number {
   const buffers = new Set(
     Object.values(geometry.attributes).map((a) =>
       'isInterleavedBufferAttribute' in a ? a.data.array : a.array,
     ),
   );
+  if (geometry.index) buffers.add(geometry.index.array);
   return [...buffers].reduce((sum, array) => sum + array.byteLength, 0);
+}
+
+/** Corners a geometry draws, three per triangle (two per line): the unit of its draw range. */
+export function corners(geometry: BufferGeometry): number {
+  return (geometry.index ?? geometry.getAttribute('position')).count;
+}
+
+/**
+ * A builder's geometry with each triangle's (or segment's) corners written out in turn, as it
+ * draws them: what tests and tools read triangle by triangle. Its bounds come along.
+ */
+export function unindexed(geometry: BufferGeometry): BufferGeometry {
+  const soup = geometry.toNonIndexed();
+  soup.boundingBox = geometry.boundingBox;
+  soup.boundingSphere = geometry.boundingSphere;
+  return soup;
+}
+
+/**
+ * The smallest index array that holds `count` indices into `vertices` vertices. Index 65535 is
+ * left out of 16-bit indices: WebGL 2 always reads it as a primitive restart.
+ */
+function indexAttribute(indices: Uint32Array, count: number, vertices: number): BufferAttribute {
+  const array = vertices < 65535 ? new Uint16Array(count) : new Uint32Array(count);
+  array.set(indices.subarray(0, count));
+  return new BufferAttribute(array, 1).onUpload(release);
+}
+
+/** A growable index list. */
+class Indices {
+  array = new Uint32Array(1 << 15);
+  count = 0;
+
+  /** Adds two or three indices: a segment, or a triangle. */
+  push(i: number, j: number, k = -1): void {
+    if (this.count + 3 > this.array.length) {
+      const next = new Uint32Array(this.array.length * 2);
+      next.set(this.array);
+      this.array = next;
+    }
+    const a = this.array;
+    a[this.count++] = i;
+    a[this.count++] = j;
+    if (k >= 0) a[this.count++] = k;
+  }
 }
 
 /**
@@ -81,13 +127,15 @@ class Bounds {
 }
 
 /**
- * Accumulates flat-shaded, vertex-coloured triangles into one geometry, so a whole layer of
- * the city is a single draw call. Each triangle takes an outward hint and is flipped to face it,
- * which keeps winding bugs out of every caller. Writes straight into growable typed arrays:
- * the city has ~2M vertices, and this runs inside the startup task.
+ * Accumulates flat-shaded, vertex-coloured triangles into one indexed geometry, so a whole layer
+ * of the city is a single draw call. Each triangle takes an outward hint and is flipped to face
+ * it, which keeps winding bugs out of every caller. Writes straight into growable typed arrays:
+ * the city has ~2.5M vertices, and this runs inside the startup task.
  *
  * A vertex takes 24 bytes: its position as floats, its normal as signed bytes, its colour as the
- * palette's sRGB bytes (see `linearVertexColors`), and the `facade` float the shaders read.
+ * palette's sRGB bytes (see `linearVertexColors`), and the `facade` float the shaders read. Flat
+ * shading needs a vertex per face, so only corners within one flat face share a vertex: a quad's
+ * four, a polygon's ring. Draw ranges count indices, three per triangle.
  */
 export class MeshBuilder {
   #capacity = 1 << 14;
@@ -96,7 +144,12 @@ export class MeshBuilder {
   #normals = new Int8Array(this.#capacity * 4);
   #colors = new Uint8Array(this.#capacity * 4);
   #facades = new Float32Array(this.#capacity);
+  #indices = new Indices();
   #color = 0;
+  /** The normal of the face being written, as the bytes it's stored as. */
+  #nx = 0;
+  #ny = 0;
+  #nz = 0;
   #bounds = new Bounds();
 
   #grow(): void {
@@ -112,37 +165,17 @@ export class MeshBuilder {
     this.#facades = grow(this.#facades, 1);
   }
 
-  /** Vertices so far: three per triangle. */
-  get vertices(): number {
-    return this.#count;
-  }
-
-  #vertex(v: V3, nx: number, ny: number, nz: number, facade: number): void {
-    if (this.#count === this.#capacity) this.#grow();
-    const i = this.#count * 3;
-    this.#positions[i] = v[0];
-    this.#positions[i + 1] = v[1];
-    this.#positions[i + 2] = v[2];
-    // As stored, so the bounds match what three would compute from the buffer.
-    this.#bounds.add(this.#positions[i]!, this.#positions[i + 1]!, this.#positions[i + 2]!);
-    // Normalized int8 normals: exact enough for flat shading.
-    const j = this.#count * 4;
-    this.#normals[j] = Math.round(nx * 127);
-    this.#normals[j + 1] = Math.round(ny * 127);
-    this.#normals[j + 2] = Math.round(nz * 127);
-    const color = this.#color;
-    this.#colors[j] = color >> 16;
-    this.#colors[j + 1] = (color >> 8) & 255;
-    this.#colors[j + 2] = color & 255;
-    this.#facades[this.#count] = facade;
-    this.#count++;
+  /** Indices so far, three per triangle: where a draw range starts or ends. */
+  get indices(): number {
+    return this.#indices.count;
   }
 
   /**
-   * `facade` is the wall-top height the window shader reads, or on the ground a negative surface
-   * or paint code (see paint.ts); paint gives each vertex its own.
+   * Makes the normal of the triangle a, b, c, turned to face `hint`, the face being written.
+   * Returns -1 if its corners go in as a, c, b to face that way, 1 if as a, b, c, and 0 for a
+   * triangle too thin to have a normal.
    */
-  triangle(a: V3, b: V3, c: V3, color: number, hint: V3, facade: number | V3 = 0): void {
+  #face(a: V3, b: V3, c: V3, hint: V3): number {
     const ux = b[0] - a[0];
     const uy = b[1] - a[1];
     const uz = b[2] - a[2];
@@ -153,24 +186,68 @@ export class MeshBuilder {
     let ny = uz * vx - ux * vz;
     let nz = ux * vy - uy * vx;
     const len = Math.hypot(nx, ny, nz);
-    if (len < 1e-9) return;
+    if (len < 1e-9) return 0;
     const flip = nx * hint[0] + ny * hint[1] + nz * hint[2] < 0 ? -1 : 1;
     nx = (nx / len) * flip;
     ny = (ny / len) * flip;
     nz = (nz / len) * flip;
-    this.#color = color;
-    const [fa, fb, fc] = typeof facade === 'number' ? [facade, facade, facade] : facade;
-    this.#vertex(a, nx, ny, nz, fa);
-    if (flip < 0) {
-      this.#vertex(c, nx, ny, nz, fc);
-      this.#vertex(b, nx, ny, nz, fb);
-    } else {
-      this.#vertex(b, nx, ny, nz, fb);
-      this.#vertex(c, nx, ny, nz, fc);
-    }
+    // Normalized int8 normals: exact enough for flat shading.
+    this.#nx = Math.round(nx * 127);
+    this.#ny = Math.round(ny * 127);
+    this.#nz = Math.round(nz * 127);
+    return flip;
   }
 
-  /** Corners in order; `facade` as for `triangle`, or one value per corner. */
+  /** Whether vertex `i` has the normal of the face being written. */
+  #faces(i: number): boolean {
+    const j = i * 4;
+    const n = this.#normals;
+    return n[j] === this.#nx && n[j + 1] === this.#ny && n[j + 2] === this.#nz;
+  }
+
+  /** Writes a vertex with the current face's normal and colour, and returns its index. */
+  #vertex(v: V3, facade: number): number {
+    if (this.#count === this.#capacity) this.#grow();
+    const i = this.#count * 3;
+    this.#positions[i] = v[0];
+    this.#positions[i + 1] = v[1];
+    this.#positions[i + 2] = v[2];
+    // As stored, so the bounds match what three would compute from the buffer.
+    this.#bounds.add(this.#positions[i]!, this.#positions[i + 1]!, this.#positions[i + 2]!);
+    const j = this.#count * 4;
+    this.#normals[j] = this.#nx;
+    this.#normals[j + 1] = this.#ny;
+    this.#normals[j + 2] = this.#nz;
+    const color = this.#color;
+    this.#colors[j] = color >> 16;
+    this.#colors[j + 1] = (color >> 8) & 255;
+    this.#colors[j + 2] = color & 255;
+    this.#facades[this.#count] = facade;
+    return this.#count++;
+  }
+
+  /** Adds the triangle of vertices i, j, k, as i, k, j when `flip` says so. */
+  #triangle(i: number, j: number, k: number, flip: number): void {
+    if (flip < 0) this.#indices.push(i, k, j);
+    else this.#indices.push(i, j, k);
+  }
+
+  /**
+   * `facade` is the wall-top height the window shader reads, or on the ground a negative surface
+   * or paint code (see paint.ts); paint gives each vertex its own.
+   */
+  triangle(a: V3, b: V3, c: V3, color: number, hint: V3, facade: number | V3 = 0): void {
+    const flip = this.#face(a, b, c, hint);
+    if (!flip) return;
+    this.#color = color;
+    const [fa, fb, fc] = typeof facade === 'number' ? [facade, facade, facade] : facade;
+    this.#triangle(this.#vertex(a, fa), this.#vertex(b, fb), this.#vertex(c, fc), flip);
+  }
+
+  /**
+   * Corners in order, drawn as the triangles a, b, c and a, c, d; `facade` as for `triangle`, or
+   * one value per corner. Four vertices when both triangles get the same normal, as flat ones do.
+   */
   quad(
     a: V3,
     b: V3,
@@ -181,8 +258,48 @@ export class MeshBuilder {
     facade: number | readonly [number, number, number, number] = 0,
   ): void {
     const [fa, fb, fc, fd] = typeof facade === 'number' ? [facade, facade, facade, facade] : facade;
-    this.triangle(a, b, c, color, hint, [fa, fb, fc]);
-    this.triangle(a, c, d, color, hint, [fa, fc, fd]);
+    const first = this.#face(a, b, c, hint);
+    const nx = this.#nx;
+    const ny = this.#ny;
+    const nz = this.#nz;
+    const second = this.#face(a, c, d, hint);
+    if (!first || !second || nx !== this.#nx || ny !== this.#ny || nz !== this.#nz) {
+      this.triangle(a, b, c, color, hint, [fa, fb, fc]);
+      this.triangle(a, c, d, color, hint, [fa, fc, fd]);
+      return;
+    }
+    this.#color = color;
+    const i = this.#vertex(a, fa);
+    const j = this.#vertex(b, fb);
+    const k = this.#vertex(c, fc);
+    const l = this.#vertex(d, fd);
+    this.#triangle(i, j, k, first);
+    this.#triangle(i, k, l, second);
+  }
+
+  /**
+   * A polygon, as the triangles `faces` lists by corner (as `ShapeUtils.triangulateShape` gives
+   * them), each turned to face `hint`. Triangles share a corner's vertex where they get the same
+   * normal: on a flat polygon, there's one vertex per corner.
+   */
+  polygon(
+    points: readonly V3[],
+    faces: readonly (readonly number[])[],
+    color: number,
+    hint: V3,
+    facade = 0,
+  ): void {
+    this.#color = color;
+    const written = new Int32Array(points.length).fill(-1);
+    const vertex = (corner: number) => {
+      let i = written[corner]!;
+      if (i < 0 || !this.#faces(i)) written[corner] = i = this.#vertex(points[corner]!, facade);
+      return i;
+    };
+    for (const [a, b, c] of faces) {
+      const flip = this.#face(points[a!]!, points[b!]!, points[c!]!, hint);
+      if (flip) this.#triangle(vertex(a!), vertex(b!), vertex(c!), flip);
+    }
   }
 
   /**
@@ -204,45 +321,95 @@ export class MeshBuilder {
       const value = new BufferAttribute(this.#facades.slice(0, n), 1);
       geometry.setAttribute('facade', value.onUpload(release));
     }
+    geometry.setIndex(indexAttribute(this.#indices.array, this.#indices.count, n));
     this.#bounds.applyTo(geometry);
     return geometry;
   }
 }
 
-/** Collects line segments (pairs of points) for an outline geometry. */
+/**
+ * Collects line segments (pairs of points) for an indexed outline geometry. Segments that meet
+ * share their point: a hash of its position finds the one already written.
+ */
 export class LineBuilder {
-  #points = new Float32Array(6 << 10);
-  #length = 0;
+  #points = new Float32Array(3 << 11);
+  /** The same floats as bits, for the hash. */
+  #bits = new Uint32Array(this.#points.buffer);
+  #count = 0;
+  #indices = new Indices();
+  /** Open addressing, kept under half full: a point's index plus one, or 0 for an empty slot. */
+  #slots = new Int32Array(1 << 13);
   #bounds = new Bounds();
 
   /** Segments so far: a mark for drawing only part of the outlines (see `setDrawRange`). */
   get segments(): number {
-    return this.#length / 6;
+    return this.#indices.count / 2;
+  }
+
+  /** Where the hash of point `i` starts looking. */
+  #hash(i: number): number {
+    const b = this.#bits;
+    const h = Math.imul(
+      b[i]! ^ Math.imul(b[i + 1]! ^ Math.imul(b[i + 2]!, 0x9e3779b1), 0x85ebca77),
+      0xc2b2ae3d,
+    );
+    return (h ^ (h >>> 16)) & (this.#slots.length - 1);
+  }
+
+  /** The index of a point, written first at the end of the points if it's new. */
+  #point(v: V3): number {
+    if ((this.#count + 1) * 3 > this.#points.length) {
+      const old = this.#points;
+      this.#points = new Float32Array(old.length * 2);
+      this.#points.set(old);
+      this.#bits = new Uint32Array(this.#points.buffer);
+    }
+    const p = this.#points;
+    const end = this.#count * 3;
+    // Rounded to floats as stored, so equal points compare equal.
+    p[end] = v[0];
+    p[end + 1] = v[1];
+    p[end + 2] = v[2];
+    const x = p[end]!;
+    const y = p[end + 1]!;
+    const z = p[end + 2]!;
+    const slots = this.#slots;
+    const mask = slots.length - 1;
+    for (let s = this.#hash(end); ; s = (s + 1) & mask) {
+      const found = slots[s]! - 1;
+      if (found < 0) {
+        const added = this.#count++;
+        slots[s] = added + 1;
+        this.#bounds.add(x, y, z);
+        if (this.#count * 2 > slots.length) this.#rehash();
+        return added;
+      }
+      const i = found * 3;
+      if (p[i] === x && p[i + 1] === y && p[i + 2] === z) return found;
+    }
+  }
+
+  #rehash(): void {
+    const slots = new Int32Array(this.#slots.length * 2);
+    this.#slots = slots;
+    const mask = slots.length - 1;
+    for (let i = 0; i < this.#count; i++) {
+      let s = this.#hash(i * 3);
+      while (slots[s]) s = (s + 1) & mask;
+      slots[s] = i + 1;
+    }
   }
 
   segment(a: V3, b: V3): void {
-    if (this.#length + 6 > this.#points.length) {
-      const next = new Float32Array(this.#points.length * 2);
-      next.set(this.#points);
-      this.#points = next;
-    }
-    const p = this.#points;
-    const i = this.#length;
-    p[i] = a[0];
-    p[i + 1] = a[1];
-    p[i + 2] = a[2];
-    p[i + 3] = b[0];
-    p[i + 4] = b[1];
-    p[i + 5] = b[2];
-    this.#length += 6;
-    this.#bounds.add(p[i]!, p[i + 1]!, p[i + 2]!);
-    this.#bounds.add(p[i + 3]!, p[i + 4]!, p[i + 5]!);
+    const i = this.#point(a);
+    this.#indices.push(i, this.#point(b));
   }
 
   build(): BufferGeometry {
     const geometry = new BufferGeometry();
-    const points = new BufferAttribute(this.#points.slice(0, this.#length), 3);
+    const points = new BufferAttribute(this.#points.slice(0, this.#count * 3), 3);
     geometry.setAttribute('position', points.onUpload(release));
+    geometry.setIndex(indexAttribute(this.#indices.array, this.#indices.count, this.#count));
     this.#bounds.applyTo(geometry);
     return geometry;
   }

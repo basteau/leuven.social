@@ -11,10 +11,11 @@ import {
   poseAt,
   restPose,
 } from './character.ts';
+import { unindexed } from './mesh-builder.ts';
 import { IDLE_SECONDS, RUN_SPEED, WALK_SPEED } from './walker.ts';
 
 describe('characterGeometry', () => {
-  const g = characterGeometry();
+  const g = unindexed(characterGeometry());
   const position = g.getAttribute('position');
   const outlined = PARTS.filter((p) => p.outline !== false).length;
 
@@ -53,7 +54,7 @@ describe('characterGeometry', () => {
 });
 
 test('the blob shadow is a dithered flat octagon on the root, just above the feet', () => {
-  const g = characterGeometry();
+  const g = unindexed(characterGeometry());
   const dither = g.getAttribute('dither');
   const position = g.getAttribute('position');
   const index = g.getAttribute('skinIndex');

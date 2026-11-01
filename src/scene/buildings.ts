@@ -146,9 +146,8 @@ function addPolygon(
     (_, i) => new Vector2(points[i * 3]!, points[i * 3 + 1]!),
   );
   const p = (i: number): V3 => [points[i * 3]!, y(points[i * 3 + 2]!), points[i * 3 + 1]!];
-  for (const [i, j, k] of ShapeUtils.triangulateShape(contour, [])) {
-    mesh.triangle(p(i!), p(j!), p(k!), color, hint);
-  }
+  const corners = contour.map((_, i) => p(i));
+  mesh.polygon(corners, ShapeUtils.triangulateShape(contour, []), color, hint);
 }
 
 /** A hipped roof over the straight skeleton, flattened off where it reaches its surveyed rise. */
@@ -413,10 +412,8 @@ export function addBuilding(
     const courtyards = holes.map(toVectors);
     const points = [...contour, ...courtyards.flat()];
     const roof = roofColor(landmark ? null : b.roofColor, true, b.id);
-    for (const [i, j, k] of ShapeUtils.triangulateShape(contour, courtyards)) {
-      const p = (idx: number): V3 => [points[idx]!.x, plan.eave, points[idx]!.y];
-      mesh.triangle(p(i!), p(j!), p(k!), roof, [0, 1, 0]);
-    }
+    const corners = points.map((p): V3 => [p.x, plan.eave, p.y]);
+    mesh.polygon(corners, ShapeUtils.triangulateShape(contour, courtyards), roof, [0, 1, 0]);
     if (landmark) addLandmark(mesh, lines, ring, landmark);
     return;
   }

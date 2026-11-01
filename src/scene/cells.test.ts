@@ -3,6 +3,7 @@ import { expect, test } from 'bun:test';
 import type { Building, City } from '../data/city.ts';
 import { partyWalls } from './buildings.ts';
 import { CELL_SIZE, along, buildCell, partition } from './cells.ts';
+import { unindexed } from './mesh-builder.ts';
 import type { MeshBuilder } from './mesh-builder.ts';
 
 const S = CELL_SIZE;
@@ -125,7 +126,7 @@ test('a cell builds into one mesh and one set of outlines', () => {
   // The rails of the track's one segment in this cell, then its masts, lead the outlines.
   expect(detail.rails).toBe(2);
   expect(detail.masts - detail.rails).toBe(2 * west!.masts.length);
-  const g = mesh.build({ facade: true });
+  const g = unindexed(mesh.build({ facade: true }));
   const p = g.getAttribute('position');
   // Fine paint comes last: the lane line's dash and the zebra's bars, just over the road.
   expect(fineVertices).toBeLessThan(p.count);
@@ -133,7 +134,7 @@ test('a cell builds into one mesh and one set of outlines', () => {
   g.computeBoundingBox();
   expect(g.boundingBox!.min.y).toBeLessThan(0); // the slab
   expect(g.boundingBox!.max.y).toBeGreaterThanOrEqual(10); // the houses
-  expect(lines.build().getAttribute('position').count).toBeGreaterThan(0);
+  expect(unindexed(lines.build()).getAttribute('position').count).toBeGreaterThan(0);
 });
 
 test('the ground and the trunks come first, so the shadow pass can start after them', () => {
@@ -143,7 +144,7 @@ test('the ground and the trunks come first, so the shadow pass can start after t
     city.area,
     partyWalls(city.buildings),
   );
-  const position = mesh.build().getAttribute('position');
+  const position = unindexed(mesh.build()).getAttribute('position');
   // Everything before the mark lies on or under the ground, or is a trunk (3 m at most).
   let low = -Infinity;
   for (let i = 0; i < shadowFrom; i++) low = Math.max(low, position.getY(i));
@@ -160,7 +161,7 @@ test('the ground and the trunks come first, so the shadow pass can start after t
 });
 
 const height = (m: MeshBuilder) => {
-  const g = m.build();
+  const g = unindexed(m.build());
   g.computeBoundingBox();
   return g.boundingBox!.max.y;
 };

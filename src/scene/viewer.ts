@@ -32,7 +32,7 @@ import { createFacadeMaterial, setPixelSize } from './facade-material.ts';
 import { LIGHT } from './lighting.ts';
 import { SLAB_DEPTH } from './ground.ts';
 import { LINE_LOD } from './paint.ts';
-import { geometryBytes } from './mesh-builder.ts';
+import { corners, geometryBytes } from './mesh-builder.ts';
 import type { V3 } from './mesh-builder.ts';
 import { BOUNCE_LIGHT, OUTLINE, SKY, SKY_LIGHT, SUN } from './palette.ts';
 import {
@@ -166,7 +166,7 @@ const MAST_PIXEL = 0.9;
 /** Triangles a mesh draws within its draw range. */
 function drawn({ geometry }: Mesh): number {
   const { start, count } = geometry.drawRange;
-  return Math.min(count, geometry.getAttribute('position').count - start) / 3;
+  return Math.min(count, corners(geometry) - start) / 3;
 }
 
 const SCREEN_CORNERS = [
@@ -251,6 +251,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     // extra upload, one draw call as before.
     const shape = new BufferGeometry();
     shape.setAttribute('position', surfaces.geometry.getAttribute('position'));
+    shape.setIndex(surfaces.geometry.index);
     // Its bounds are its cell's: computing them would need the array the upload let go of.
     shape.boundingBox = surfaces.geometry.boundingBox;
     shape.boundingSphere = surfaces.geometry.boundingSphere;

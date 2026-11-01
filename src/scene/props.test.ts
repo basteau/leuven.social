@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 
 import { PROP_KINDS } from '../data/city.ts';
 import type { Prop, PropKind } from '../data/city.ts';
-import { MeshBuilder } from './mesh-builder.ts';
+import { MeshBuilder, unindexed } from './mesh-builder.ts';
 import { propFootprint, propScale } from '../data/props.ts';
 import { addProp } from './props.ts';
 
@@ -18,7 +18,7 @@ const prop = (kind: PropKind, over: Partial<Prop> = {}): Prop => ({
 function built(...props: Prop[]) {
   const mesh = new MeshBuilder();
   for (const p of props) addProp(mesh, p);
-  const g = mesh.build();
+  const g = unindexed(mesh.build());
   g.computeBoundingBox();
   return { triangles: g.getAttribute('position').count / 3, box: g.boundingBox!, g };
 }

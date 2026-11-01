@@ -3,7 +3,7 @@ import type { BufferGeometry } from 'three';
 
 import { addLandmark } from './landmarks.ts';
 import type { LandmarkModel, Part } from './landmarks.ts';
-import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
+import { LineBuilder, MeshBuilder, unindexed } from './mesh-builder.ts';
 
 /** A 40 × 20 m footprint centred on the origin, long side along x. */
 const RING = new Float32Array([-20, -10, 20, -10, 20, 10, -20, 10]);
@@ -21,7 +21,7 @@ function build(m: LandmarkModel): { surfaces: BufferGeometry; outlines: BufferGe
   const mesh = new MeshBuilder();
   const lines = new LineBuilder();
   addLandmark(mesh, lines, RING, m);
-  return { surfaces: mesh.build({ facade: true }), outlines: lines.build() };
+  return { surfaces: unindexed(mesh.build({ facade: true })), outlines: unindexed(lines.build()) };
 }
 
 /** Every triangle's stored normal must agree with its winding (front faces point outward). */
@@ -161,7 +161,7 @@ test('parts are placed in the footprint frame: u along its long side, v across i
     tall,
     model([{ type: 'spire', u: 15, v: 0, radius: 1, sides: 4, top: 5, tip: 5 }]),
   );
-  const b = box(mesh.build());
+  const b = box(unindexed(mesh.build()));
   expect(Math.abs((b.max.z + b.min.z) / 2)).toBeCloseTo(15);
   expect((b.max.x + b.min.x) / 2).toBeCloseTo(0);
 });

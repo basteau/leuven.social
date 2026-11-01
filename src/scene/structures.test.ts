@@ -1,10 +1,10 @@
 import { expect, test } from 'bun:test';
 
-import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
+import { LineBuilder, MeshBuilder, unindexed } from './mesh-builder.ts';
 import { addParapet, addTank } from './structures.ts';
 
 const measure = (mesh: MeshBuilder) => {
-  const g = mesh.build();
+  const g = unindexed(mesh.build());
   g.computeBoundingBox();
   return { triangles: g.getAttribute('position').count / 3, box: g.boundingBox!, g };
 };
@@ -18,7 +18,7 @@ test('a tank is its footprint walled to its height under a lid, outlined at the 
   // The walls face out: the one along z = 0 faces -z.
   const normals = g.getAttribute('normal');
   expect(normals.getZ(0)).toBeLessThan(-0.9);
-  expect(lines.build().getAttribute('position').count).toBe(4 * 2);
+  expect(unindexed(lines.build()).getAttribute('position').count).toBe(4 * 2);
 });
 
 test('a parapet is a low wall along its line, capped at both ends', () => {
@@ -30,5 +30,5 @@ test('a parapet is a low wall along its line, capped at both ends', () => {
   expect(box.max.y).toBeCloseTo(1.1);
   expect(box.min.y).toBeGreaterThan(0); // on the deck, not under the river
   expect(box.max.z - box.min.z).toBeGreaterThan(5);
-  expect(lines.build().getAttribute('position').count).toBe(2 * 2 * 2);
+  expect(unindexed(lines.build()).getAttribute('position').count).toBe(2 * 2 * 2);
 });

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { Marking } from './paint.ts';
-import { MeshBuilder } from './mesh-builder.ts';
+import { MeshBuilder, unindexed } from './mesh-builder.ts';
 import {
   ANGLES,
   PAINT_HALF,
@@ -18,7 +18,7 @@ const line = (...xz: number[]) => new Float32Array(xz);
 function draw(add: typeof addPaint, markings: Marking[]) {
   const mesh = new MeshBuilder();
   add(mesh, markings);
-  const g = mesh.build({ facade: true });
+  const g = unindexed(mesh.build({ facade: true }));
   const p = g.getAttribute('position');
   const f = g.getAttribute('facade');
   return Array.from({ length: p.count }, (_, i) => ({

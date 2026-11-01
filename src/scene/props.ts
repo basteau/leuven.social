@@ -87,6 +87,10 @@ function box(
   }
 }
 
+/** A convex polygon's triangles, fanned out from its first corner, by its number of corners. */
+const FANS: number[][][] = [];
+const fan = (n: number) => (FANS[n] ??= Array.from({ length: n - 2 }, (_, i) => [0, i + 1, i + 2]));
+
 /** A thin panel seen from both sides: glass, a bench leg, a wheel, a frame. */
 function panel(mesh: MeshBuilder, corners: readonly V3[], color: number): void {
   const [a, b, c] = corners as [V3, V3, V3];
@@ -96,9 +100,7 @@ function panel(mesh: MeshBuilder, corners: readonly V3[], color: number): void {
     (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]),
   ];
   for (const hint of [n, [-n[0], -n[1], -n[2]] as V3]) {
-    for (let i = 1; i + 1 < corners.length; i++) {
-      mesh.triangle(a, corners[i]!, corners[i + 1]!, color, hint);
-    }
+    mesh.polygon(corners, fan(corners.length), color, hint);
   }
 }
 
