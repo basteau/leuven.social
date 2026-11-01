@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 
 import { MeshBuilder } from './mesh-builder.ts';
 import { deltaE, toOklab } from '../data/colour.ts';
+import { trunkRadius } from '../data/trees.ts';
 import { TREE } from './palette.ts';
 import { MODEL_HEIGHT, TREE_TRIANGLES, addTree, crownColor } from './trees.ts';
 
@@ -58,4 +59,20 @@ test('every tree has its own green near the crown colour, older ones darker', ()
   expect(new Set(greens).size).toBeGreaterThan(30);
   for (const green of greens) expect(deltaE(green, TREE.crown)).toBeLessThan(0.08);
   expect(toOklab(crownColor(5, 25))[0]).toBeLessThan(toOklab(crownColor(5, 7))[0]);
+});
+
+test('a trunk is never drawn wider than street furniture keeps clear of', () => {
+  for (const height of [3, 7, 12, 25, 60]) {
+    for (let seed = 0; seed < 20; seed++) {
+      const mesh = new MeshBuilder();
+      addTree(mesh, 0, 0, seed, height);
+      const position = mesh.build().getAttribute('position');
+      for (let i = 0; i < position.count; i++) {
+        if (position.getY(i) > 0.01) continue; // the trunk's foot, its widest
+        expect(Math.hypot(position.getX(i), position.getZ(i))).toBeLessThanOrEqual(
+          trunkRadius(height),
+        );
+      }
+    }
+  }
 });
