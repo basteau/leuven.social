@@ -792,6 +792,10 @@ export function createWalk(host: WalkHost): Walk {
       if (flying === -1) land();
     },
     resized() {
+      // Turning the phone moves the screen out from under a held thumb, and its pointerup may
+      // never come: let go of the stick and any press, so nothing stays held or drawn off-screen.
+      releaseStick();
+      presses.clear();
       if (walker) wake();
     },
     pick() {
