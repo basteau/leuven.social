@@ -7,10 +7,11 @@ import {
   applyPose,
   characterGeometry,
   createCharacter,
+  legReach,
   poseAt,
   restPose,
 } from './character.ts';
-import { IDLE_SECONDS, WALK_SPEED } from './walker.ts';
+import { IDLE_SECONDS, RUN_SPEED, WALK_SPEED } from './walker.ts';
 
 describe('characterGeometry', () => {
   const g = characterGeometry();
@@ -88,37 +89,77 @@ describe('createCharacter and poses', () => {
 
   test('walking swings legs and arms against each other and bobs with the stride', () => {
     const stride = poseAt(restPose(), WALK_SPEED, Math.PI / 2, 0, true);
-    expect(stride.leg).toBeLessThan(-0.5);
-    expect(stride.arm).toBeGreaterThan(0.5);
-    expect(Math.sign(stride.leg)).toBe(-Math.sign(stride.arm));
+    expect(stride.legL).toBeLessThan(-0.3);
+    expect(stride.legR).toBeGreaterThan(0.3);
+    expect(stride.arm).toBeGreaterThan(0.4);
+    expect(Math.sign(stride.legL)).toBe(-Math.sign(stride.arm));
     const passing = poseAt(restPose(), WALK_SPEED, 0, 0, true);
     expect(passing.hips).toBeGreaterThan(stride.hips);
     expect(passing.lean).toBeGreaterThan(0);
   });
 
-  test('the soles never sink below the ground, walking or breathing', () => {
+  test('the leg swinging through folds its knee; the planted one stays near straight', () => {
+    const passing = poseAt(restPose(), WALK_SPEED, 0, 0, true);
+    expect(passing.kneeL).toBeGreaterThan(0.5);
+    expect(passing.kneeR).toBeLessThan(0.1);
+    const later = poseAt(restPose(), WALK_SPEED, Math.PI, 0, true);
+    expect(later.kneeR).toBeCloseTo(passing.kneeL);
+  });
+
+  test('running strides longer, leans in and bends the elbows', () => {
+    const walk = poseAt(restPose(), WALK_SPEED, Math.PI / 2, 0, true);
+    const run = poseAt(restPose(), RUN_SPEED, Math.PI / 2, 0, true);
+    expect(run.legR - run.legL).toBeGreaterThan(walk.legR - walk.legL);
+    expect(run.lean).toBeGreaterThan(walk.lean * 2);
+    expect(run.elbow).toBeLessThan(-1);
+    expect(walk.elbow).toBeGreaterThan(-0.5);
+    expect(poseAt(restPose(), RUN_SPEED, 0, 0, true).kneeL).toBeGreaterThan(1.2);
+  });
+
+  test('banks into a turn, more the faster it goes, within limits', () => {
+    const slow = poseAt(restPose(), WALK_SPEED, 0, 0, true, 2);
+    const fast = poseAt(restPose(), RUN_SPEED, 0, 0, true, 2);
+    expect(slow.bank).toBeLessThan(0);
+    expect(fast.bank).toBeLessThan(slow.bank);
+    expect(poseAt(restPose(), RUN_SPEED, 0, 0, true, -50).bank).toBeCloseTo(0.3);
+  });
+
+  test('the head turns toward where the camera looks, but not round to its back', () => {
+    expect(poseAt(restPose(), 0, 0, IDLE_SECONDS + 1, true, 0, 0.6).look).toBeCloseTo(0.6);
+    expect(poseAt(restPose(), 0, 0, IDLE_SECONDS + 1, true, 0, 3).look).toBeCloseTo(1.1);
+  });
+
+  test('the soles never sink below the ground, walking, running or breathing', () => {
     for (let phase = 0; phase < Math.PI * 2; phase += 0.1) {
       for (const [speed, still] of [
+        [RUN_SPEED, 0],
+        [(RUN_SPEED + WALK_SPEED) / 2, 0],
         [WALK_SPEED, 0],
         [WALK_SPEED / 2, 0],
         [0, phase],
       ] as const) {
         const pose = poseAt(restPose(), speed, phase, still, true);
-        // The lower foot hangs a leg's length (pivot to sole) under the hips.
-        expect(pose.hips - 0.82 * Math.cos(pose.leg)).toBeGreaterThanOrEqual(-1e-9);
+        expect(pose.hips - legReach(pose.legL, pose.kneeL)).toBeGreaterThanOrEqual(-1e-9);
+        expect(pose.hips - legReach(pose.legR, pose.kneeR)).toBeGreaterThanOrEqual(-1e-9);
+        // And one of them is on it, give or take the spring in the step.
+        const lowest = Math.max(legReach(pose.legL, pose.kneeL), legReach(pose.legR, pose.kneeR));
+        expect(pose.hips - lowest).toBeLessThan(0.04);
       }
     }
   });
 
-  test('applying a pose moves the feet forward and back', () => {
-    const foot = (bone: 'legL' | 'legR') => {
+  test('applying a pose moves the feet forward and back, and folds the knees', () => {
+    const foot = (bone: 'shinL' | 'shinR') => {
       character.mesh.updateMatrixWorld(true);
-      return character.bones[bone].localToWorld(new Vector3(0, -0.8, 0)).z;
+      return character.bones[bone].localToWorld(new Vector3(0, -0.45, 0));
     };
     applyPose(character, poseAt(restPose(), WALK_SPEED, Math.PI / 2, 0, true));
-    expect(foot('legL')).toBeGreaterThan(0.3);
-    expect(foot('legR')).toBeLessThan(-0.3);
+    expect(foot('shinL').z).toBeGreaterThan(0.2);
+    expect(foot('shinR').z).toBeLessThan(-0.2);
+    applyPose(character, poseAt(restPose(), RUN_SPEED, 0, 0, true));
+    expect(foot('shinL').y).toBeGreaterThan(0.25); // the swinging foot clears the ground
     applyPose(character, restPose());
-    expect(foot('legL')).toBeCloseTo(0);
+    expect(foot('shinL').z).toBeCloseTo(0);
+    expect(foot('shinL').y).toBeCloseTo(0);
   });
 });

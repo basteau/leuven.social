@@ -38,6 +38,9 @@ const city: City = {
   plazas: [],
   green: [box(10, 200, 20, 20)],
   water: [],
+  woods: [],
+  pitches: [],
+  parking: [],
   // A path from one cell into the other.
   paths: [{ width: 2, paved: true, line: new Float32Array([S - 20, 50, S + 20, 50]) }],
   // An electrified track across both cells, and a platform beside it across the seam.
@@ -133,7 +136,7 @@ test('a cell builds into one mesh and one set of outlines', () => {
 
 test('the ground and the trunks come first, so the shadow pass can start after them', () => {
   const [west] = partition(city);
-  const { mesh, shadowFrom, fineVertices } = buildCell(
+  const { mesh, trunksFrom, shadowFrom, fineVertices } = buildCell(
     west!,
     city.area,
     partyWalls(city.buildings),
@@ -150,6 +153,8 @@ test('the ground and the trunks come first, so the shadow pass can start after t
   }
   expect(high).toBeGreaterThan(0.5);
   expect(shadowFrom).toBeGreaterThan(0);
+  // The trunks sit between the ground and the rest: 8 triangles a tree.
+  expect(shadowFrom - trunksFrom).toBe((west!.trees.length / 4) * 8 * 3);
 });
 
 const height = (m: MeshBuilder) => {

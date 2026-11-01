@@ -17,6 +17,7 @@ import {
   simplifyLine,
   simplifyRing,
   clipLine,
+  uncoveredPieces,
 } from './geometry.ts';
 
 const bounds = { minX: 0, minZ: 0, maxX: 10, maxZ: 10 };
@@ -167,4 +168,23 @@ test('clipLine keeps the parts of a line inside the area, split where it leaves'
   ]);
   expect(clipLine([-5, -5, -1, 20], area)).toEqual([]);
   expect(clipLine([20, 5, 30, 5], area)).toEqual([]);
+});
+
+/** A road across x = 10..20. */
+const road = (x: number) => x > 10 && x < 20;
+
+describe('uncoveredPieces', () => {
+  test('cuts a line where it goes under and keeps its own vertices elsewhere', () => {
+    const pieces = uncoveredPieces([0, 0, 5, 0, 30, 0, 30, 5], (x) => road(x));
+    expect(pieces.length).toBe(2);
+    expect(pieces[0]!.slice(0, 4)).toEqual([0, 0, 5, 0]);
+    expect(pieces[0]!.at(-2)).toBeCloseTo(10, 0);
+    expect(pieces[1]![0]).toBeCloseTo(20, 0);
+    expect(pieces[1]!.slice(-4)).toEqual([30, 0, 30, 5]);
+  });
+
+  test('a line that never goes under comes back whole, one fully under not at all', () => {
+    expect(uncoveredPieces([0, 0, 5, 0, 5, 5], () => false)).toEqual([[0, 0, 5, 0, 5, 5]]);
+    expect(uncoveredPieces([12, 0, 18, 0], (x) => road(x))).toEqual([]);
+  });
 });

@@ -12,7 +12,7 @@ import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
 import type { V3 } from './mesh-builder.ts';
 import { addParasol } from './terraces.ts';
 import type { Parasol } from './terraces.ts';
-import { WALLS, pick, roofColor } from './palette.ts';
+import { pick, roofColor, wallColor } from './palette.ts';
 
 export type RoofPlan =
   | { type: 'flat'; eave: number }
@@ -32,6 +32,11 @@ export type RoofPlan =
 const PITCHED_KINDS = new Set(['house', 'apartments', 'retail', 'other']);
 /** Churches and sheds don't get the window grid: it would read as an office block. */
 const WINDOWLESS = new Set(['church', 'shed']);
+/**
+ * Added to a wall's `facade` value (its top height, at most 90 m) when its ground floor is a
+ * shop front: shops, cafés, offices and hotels (`retail`). The facade shader reads it back.
+ */
+export const SHOP_FRONT = 200;
 /**
  * Share of gables that are stepped (trapgevels), the most Flemish silhouette there is. Hero
  * squares like Oude Markt get the most, ordinary streets some, the fringe none.
@@ -149,7 +154,7 @@ function addPolygon(
 /** A hipped roof over the straight skeleton, flattened off where it reaches its surveyed rise. */
 function hipRoof(
   mesh: MeshBuilder,
-  lines: LineBuilder,
+  lines: Ink,
   plan: Extract<RoofPlan, { type: 'hip' }>,
   b: Building,
 ): void {
@@ -185,7 +190,7 @@ type At = (u: number, v: number, y: number) => V3;
  */
 function steppedGable(
   mesh: MeshBuilder,
-  lines: LineBuilder,
+  lines: Ink,
   at: At,
   end: number,
   out: V3,
@@ -227,6 +232,30 @@ function steppedGable(
     }
   }
 }
+
+/**
+ * Where outlines go. Ink is for the shapes people read: a segment shorter than `MIN_INK` is a
+ * footprint jog or survey noise, a few pixels of dark speckle at most, so it is left out.
+ */
+type Ink = Pick<LineBuilder, 'segment'>;
+const MIN_INK = 0.75;
+/** Sheds and kiosks smaller than this (m²) get no ink at all: it would draw a black blot. */
+const MIN_INKED_AREA = 20;
+const NO_INK: Ink = { segment() {} };
+
+function inkOf(lines: LineBuilder): Ink {
+  return {
+    segment(a, b) {
+      if (Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]) >= MIN_INK) lines.segment(a, b);
+    },
+  };
+}
+
+/**
+ * A party wall within this of the wall top (m) reads as one continuous facade with its
+ * neighbour: no line along the top, none up the shared corner.
+ */
+const PARTY_SLACK = 1.5;
 
 /** Wall corners sharper than this get a vertical outline; gentler bends in curved walls don't. */
 const CREASE = Math.cos((35 * Math.PI) / 180);
@@ -302,7 +331,7 @@ const NO_WALLS: PartyWalls = { corners: new Map(), edges: new Map() };
 /** Walls along one ring: outer rings counter-clockwise, courtyards clockwise, so both face out. */
 function addWalls(
   mesh: MeshBuilder,
-  lines: LineBuilder,
+  lines: Ink,
   ring: ArrayLike<number>,
   top: number,
   wall: number,
@@ -335,14 +364,22 @@ function addWalls(
       );
     }
 
-    // Outlines straight from the footprint: base, wall top, and the corners that are real creases.
-    if (neighbour === undefined) lines.segment([ax, 0, az], [bx, 0, bz]);
-    lines.segment([ax, top, az], [bx, top, bz]);
+    // Outlines straight from the footprint: the wall top, unless a neighbour of about the same
+    // height carries on from it, and the corners that are real creases. The base is left out:
+    // the road and square surfaces cover it almost everywhere.
+    const party = neighbour !== undefined && neighbour > top - PARTY_SLACK;
+    if (!party) lines.segment([ax, top, az], [bx, top, bz]);
     const px = ring[((i + n - 1) % n) * 2]!;
     const pz = ring[((i + n - 1) % n) * 2 + 1]!;
     const [d1x, d1z, d2x, d2z] = [ax - px, az - pz, bx - ax, bz - az];
     const cos = (d1x * d2x + d1z * d2z) / (Math.hypot(d1x, d1z) * Math.hypot(d2x, d2z) || 1);
-    if (cos <= CREASE) lines.segment([ax, 0, az], [ax, top, az]);
+    if (cos > CREASE) continue;
+    // A corner against a neighbour is a crease only where the wall rises above it.
+    const prior = ids[(i + n - 1) % n];
+    const before =
+      a === undefined || prior === undefined ? undefined : walls.edges.get(edgeKey(a, prior));
+    const against = Math.max(neighbour ?? 0, before ?? 0);
+    if (against < top - PARTY_SLACK) lines.segment([ax, against, az], [ax, top, az]);
   }
 }
 
@@ -358,16 +395,17 @@ export function addBuilding(
   // A hero landmark extrudes its footprint to a low base and builds its real shape on top.
   const landmark = LANDMARK_MODELS.get(b.id);
   const plan = planOf(b);
-  const wall = landmark?.wall ?? pick(WALLS[b.kind], b.id);
+  const ink = landmark || signedArea(b.ring) >= MIN_INKED_AREA ? inkOf(lines) : NO_INK;
+  const wall = landmark?.wall ?? wallColor(b.kind, b.id);
   const [ring, ...holes] = wallRings(b, plan) as [ArrayLike<number>, ...ArrayLike<number>[]];
 
   const top = plan.eave;
   const windowless = landmark ? !landmark.windows : WINDOWLESS.has(b.kind);
-  const facade = windowless ? 0 : top;
-  for (const r of [ring, ...holes]) addWalls(mesh, lines, r, top, wall, facade, walls);
+  const facade = windowless ? 0 : top + (b.kind === 'retail' ? SHOP_FRONT : 0);
+  for (const r of [ring, ...holes]) addWalls(mesh, ink, r, top, wall, facade, walls);
 
   if (plan.type === 'hip') {
-    hipRoof(mesh, lines, plan, b);
+    hipRoof(mesh, ink, plan, b);
     return;
   }
   if (plan.type === 'flat') {
@@ -397,17 +435,17 @@ export function addBuilding(
   const right: V3 = [-vx, 1, -vz];
   mesh.quad(at(-L, W, eave), at(L, W, eave), at(L, 0, ridge), at(-L, 0, ridge), roof, left);
   mesh.quad(at(-L, -W, eave), at(L, -W, eave), at(L, 0, ridge), at(-L, 0, ridge), roof, right);
-  for (const side of [W, -W]) lines.segment(at(-L, side, eave), at(L, side, eave));
-  lines.segment(at(-L, 0, ridge), at(L, 0, ridge));
+  for (const side of [W, -W]) ink.segment(at(-L, side, eave), at(L, side, eave));
+  ink.segment(at(-L, 0, ridge), at(L, 0, ridge));
   for (const end of [L, -L]) {
     const out: V3 = [Math.sign(end) * ux, 0, Math.sign(end) * uz];
     if (plan.stepped) {
-      steppedGable(mesh, lines, at, end, out, plan, wall);
+      steppedGable(mesh, ink, at, end, out, plan, wall);
       continue;
     }
     mesh.triangle(at(end, -W, eave), at(end, W, eave), at(end, 0, ridge), wall, out);
-    lines.segment(at(end, W, eave), at(end, 0, ridge));
-    lines.segment(at(end, -W, eave), at(end, 0, ridge));
+    ink.segment(at(end, W, eave), at(end, 0, ridge));
+    ink.segment(at(end, -W, eave), at(end, 0, ridge));
   }
 }
 

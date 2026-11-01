@@ -66,6 +66,9 @@ const city: City = {
   plazas: [],
   green: [square(-200, 100, 30)],
   water: [square(-300, -300, 12.5)],
+  woods: [square(40, 40, 9)],
+  pitches: [square(60, 40, 9)],
+  parking: [square(80, 40, 9)],
   paths: [{ width: 2.5, paved: false, line: new Float32Array([0, 0, 10, 5, 20, 5]) }],
   rails: [
     { kind: 'main', bridge: true, electrified: true, line: new Float32Array([0, 0, 100, 40]) },

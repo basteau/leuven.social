@@ -2,7 +2,8 @@ import type { Bounds, Building, Carriageway, City, Path, Prop, Rail, Tank } from
 import { clipLine, clipRing } from '../data/geometry.ts';
 import { addBuilding } from './buildings.ts';
 import type { PartyWalls } from './buildings.ts';
-import { addGround } from './ground.ts';
+import { addGround, addSlabInk } from './ground.ts';
+import { GROUND_RINGS } from './ground.ts';
 import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
 import { addFinePaint } from './paint.ts';
 import type { Marking } from './paint.ts';
@@ -33,7 +34,7 @@ export const CELL_SIZE = 350;
 export interface Cell {
   bounds: Bounds;
   buildings: Building[];
-  ground: { [K in 'green' | 'water' | 'roads' | 'plazas' | 'railLand']: Float32Array[] } & {
+  ground: { [K in (typeof GROUND_RINGS)[number]]: Float32Array[] } & {
     carriageways: Carriageway[];
     markings: Marking[];
     paths: Path[];
@@ -95,6 +96,9 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
           ground: {
             green: [],
             water: [],
+            woods: [],
+            pitches: [],
+            parking: [],
             roads: [],
             carriageways: [],
             markings: [],
@@ -156,7 +160,7 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
       if (piece.length >= 6) add(cell, Float32Array.from(piece));
     }
   };
-  for (const layer of ['green', 'water', 'roads', 'plazas', 'railLand'] as const) {
+  for (const layer of GROUND_RINGS) {
     for (const ring of city[layer]) cut(ring, (cell, piece) => cell.ground[layer].push(piece));
   }
   // Platforms too: their walls and edges are left out along a cut (see `addPlatform`).
@@ -203,9 +207,10 @@ export interface DetailMarks {
 /**
  * Everything in one cell as one mesh and one set of outlines (two draw calls), plus its small
  * street furniture as a third mesh, so it can hide when zoomed out. In the main mesh the flat
- * ground and the tree trunks come first (up to `shadowFrom`), so the shadow pass can skip them:
- * the ground can't shade anything, and a trunk's shadow hides in its crown's. The fine road paint
- * comes last (from `fineVertices`), so a zoomed-out view can skip that.
+ * ground comes first, then the tree trunks (from `trunksFrom`), and the rest from `shadowFrom`, so
+ * the shadow pass can skip them: the ground can't shade anything, and seen from above a trunk's
+ * shadow hides in its crown's. The fine road paint comes last (from `fineVertices`), so a
+ * zoomed-out view can skip that.
  */
 export function buildCell(
   cell: Cell,
@@ -215,6 +220,7 @@ export function buildCell(
   mesh: MeshBuilder;
   lines: LineBuilder;
   props: MeshBuilder;
+  trunksFrom: number;
   shadowFrom: number;
   fineVertices: number;
   detail: DetailMarks;
@@ -226,6 +232,7 @@ export function buildCell(
   addGround(mesh, area, cell.bounds, cell.ground);
   // Track beds are flat ground too, so they join it before the shadow pass's start.
   addTracks(mesh, cell.rails);
+  const trunksFrom = mesh.vertices;
   for (let i = 0; i < trees.length; i += 4) {
     addTree(mesh, trees[i]!, trees[i + 1]!, trees[i + 2]!, trees[i + 3]!, ['trunk']);
   }
@@ -234,6 +241,8 @@ export function buildCell(
   const rails = lines.segments;
   addMasts(lines, cell.masts);
   const detail = { rails, masts: lines.segments };
+  // Every other outline follows the rails and masts, which the view leaves out from afar.
+  addSlabInk(lines, area, cell.bounds);
   for (const p of cell.railParapets) addRailParapet(mesh, lines, p);
   for (const ring of cell.platforms) addPlatform(mesh, lines, ring, cell.bounds);
   for (const bay of cell.canopies) addCanopyBay(mesh, lines, bay);
@@ -247,5 +256,5 @@ export function buildCell(
   for (const p of cell.props) addProp(LARGE_PROPS.has(p.kind) ? mesh : props, p);
   const fineVertices = mesh.vertices;
   addFinePaint(mesh, cell.ground.markings);
-  return { mesh, lines, props, shadowFrom, fineVertices, detail };
+  return { mesh, lines, props, trunksFrom, shadowFrom, fineVertices, detail };
 }

@@ -1,9 +1,9 @@
 import {
-  BasicShadowMap,
   Box3,
   BufferGeometry,
   DataTexture,
   DirectionalLight,
+  Fog,
   Frustum,
   HemisphereLight,
   LineBasicMaterial,
@@ -12,13 +12,14 @@ import {
   Mesh,
   NearestFilter,
   OrthographicCamera,
+  PCFShadowMap,
   RedFormat,
   Scene,
   Vector2,
   Vector3,
   WebGLRenderer,
 } from 'three';
-import type { Material, Object3D } from 'three';
+import type { Material, Object3D, PerspectiveCamera } from 'three';
 import { MapControls } from 'three/addons/controls/MapControls.js';
 
 import type { City } from '../data/city.ts';
@@ -27,11 +28,13 @@ import { partyWalls } from './buildings.ts';
 import { buildCell, partition } from './cells.ts';
 import type { Cell, DetailMarks } from './cells.ts';
 import { createFacadeMaterial, setPixelSize } from './facade-material.ts';
+import { labelHeights } from './label-anchors.ts';
+import { LIGHT } from './lighting.ts';
 import { SLAB_DEPTH } from './ground.ts';
 import { LINE_LOD } from './paint.ts';
 import { geometryBytes } from './mesh-builder.ts';
 import type { V3 } from './mesh-builder.ts';
-import { BOUNCE_LIGHT, OUTLINE, SKY_LIGHT, SUN } from './palette.ts';
+import { BOUNCE_LIGHT, OUTLINE, SKY, SKY_LIGHT, SUN } from './palette.ts';
 import {
   depthRange,
   fitShadow,
@@ -41,9 +44,9 @@ import {
   shadowPoint,
 } from './shadow-fit.ts';
 import type { ShadowSquare } from './shadow-fit.ts';
+import { applyOneTapShadows } from './shadow-filter.ts';
 import { terraceParasols } from './terraces.ts';
-import { createWalk } from './walk.ts';
-import type { WalkMode } from './walk.ts';
+import type { Walk, WalkMode } from './walk.ts';
 
 export type { WalkMode } from './walk.ts';
 
@@ -59,6 +62,8 @@ export interface ViewerOptions {
   onWalkModeChange?: (mode: WalkMode) => void;
   /** A spot that can't be walked to was picked. */
   onWalkBlocked?: () => void;
+  /** Walk mode's code couldn't be downloaded (it loads the first time someone walks). */
+  onWalkUnavailable?: () => void;
 }
 
 export interface ViewerStats {
@@ -71,6 +76,8 @@ export interface Viewer {
   /** Multiplies the zoom, within the controls' limits. */
   zoomBy(factor: number): void;
   resetView(): void;
+  /** Starts downloading walk mode, for when someone is about to walk. */
+  preloadWalk(): void;
   /** Starts walk mode: the next click on the map says where. */
   pickWalkStart(): void;
   /** Starts walking from the street nearest the middle of the view. */
@@ -79,6 +86,10 @@ export interface Viewer {
   stopWalking(): void;
   /** Walks toward a direction on screen while held: right and up, each from -1 to 1. */
   steer(right: number, up: number): void;
+  /** Runs instead of walking, while on. */
+  run(on: boolean): void;
+  /** Turns the walking view while held: -1 left, 1 right, 0 stops. */
+  look(direction: number): void;
   stats(): ViewerStats;
   dispose(): void;
 }
@@ -88,7 +99,16 @@ const VIEW_HEIGHT = 560;
 const PITCH = Math.atan(1 / Math.SQRT2); // true isometric, ≈ 35.26°
 const CAMERA_DISTANCE = 2000;
 const ROTATE_MS = 280;
-const LABEL_HEIGHT = 28;
+/** Seen from the street, labels further than this would float over the houses in front (m). */
+const LABEL_REACH = 160;
+/**
+ * From the street: shadows cover this far round the walker, whichever way it looks, with this
+ * margin for roofs (m), and are redrawn once over 1.6× coarser than that needs. Close up, a
+ * shadow texel spans many pixels, so the square stays tight: about 12 cm a texel.
+ */
+const WALK_SHADOW = 45;
+const WALK_SHADOW_REACH = 30;
+const WALK_SHADOW_COARSER = 1.6;
 interface CellEntry {
   cell: Cell;
   box: Box3;
@@ -96,7 +116,9 @@ interface CellEntry {
   objects: Object3D[];
   /** Where the rails and the catenary masts end in its outlines, which only show zoomed in. */
   detail: DetailMarks;
-  /** Where the fine road paint starts in its mesh (see buildCell). */
+  /** Where the trunks, what else casts shadows and the fine road paint start in its mesh. */
+  trunksFrom: number;
+  shadowFrom: number;
   fineVertices: number;
 }
 
@@ -175,11 +197,17 @@ export function createViewer(options: ViewerOptions): Viewer {
   const renderer = new WebGLRenderer({ canvas, alpha: true, antialias: density < 1.5 });
   renderer.setClearColor(0x000000, 0);
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = BasicShadowMap;
+  // Hard shadows, each texel's edge smoothed by one hardware-filtered tap (shadow-filter.ts).
+  applyOneTapShadows();
+  renderer.shadowMap.type = PCFShadowMap;
   // The city is static, so shadows render once instead of every frame.
   renderer.shadowMap.autoUpdate = false;
 
   const scene = new Scene();
+  // Walking fades the far city into the horizon's haze. The fog is always there, far off on
+  // the map, so starting a walk never recompiles the city's shaders.
+  const fog = new Fog(SKY.horizon, 1e7, 1e7 + 1);
+  scene.fog = fog;
   const gradientMap = toonGradient();
   // One material for every cell: walls get windows, roads their texture and paint (paint.ts).
   const material = createFacadeMaterial(gradientMap);
@@ -198,26 +226,27 @@ export function createViewer(options: ViewerOptions): Viewer {
     ),
     objects: [],
     detail: { rails: 0, masts: 0 },
+    trunksFrom: 0,
+    shadowFrom: 0,
     fineVertices: 0,
   }));
 
   /** Vertices and bytes of geometry the built cells hand the GPU. */
   const held = { vertices: 0, bytes: 0 };
   function build(entry: CellEntry): void {
-    const { mesh, lines, props, shadowFrom, fineVertices, detail } = buildCell(
+    const { mesh, lines, props, trunksFrom, shadowFrom, fineVertices, detail } = buildCell(
       entry.cell,
       city.area,
       walls,
     );
-    entry.detail = detail;
+    Object.assign(entry, { detail, trunksFrom, shadowFrom, fineVertices });
     const surfaces = new Mesh(mesh.build({ facade: true }), material);
     surfaces.receiveShadow = true;
-    // The shadow pass draws the same buffers from past the ground and the trunks up to the fine
-    // road paint, as a mesh of its own on the shadow camera's layer: no copy, no extra upload,
-    // one draw call as before.
+    // The shadow pass draws the same buffers from past the ground (and the trunks, see `cull`) up
+    // to the fine road paint, as a mesh of its own on the shadow camera's layer: no copy, no
+    // extra upload, one draw call as before.
     const shape = new BufferGeometry();
     shape.setAttribute('position', surfaces.geometry.getAttribute('position'));
-    shape.setDrawRange(shadowFrom, fineVertices - shadowFrom);
     // Its bounds are its cell's: computing them would need the array the upload let go of.
     shape.boundingBox = surfaces.geometry.boundingBox;
     shape.boundingSphere = surfaces.geometry.boundingSphere;
@@ -228,7 +257,6 @@ export function createViewer(options: ViewerOptions): Viewer {
     const furniture = new Mesh(props.build({ facade: true }), material);
     furniture.castShadow = true;
     furniture.receiveShadow = true;
-    entry.fineVertices = fineVertices;
     const outlines = new LineSegments(lines.build(), ink);
     // Cells are culled by their boxes below: three's bounding spheres are far looser.
     entry.objects = [surfaces, outlines, casters, furniture];
@@ -242,8 +270,8 @@ export function createViewer(options: ViewerOptions): Viewer {
     scene.add(surfaces, outlines, casters, furniture);
   }
 
-  const sky = new HemisphereLight(SKY_LIGHT, BOUNCE_LIGHT, 1.3);
-  const sun = new DirectionalLight(SUN, 2.2);
+  const sky = new HemisphereLight(SKY_LIGHT, BOUNCE_LIGHT, LIGHT.sky);
+  const sun = new DirectionalLight(SUN, LIGHT.sun);
   for (const l of [sky, sun]) l.layers.enableAll();
   scene.add(sky);
   const light = lightFrame(SUN_DIRECTION);
@@ -284,6 +312,15 @@ export function createViewer(options: ViewerOptions): Viewer {
   controls.cursorStyle = 'grab';
   controls.listenToKeyEvents(keyTarget); // arrow keys pan while the map has focus
 
+  // The camera that draws: the map's, or the walking one while walking.
+  let view: OrthographicCamera | PerspectiveCamera = camera;
+  let street: PerspectiveCamera | undefined;
+  /** Height of the view (m) where it looks: what decides how much detail is worth drawing. */
+  const viewSpan = () =>
+    street
+      ? 2 * street.position.distanceTo(controls.target) * Math.tan((street.fov * Math.PI) / 360)
+      : VIEW_HEIGHT / camera.zoom;
+
   let yaw = Math.PI / 4;
   function placeCamera(): void {
     const t = controls.target;
@@ -308,12 +345,13 @@ export function createViewer(options: ViewerOptions): Viewer {
   labelLayer.append(...labelEls);
   // Measure after all are in the DOM: one layout instead of one per label. Each remembers what it
   // last showed, so a frame only writes to the labels that changed.
+  const anchors = labelHeights(city.labels, city.buildings);
   const labels = labelEls.map((el, i) => ({
     el,
     w: el.offsetWidth,
     h: el.offsetHeight,
     minZoom: city.labels[i]!.minZoom,
-    world: new Vector3(city.labels[i]!.x, LABEL_HEIGHT, city.labels[i]!.z),
+    world: new Vector3(city.labels[i]!.x, anchors[i]!, city.labels[i]!.z),
     shown: true,
     transform: '',
   }));
@@ -338,7 +376,23 @@ export function createViewer(options: ViewerOptions): Viewer {
     const halfW = halfH * (buffer.x / buffer.y);
     Object.assign(camera, { left: -halfW, right: halfW, top: halfH, bottom: -halfH });
     camera.updateProjectionMatrix();
+    walk?.resized();
     invalidate();
+  }
+
+  // The ground all round the walker, reused each frame.
+  const square: [number, number, number][] = [
+    [0, 0, 0],
+    [0, 0, 0],
+    [0, 0, 0],
+    [0, 0, 0],
+  ];
+  function around(x: number, z: number, reach: number): readonly V3[] {
+    for (let i = 0; i < 4; i++) {
+      square[i]![0] = x + (i === 1 || i === 2 ? reach : -reach);
+      square[i]![2] = z + (i >= 2 ? reach : -reach);
+    }
+    return square;
   }
 
   const frustum = new Frustum();
@@ -348,27 +402,33 @@ export function createViewer(options: ViewerOptions): Viewer {
   const ground = SCREEN_CORNERS.map((): [number, number, number] => [0, 0, 0]);
   /** Builds any cell the camera can see, and fits the shadow map to the view. */
   function prepare(): void {
-    viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    viewProjection.multiplyMatrices(view.projectionMatrix, view.matrixWorldInverse);
     frustum.setFromProjectionMatrix(viewProjection);
     for (const entry of cells) {
       if (!entry.objects.length && frustum.intersectsBox(entry.box)) build(entry);
     }
 
-    // The ground under the screen's corners, as far as shadows can reach into the view.
+    // The ground under the screen's corners, as far as shadows can reach into the view. From
+    // the street that's the haze, all round the walker, so looking about never redraws them.
     camera.getWorldDirection(forward);
-    for (const [i, [x, y]] of SCREEN_CORNERS.entries()) {
-      corner.set(x, y, -1).unproject(camera);
-      corner.addScaledVector(forward, -corner.y / forward.y);
-      [ground[i]![0], ground[i]![2]] = [corner.x, corner.z];
+    const span = viewSpan();
+    const t = controls.target;
+    const reach = Math.max(WALK_SHADOW, walk?.flightSpan ?? span);
+    if (view === camera) {
+      for (const [i, [x, y]] of SCREEN_CORNERS.entries()) {
+        corner.set(x, y, -1).unproject(camera);
+        corner.addScaledVector(forward, -corner.y / forward.y);
+        [ground[i]![0], ground[i]![2]] = [corner.x, corner.z];
+      }
     }
-    const need = shadowNeeds(light, ground);
-    need.half += SHADOW_REACH;
+    const need = shadowNeeds(light, view === camera ? ground : around(t.x, t.z, reach));
+    need.half += view === camera ? SHADOW_REACH : WALK_SHADOW_REACH;
     // Furniture appearing or hiding changes what casts shadows: refit the square to the view,
     // which is close up when it appears, so the redraw stays small.
-    const near = camera.zoom >= PROP_ZOOM;
+    const near = span <= VIEW_HEIGHT / PROP_ZOOM;
     if (near !== propsShown) shadow = undefined;
     propsShown = near;
-    const refit = !shadow || !shadowCovers(shadow, need);
+    const refit = !shadow || !shadowCovers(shadow, need, view === camera ? 4 : WALK_SHADOW_COARSER);
     if (refit) fitShadowTo(need);
     // What casts into the view has to exist before the shadow pass draws: build it now, and
     // redraw if that adds to a square already drawn. The rest of the square, its room to pan,
@@ -432,8 +492,8 @@ export function createViewer(options: ViewerOptions): Viewer {
       calls++;
       triangles += drawn(mesh);
     };
-    const pixel = (camera.top - camera.bottom) / camera.zoom / buffer.y;
-    for (const { box, cell, objects, detail } of cells) {
+    const pixel = viewSpan() / buffer.y;
+    for (const { box, cell, objects, detail, shadowFrom, fineVertices } of cells) {
       const [surfaces, outlines, casters, furniture] = objects as [Mesh?, Mesh?, Mesh?, Mesh?];
       if (!surfaces || !outlines || !casters || !furniture) continue;
       const skip = pixel > MAST_PIXEL ? detail.masts : pixel > RAIL_PIXEL ? detail.rails : 0;
@@ -443,15 +503,17 @@ export function createViewer(options: ViewerOptions): Viewer {
       outlines.visible = inView;
       const casts = shadowPass && shadowFrustum.intersectsBox(box);
       casters.visible = casts;
-      furniture.layers.mask = (inView ? VIEW_LAYER : 0) | (casts ? SHADOW_LAYER : 0);
-      furniture.visible = (inView || casts) && propsShown && cell.props.length > 0;
+      if (casts) casters.geometry.setDrawRange(shadowFrom, fineVertices - shadowFrom);
+      const furnitureCasts = casts;
+      furniture.layers.mask = (inView ? VIEW_LAYER : 0) | (furnitureCasts ? SHADOW_LAYER : 0);
+      furniture.visible = (inView || furnitureCasts) && propsShown && cell.props.length > 0;
       if (inView) {
         draw(surfaces);
         calls++; // its outlines
       }
       if (casts) draw(casters);
       if (furniture.visible && inView) draw(furniture);
-      if (furniture.visible && casts) draw(furniture);
+      if (furniture.visible && furnitureCasts) draw(furniture);
     }
     return calls <= FRAME_CALLS && triangles <= FRAME_TRIANGLES;
   }
@@ -491,11 +553,15 @@ export function createViewer(options: ViewerOptions): Viewer {
     }
   }
   function render(): void {
-    // World metres per drawing-buffer pixel: how much road paint and texture is worth drawing.
-    const unit =
-      (camera.top - camera.bottom) / camera.zoom / renderer.getDrawingBufferSize(buffer).y;
+    if (street) {
+      street.aspect = buffer.x / buffer.y;
+      street.updateProjectionMatrix();
+    }
+    // World metres per drawing-buffer pixel (where the walking camera looks, from the street):
+    // how much road paint and texture is worth drawing.
+    const unit = viewSpan() / renderer.getDrawingBufferSize(buffer).y;
     setPixelSize(material, unit);
-    camera.updateMatrixWorld();
+    view.updateMatrixWorld();
     prepare();
     // Fine road paint is drawn last in each cell, so a view too far out to see it can stop short.
     for (const { objects, fineVertices } of cells) {
@@ -510,9 +576,9 @@ export function createViewer(options: ViewerOptions): Viewer {
     // layer that holds only the lights, and nothing clears or draws on the screen, which keeps
     // showing the last frame. The view follows on the next one.
     const alone = shadowPass && !together;
-    if (alone) [camera.layers.mask, renderer.autoClear] = [LIGHTS_ONLY, false];
-    renderer.render(scene, camera);
-    if (alone) [camera.layers.mask, renderer.autoClear] = [VIEW_LAYER, true];
+    if (alone) [view.layers.mask, renderer.autoClear] = [LIGHTS_ONLY, false];
+    renderer.render(scene, view);
+    if (alone) [view.layers.mask, renderer.autoClear] = [VIEW_LAYER, true];
     // The cost of this very frame and the most any frame cost, for the smoke test and anyone
     // debugging, with what the GPU holds. Frames that redraw the static shadow map (on load, and
     // when the view leaves its square) cost more.
@@ -534,15 +600,19 @@ export function createViewer(options: ViewerOptions): Viewer {
     }
 
     let count = 0;
+    const fromStreet = street !== undefined;
+    const zoom = VIEW_HEIGHT / viewSpan();
     for (const label of labels) {
-      let show = camera.zoom >= label.minZoom;
+      let show = fromStreet
+        ? label.world.distanceTo(view.position) <= LABEL_REACH
+        : zoom >= label.minZoom;
       let [left, top, right, bottom] = [0, 0, 0, 0];
       if (show) {
-        projected.copy(label.world).project(camera);
+        projected.copy(label.world).project(view);
         const x = ((projected.x + 1) / 2) * width;
         const y = ((1 - projected.y) / 2) * height;
         [left, top, right, bottom] = [x - label.w / 2, y - label.h, x + label.w / 2, y];
-        show = left >= 0 && top >= 0 && right <= width && bottom <= height;
+        show = projected.z < 1 && left >= 0 && top >= 0 && right <= width && bottom <= height;
         for (let i = 0; show && i < count * 4; i += 4) {
           const clash =
             left < placed[i + 2]! &&
@@ -562,20 +632,55 @@ export function createViewer(options: ViewerOptions): Viewer {
     }
   }
 
-  const walk = createWalk({
-    scene,
-    camera,
-    controls,
-    canvas,
-    keyTarget,
-    city,
-    gradientMap,
-    reducedMotion,
-    placeCamera,
-    render: renderNow,
-    ...(options.onWalkModeChange && { onModeChange: options.onWalkModeChange }),
-    ...(options.onWalkBlocked && { onBlocked: options.onWalkBlocked }),
-  });
+  // Walking is its own chunk, downloaded the first time someone walks (or is about to).
+  let walk: Walk | undefined;
+  let loadingWalk: Promise<Walk> | undefined;
+  let disposed = false;
+  function loadWalk(): Promise<Walk> {
+    loadingWalk ??= import('./walk.ts').then(({ createWalk }) => {
+      if (disposed) throw new Error('The map closed while walk mode loaded.');
+      walk ??= createWalk({
+        scene,
+        camera,
+        controls,
+        canvas,
+        overlay: labelLayer,
+        city,
+        gradientMap,
+        fog,
+        reducedMotion,
+        yaw: () => yaw,
+        setYaw: (to) => {
+          yaw = to;
+        },
+        placeCamera,
+        useView: (to) => {
+          street = to ?? undefined;
+          view = to ?? camera;
+        },
+        render: renderNow,
+        ...(options.onWalkModeChange && { onModeChange: options.onWalkModeChange }),
+        ...(options.onWalkBlocked && { onBlocked: options.onWalkBlocked }),
+      });
+      return walk;
+    });
+    // A failed download can be tried again.
+    loadingWalk.catch(() => {
+      loadingWalk = undefined;
+    });
+    return loadingWalk;
+  }
+  function withWalk(act: (loaded: Walk) => void): void {
+    if (walk) {
+      act(walk);
+      return;
+    }
+    loadWalk().then(act, (error: unknown) => {
+      if (disposed) return;
+      console.error(error);
+      options.onWalkUnavailable?.();
+    });
+  }
 
   let frame = 0;
   function renderNow(): void {
@@ -585,7 +690,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   }
   function invalidate(): void {
     // While walking, the walk loop draws every frame itself.
-    if (frame || walk.animating) return;
+    if (frame || walk?.animating) return;
     frame = requestAnimationFrame(() => {
       frame = 0;
       render();
@@ -609,6 +714,11 @@ export function createViewer(options: ViewerOptions): Viewer {
 
   let spin = 0;
   function rotate(direction: 1 | -1): void {
+    if (walk?.mode === 'walk') {
+      walk.turn(direction);
+      return;
+    }
+    walk?.land();
     const from = yaw;
     const to =
       Math.round((yaw - Math.PI / 4) / (Math.PI / 2)) * (Math.PI / 2) +
@@ -626,14 +736,18 @@ export function createViewer(options: ViewerOptions): Viewer {
       yaw = from + (to - from) * (1 - (1 - t) ** 3);
       placeCamera();
       // Already inside a frame: don't wait for the next one, unless the walk loop draws it.
-      if (!walk.animating) renderNow();
+      if (!walk?.animating) renderNow();
       spin = t < 1 ? requestAnimationFrame(step) : 0;
     };
     spin = requestAnimationFrame(step);
   }
 
   function zoomBy(factor: number): void {
-    walk.settle();
+    if (walk?.mode === 'walk') {
+      walk.zoom(factor);
+      return;
+    }
+    walk?.land();
     camera.zoom = Math.min(controls.maxZoom, Math.max(controls.minZoom, camera.zoom * factor));
     camera.updateProjectionMatrix();
     controls.update();
@@ -642,7 +756,7 @@ export function createViewer(options: ViewerOptions): Viewer {
 
   function resetView(): void {
     cancelAnimationFrame(spin);
-    walk.settle();
+    walk?.land();
     yaw = Math.PI / 4;
     camera.zoom = 1;
     camera.updateProjectionMatrix();
@@ -690,10 +804,15 @@ export function createViewer(options: ViewerOptions): Viewer {
     rotate,
     zoomBy,
     resetView,
-    pickWalkStart: () => walk.pick(),
-    walkFromCentre: () => walk.startAtCentre(),
-    stopWalking: () => walk.exit(),
-    steer: (x, y) => walk.steer(x, y),
+    preloadWalk: () => {
+      loadWalk().catch(() => {}); // a warm-up: the next real attempt reports any failure
+    },
+    pickWalkStart: () => withWalk((loaded) => loaded.pick()),
+    walkFromCentre: () => withWalk((loaded) => loaded.startAtCentre()),
+    stopWalking: () => walk?.exit(),
+    steer: (x, y) => walk?.steer(x, y),
+    run: (on) => walk?.run(on),
+    look: (direction) => walk?.look(direction),
     stats: () => ({
       drawCalls: renderer.info.render.calls,
       triangles: renderer.info.render.triangles,
@@ -702,7 +821,8 @@ export function createViewer(options: ViewerOptions): Viewer {
       cancelAnimationFrame(frame);
       cancelAnimationFrame(spin);
       cancelIdle(idleHandle);
-      walk.dispose();
+      disposed = true;
+      walk?.dispose();
       observer.disconnect();
       densityQuery?.removeEventListener('change', onDensity);
       canvas.removeEventListener('webglcontextrestored', onRestored);

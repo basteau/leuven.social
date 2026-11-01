@@ -145,6 +145,12 @@ export interface City {
   plazas: Float32Array[];
   green: Float32Array[];
   water: Float32Array[];
+  /** Woods and scrub: a darker floor under the trees. */
+  woods: Float32Array[];
+  /** Sports pitches. */
+  pitches: Float32Array[];
+  /** Car parks outside the road surface. */
+  parking: Float32Array[];
   paths: Path[];
   /** Railway tracks above ground. Not walkable: cross them only where a road or path does. */
   rails: Rail[];

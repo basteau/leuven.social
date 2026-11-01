@@ -147,12 +147,20 @@ async function expectCreditsShown(): Promise<void> {
   console.log('ok  credits visible at start');
 }
 
-/** Holds a key down for a while, as a person walking would (agent-browser only taps keys). */
-async function holdKey(key: string, ms: number): Promise<void> {
+/** Where the keys the smoke test holds sit on the keyboard: walking reads `code`, not `key`. */
+const CODES: Record<string, string> = { w: 'KeyW', d: 'KeyD', e: 'KeyE', Shift: 'ShiftLeft' };
+
+/** Holds keys down for a while, as a person walking would (agent-browser only taps keys). */
+async function holdKeys(keys: string[], ms: number): Promise<void> {
   const send = (type: string) =>
     browser(
       'eval',
-      `document.querySelector('.map').dispatchEvent(new KeyboardEvent('${type}', { key: '${key}', bubbles: true }))`,
+      keys
+        .map(
+          (key) =>
+            `document.querySelector('.map').dispatchEvent(new KeyboardEvent('${type}', { key: '${key}', code: '${CODES[key] ?? key}', bubbles: true }))`,
+        )
+        .join(';'),
     );
   await send('keydown');
   await browser('wait', String(ms));
@@ -161,23 +169,34 @@ async function holdKey(key: string, ms: number): Promise<void> {
 
 const canvasData = (name: string) => `document.querySelector('canvas')?.dataset.${name}`;
 
-/** Walk mode: start in the middle of the view, walk a few steps, go back to the map. */
+/**
+ * Walk mode: start in the middle of the view, fly down behind the walker, walk, run and turn
+ * the view a little, then fly back to the map.
+ */
 async function expectWalking(): Promise<void> {
+  // From the default view, so landing back on the map costs what the first frame does.
+  await browser('press', 'r');
   await browser('press', 'w');
   await browser('wait', '--fn', `${canvasData('walk')} === 'pick'`);
   await browser('press', 'Enter');
   await browser('wait', '--fn', `${canvasData('walk')} === 'walk'`);
   const start = await evalJson<string>(`JSON.stringify(${canvasData('walker')})`);
-  await holdKey('d', 800);
-  await holdKey('w', 800);
+  await holdKeys(['d'], 800);
+  await holdKeys(['Shift', 'w'], 800);
+  await holdKeys(['e'], 400);
   // The walker publishes where it stands once it has stopped and stopped idling.
   await browser('wait', '--fn', `${canvasData('walker')} !== ${JSON.stringify(start)}`);
   await expectHealthyPage('desktop walking');
   await browser('screenshot', `${ARTIFACTS}smoke-walk.png`);
   // Dispatched rather than pressed: agent-browser's Escape leaves the page hidden, so the checks
   // after it would run in a background tab that draws no frames.
-  await holdKey('Escape', 0);
-  await browser('wait', '--fn', `${canvasData('walk')} === 'map'`);
+  await holdKeys(['Escape'], 0);
+  // Back on the map once the flight up has landed.
+  await browser(
+    'wait',
+    '--fn',
+    `${canvasData('walk')} === 'map' && ${canvasData('walker')} === ''`,
+  );
   await expectHealthyPage('desktop back on the map');
 }
 

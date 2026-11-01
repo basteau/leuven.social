@@ -109,6 +109,13 @@ describe('pickWalkable', () => {
     expect(z).toBeGreaterThan(45);
   });
 
+  test('from street level, a house behind the eye is not in the way', () => {
+    // Standing east of the house, looking east along the street.
+    const [x, z] = pickWalkable(grid, [65, 2, 42], [1, -0.1, 0], 2)!;
+    expect(x).toBeCloseTo(85.5);
+    expect(z).toBeCloseTo(42.5);
+  });
+
   test('looking straight down still works, and looking up finds nothing', () => {
     expect(pickWalkable(grid, [75, 300, 70], [0, -1, 0], 2)).toEqual([75.5, 70.5]);
     expect(pickWalkable(grid, [50, 300, 42], [0, -1, 0], 2)).toBeNull();

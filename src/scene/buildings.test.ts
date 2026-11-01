@@ -1,7 +1,14 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { Building } from '../data/city.ts';
-import { addBuilding, buildingsGeometry, cutAt, partyWalls, planRoof } from './buildings.ts';
+import {
+  SHOP_FRONT,
+  addBuilding,
+  buildingsGeometry,
+  cutAt,
+  partyWalls,
+  planRoof,
+} from './buildings.ts';
 import { LANDMARK_MODELS } from './landmark-models.ts';
 import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
 import { pick } from './palette.ts';
@@ -120,6 +127,13 @@ describe('buildingsGeometry', () => {
     expect(values).toEqual(new Set([Math.fround(plan.eave), 0]));
   });
 
+  test('shops, cafés and offices mark their walls for a shop front', () => {
+    const b = building({ kind: 'retail' });
+    const facade = buildingsGeometry([b]).surfaces.getAttribute('facade');
+    const values = new Set(Array.from({ length: facade.count }, (_, i) => facade.getX(i)));
+    expect(values).toEqual(new Set([Math.fround(planRoof(b).eave + SHOP_FRONT), 0]));
+  });
+
   test('churches get no window grid', () => {
     const facade = buildingsGeometry([
       building({ kind: 'church', roof: 'flat' }),
@@ -130,15 +144,42 @@ describe('buildingsGeometry', () => {
   });
 });
 
+const segments = (b: Building[]) =>
+  buildingsGeometry(b).outlines.getAttribute('position').count / 2;
+
 describe('outlines', () => {
-  test('a flat box has its base, top and four corners outlined', () => {
-    const { outlines } = buildingsGeometry([building({ roof: 'flat' })]);
-    expect(outlines.getAttribute('position').count / 2).toBe(4 + 4 + 4);
+  test('a flat box has its top and four corners outlined; the ground hides its base', () => {
+    expect(segments([building({ roof: 'flat' })])).toBe(4 + 4);
   });
 
   test('a gabled house adds eaves, rakes and the ridge', () => {
-    const { outlines } = buildingsGeometry([building({})]);
-    expect(outlines.getAttribute('position').count / 2).toBe(12 + 2 * 3 + 1);
+    expect(segments([building({})])).toBe(8 + 2 * 3 + 1);
+  });
+
+  test('footprint jogs shorter than the ink threshold get no line', () => {
+    // A 6 × 12 box with a 0.3 m notch in one corner: two tiny edges, two tiny corners' worth.
+    const notched = new Float32Array([0, 0, 6, 0, 6, 11.7, 5.7, 11.7, 5.7, 12, 0, 12]);
+    expect(segments([building({ roof: 'flat', ring: notched })])).toBe(4 + 6);
+  });
+
+  test('sheds and kiosks get no ink at all', () => {
+    expect(segments([building({ roof: 'flat', ring: box(4, 4), height: 3 })])).toBe(0);
+  });
+
+  test('row houses of about the same height read as one facade', () => {
+    const left = building({ id: 1, roof: 'flat', height: 10, ring: box(6, 12) });
+    const right = building({
+      id: 2,
+      roof: 'flat',
+      height: 9,
+      ring: new Float32Array([6, 0, 12, 0, 12, 12, 6, 12]),
+    });
+    // Each loses its top line along the seam and the two corners on it.
+    expect(segments([left, right])).toBe(2 * (8 - 3));
+    // A neighbour well below: the taller house keeps its seam top and the corners above it,
+    // the lower one tucks against it.
+    const low = { ...right, height: 4 };
+    expect(segments([left, low])).toBe(8 + 5);
   });
 
   test('gentle bends in a curved wall are not outlined as corners', () => {
@@ -149,7 +190,7 @@ describe('outlines', () => {
     const { outlines } = buildingsGeometry([
       building({ roof: 'flat', ring: new Float32Array(arc) }),
     ]);
-    expect(outlines.getAttribute('position').count / 2).toBe(16 + 16);
+    expect(outlines.getAttribute('position').count / 2).toBe(16);
   });
 });
 
@@ -186,8 +227,8 @@ describe('stepped gables', () => {
     expect(surfaces.boundingBox!.max.y).toBeGreaterThan(14);
     // 3 steps a side, a front and a back quad each, on both sides of both ends; walls, slopes.
     expect(surfaces.getAttribute('position').count).toBe((4 * 2 + 2 * 2 + 2 * 2 * 3 * 2 * 2) * 3);
-    // Base, eave tops, corners, two eaves, ridge, then a riser and a tread per step.
-    expect(outlines.getAttribute('position').count / 2).toBe(12 + 2 + 1 + 2 * 2 * 3 * 2);
+    // Wall tops, corners, two eaves, ridge, then a riser and a tread per step.
+    expect(outlines.getAttribute('position').count / 2).toBe(8 + 2 + 1 + 2 * 2 * 3 * 2);
   });
 });
 
@@ -261,8 +302,8 @@ describe('hipped roofs', () => {
     const { surfaces, outlines } = buildingsGeometry([b]);
     surfaces.computeBoundingBox();
     expect(surfaces.boundingBox!.max.y).toBeCloseTo(12);
-    // Walls: 6 bases, 6 tops, 6 corners; plus the roof's hips, valley and ridges.
-    expect(outlines.getAttribute('position').count / 2).toBeGreaterThan(18 + 4);
+    // Walls: 6 tops, 6 corners; plus the roof's hips, valley and ridges.
+    expect(outlines.getAttribute('position').count / 2).toBeGreaterThan(12 + 4);
   });
 
   test('a wide block flattens off on top in the flat-roof colour', () => {

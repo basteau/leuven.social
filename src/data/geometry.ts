@@ -343,6 +343,46 @@ export function clipLine(line: ArrayLike<number>, b: Bounds): number[][] {
 }
 
 /**
+ * The pieces of a polyline (flat [x0, z0, …]) that `covered` doesn't hide, found by sampling
+ * every `step` metres: a cut lands within a step of where the line goes under. Pieces keep the
+ * line's own vertices between their cut points; pieces shorter than `step` are dropped.
+ */
+export function uncoveredPieces(
+  line: ArrayLike<number>,
+  covered: (x: number, z: number) => boolean,
+  step = 1,
+): number[][] {
+  const pieces: number[][] = [];
+  let current: number[] = [];
+  let run = 0;
+  const flush = () => {
+    if (current.length >= 4 && run >= step) pieces.push(current);
+    [current, run] = [[], 0];
+  };
+  for (let i = 0; i + 3 < line.length; i += 2) {
+    const [ax, az, bx, bz] = [line[i]!, line[i + 1]!, line[i + 2]!, line[i + 3]!];
+    const len = Math.hypot(bx - ax, bz - az);
+    const n = Math.max(1, Math.ceil(len / step));
+    for (let k = i === 0 ? 0 : 1; k <= n; k++) {
+      const [x, z] = [ax + ((bx - ax) * k) / n, az + ((bz - az) * k) / n];
+      if (covered(x, z)) {
+        flush();
+        continue;
+      }
+      // Keep the line's vertices, and any sample where a piece starts or ends.
+      const ends =
+        k === n ||
+        current.length === 0 ||
+        covered(ax + ((bx - ax) * (k + 1)) / n, az + ((bz - az) * (k + 1)) / n);
+      if (current.length) run += len / n;
+      if (ends) current.push(x, z);
+    }
+  }
+  flush();
+  return pieces;
+}
+
+/**
  * Douglas–Peucker for an open polyline (flat [x0, z0, …]): keeps both ends and every vertex
  * that sits more than `tolerance` off the simplified line. Track curves keep their shape.
  */

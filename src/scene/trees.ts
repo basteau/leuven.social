@@ -2,6 +2,7 @@ import { CylinderGeometry, IcosahedronGeometry } from 'three';
 import type { BufferGeometry } from 'three';
 
 import type { MeshBuilder, V3 } from './mesh-builder.ts';
+import { fromOklab, toOklab } from '../data/colour.ts';
 import { TREE, pick } from './palette.ts';
 
 /** Flat triangle soup of a three.js shape, so trees can join the cell meshes. */
@@ -22,12 +23,18 @@ export const MODEL_HEIGHT = 6.8;
 /** Triangles per tree, for budgets and tests. */
 export const TREE_TRIANGLES = (TRUNK.length + CROWN.length) / 3;
 
-const crownColors = TREE.tints.map((tint) => {
-  // The tint multiplies the crown colour per channel: light variety only.
-  const channel = (shift: number) =>
-    Math.round((((TREE.crown >> shift) & 255) * ((tint >> shift) & 255)) / 255);
-  return (channel(16) << 16) | (channel(8) << 8) | channel(0);
-});
+const CROWN_LAB = toOklab(TREE.crown);
+
+/** A tree's own green: lightness and hue strayed by its seed, darker the older (taller) it is. */
+export function crownColor(seed: number, height: number): number {
+  const unit = (salt: number) => (pick(UNITS, seed * 7 + salt) / (UNITS.length - 1)) * 2 - 1;
+  const [l, a, b] = CROWN_LAB;
+  const turn = unit(1) * TREE.jitter.hue;
+  const [c, s] = [Math.cos(turn), Math.sin(turn)];
+  const old = Math.min(Math.max((height - 7) / 18, 0), 1) * TREE.age;
+  return fromOklab([l + unit(2) * TREE.jitter.l - old, a * c - b * s, a * s + b * c]);
+}
+const UNITS = Array.from({ length: 64 }, (_, i) => i);
 
 export type TreePart = 'trunk' | 'crown';
 
@@ -50,8 +57,8 @@ export function addTree(
       ? Math.min(Math.max(height / MODEL_HEIGHT, 0.7), 2.8)
       : 0.8 + pick([0, 0.15, 0.3, 0.45], seed);
   // Crowns spread a fifth wider than the model: the LiDAR trees are spaced by crown size, so a
-  // canopy closes with as few trees as possible.
-  const wide = 1.2 * scale ** 0.8;
+  // canopy closes with as few trees as possible. Some are slimmer, some broader.
+  const wide = 1.2 * scale ** 0.8 * pick([0.86, 0.94, 1, 1.06, 1.14], seed * 3);
   const turn = (seed * 2.399) % (Math.PI * 2);
   const [c, s] = [Math.cos(turn), Math.sin(turn)];
   const place = ([px, py, pz]: V3): V3 => [
@@ -61,7 +68,7 @@ export function addTree(
   ];
   for (const [part, shape, color, centreY] of [
     ['trunk', TRUNK, TREE.trunk, 1.5],
-    ['crown', CROWN, pick(crownColors, seed), 4.6],
+    ['crown', CROWN, crownColor(seed, height || scale * MODEL_HEIGHT), 4.6],
   ] as const) {
     if (!parts.includes(part)) continue;
     for (let i = 0; i < shape.length; i += 3) {
