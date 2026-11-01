@@ -4,9 +4,12 @@
  * Layout: magic "LVN1", version, area rectangles, labels (with the zoom they show from), buildings,
  * carriageways, markings, seven polygon layers (roads, plazas, green, water, platforms, railway
  * land, platform roofs), paths, rails, trees, props, tanks, parapets.
- * Coordinates are decimetres, zigzag varints, delta-encoded within each ring.
- * A building packs tier (2 bits), kind (4 bits) and roof (2 bits) into one byte, then its
- * height, roof rise and roof colour (0 = none, else 0xRRGGBB + 1), outer ring and courtyards.
+ * Coordinates are decimetres, zigzag varints, delta-encoded within each ring. A ring starts from
+ * where the ring before it in the same list started (the first from 0, 0): the bake writes
+ * neighbours next to each other, so the jump is short.
+ * A building is its id (zigzag, the change from the building before), then tier (2 bits), kind
+ * (4 bits) and roof (2 bits) packed into one byte, then its height, roof rise and roof colour
+ * (0 = none, else 0xRRGGBB + 1), outer ring and courtyards.
  * Carriageways and markings are a kind byte each, then a ring (markings: a line).
  * Paths are a width in decimetres shifted left one bit over a paved flag, then a centre line.
  * Rails are their kind shifted left two bits over an electrified and a bridge flag, then a
@@ -33,7 +36,7 @@ import type { Bounds, Building, Carriageway, City, Marking, Prop, Rail } from '.
 import { boundsOf } from './geometry.ts';
 
 const MAGIC = 'LVN1';
-const VERSION = 9;
+const VERSION = 10;
 const DM = 10; // units per metre
 const ZIGZAG = { encoding: 'zigzag' } as const;
 const TURN = Math.PI * 2;
@@ -46,28 +49,37 @@ export class CityFormatError extends Error {
   override name = 'CityFormatError';
 }
 
-function writeRing(w: Binary.Writer, ring: ArrayLike<number>): void {
+/** Where the previous ring in a list started, in decimetres: the next one starts from there. */
+interface Origin {
+  x: number;
+  z: number;
+}
+const origin = (): Origin => ({ x: 0, z: 0 });
+
+function writeRing(w: Binary.Writer, ring: ArrayLike<number>, from = origin()): void {
   w.varint(ring.length / 2);
-  let px = 0;
-  let pz = 0;
+  let px = from.x;
+  let pz = from.z;
   for (let i = 0; i < ring.length; i += 2) {
     const x = Math.round(ring[i]! * DM);
     const z = Math.round(ring[i + 1]! * DM);
     w.varint(x - px, ZIGZAG);
     w.varint(z - pz, ZIGZAG);
+    if (i === 0) [from.x, from.z] = [x, z];
     px = x;
     pz = z;
   }
 }
 
-function readRing(r: Binary.Reader): Float32Array {
+function readRing(r: Binary.Reader, from = origin()): Float32Array {
   const n = r.varint();
   const ring = new Float32Array(n * 2);
-  let x = 0;
-  let z = 0;
+  let x = from.x;
+  let z = from.z;
   for (let i = 0; i < n * 2; i += 2) {
     x += r.varint(ZIGZAG);
     z += r.varint(ZIGZAG);
+    if (i === 0) [from.x, from.z] = [x, z];
     ring[i] = x / DM;
     ring[i + 1] = z / DM;
   }
@@ -97,27 +109,33 @@ export function encodeCity(city: City): Uint8Array {
   }
 
   w.varint(city.buildings.length);
+  let id = 0;
+  let at = origin();
   for (const b of city.buildings) {
-    w.varint(b.id);
+    w.varint(b.id - id, ZIGZAG);
+    id = b.id;
     w.uint8(TIERS.indexOf(b.tier) | (KINDS.indexOf(b.kind) << 2) | (ROOFS.indexOf(b.roof) << 6));
     const height = Math.round(b.height * DM);
     w.varint(height);
     w.varint(Math.max(0, height - Math.round(b.eave * DM)));
     w.varint(b.roofColor === null ? 0 : b.roofColor + 1);
-    writeRing(w, b.ring);
+    writeRing(w, b.ring, at);
     w.varint(b.holes.length);
-    for (const hole of b.holes) writeRing(w, hole);
+    const holes = { ...at };
+    for (const hole of b.holes) writeRing(w, hole, holes);
   }
 
   w.varint(city.carriageways.length);
+  at = origin();
   for (const { kind, ring } of city.carriageways) {
     w.uint8(CARRIAGEWAY_KINDS.indexOf(kind));
-    writeRing(w, ring);
+    writeRing(w, ring, at);
   }
   w.varint(city.markings.length);
+  at = origin();
   for (const marking of city.markings) {
     w.uint8(MARKING_KINDS.indexOf(marking.kind));
-    writeRing(w, marking.line);
+    writeRing(w, marking.line, at);
   }
 
   const layers = [
@@ -131,21 +149,24 @@ export function encodeCity(city: City): Uint8Array {
   ];
   for (const layer of layers) {
     w.varint(layer.length);
-    for (const ring of layer) writeRing(w, ring);
+    at = origin();
+    for (const ring of layer) writeRing(w, ring, at);
   }
 
   w.varint(city.paths.length);
+  at = origin();
   for (const p of city.paths) {
     w.varint((Math.round(p.width * DM) << 1) | (p.paved ? 1 : 0));
-    writeRing(w, p.line);
+    writeRing(w, p.line, at);
   }
 
   w.varint(city.rails.length);
+  at = origin();
   for (const rail of city.rails) {
     w.varint(
       (RAIL_KINDS.indexOf(rail.kind) << 2) | (rail.electrified ? 2 : 0) | (rail.bridge ? 1 : 0),
     );
-    writeRing(w, rail.line);
+    writeRing(w, rail.line, at);
   }
 
   writeRing(w, city.trees);
@@ -163,12 +184,14 @@ export function encodeCity(city: City): Uint8Array {
   }
 
   w.varint(city.tanks.length);
+  at = origin();
   for (const t of city.tanks) {
     w.varint(Math.round(t.height * DM));
-    writeRing(w, t.ring);
+    writeRing(w, t.ring, at);
   }
   w.varint(city.parapets.length);
-  for (const line of city.parapets) writeRing(w, line);
+  at = origin();
+  for (const line of city.parapets) writeRing(w, line, at);
   return w.toBytes();
 }
 
@@ -194,8 +217,10 @@ export function decodeCity(bytes: Uint8Array): City {
     return { name, x, z, minZoom: r.varint() / DM };
   });
 
+  let previous = 0;
+  let at = origin();
   const buildings = Array.from({ length: r.varint() }, (): Building => {
-    const id = r.varint();
+    const id = (previous += r.varint(ZIGZAG));
     const packed = r.uint8();
     const tier = TIERS[packed & 0b11];
     const kind = KINDS[(packed >> 2) & 0b1111];
@@ -204,8 +229,9 @@ export function decodeCity(bytes: Uint8Array): City {
     const height = r.varint();
     const eave = (height - r.varint()) / DM;
     const color = r.varint();
-    const ring = readRing(r);
-    const holes = Array.from({ length: r.varint() }, () => readRing(r));
+    const ring = readRing(r, at);
+    const from = { ...at };
+    const holes = Array.from({ length: r.varint() }, () => readRing(r, from));
     return {
       id,
       tier,
@@ -219,31 +245,41 @@ export function decodeCity(bytes: Uint8Array): City {
     };
   });
 
-  const carriageways = Array.from({ length: r.varint() }, (): Carriageway => {
+  /** A list of rings, each starting from the one before. */
+  const list = <T>(read: (from: Origin) => T): T[] => {
+    const from = origin();
+    return Array.from({ length: r.varint() }, () => read(from));
+  };
+  const carriageways = list((from): Carriageway => {
     const kind = CARRIAGEWAY_KINDS[r.uint8()];
     if (!kind) throw new CityFormatError('Bad carriageway kind.');
-    return { kind, ring: readRing(r) };
+    return { kind, ring: readRing(r, from) };
   });
-  const markings = Array.from({ length: r.varint() }, (): Marking => {
+  const markings = list((from): Marking => {
     const kind = MARKING_KINDS[r.uint8()];
     if (!kind) throw new CityFormatError('Bad marking kind.');
-    return { kind, line: readRing(r) };
+    return { kind, line: readRing(r, from) };
   });
   const [roads, plazas, green, water, platforms, railLand, canopies] = Array.from(
     { length: 7 },
-    () => Array.from({ length: r.varint() }, () => readRing(r)),
+    () => list((from) => readRing(r, from)),
   ) as [Rings, Rings, Rings, Rings, Rings, Rings, Rings];
 
-  const paths = Array.from({ length: r.varint() }, () => {
+  const paths = list((from) => {
     const packed = r.varint();
-    return { width: (packed >> 1) / DM, paved: (packed & 1) === 1, line: readRing(r) };
+    return { width: (packed >> 1) / DM, paved: (packed & 1) === 1, line: readRing(r, from) };
   });
 
-  const rails = Array.from({ length: r.varint() }, (): Rail => {
+  const rails = list((from): Rail => {
     const packed = r.varint();
     const kind = RAIL_KINDS[packed >> 2];
     if (!kind) throw new CityFormatError(`Bad rail flags ${packed}.`);
-    return { kind, bridge: (packed & 1) === 1, electrified: (packed & 2) === 2, line: readRing(r) };
+    return {
+      kind,
+      bridge: (packed & 1) === 1,
+      electrified: (packed & 2) === 2,
+      line: readRing(r, from),
+    };
   });
 
   const trees = readRing(r);
@@ -262,11 +298,8 @@ export function decodeCity(bytes: Uint8Array): City {
     angle: (r.uint8() / 256) * TURN,
     size: r.varint() / DM,
   }));
-  const tanks = Array.from({ length: r.varint() }, () => ({
-    height: r.varint() / DM,
-    ring: readRing(r),
-  }));
-  const parapets = Array.from({ length: r.varint() }, () => readRing(r));
+  const tanks = list((from) => ({ height: r.varint() / DM, ring: readRing(r, from) }));
+  const parapets = list((from) => readRing(r, from));
   if (r.remaining !== 0) throw new CityFormatError(`${r.remaining} trailing bytes.`);
   return {
     area,

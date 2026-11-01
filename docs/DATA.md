@@ -1,6 +1,6 @@
 # City data
 
-The app loads a single file, `public/data/city.bin`, which is about 770 KB gzipped for the whole R23 ring plus Heverlee. It's committed, so a fresh clone runs without the raw data.
+The app loads a single file, `public/data/city.bin`, which is about 740 KB gzipped for the whole R23 ring plus Heverlee. It's committed, so a fresh clone runs without the raw data.
 
 Everything in it can be rebuilt from free, open data with one command: data + code = map. The few things that are not data are listed under [Exceptions](#exceptions).
 
