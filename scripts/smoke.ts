@@ -147,6 +147,12 @@ async function expectWalking(): Promise<void> {
   // The walker publishes where it stands once it has stopped and stopped idling.
   await browser('wait', '--fn', `${canvasData('walker')} !== ${JSON.stringify(start)}`);
   await expectHealthyPage('desktop walking');
+  // The street sign names where the walker stands, from OSM's names in city.bin.
+  await browser('wait', '--fn', `!!document.querySelector('.sign-name')?.textContent`);
+  const street = await evalJson<string>(
+    `JSON.stringify(document.querySelector('.sign-name').textContent)`,
+  );
+  console.log(`ok  street sign while walking: ${street}`);
   await browser('screenshot', `${ARTIFACTS}smoke-walk.png`);
   await browser('press', 'Escape');
   // Back on the map once the flight up has landed.

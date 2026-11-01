@@ -1,19 +1,23 @@
-import { useEffect, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { CITY_URL, loadCity } from '../data/load.ts';
-import { CREDITS } from '../data/providers.ts';
 import type { Viewer, WalkMode } from '../scene/viewer.ts';
+import { ActionButton, RoundButton } from './controls.tsx';
+import { Credits } from './credits.tsx';
 import {
-  CloseIcon,
-  MapIcon,
+  BackIcon,
+  CompassIcon,
+  GableIcon,
+  MinusIcon,
   PinIcon,
-  ResetIcon,
+  PlusIcon,
   RotateLeftIcon,
   RotateRightIcon,
   RunIcon,
   WalkIcon,
 } from './icons.tsx';
+import { useShortcuts } from './shortcuts.ts';
+import { StreetSign } from './street-sign.tsx';
 
 type Status = { state: 'loading' } | { state: 'ready' } | { state: 'error'; message: string };
 
@@ -21,24 +25,6 @@ type Status = { state: 'loading' } | { state: 'ready' } | { state: 'error'; mess
 const LOAD_TIMEOUT_MS = 20_000;
 
 const CREDITS_VISIBLE_MS = 5_000;
-
-/**
- * Keys held while walking, by where they sit rather than what they type, so W A S D and Q E
- * keep their shape on AZERTY (Belgium's own layout) as on QWERTY. Walking keys are screen
- * directions (right, up); turning keys turn the view (left -1, right 1); Shift runs.
- */
-const WALK_KEYS: Record<string, readonly [number, number]> = {
-  KeyW: [0, 1],
-  ArrowUp: [0, 1],
-  KeyS: [0, -1],
-  ArrowDown: [0, -1],
-  KeyA: [-1, 0],
-  ArrowLeft: [-1, 0],
-  KeyD: [1, 0],
-  ArrowRight: [1, 0],
-};
-const LOOK_KEYS: Record<string, number> = { KeyQ: -1, KeyE: 1 };
-const RUN_KEYS = new Set(['ShiftLeft', 'ShiftRight']);
 
 const MAP_LABEL =
   'Map of Leuven’s centre around Grote Markt, Oude Markt and Ladeuzeplein. Drag or use the arrow keys to pan; scroll, pinch or press plus and minus to zoom; Q and E turn the view; W starts a walk.';
@@ -51,9 +37,32 @@ const MAP_LABELS: Record<WalkMode, string> = {
 /** Walk mode downloads on first use; say so only if that takes long enough to notice. */
 const WALK_LOADING_MS = 250;
 
+/**
+ * How to walk is shown on the first walk, until a few seconds after the first step, and then
+ * not again on this device: the keys are on the buttons' tips, and the gestures are a game's.
+ */
+const COACHED_KEY = 'leuven-walk-coached';
+const COACH_AFTER_STEP_MS = 4_000;
+
 type WalkLoad = 'idle' | 'loading' | 'failed';
 
 const reducedMotion = () => globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+
+/** Storage can throw (private windows, blocked site data); the coach then shows each time. */
+function coached(): boolean {
+  try {
+    return localStorage.getItem(COACHED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+function rememberCoached(): void {
+  try {
+    localStorage.setItem(COACHED_KEY, '1');
+  } catch {
+    // Shown again next time: harmless.
+  }
+}
 
 /** Publishes app state on <html> for CSS, the smoke test and anyone debugging. */
 function publish(status: Status, viewer?: Viewer): void {
@@ -96,12 +105,32 @@ export function App() {
   const runningRef = useRef(running);
   const [walkLoad, setWalkLoad] = useState<WalkLoad>('idle');
   const walkLoadTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [street, setStreet] = useState<string | null>(null);
+  const [coach, setCoach] = useState(() => !coached());
+  const coachTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // The compass turns with every frame of a rotation: written straight to its style, not state.
+  const compassRef = useRef<HTMLButtonElement | null>(null);
+  const headingRef = useRef(0);
+  const turnCompass = useCallback((button: HTMLButtonElement | null) => {
+    compassRef.current = button;
+    button?.style.setProperty('--heading', `${-headingRef.current}rad`);
+  }, []);
+
   /** Starts walk mode, saying it's getting ready if its download is slow. */
   const startWalkRef = useRef(() => {
     clearTimeout(walkLoadTimer.current);
     setWalkLoad('idle');
     walkLoadTimer.current = setTimeout(() => setWalkLoad('loading'), WALK_LOADING_MS);
     viewerRef.current?.pickWalkStart();
+  });
+  /** Someone took a first step: the coach has done its job, and goes after a moment. */
+  const steppedRef = useRef(() => {
+    setBlocked(0);
+    if (coachTimer.current !== undefined) return;
+    coachTimer.current = setTimeout(() => {
+      setCoach(false);
+      rememberCoached();
+    }, COACH_AFTER_STEP_MS);
   });
 
   useEffect(() => {
@@ -141,6 +170,11 @@ export function App() {
             clearTimeout(walkLoadTimer.current);
             setWalkLoad('failed');
           },
+          onStreetChange: setStreet,
+          onHeading: (heading) => {
+            headingRef.current = heading;
+            compassRef.current?.style.setProperty('--heading', `${-heading}rad`);
+          },
         });
         viewerRef.current = viewer;
         // Keyboard users can pan and use shortcuts at once, without a focus ring flashing up.
@@ -172,78 +206,14 @@ export function App() {
     if (status.state === 'error') retryRef.current?.focus();
   }, [status.state]);
 
-  // Shortcuts work while focus is anywhere in the app, not in the rest of the page.
-  useEffect(() => {
-    const app = appRef.current;
-    if (!app) return;
-    const held = new Set<string>();
-    const steer = () => {
-      let [right, up, look] = [0, 0, 0];
-      for (const key of held) {
-        const [r, u] = WALK_KEYS[key] ?? [0, 0];
-        [right, up, look] = [right + r, up + u, look + (LOOK_KEYS[key] ?? 0)];
-      }
-      const viewer = viewerRef.current;
-      viewer?.steer(Math.sign(right), Math.sign(up));
-      viewer?.look(Math.sign(look));
-      viewer?.run(runningRef.current || [...held].some((code) => RUN_KEYS.has(code)));
-    };
-    const release = () => {
-      if (!held.size) return;
-      held.clear();
-      steer();
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey || event.altKey) {
-        release(); // a shortcut of the browser's own, not a step
-        return;
-      }
-      const viewer = viewerRef.current;
-      if (!viewer) return;
-      const key = event.key.toLowerCase();
-      const { code } = event;
-      const mode = walkModeRef.current;
-      const walking =
-        Object.hasOwn(WALK_KEYS, code) || Object.hasOwn(LOOK_KEYS, code) || RUN_KEYS.has(code);
-      if (mode === 'walk' && walking) {
-        setBlocked(0);
-        event.preventDefault();
-        if (!held.has(code)) {
-          held.add(code);
-          steer();
-        }
-        return;
-      }
-      // Enter on a focused button or link presses that instead.
-      const onControl = event.target instanceof Element && !!event.target.closest('button, a');
-      const actions: Record<string, () => void> = {
-        q: () => viewer.rotate(-1),
-        e: () => viewer.rotate(1),
-        '+': () => viewer.zoomBy(1.25),
-        '=': () => viewer.zoomBy(1.25),
-        '-': () => viewer.zoomBy(0.8),
-        ...(mode === 'map' && { r: () => viewer.resetView(), w: () => startWalkRef.current() }),
-        ...(mode === 'pick' && !onControl && { enter: () => viewer.walkFromCentre() }),
-        ...(mode !== 'map' && { escape: () => viewer.stopWalking() }),
-      };
-      actions[key]?.();
-    };
-    // Releases are heard anywhere: focus may have left the app while a key was down.
-    const onKeyUp = (event: KeyboardEvent) => {
-      // macOS sends no keyup for keys released while ⌘ is down.
-      if (event.key === 'Meta') release();
-      else if (held.delete(event.code)) steer();
-    };
-    app.addEventListener('keydown', onKeyDown);
-    globalThis.addEventListener('keyup', onKeyUp);
-    // A key released while the window is in the background never sends its keyup.
-    globalThis.addEventListener('blur', release);
-    return () => {
-      app.removeEventListener('keydown', onKeyDown);
-      globalThis.removeEventListener('keyup', onKeyUp);
-      globalThis.removeEventListener('blur', release);
-    };
-  }, []);
+  useShortcuts({
+    app: appRef,
+    viewer: viewerRef,
+    mode: walkModeRef,
+    running: runningRef,
+    startWalk: () => startWalkRef.current(),
+    onWalkKey: () => steppedRef.current(),
+  });
 
   const toggleRun = () => {
     runningRef.current = !runningRef.current;
@@ -251,16 +221,21 @@ export function App() {
     viewerRef.current?.run(runningRef.current);
   };
 
-  // "Can't walk there" stays until the next try, so nobody misses it.
+  // "Can't walk there" stays until the next try, so nobody misses it. A touch while walking is a
+  // step (the thumb stick), a look or a tap to go somewhere: the coach can go too.
   useEffect(() => {
     const map = mapRef.current;
-    if (!blocked || !map) return;
-    const clear = () => setBlocked(0);
+    if (!map || (!blocked && !(walkMode === 'walk' && coach))) return;
+    const clear = () => {
+      setBlocked(0);
+      if (walkModeRef.current === 'walk') steppedRef.current();
+    };
     map.addEventListener('pointerdown', clear, { once: true, passive: true });
     return () => map.removeEventListener('pointerdown', clear);
-  }, [blocked]);
+  }, [blocked, walkMode, coach]);
 
   const ready = status.state === 'ready';
+  const viewer = () => viewerRef.current;
 
   // OSM's attribution guidelines: show the credit at start, then it may collapse to a button
   // after five seconds or once the map is used.
@@ -278,6 +253,8 @@ export function App() {
     };
   }, [ready]);
 
+  const coaching = walkMode === 'walk' && coach && !blocked;
+
   return (
     <main ref={appRef} className="app" data-walk={walkMode}>
       <div
@@ -290,13 +267,34 @@ export function App() {
       >
         <canvas ref={canvasRef} className="city" />
       </div>
-      <div ref={overlayRef} className="overlay" aria-hidden="true" />
+      <div ref={overlayRef} className="overlay" aria-hidden="true">
+        {/* Where the left thumb walks, until it has. Touch screens only (CSS). */}
+        {coaching && (
+          <div className="stick-ghost">
+            <span className="stick-knob" />
+          </div>
+        )}
+      </div>
       {walkMode === 'pick' && <Reticle />}
 
       <header className="hud hud-top">
-        <div className="panel brand">
-          <h1>Leuven</h1>
-        </div>
+        {walkMode === 'walk' ? (
+          <ActionButton
+            label="Map"
+            shortcut="Esc"
+            keys="Escape"
+            disabled={!ready}
+            onPress={() => viewer()?.stopWalking()}
+          >
+            <BackIcon />
+          </ActionButton>
+        ) : (
+          <div className="panel brand">
+            <GableIcon />
+            <h1>Leuven</h1>
+          </div>
+        )}
+        <StreetSign name={walkMode === 'map' ? null : street} />
         <Credits open={creditsOpen} onToggle={() => setCreditsOpen((open) => !open)} />
       </header>
 
@@ -308,7 +306,7 @@ export function App() {
             <button
               ref={retryRef}
               type="button"
-              className="button"
+              className="action"
               onClick={() => setAttempt((n) => n + 1)}
             >
               Try again
@@ -320,175 +318,144 @@ export function App() {
       </output>
 
       <footer className="hud hud-bottom">
-        {/* Always rendered, empty on the map, so screen readers hear the hint change. */}
-        <output className="panel hint">
-          {walkMode === 'map' ? (
-            walkLoad === 'loading' ? (
-              'Getting ready to walk…'
-            ) : walkLoad === 'failed' ? (
-              'Walking couldn’t load. Check your connection and try again.'
-            ) : null
-          ) : blocked ? (
-            'Can’t walk there. Pick a street or square.'
-          ) : walkMode === 'pick' ? (
-            'Pick a street to start walking.'
-          ) : (
-            <>
-              <span className="hint-keys">
-                W&nbsp;A&nbsp;S&nbsp;D to walk, hold Shift to run, drag to look. Click a street to
-                go there.
-              </span>
-              <span className="hint-touch">
-                Drag on the left to walk, on the right to look. Tap a street to go there.
-              </span>
-            </>
+        {/* Map controls at the end edge, in thumb reach; the same place in every mode. */}
+        <div className="rail">
+          {walkMode === 'map' && (
+            <RoundButton
+              label="Reset view"
+              shortcut="R"
+              disabled={!ready}
+              onPress={() => viewer()?.resetView()}
+              ref={turnCompass}
+            >
+              <CompassIcon />
+            </RoundButton>
           )}
-        </output>
-        {walkMode === 'map' && (
-          <div className="dock">
-            <div className="panel toolbar">
-              <ToolButton
-                label="Walk"
-                shortcut="W"
-                disabled={!ready}
-                busy={walkLoad === 'loading'}
-                onPress={() => startWalkRef.current()}
-                onWarm={() => viewerRef.current?.preloadWalk()}
-              >
-                <WalkIcon />
-              </ToolButton>
-            </div>
-            <fieldset className="panel toolbar">
-              <legend className="sr-only">View</legend>
-              <ToolButton
-                label="Turn left"
-                shortcut="Q"
-                disabled={!ready}
-                onPress={() => viewerRef.current?.rotate(-1)}
-              >
-                <RotateLeftIcon />
-              </ToolButton>
-              <ToolButton
-                label="Turn right"
-                shortcut="E"
-                disabled={!ready}
-                onPress={() => viewerRef.current?.rotate(1)}
-              >
-                <RotateRightIcon />
-              </ToolButton>
-              <ToolButton
-                label="Reset"
-                shortcut="R"
-                disabled={!ready}
-                onPress={() => viewerRef.current?.resetView()}
-              >
-                <ResetIcon />
-              </ToolButton>
-            </fieldset>
-          </div>
-        )}
-        {walkMode === 'pick' && (
-          <fieldset className="panel toolbar">
-            <legend className="sr-only">Start walking</legend>
-            <ToolButton
-              label="Start here"
-              shortcut="↵"
-              keys="Enter"
+          <fieldset className="stack">
+            <legend className="sr-only">Zoom</legend>
+            <RoundButton
+              label={walkMode === 'walk' ? 'Closer' : 'Zoom in'}
+              shortcut="+"
               disabled={!ready}
-              onPress={() => viewerRef.current?.walkFromCentre()}
+              onPress={() => viewer()?.zoomBy(1.25)}
             >
-              <PinIcon />
-            </ToolButton>
-            <ToolButton
-              label="Cancel"
-              shortcut="Esc"
-              keys="Escape"
+              <PlusIcon />
+            </RoundButton>
+            <RoundButton
+              label={walkMode === 'walk' ? 'Further' : 'Zoom out'}
+              shortcut="-"
               disabled={!ready}
-              onPress={() => viewerRef.current?.stopWalking()}
+              onPress={() => viewer()?.zoomBy(0.8)}
             >
-              <CloseIcon />
-            </ToolButton>
+              <MinusIcon />
+            </RoundButton>
           </fieldset>
-        )}
-        {walkMode === 'walk' && (
-          <fieldset className="panel toolbar">
-            <legend className="sr-only">Walking</legend>
-            <ToolButton
+          <fieldset className="stack">
+            <legend className="sr-only">Turn</legend>
+            <RoundButton
+              label="Turn left"
+              shortcut="Q"
+              disabled={!ready}
+              onPress={() => viewer()?.rotate(-1)}
+            >
+              <RotateLeftIcon />
+            </RoundButton>
+            <RoundButton
+              label="Turn right"
+              shortcut="E"
+              disabled={!ready}
+              onPress={() => viewer()?.rotate(1)}
+            >
+              <RotateRightIcon />
+            </RoundButton>
+          </fieldset>
+          {walkMode === 'walk' && (
+            <RoundButton
               label="Run"
               shortcut="Shift"
               hold
+              big
               pressed={running}
               disabled={!ready}
               onPress={toggleRun}
             >
               <RunIcon />
-            </ToolButton>
-            <ToolButton
-              label="Turn left"
-              shortcut="Q"
+            </RoundButton>
+          )}
+        </div>
+
+        <div className="bar">
+          {/* Always in the page, empty when there's nothing to say, so changes are announced. */}
+          <output className="panel hint">
+            {blocked ? (
+              'Can’t walk there. Pick a street or square.'
+            ) : walkMode === 'map' ? (
+              walkLoad === 'loading' ? (
+                'Getting ready to walk…'
+              ) : walkLoad === 'failed' ? (
+                'Walking couldn’t load. Check your connection and try again.'
+              ) : null
+            ) : walkMode === 'pick' ? (
+              <>
+                <span className="hint-keys">
+                  Click a street to start there, or press <kbd>Enter</kbd> for the middle.
+                </span>
+                <span className="hint-touch">
+                  Tap a street, or move the map and tap Start here.
+                </span>
+              </>
+            ) : coaching ? (
+              <>
+                <span className="hint-keys">
+                  <kbd>W</kbd> <kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> walk, hold <kbd>Shift</kbd> to
+                  run, drag to look. Click a street to go there.
+                </span>
+                <span className="hint-touch">
+                  Left thumb walks, right thumb looks. Tap a street to go there.
+                </span>
+              </>
+            ) : null}
+          </output>
+          {walkMode === 'map' && (
+            <ActionButton
+              label="Walk"
+              shortcut="W"
+              primary
               disabled={!ready}
-              onPress={() => viewerRef.current?.rotate(-1)}
+              busy={walkLoad === 'loading'}
+              onPress={() => startWalkRef.current()}
+              onWarm={() => viewer()?.preloadWalk()}
             >
-              <RotateLeftIcon />
-            </ToolButton>
-            <ToolButton
-              label="Turn right"
-              shortcut="E"
-              disabled={!ready}
-              onPress={() => viewerRef.current?.rotate(1)}
-            >
-              <RotateRightIcon />
-            </ToolButton>
-            {/* Last, away from where a left thumb steers. */}
-            <ToolButton
-              label="Map"
-              shortcut="Esc"
-              keys="Escape"
-              disabled={!ready}
-              onPress={() => viewerRef.current?.stopWalking()}
-            >
-              <MapIcon />
-            </ToolButton>
-          </fieldset>
-        )}
+              <WalkIcon />
+            </ActionButton>
+          )}
+          {walkMode === 'pick' && (
+            <fieldset className="actions">
+              <legend className="sr-only">Start walking</legend>
+              <ActionButton
+                label="Cancel"
+                shortcut="Esc"
+                keys="Escape"
+                disabled={!ready}
+                onPress={() => viewer()?.stopWalking()}
+              >
+                <BackIcon />
+              </ActionButton>
+              <ActionButton
+                label="Start here"
+                shortcut="↵"
+                keys="Enter"
+                primary
+                disabled={!ready}
+                onPress={() => viewer()?.walkFromCentre()}
+              >
+                <PinIcon />
+              </ActionButton>
+            </fieldset>
+          )}
+        </div>
       </footer>
     </main>
-  );
-}
-
-function ToolButton(props: {
-  label: string;
-  /** The key as shown; `keys` names it for assistive tech when the two differ. */
-  shortcut: string;
-  keys?: string;
-  /** For a toggle: whether it's on. */
-  pressed?: boolean;
-  /** The key is held for the same effect rather than pressed for this button: not its shortcut. */
-  hold?: boolean;
-  /** Its action is under way (walk mode downloading). */
-  busy?: boolean;
-  disabled: boolean;
-  onPress: () => void;
-  /** About to be pressed (hovered or focused): a chance to get ready. */
-  onWarm?: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      className="button"
-      aria-keyshortcuts={props.hold ? undefined : (props.keys ?? props.shortcut)}
-      aria-pressed={props.pressed}
-      aria-busy={props.busy || undefined}
-      disabled={props.disabled}
-      onClick={props.onPress}
-      onPointerEnter={props.onWarm}
-      onFocus={props.onWarm}
-    >
-      {props.children}
-      <span>{props.label}</span>
-      <kbd aria-hidden="true">{props.shortcut}</kbd>
-    </button>
   );
 }
 
@@ -499,33 +466,5 @@ function Reticle() {
       <path className="reticle-halo" d="M16 3v9M16 20v9M3 16h9M20 16h9" />
       <path d="M16 3v9M16 20v9M3 16h9M20 16h9" />
     </svg>
-  );
-}
-
-/**
- * Data credits required by the licences (ODbL, GRB), in the least space that stays legible.
- * They come from the source manifest, so a new provider can't ship uncredited.
- */
-function Credits(props: { open: boolean; onToggle: () => void }) {
-  return (
-    <div className="credits">
-      <p id="credits-text" hidden={!props.open}>
-        {CREDITS.map((c) => (
-          <a key={c.href} href={c.href}>
-            {c.label}
-          </a>
-        ))}
-      </p>
-      <button
-        type="button"
-        className="credits-toggle"
-        aria-expanded={props.open}
-        aria-controls="credits-text"
-        aria-label="Map data credits"
-        onClick={props.onToggle}
-      >
-        ©
-      </button>
-    </div>
   );
 }
