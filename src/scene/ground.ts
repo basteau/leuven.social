@@ -2,7 +2,7 @@ import { ShapeUtils, Vector2 } from 'three';
 
 import type { Bounds, Carriageway, Path } from '../data/city.ts';
 import { areaOutline } from '../data/geometry.ts';
-import type { MeshBuilder } from './mesh-builder.ts';
+import type { LineBuilder, MeshBuilder } from './mesh-builder.ts';
 import { SURFACE, SURFACE_OF, addPaint } from './paint.ts';
 import type { Marking } from './paint.ts';
 import { CARRIAGEWAYS, GROUND } from './palette.ts';
@@ -10,6 +10,8 @@ import { CARRIAGEWAYS, GROUND } from './palette.ts';
 /** How far the diorama slab drops below street level, in metres. */
 export const SLAB_DEPTH = 12;
 const UP = [0, 1, 0] as const;
+/** The slab's ink lip sits on top of the highest ground layer (squares, 0.2 m). */
+const LIP = 0.2;
 
 /** The ground's polygon layers, which cells cut along their edges. */
 export const GROUND_RINGS = [
@@ -86,6 +88,7 @@ export function addGround(
   area: readonly Bounds[],
   within: Bounds,
   layers: GroundLayers,
+  lines?: LineBuilder,
 ): void {
   for (const b of area) {
     const [x0, z0] = [Math.max(b.minX, within.minX), Math.max(b.minZ, within.minZ)];
@@ -94,13 +97,30 @@ export function addGround(
       mesh.quad([x0, 0, z0], [x1, 0, z0], [x1, 0, z1], [x0, 0, z1], GROUND.base, UP);
   }
   const d = -SLAB_DEPTH;
-  for (const e of areaOutline(area)) {
+  const outline = areaOutline(area);
+  // The outline's corners: points where edges facing different ways meet.
+  const facing = new Map<string, Set<string>>();
+  for (const e of outline) {
+    for (const key of [`${e.x0},${e.z0}`, `${e.x1},${e.z1}`]) {
+      facing.set(key, (facing.get(key) ?? new Set()).add(`${e.nx},${e.nz}`));
+    }
+  }
+  for (const e of outline) {
     // The part of this outline edge that runs through the cell.
     const [x0, x1] = [Math.max(e.x0, within.minX), Math.min(e.x1, within.maxX)];
     const [z0, z1] = [Math.max(e.z0, within.minZ), Math.min(e.z1, within.maxZ)];
     if (x0 > x1 || z0 > z1 || (x0 === x1 && z0 === z1)) continue;
     const hint = [e.nx, 0, e.nz] as const;
     mesh.quad([x0, d, z0], [x1, d, z1], [x1, 0, z1], [x0, 0, z0], GROUND.earth, hint);
+    // An ink lip along the slab's top and bottom edges and down its corners frames the diorama
+    // as one object, like the buildings on it. The top line sits on the highest ground layer.
+    lines?.segment([x0, LIP, z0], [x1, LIP, z1]);
+    lines?.segment([x0, d, z0], [x1, d, z1]);
+  }
+  for (const [key, normals] of facing) {
+    const [x, z] = key.split(',').map(Number) as [number, number];
+    const inside = x >= within.minX && x <= within.maxX && z >= within.minZ && z <= within.maxZ;
+    if (normals.size > 1 && inside) lines?.segment([x, d, z], [x, LIP, z]);
   }
   // Layers stack a few centimetres apart; the orthographic depth buffer resolves that cleanly.
   addRings(mesh, layers.green, 0.05, GROUND.green);

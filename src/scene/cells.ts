@@ -181,7 +181,7 @@ export function buildCell(
   const mesh = new MeshBuilder();
   const lines = new LineBuilder();
   const props = new MeshBuilder();
-  addGround(mesh, area, cell.bounds, cell.ground);
+  addGround(mesh, area, cell.bounds, cell.ground, lines);
   const groundVertices = mesh.vertices;
   for (const b of cell.buildings) addBuilding(mesh, lines, b, walls);
   for (let i = 0; i < cell.trees.length; i += 4) {

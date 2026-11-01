@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { SLAB_DEPTH, addGround } from './ground.ts';
-import { MeshBuilder } from './mesh-builder.ts';
+import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
 
 const square = new Float32Array([0, 0, 10, 0, 10, 10, 0, 10]);
 const layers = {
@@ -79,4 +79,18 @@ test('the road surface carries texture codes, and coarse paint lands on top', ()
   expect([...at(0.155)]).toEqual([-2]); // setts on top
   expect(at(0.16).size).toBe(2); // the zebra's patch, both sides of it
   expect(at(0.17).size).toBe(0); // its bars are fine paint, drawn after the buildings
+});
+
+test('the slab gets an ink lip along its top and bottom edges and down its corners', () => {
+  const lines = new LineBuilder();
+  addGround(
+    new MeshBuilder(),
+    area,
+    { minX: -100, minZ: -100, maxX: 100, maxZ: 100 },
+    layers,
+    lines,
+  );
+  // 7 outline edges, a top and a bottom line each, and one vertical down each of the L's 6
+  // corners (not where the west side runs on from one rectangle into the next).
+  expect(lines.build().getAttribute('position').count / 2).toBe(7 * 2 + 6);
 });
