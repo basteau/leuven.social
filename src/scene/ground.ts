@@ -162,5 +162,6 @@ export function addGround(
     addRing(mesh, ring, 0.155, CARRIAGEWAYS[kind], SURFACE_OF[kind]);
   }
   addPaint(mesh, layers.markings);
-  addRings(mesh, layers.plazas, 0.2, GROUND.plaza);
+  // Squares are paved in setts, like the old streets round them.
+  for (const ring of layers.plazas) addRing(mesh, ring, 0.2, GROUND.plaza, SURFACE.sett);
 }
