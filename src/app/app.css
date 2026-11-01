@@ -680,11 +680,19 @@ fieldset {
   gap: var(--space-xs);
 }
 
-/* Narrow headers: the credit tucks under its button, so it stays clear of the brand panel. */
+/*
+ * Narrow headers: the credit tucks under its button, so it stays clear of the brand panel, and
+ * Mute's tip stacks its key under its name, as narrow as the button, so it doesn't cover them.
+ */
 @container (inline-size < 26rem) {
   .credits {
     flex-direction: column-reverse;
     align-items: flex-end;
+  }
+
+  .corner-end .tip {
+    flex-direction: column;
+    gap: var(--space-xs);
   }
 }
 
