@@ -115,7 +115,7 @@ Tokens are oklch, in `src/app/app.css`:
 
 - **Actions** are pills with an icon and a visible name: the one or two things a mode is for. The primary one is filled with the accent. The shortcut shows as a keycap on devices that have hover.
 - **Map controls** are round, icon only, in a rail at the bottom end, the same place in every mode and in reach of a right thumb: a **compass** whose needle points north on the map and resets the view (R); **zoom in / zoom out** (+ / −; closer and further while walking), so pinch is never the only way to zoom; **turn left / turn right** (Q / E). Each has an accessible name, and shows it with its key as a tip on hover and keyboard focus.
-- Every control is at least 44 px. On narrow screens the rail stands above the actions; on wide ones they share the bottom row.
+- Every control is at least 44 px. On narrow screens the rail stands above the actions; on wide ones they share the bottom row. On short screens (a phone on its side) the rail lies down in a row, with Run where the compass was, so it never reaches up to Mute.
 - **Map:** the brand in the corner, the rail, and **Walk** (W) as the primary action. Walking downloads on first use; if that takes over a quarter of a second, the hint says "Getting ready to walk…", and if it fails, "Walking couldn’t load. Check your connection and try again."
 - **Picking a start:** a reticle in the middle of the view, a hint ("Click a street to start there, or press Enter for the middle." / "Tap a street, or move the map and tap Start here."), and **Cancel** (Esc) / **Start here** (Enter).
 - **Walking:** the corner is one panel, 48 px tall like the actions: a bare **Map** button (Esc) and the street plate beside it. The rail turns and zooms the camera, with **Run** under it: a big round toggle, filled while on, labelled, under the right thumb.
@@ -146,7 +146,7 @@ Tokens are oklch, in `src/app/app.css`:
 ### Credits
 
 - The data licences (ODbL for OpenStreetMap, GRB terms) require visible credit. OSM's attribution guidelines allow it to collapse only after it was shown.
-- It sits in the top-end corner: "© OpenStreetMap" and "© Digitaal Vlaanderen" as two 10 px linked lines with a paper halo, beside (or, on narrow headers, under) a 20 px © button with a 44 px hit area.
+- It sits in the top-end corner: "© OpenStreetMap" and "© Digitaal Vlaanderen" as two 10 px linked lines with a paper halo (each a 24 px target, reaching out above and below), beside (or, on narrow headers, under) a 20 px © button with a 44 px hit area.
 - It collapses to just the © after 5 seconds or on the first pan, zoom or click; the © brings it back. The smoke test fails if the credit isn't visible at start.
 
 ### No labels on the map
@@ -157,6 +157,7 @@ Places aren't named over the city: floating tags covered the very streets they n
 
 - The map is one focusable widget (`role="application"`, focused on load without a ring).
 - Arrow keys pan, `+`/`-` zoom, Q/E turn, R resets, W starts a walk. M mutes or unmutes, in every mode.
+- W A S D and Q E go by where they sit on the keyboard, on the map as on foot, so on AZERTY they are Z Q S D and A E. Hints, tips and the map's description name them as the keyboard in use types them, where the browser can say (QWERTY's letters otherwise). Keys named for what they do (M, R) go by letter.
 - Picking a start: Enter starts in the middle of the view, Escape cancels.
 - Walking: W A S D or the arrow keys walk relative to the screen, Shift runs, holding Q/E turns the view, `+`/`-` bring the camera closer or further, Escape returns to the map. Clicking or tapping a street walks there along a route, shown as a quiet trail of small dots that shrink toward a thin ring. On the move the camera drifts back behind the walker a moment after the last look around.
 - Shortcuts only act while focus is inside the app.

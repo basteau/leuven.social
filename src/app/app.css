@@ -118,8 +118,18 @@ kbd {
   inset: 0;
 }
 
+/* The canvas would cover the map's own ring, so the ring is drawn on a layer above it. */
 .map:focus-visible {
+  outline-color: transparent;
+}
+
+.map:focus-visible::after {
+  position: absolute;
+  inset: 0;
+  outline: 3px solid var(--accent);
   outline-offset: -3px;
+  pointer-events: none;
+  content: '';
 }
 
 .city {
@@ -219,13 +229,30 @@ kbd {
   }
 }
 
+/* Lined up on the end edge, so the controls stay put when Run (wider) joins them. */
 .rail {
   grid-area: rail;
   justify-self: end;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: end;
   gap: var(--space-s);
+}
+
+/*
+ * Short screens (a phone on its side): a column would reach up to Mute in the corner, so the rail
+ * lies down in a row. Run takes the compass's place at its start, so zoom and turn stay put.
+ */
+@media (max-height: 26rem) {
+  .rail {
+    flex-direction: row;
+    /* The reset lets grid items shrink; a row of controls never should. */
+    min-inline-size: max-content;
+  }
+
+  .rail .big {
+    order: -1;
+  }
 }
 
 .bar {
@@ -338,6 +365,13 @@ fieldset {
   box-shadow: none;
 }
 
+/* 40px wide inside the capsule's border; the hit area reaches out over it to 44px. */
+.stack .round::after {
+  position: absolute;
+  inset: min(0px, (100% - var(--control)) / 2);
+  content: '';
+}
+
 .stack .round + .round::before {
   position: absolute;
   inset-block-start: 0;
@@ -393,6 +427,13 @@ fieldset {
 
 .round:focus-visible .tip {
   display: flex;
+}
+
+/* Mute's tip would open over the credits beside it: it opens below instead. */
+.corner-end .tip {
+  inset-block-start: calc(100% + var(--space-s));
+  inset-inline-end: 0;
+  translate: none;
 }
 
 /* Press feedback everywhere: the control sinks into its hard shadow. */
@@ -639,11 +680,19 @@ fieldset {
   gap: var(--space-xs);
 }
 
-/* Narrow headers: the credit tucks under its button, so it stays clear of the brand panel. */
+/*
+ * Narrow headers: the credit tucks under its button, so it stays clear of the brand panel, and
+ * Mute's tip stacks its key under its name, as narrow as the button, so it doesn't cover them.
+ */
 @container (inline-size < 26rem) {
   .credits {
     flex-direction: column-reverse;
     align-items: flex-end;
+  }
+
+  .corner-end .tip {
+    flex-direction: column;
+    gap: var(--space-xs);
   }
 }
 
@@ -673,6 +722,20 @@ fieldset {
 .credits a {
   color: inherit;
   text-decoration: none;
+}
+
+/*
+ * Each line a 24px target, the WCAG minimum, with the lines where they were: the first reaches
+ * up and the last down, into space their padding takes back with a negative margin.
+ */
+.credits a:first-child {
+  padding-block-start: calc(24px - 1lh);
+  margin-block-start: calc(1lh - 24px);
+}
+
+.credits a:last-child {
+  padding-block-end: calc(24px - 1lh);
+  margin-block-end: calc(1lh - 24px);
 }
 
 /* Centred on the brand's row; its 44px hit area reaches past the visual (below). */

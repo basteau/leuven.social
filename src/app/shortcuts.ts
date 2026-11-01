@@ -34,9 +34,9 @@ export interface ShortcutTarget {
 }
 
 /**
- * The keyboard: arrows pan, + and - zoom, Q and E turn, M mutes, R resets and W walks on the map; held
- * keys walk, run and look while walking. Shortcuts act while focus is anywhere in the app, not
- * in the rest of the page.
+ * The keyboard: arrows pan, + and - zoom, Q and E turn, M mutes, R resets and W walks on the map
+ * (Q, E and W by position, like walking's keys); held keys walk, run and look while walking.
+ * Shortcuts act while focus is anywhere in the app, not in the rest of the page.
  */
 export function useShortcuts(target: ShortcutTarget): void {
   useEffect(() => {
@@ -80,20 +80,25 @@ export function useShortcuts(target: ShortcutTarget): void {
         }
         return;
       }
+      // Turning and walking go by position here too, so a key does the same on the map as on
+      // foot; the rest are named for what they do (M mutes, R resets), so they go by letter.
+      const byCode: Record<string, () => void> = {
+        KeyQ: () => viewer.rotate(-1),
+        KeyE: () => viewer.rotate(1),
+        ...(mode === 'map' && { KeyW: target.startWalk }),
+      };
       // Enter on a focused button or link presses that instead.
       const onControl = event.target instanceof Element && !!event.target.closest('button, a');
-      const actions: Record<string, () => void> = {
-        q: () => viewer.rotate(-1),
-        e: () => viewer.rotate(1),
+      const byKey: Record<string, () => void> = {
         '+': () => viewer.zoomBy(1.25),
         '=': () => viewer.zoomBy(1.25),
         '-': () => viewer.zoomBy(0.8),
         m: target.toggleSound,
-        ...(mode === 'map' && { r: () => viewer.resetView(), w: target.startWalk }),
+        ...(mode === 'map' && { r: () => viewer.resetView() }),
         ...(mode === 'pick' && !onControl && { enter: () => viewer.walkFromCentre() }),
         ...(mode !== 'map' && { escape: () => viewer.stopWalking() }),
       };
-      actions[key]?.();
+      (byCode[code] ?? byKey[key])?.();
     };
     // Releases are heard anywhere: focus may have left the app while a key was down.
     const onKeyUp = (event: KeyboardEvent) => {
