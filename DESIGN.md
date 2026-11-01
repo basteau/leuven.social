@@ -33,28 +33,31 @@ Leuven as a tiny city you could hold in your hands: a warm, crisp, low-poly dior
 - **Squares show what happens on them.** Oude Markt gets rows of café parasols along its facades; the middle stays open.
 - **Roads say what they're made of.** Asphalt, setts and paving stones come from OSM, kerbs and cycle tracks from the GRB. Setts get a grain once a stone spans a pixel or two and joints once it spans a few; from afar they're just a warmer, lighter grey than asphalt and a greyer one than the squares.
 - **Paint is at least a pixel, or nothing.** Lane lines are never thinner than a pixel, and go only when zoomed far out; zebra bars appear once a bar spans about two pixels, and before that the crossing is a light grey patch.
+- **Streets have furniture.** From zoom 2, the lamps, benches, bike racks, bus shelters and statues OpenStreetMap knows, drawn a third larger than life so they stay a few pixels. Below zoom 2 they would be noise, so they hide. Jan Fabre's Totem on Ladeuzeplein (a 23 m needle with its jewel beetle) shows at every zoom.
 - To add a landmark, fit parts in `src/scene/landmark-models.ts` against a LiDAR height plot of its footprint, list the footprint in `LANDMARK_FOOTPRINTS` (`src/data/area.ts`), rebake, then check it from all four rotations.
 
 ### Palette
 
 Values live in `src/scene/palette.ts`; change them there only. Each building's colour is picked deterministically from its id, so it never changes between reloads.
 
-| Element                | Colours                                                                                                                            | Why                                                                                                           |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| House walls            | Brick reds, warm plaster creams                                                                                                    | Leuven's streets: red-brown brick next to whitewashed and pastel fronts                                       |
-| Civic and church walls | Sandstone and limestone                                                                                                            | The Gothic Stadhuis, Sint-Pieterskerk and the university halls                                                |
-| Landmarks              | Warm sandstone, pale limestone, red brick with cream trim, dark slate spires                                                       | Each hero reads as its own building, a step darker and richer than the streets                                |
-| Café parasols          | Cream, brick red, mustard, orange, sage                                                                                            | A few warm dots of life on the squares                                                                        |
-| Pitched roofs          | Their real colour from the air, snapped to ten swatches: slate, black glazed and red tiles, terracotta, zinc, moss                 | Leuven is mostly slate with red tiles between; the aerial photo knows which is which                          |
-| Flat roofs             | Light warm greys, picked by the same swatches                                                                                      | Read as quiet backdrop, never darker than the streets                                                         |
-| Paths                  | Pale slabs when paved, sand for gravel trails                                                                                      | Parks and the Dijle walks read as places to walk, not as roads                                                |
-| Trees                  | One low-poly tree, scaled to the LiDAR height of each one                                                                          | Parks and gardens are as wooded as they really are                                                            |
-| Windows                | Deep blue-grey glass, ~7% lit warm (`#f3c873`)                                                                                     | The sun catching a few panes; reads as life without noise                                                     |
-| Ground                 | Garden green-beige base, sand cobbles for squares, river blue                                                                      | Squares should glow slightly against the roads                                                                |
-| Roads                  | Pale slab pavements; asphalt carriageways, darker on the ring and main roads; warm grey setts; pale stone paving; red cycle tracks | Leuven from the air: pale pavements frame dark asphalt, the old centre is stone, Flemish cycle tracks are red |
-| Road paint             | Off-white lane lines and zebras; a zebra's average grey from afar; red cyclist crossings                                           | The ring reads as a boulevard, and paint never shimmers                                                       |
-| Diorama slab           | Earth brown sides                                                                                                                  | Frames the city as an object                                                                                  |
-| Outlines               | `#2b2420` warm ink                                                                                                                 | Ties scene and HUD together (same ink as the panels)                                                          |
+| Element                | Colours                                                                                                                                    | Why                                                                                                            |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| House walls            | Brick reds, warm plaster creams                                                                                                            | Leuven's streets: red-brown brick next to whitewashed and pastel fronts                                        |
+| Civic and church walls | Sandstone and limestone                                                                                                                    | The Gothic Stadhuis, Sint-Pieterskerk and the university halls                                                 |
+| Landmarks              | Warm sandstone, pale limestone, red brick with cream trim, dark slate spires                                                               | Each hero reads as its own building, a step darker and richer than the streets                                 |
+| Café parasols          | Cream, brick red, mustard, orange, sage                                                                                                    | A few warm dots of life on the squares                                                                         |
+| Pitched roofs          | Their real colour from the air, snapped to ten swatches: slate, black glazed and red tiles, terracotta, zinc, moss                         | Leuven is mostly slate with red tiles between; the aerial photo knows which is which                           |
+| Flat roofs             | Light warm greys, picked by the same swatches                                                                                              | Read as quiet backdrop, never darker than the streets                                                          |
+| Paths                  | Pale slabs when paved, sand for gravel trails                                                                                              | Parks and the Dijle walks read as places to walk, not as roads                                                 |
+| Street furniture       | Iron-dark lamp posts with warm lanterns, wood benches, glass bus shelters, bronze statues on pale stone, bikes in the colours Leuven rides | Lamps, benches and full bike racks are what make a street read as Leuven's up close; they hide when zoomed out |
+| Bridges and tanks      | Warm quay-stone parapets, pale aluminium tanks                                                                                             | A bridge reads as one by its parapets; the brewery by its tanks                                                |
+| Trees                  | One low-poly tree, scaled to the LiDAR height of each one                                                                                  | Parks and gardens are as wooded as they really are                                                             |
+| Windows                | Deep blue-grey glass, ~7% lit warm (`#f3c873`)                                                                                             | The sun catching a few panes; reads as life without noise                                                      |
+| Ground                 | Garden green-beige base, sand cobbles for squares, river blue                                                                              | Squares should glow slightly against the roads                                                                 |
+| Roads                  | Pale slab pavements; asphalt carriageways, darker on the ring and main roads; warm grey setts; pale stone paving; red cycle tracks         | Leuven from the air: pale pavements frame dark asphalt, the old centre is stone, Flemish cycle tracks are red  |
+| Road paint             | Off-white lane lines and zebras; a zebra's average grey from afar; red cyclist crossings                                                   | The ring reads as a boulevard, and paint never shimmers                                                        |
+| Diorama slab           | Earth brown sides                                                                                                                          | Frames the city as an object                                                                                   |
+| Outlines               | `#2b2420` warm ink                                                                                                                         | Ties scene and HUD together (same ink as the panels)                                                           |
 
 ## HUD
 
@@ -67,7 +70,6 @@ Tokens are oklch, in `src/app/app.css`:
 | `--ink`    | Text, borders, hard shadows. Same family as the scene outlines. |
 | `--paper`  | Panel fill, a warm cream                                        |
 | `--accent` | KU Leuven-ish blue, only for the selected state of a toggle     |
-| `--muted`  | Secondary text                                                  |
 
 ### Panels
 
@@ -106,6 +108,7 @@ Tokens are oklch, in `src/app/app.css`:
 
 - Small ink-bordered tags anchored above landmarks.
 - Their order in `LANDMARKS` is their priority: a label that would overlap an earlier one, or cross the screen edge, is hidden.
+- Names and places come from OpenStreetMap; `LANDMARKS` only lists ids. Each shows from its own zoom. Landmarks and the big parks and sites show from the start, so the far view can be read across the whole map; churches and squares from zoom 1.5–2, small sights (the Totem) only up close.
 - They're decorative: the map has a text description for screen readers.
 
 ### Keyboard

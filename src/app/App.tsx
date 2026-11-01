@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { CITY_URL, loadCity } from '../data/load.ts';
+import { CREDITS } from '../data/providers.ts';
 import type { Viewer } from '../scene/viewer.ts';
 import { ResetIcon, RotateLeftIcon, RotateRightIcon } from './icons.tsx';
 
@@ -159,7 +160,6 @@ export function App() {
       <header className="hud hud-top">
         <div className="panel brand">
           <h1>Leuven</h1>
-          <p>Grote Markt · prototype</p>
         </div>
         <Credits open={creditsOpen} onToggle={() => setCreditsOpen((open) => !open)} />
       </header>
@@ -238,13 +238,19 @@ function ToolButton(props: {
   );
 }
 
-/** Data credits required by the licences (ODbL, GRB), in the least space that stays legible. */
+/**
+ * Data credits required by the licences (ODbL, GRB), in the least space that stays legible.
+ * They come from the source manifest, so a new provider can't ship uncredited.
+ */
 function Credits(props: { open: boolean; onToggle: () => void }) {
   return (
     <div className="credits">
       <p id="credits-text" hidden={!props.open}>
-        <a href="https://www.openstreetmap.org/copyright">©&nbsp;OpenStreetMap</a>
-        <a href="https://www.vlaanderen.be/digitaal-vlaanderen">©&nbsp;Digitaal&nbsp;Vlaanderen</a>
+        {CREDITS.map((c) => (
+          <a key={c.href} href={c.href}>
+            {c.label}
+          </a>
+        ))}
       </p>
       <button
         type="button"

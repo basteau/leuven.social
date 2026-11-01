@@ -89,6 +89,11 @@ const SHADOW_REACH = 60;
 /** Layer masks: the view draws layer 0, the shadow pass layer 1 (see `cull`). */
 const VIEW_LAYER = 1 << 0;
 const SHADOW_LAYER = 1 << 1;
+/**
+ * Zoom from which street furniture shows. Further out a lamp post is a stray pixel, and the
+ * frames that show the most city are the ones that can least afford it.
+ */
+const PROP_ZOOM = 2;
 /** Time the idle builder may take per slice before handing the main thread back (ms). */
 const IDLE_SLICE_MS = 8;
 
@@ -143,10 +148,19 @@ export function createViewer(options: ViewerOptions): Viewer {
   }));
 
   function build(entry: CellEntry): void {
-    const { mesh, lines, groundVertices, fineVertices } = buildCell(entry.cell, city.area, walls);
+    const { mesh, lines, props, groundVertices, fineVertices } = buildCell(
+      entry.cell,
+      city.area,
+      walls,
+    );
     const surfaces = new Mesh(mesh.build({ facade: true }), material);
-    surfaces.castShadow = true;
-    surfaces.receiveShadow = true;
+    // Street furniture shares the material and its program: one more draw call, only up close.
+    const furniture = new Mesh(props.build({ facade: true }), material);
+    for (const m of [surfaces, furniture]) {
+      m.castShadow = true;
+      m.receiveShadow = true;
+      m.geometry.computeBoundingBox();
+    }
     // The flat ground and its paint can't shade anything: the shadow pass draws what stands on it.
     const { geometry } = surfaces;
     let view = 0;
@@ -158,11 +172,11 @@ export function createViewer(options: ViewerOptions): Viewer {
     entry.fineVertices = fineVertices;
     const outlines = new LineSegments(lines.build(), ink);
     // Cells are culled by their boxes below: three's bounding spheres are far looser.
-    entry.objects = [surfaces, outlines];
-    surfaces.geometry.computeBoundingBox();
+    entry.objects = [surfaces, outlines, furniture];
     entry.box.copy(surfaces.geometry.boundingBox!);
+    if (entry.cell.props.length) entry.box.union(furniture.geometry.boundingBox!);
     for (const object of entry.objects) object.frustumCulled = false;
-    scene.add(surfaces, outlines);
+    scene.add(surfaces, outlines, furniture);
   }
 
   scene.add(new HemisphereLight(SKY_LIGHT, BOUNCE_LIGHT, 1.3));
@@ -187,6 +201,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     ),
   );
   let shadow: ShadowSquare | undefined;
+  let propsShown = false;
   const shadowFrustum = new Frustum();
 
   const camera = new OrthographicCamera(-1, 1, 1, -1, 1, CAMERA_DISTANCE * 2);
@@ -212,7 +227,8 @@ export function createViewer(options: ViewerOptions): Viewer {
   }
 
   // Landmark labels are plain DOM, moved with transforms after each render. Their order is
-  // their priority: a label that would overlap an earlier one, or the screen edge, is hidden.
+  // their priority: a label that would overlap an earlier one, or the screen edge, is hidden,
+  // and so is one whose zoom hasn't been reached.
   const labelEls = city.labels.map((label) => {
     const el = document.createElement('span');
     el.className = 'map-label';
@@ -225,6 +241,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     el,
     w: el.offsetWidth,
     h: el.offsetHeight,
+    minZoom: city.labels[i]!.minZoom,
     world: new Vector3(city.labels[i]!.x, LABEL_HEIGHT, city.labels[i]!.z),
   }));
   const placed: [number, number, number, number][] = [];
@@ -276,6 +293,11 @@ export function createViewer(options: ViewerOptions): Viewer {
     });
     const need = shadowNeeds(light, ground);
     need.half += SHADOW_REACH;
+    // Furniture appearing or hiding changes what casts shadows: refit the square to the view,
+    // which is close up when it appears, so the redraw stays small.
+    const near = camera.zoom >= PROP_ZOOM;
+    if (near !== propsShown) shadow = undefined;
+    propsShown = near;
     if (shadow && shadowCovers(shadow, need)) return;
     shadow = fitShadow(need, SHADOW_MAP);
     sun.position.set(...shadowPoint(light, shadow.x, shadow.y, farthest + 10));
@@ -308,14 +330,16 @@ export function createViewer(options: ViewerOptions): Viewer {
    */
   function cull(): void {
     const shadowPass = renderer.shadowMap.needsUpdate;
-    for (const { box, objects } of cells) {
-      const [surfaces, outlines] = objects;
-      if (!surfaces || !outlines) continue;
+    for (const { box, cell, objects } of cells) {
+      const [surfaces, outlines, furniture] = objects;
+      if (!surfaces || !outlines || !furniture) continue;
       const inView = frustum.intersectsBox(box);
       const casts = shadowPass && shadowFrustum.intersectsBox(box);
       surfaces.layers.mask = (inView ? VIEW_LAYER : 0) | (casts ? SHADOW_LAYER : 0);
       surfaces.visible = inView || casts;
       outlines.visible = inView;
+      furniture.layers.mask = surfaces.layers.mask;
+      furniture.visible = surfaces.visible && propsShown && cell.props.length > 0;
     }
   }
 
@@ -362,7 +386,11 @@ export function createViewer(options: ViewerOptions): Viewer {
     });
 
     placed.length = 0;
-    for (const { el, w, h, world } of labels) {
+    for (const { el, w, h, world, minZoom } of labels) {
+      if (camera.zoom < minZoom) {
+        el.hidden = true;
+        continue;
+      }
       projected.copy(world).project(camera);
       const x = ((projected.x + 1) / 2) * width;
       const y = ((1 - projected.y) / 2) * height;

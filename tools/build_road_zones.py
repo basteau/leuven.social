@@ -1,6 +1,7 @@
 """Split the GRB road surface into carriageways, pavements and cycle tracks, and lay out road markings.
 
-uv run --with numpy --with shapely python -I tools/build_road_zones.py data
+Run by tools/build_leuven_data.py (bun run data:build), which pins the packages, once it has written
+derived/osm_roads.geojson.
 
 The GRB road surface (WBN) runs from facade to facade. Its subdivision lines (WGO) mark the edge of the
 carriageway ("rand van de rijbaan"), the edge of the zone for pedestrians and cyclists ("grens zone zwakke
@@ -20,7 +21,6 @@ Output:
 """
 import json
 import math
-import sys
 from collections import defaultdict
 from pathlib import Path
 
@@ -29,7 +29,6 @@ import shapely
 from shapely import STRtree
 from shapely.geometry import LineString, Polygon, box, shape
 
-DATA = Path(sys.argv[1] if len(sys.argv) > 1 else 'data')
 ORIGIN = (4.70139, 50.87917)  # Grote Markt (lon, lat), as in build_leuven_data.py and src/data/projection.ts
 KX, KZ = 111320 * math.cos(math.radians(ORIGIN[1])), 110574
 SIMPLIFY = 0.5  # m; the faces stay a gapless coverage (shapely.coverage_simplify)
@@ -128,11 +127,11 @@ def lane_layout(t, width):
     return [((i - n / 2) * lane + shift, not oneway and i == backward and n >= 4) for i in range(1, n)], cycle
 
 
-def main():
-    wbn_features = json.load(open(DATA / 'grb/grb_WBN.geojson'))['features']
+def main(data: Path):
+    wbn_features = json.load(open(data / 'grb/grb_WBN.geojson'))['features']
     wbn = [local(shapely.make_valid(shape(f['geometry']))) for f in wbn_features]
     junction_zone = [f['properties'].get('TYPE') == 1 for f in wbn_features]  # "kruispuntzone"
-    wgo = [local(shape(f['geometry'])) for f in json.load(open(DATA / 'grb/grb_WGO.geojson'))['features']]
+    wgo = [local(shape(f['geometry'])) for f in json.load(open(data / 'grb/grb_WGO.geojson'))['features']]
     domain = shapely.union_all(wbn)
 
     noded = shapely.union_all(wgo + [p.boundary for p in wbn])
@@ -144,7 +143,7 @@ def main():
         junction.append(bool(len(hits)) and junction_zone[int(hits[0])])
 
     ways = []
-    for feature in json.load(open(DATA / 'derived/osm_roads.geojson'))['features']:
+    for feature in json.load(open(data / 'derived/osm_roads.geojson'))['features']:
         t = feature['properties']
         if feature['geometry']['type'] == 'LineString':
             ways.append((role(t), t, local(shape(feature['geometry']))))
@@ -233,13 +232,10 @@ def main():
                 crossings.append({'tags': {k: t[k] for k in KEEP if k in t},
                                   'line': coords(LineString([piece.coords[0], piece.coords[-1]]))})
 
-    out = DATA / 'derived/road_zones.json'
+    out = data / 'derived/road_zones.json'
     json.dump({'attribution': 'GRB (c) Digitaal Vlaanderen; tags (c) OpenStreetMap contributors (ODbL)',
                'faces': zones, 'lines': lines, 'crossings': crossings}, open(out, 'w'), separators=(',', ':'))
     roles = defaultdict(int)
     for z in zones:
         roles[z['role']] += 1
     print(f'{len(zones)} faces {dict(roles)}, {len(lines)} lines, {len(crossings)} crossings -> {out}')
-
-
-main()

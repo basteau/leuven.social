@@ -1,0 +1,107 @@
+{
+  "osm-buildings": {
+    "plan": "5103318292823487",
+    "files": 1,
+    "bytes": 11131441,
+    "sha256": "838249bbe91276057478e6b0b6304301eca4cd60df2ef38f7a67e0a2128fd88d",
+    "fetched": "2026-10-31"
+  },
+  "osm-ring": {
+    "plan": "3c7571a5e1ad25ee",
+    "files": 1,
+    "bytes": 95980,
+    "sha256": "b0c535a4d9b092207f22bda7ad65f7442fe4f4f9a52adb9f8624044a1a14a8c7",
+    "fetched": "2026-10-31"
+  },
+  "osm-roads": {
+    "plan": "d4de144488ac420e",
+    "files": 1,
+    "bytes": 4057322,
+    "sha256": "30cd519fa9380f03da5988a1dd7e8735313e26a31e2c2354369d7169a0cc972f",
+    "fetched": "2026-10-31"
+  },
+  "osm-areas": {
+    "plan": "94e9e6d238c52762",
+    "files": 1,
+    "bytes": 5924342,
+    "sha256": "501984ae193a61595e871c4ba139b27624d00aaa61d7adb966dbf42ab8206eaa",
+    "fetched": "2026-10-31"
+  },
+  "osm-points": {
+    "plan": "75562a3487eda90e",
+    "files": 1,
+    "bytes": 1870632,
+    "sha256": "5a5252c591e7c3fb304baaf4fa5f84cfdb8be9ff4619c77fcf0849e912c9c714",
+    "fetched": "2026-10-31"
+  },
+  "osm-rail-platforms": {
+    "plan": "dcba6d5a184aa2f0",
+    "files": 1,
+    "bytes": 18220,
+    "sha256": "8b9232f95f6d9a4fafe0b44dbea727496ed459c4aa84f5adc8060289a9fd21ea",
+    "fetched": "2026-10-31"
+  },
+  "grb-gbg": {
+    "plan": "b9232289c229829c",
+    "files": 1,
+    "bytes": 12979092,
+    "sha256": "3d9b330809bff0400274fcd83337ffd491fcdce858ced042515e25ad40014573",
+    "fetched": "2026-10-31"
+  },
+  "grb-gba": {
+    "plan": "5a64da9542d8fcdb",
+    "files": 1,
+    "bytes": 1970386,
+    "sha256": "726ff713856030ea503e82d58cbfcc9afd06b37288ad60b40e2acc7ba255d616",
+    "fetched": "2026-10-31"
+  },
+  "grb-wbn": {
+    "plan": "7a9f480ffbdcb202",
+    "files": 1,
+    "bytes": 3771208,
+    "sha256": "74578ebcc7c4c7a42c1519f57dcf98328226543a3ce096d584fbbd3592dc0cb0",
+    "fetched": "2026-10-31"
+  },
+  "grb-wgo": {
+    "plan": "ae14be0b2c2f35d2",
+    "files": 1,
+    "bytes": 6918068,
+    "sha256": "ed44791392b31e87655752a3109594a90568bf964f2f6c9011156d461a95adae",
+    "fetched": "2026-11-01"
+  },
+  "grb-wtz": {
+    "plan": "63e6028b6bdadd43",
+    "files": 1,
+    "bytes": 316219,
+    "sha256": "37a5d2079047e893409a6a7801bd648719929e4d80ca71a7237f4b59b7c5fd99",
+    "fetched": "2026-10-31"
+  },
+  "grb-knw": {
+    "plan": "5c23b51e3b891c92",
+    "files": 1,
+    "bytes": 356157,
+    "sha256": "6847381fb7766a532b098e3f9f99b3943f082f0da394f7aa4ee60f6a50dbd7ff",
+    "fetched": "2026-10-31"
+  },
+  "dhmv-dtm": {
+    "plan": "10565aeb749f1f90",
+    "files": 8,
+    "bytes": 45890880,
+    "sha256": "c4224188c02c3c33de85741eb628caf52ed0a81a8719cadb177ad158522d1408",
+    "fetched": "2026-10-31"
+  },
+  "dhmv-dsm": {
+    "plan": "fba3acbb783ac230",
+    "files": 8,
+    "bytes": 45890880,
+    "sha256": "dfec42f4b17e9ded11333fecdded8b3f22838009483ae1ec4578829a7c2d178e",
+    "fetched": "2026-10-31"
+  },
+  "ortho": {
+    "plan": "160270a7e61ed99e",
+    "files": 1016,
+    "bytes": 83513598,
+    "sha256": "f302cd1d6672284be7277b3bb05c546c2d0e0c612049c66ecaf646464a0c9875",
+    "fetched": "2026-10-31"
+  }
+}

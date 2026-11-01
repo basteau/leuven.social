@@ -4,12 +4,12 @@
 
 The code is split by what it is allowed to know about. Lint enforces the arrows, so breaking one fails `bun run lint` with a message pointing here.
 
-| Layer       | Holds                                                                          | May import                                                           |
-| ----------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
-| `src/data`  | The city model, the binary format, geometry and projection maths, the map area | `@portable/*` and web APIs only. No three.js, React or other layers. |
-| `src/scene` | Everything 3D: meshes, materials, camera, controls, the render loop            | `src/data`, three.js. No React.                                      |
-| `src/app`   | The React shell: HUD, loading and error states, keyboard shortcuts             | `src/data`, `src/scene`                                              |
-| `scripts/`  | Build-time edges: baking data, icons, budgets, the smoke test, deploys         | `src/data`, plus the `Bun` global for files and processes            |
+| Layer       | Holds                                                                               | May import                                                           |
+| ----------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `src/data`  | The city model, the binary format, geometry and projection maths, the map area      | `@portable/*` and web APIs only. No three.js, React or other layers. |
+| `src/scene` | Everything 3D: meshes, materials, camera, controls, the render loop                 | `src/data`, three.js. No React.                                      |
+| `src/app`   | The React shell: HUD, loading and error states, keyboard shortcuts                  | `src/data`, `src/scene`                                              |
+| `scripts/`  | Build-time edges: fetching and baking data, icons, budgets, the smoke test, deploys | `src/data`, plus the `Bun` global for files and processes            |
 
 `src/scene` exposes one entry point, `createViewer()`. It returns a small imperative handle (`rotate`, `zoomBy`, `resetView`, `stats`, `dispose`), so React never touches three.js objects.
 
@@ -52,5 +52,7 @@ Each runtime dependency has to earn its place:
 | `@portable/binary`, `@portable/compress` | The city file format                                                                            |
 
 Dev tooling is Vite, oxlint, agent-browser (smoke test), `@portable/png` (icons) and type packages. Bun itself formats, type-checks and tests.
+
+The data build (`tools/build_leuven_data.py`) is the one Python step: numpy, shapely, pyproj, tifffile, Pillow and matplotlib, pinned in the script's header and `tools/build_leuven_data.py.lock`, run by uv. The fetch planning it relies on (`src/data/sources.ts`, `src/data/fetch-plan.ts`) is TypeScript and tested like the rest.
 
 Ask before adding a dependency, and prefer a few lines of our own code or a Portable package.

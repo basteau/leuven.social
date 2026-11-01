@@ -66,6 +66,41 @@ export interface Label {
   name: string;
   x: number;
   z: number;
+  /** Shown from this zoom: landmarks and districts always (0), small sights only up close. */
+  minZoom: number;
+}
+
+/**
+ * Street furniture and small monuments, from OpenStreetMap points (src/data/props.ts). All of
+ * them stand in the way: none is walkable.
+ */
+export const PROP_KINDS = [
+  'lamp',
+  'bench',
+  'bikes',
+  'shelter',
+  'busstop',
+  'statue',
+  'fountain',
+  'pump',
+  'needle',
+] as const;
+export type PropKind = (typeof PROP_KINDS)[number];
+
+export interface Prop {
+  kind: PropKind;
+  x: number;
+  z: number;
+  /** Which way it faces (radians from +x towards +z): towards the nearest kerb, path or wall. */
+  angle: number;
+  /** Stands in a bike rack; a statue's or needle's tagged height (m); else 0. */
+  size: number;
+}
+
+/** A tank or silo (GRB structures): its footprint and LiDAR height. Solid, so not walkable. */
+export interface Tank {
+  height: number;
+  ring: Float32Array;
 }
 
 export interface Bounds {
@@ -96,6 +131,10 @@ export interface City {
   trees: Float32Array;
   /** Height of each tree in metres, from the LiDAR canopy. */
   treeHeights: Float32Array;
+  props: Prop[];
+  tanks: Tank[];
+  /** Bridge parapets: low walls along the sides of a bridge that face the water, as open lines. */
+  parapets: Float32Array[];
 }
 
 const KIND_BY_OSM: Record<string, Kind> = {
