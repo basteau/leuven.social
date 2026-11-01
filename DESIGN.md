@@ -140,7 +140,7 @@ Tokens are oklch, in `src/app/app.css`:
 - The map is one focusable widget (`role="application"`, focused on load without a ring).
 - Arrow keys pan, `+`/`-` zoom, Q/E turn, R resets, W starts a walk.
 - Picking a start: Enter starts in the middle of the view, Escape cancels.
-- Walking: W A S D or the arrow keys walk relative to the screen, Shift runs, holding Q/E turns the view, `+`/`-` bring the camera closer or further, Escape returns to the map. Clicking or tapping a street walks there along a route, and the camera swings round behind on the way.
+- Walking: W A S D or the arrow keys walk relative to the screen, Shift runs, holding Q/E turns the view, `+`/`-` bring the camera closer or further, Escape returns to the map. Clicking or tapping a street walks there along a route. On the move the camera drifts back behind the walker a moment after the last look around.
 - Shortcuts only act while focus is inside the app.
 
 ## Motion
@@ -149,7 +149,7 @@ Tokens are oklch, in `src/app/app.css`:
 - **Press feedback:** scale 0.97 over 140 ms ease-out.
 - **Hover:** only on devices with hover. Nothing else animates.
 - **Walking and running:** a procedural cycle that blends from walk to run with speed. Legs and arms swing against each other, each knee folds as its leg swings through, the hips sit as high as the planted leg reaches so the soles stay down; running lengthens the stride, bends the elbows and leans in. The torso banks into turns and the head follows the camera. Standing still, the walker breathes and glances about for four seconds, then rests.
-- **The camera** flies between the map and the street in 1.4 s, its lens widening as it closes in so the first frame matches the isometric map. Its look point trails the walker by a hair. With `prefers-reduced-motion` it cuts instead of flying, follows without easing and doesn't swing behind on routes; the figure appears without its pop and doesn't fidget. The walk cycle itself stays, since the user is moving the figure.
+- **The camera** flies between the map and the street in 1.4 s, its lens widening as it closes in so the first frame matches the isometric map. It follows on springs: its look point trails the walker by a hair and leads it a little at a run, the lens widens slightly and the boom lengthens when running, and walls pull it in quickly but smoothly (docs/RENDERING.md, "How walking should feel"). With `prefers-reduced-motion` it cuts instead of flying, follows without easing and doesn't recentre; the figure appears without its pop and doesn't fidget. The walk cycle itself stays, since the user is moving the figure.
 - **Future motion:** anything new (traffic, people, day-night) goes through Emil Kowalski's animation skills. It must also respect reduced motion.
 
 ## Mobile and PWA

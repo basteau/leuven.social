@@ -10,27 +10,60 @@ import {
   boomDirection,
   chaseFov,
   createBoom,
+  easeBoom,
   flight,
   freeLength,
   headLook,
   mapYaw,
+  reachGoal,
+  recentre,
+  recentreWeight,
   settleReach,
   spanAt,
   stretchBoom,
-  swingBehind,
   turnBoom,
 } from './chase.ts';
 import type { Lens, Shot, Vec3 } from './chase.ts';
 
 describe('the boom', () => {
-  test('starts behind and a little above, and turns within its pitch limits', () => {
+  test('starts behind and a little above, and aims within its pitch limits', () => {
     const boom = createBoom(1);
-    expect(boom).toEqual({ yaw: 1, pitch: PITCH, distance: DISTANCE, reach: DISTANCE });
+    expect(boom).toMatchObject({ yaw: 1, aimYaw: 1, pitch: PITCH, distance: DISTANCE });
     turnBoom(boom, 2.5, 5);
-    expect(boom.yaw).toBeCloseTo(3.5 - Math.PI * 2);
-    expect(boom.pitch).toBe(PITCH_RANGE[1]);
+    expect(boom.aimYaw).toBeCloseTo(3.5 - Math.PI * 2);
+    expect(boom.aimPitch).toBe(PITCH_RANGE[1]);
+    expect(boom.yaw).toBe(1);
     turnBoom(boom, 0, -5);
-    expect(boom.pitch).toBe(PITCH_RANGE[0]);
+    expect(boom.aimPitch).toBe(PITCH_RANGE[0]);
+  });
+
+  test('eases to its aim and length in the same time at any frame rate', () => {
+    const ends = [30, 60, 120].map((hz) => {
+      const boom = createBoom(0);
+      turnBoom(boom, 1, 0.3);
+      stretchBoom(boom, 2);
+      let moving = true;
+      for (let i = 0; i < hz / 10; i++) moving = easeBoom(boom, 0, 1 / hz);
+      expect(moving).toBe(true);
+      // A tenth of a second in, the turn is nearly done; the length takes longer.
+      expect(boom.yaw).toBeGreaterThan(0.8);
+      expect(boom.length).toBeLessThan(DISTANCE * 1.5);
+      for (let i = 0; i < hz * 3; i++) moving = easeBoom(boom, 0, 1 / hz);
+      expect(moving).toBe(false);
+      return [boom.yaw, boom.pitch, boom.length];
+    });
+    for (const end of ends) {
+      expect(end[0]).toBeCloseTo(1, 3);
+      expect(end[1]).toBeCloseTo(PITCH + 0.3, 3);
+      expect(end[2]).toBeCloseTo(DISTANCE * 2, 2);
+    }
+  });
+
+  test('a run lengthens the boom and widens the lens a little', () => {
+    const boom = createBoom(0);
+    for (let i = 0; i < 120; i++) easeBoom(boom, 1, 1 / 60);
+    expect(boom.length).toBeGreaterThan(DISTANCE * 1.1);
+    expect(chaseFov(16 / 9, 1)).toBeGreaterThan(chaseFov(16 / 9) + 4);
   });
 
   test('stretches within its length limits', () => {
@@ -87,27 +120,58 @@ describe('walls and the ground', () => {
     expect(lookups).toBeLessThan(400);
   });
 
-  test('pulls in at once and lets out gently', () => {
-    expect(settleReach(8, 3, 1 / 60)).toBe(3);
+  test('the free length changes smoothly as the walker nears a house, not a step at a time', () => {
+    const lengths: number[] = [];
+    for (let z = 0; z <= 0.5; z += 0.05)
+      lengths.push(freeLength(house, [0, 2.6, z], [0, 0, 1], 20));
+    const jumps = lengths.slice(1).map((l, i) => lengths[i]! - l);
+    for (const jump of jumps) expect(jump).toBeLessThan(0.1);
+    expect(lengths[0]! - lengths.at(-1)!).toBeCloseTo(0.5, 1);
+  });
+
+  test('pulls in quickly, at once from inside a house, and lets out gently', () => {
+    const quick = settleReach(8, 3, 1 / 60);
+    expect(quick).toBeLessThan(7);
+    expect(quick).toBeGreaterThan(3);
+    let reach = 8;
+    for (let i = 0; i < 20; i++) reach = settleReach(reach, 3, 1 / 60);
+    expect(reach).toBeCloseTo(3, 1);
+    expect(settleReach(8, 3, 1 / 60, true)).toBe(3);
     const out = settleReach(3, 8, 1 / 60);
     expect(out).toBeGreaterThan(3);
     expect(out).toBeLessThan(3.5);
-    let reach = 3;
-    for (let i = 0; i < 120; i++) reach = settleReach(reach, 8, 1 / 60);
+    for (let i = 0; i < 180; i++) reach = settleReach(reach, 8, 1 / 60);
     expect(reach).toBeCloseTo(8, 1);
+  });
+
+  test('a corner reaching a whisker starts the pull in before it cuts the view', () => {
+    expect(reachGoal(8, 8, 8)).toBe(8);
+    expect(reachGoal(8, 4, 8)).toBe(6);
+    expect(reachGoal(3, 4, 8)).toBe(3);
   });
 });
 
 describe('following', () => {
-  test('swings behind the walker at a bounded rate, the short way round', () => {
-    const boom = createBoom(0);
-    swingBehind(boom, 0, 1, 0.5); // walker faces +z, so behind is yaw π
-    expect(Math.abs(boom.yaw)).toBeCloseTo(0.5);
-    for (let i = 0; i < 10; i++) swingBehind(boom, 0, 1, 0.5);
-    expect(Math.abs(boom.yaw)).toBeCloseTo(Math.PI);
-    const left = createBoom(Math.PI - 0.2);
-    swingBehind(left, 0, 1, 0.1);
-    expect(left.yaw).toBeCloseTo(Math.PI - 0.1);
+  test('recentres behind the walker the short way round, and its pitch to the default', () => {
+    const boom = createBoom(Math.PI - 0.4); // walker faces +z, so behind is yaw π
+    turnBoom(boom, 0, 0.5);
+    recentre(boom, 0, 1, 0.5);
+    expect(boom.aimYaw).toBeGreaterThan(Math.PI - 0.4);
+    expect(boom.aimYaw).toBeLessThan(Math.PI);
+    expect(boom.aimPitch).toBeLessThan(PITCH + 0.5);
+    for (let i = 0; i < 40; i++) recentre(boom, 0, 1, 0.5);
+    expect(Math.abs(boom.aimYaw)).toBeCloseTo(Math.PI);
+    expect(boom.aimPitch).toBeCloseTo(PITCH);
+    const across = createBoom(Math.PI - 0.2);
+    recentre(across, 0.3, 1, 0.5); // behind is yaw -π + 0.3: on through π
+    expect(Math.abs(across.aimYaw)).toBeGreaterThan(Math.PI - 0.2);
+  });
+
+  test('recentres walking away from the camera, a little sideways, never toward it', () => {
+    expect(recentreWeight(0, Math.PI)).toBe(1);
+    expect(recentreWeight(Math.PI / 2, Math.PI)).toBeGreaterThan(0);
+    expect(recentreWeight(Math.PI / 2, Math.PI)).toBeLessThan(0.1);
+    expect(recentreWeight(Math.PI, Math.PI)).toBe(0);
   });
 
   test('the head looks where the camera looks, or back at the camera in front of it', () => {
