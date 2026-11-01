@@ -23,7 +23,7 @@ import { MapControls } from 'three/addons/controls/MapControls.js';
 
 import type { City } from '../data/city.ts';
 import { clampToArea } from '../data/geometry.ts';
-import { StreetIndex } from '../data/streets.ts';
+import type { StreetIndex } from '../data/streets.ts';
 import { partyWalls } from './buildings.ts';
 import { buildCell, partition } from './cells.ts';
 import type { Cell, DetailMarks } from './cells.ts';
@@ -468,7 +468,8 @@ export function createViewer(options: ViewerOptions): Viewer {
     signHeading();
   }
 
-  // The street sign: names are looked up only off the map, and again only after a step.
+  // The street sign: names are looked up only off the map, and again only after a step. The
+  // lookup arrives with walk mode, so the map's first load doesn't carry it.
   let streets: StreetIndex | undefined;
   let signed: string | null = null;
   const signedAt = { x: Number.NaN, z: Number.NaN };
@@ -480,7 +481,7 @@ export function createViewer(options: ViewerOptions): Viewer {
       if (Math.hypot(t.x - signedAt.x, t.z - signedAt.z) < STREET_STEP) return;
       signedAt.x = t.x;
       signedAt.z = t.z;
-      streets ??= new StreetIndex(city);
+      if (!streets) return;
       name = streets.nameAt(t.x, t.z, signed);
     } else signedAt.x = Number.NaN;
     if (name !== signed) options.onStreetChange((signed = name));
@@ -501,36 +502,39 @@ export function createViewer(options: ViewerOptions): Viewer {
   let loadingWalk: Promise<Walk> | undefined;
   let disposed = false;
   function loadWalk(): Promise<Walk> {
-    loadingWalk ??= import('./walk.ts').then(({ createWalk }) => {
-      if (disposed) throw new Error('The map closed while walk mode loaded.');
-      walk ??= createWalk({
-        scene,
-        camera,
-        controls,
-        canvas,
-        overlay,
-        city,
-        gradientMap,
-        fog,
-        reducedMotion,
-        yaw: () => yaw,
-        setYaw: (to) => {
-          yaw = to;
-        },
-        placeCamera,
-        useView: (to) => {
-          street = to ?? undefined;
-          view = to ?? camera;
-        },
-        render: renderNow,
-        onModeChange: (mode) => {
-          options.onWalkModeChange?.(mode);
-          signStreet();
-        },
-        ...(options.onWalkBlocked && { onBlocked: options.onWalkBlocked }),
-      });
-      return walk;
-    });
+    loadingWalk ??= Promise.all([import('./walk.ts'), import('../data/streets.ts')]).then(
+      ([{ createWalk }, { StreetIndex }]) => {
+        if (disposed) throw new Error('The map closed while walk mode loaded.');
+        streets ??= new StreetIndex(city);
+        walk ??= createWalk({
+          scene,
+          camera,
+          controls,
+          canvas,
+          overlay,
+          city,
+          gradientMap,
+          fog,
+          reducedMotion,
+          yaw: () => yaw,
+          setYaw: (to) => {
+            yaw = to;
+          },
+          placeCamera,
+          useView: (to) => {
+            street = to ?? undefined;
+            view = to ?? camera;
+          },
+          render: renderNow,
+          onModeChange: (mode) => {
+            options.onWalkModeChange?.(mode);
+            signStreet();
+          },
+          ...(options.onWalkBlocked && { onBlocked: options.onWalkBlocked }),
+        });
+        return walk;
+      },
+    );
     // A failed download can be tried again.
     loadingWalk.catch(() => {
       loadingWalk = undefined;
