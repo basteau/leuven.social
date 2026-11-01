@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
+import { sound } from '../audio/sound.ts';
 import { CITY_URL, loadCity } from '../data/load.ts';
 import { CREDITS } from '../data/providers.ts';
 import type { Viewer, WalkMode } from '../scene/viewer.ts';
@@ -12,6 +13,7 @@ import {
   RotateLeftIcon,
   RotateRightIcon,
   RunIcon,
+  SoundIcon,
   WalkIcon,
 } from './icons.tsx';
 
@@ -95,6 +97,14 @@ export function App() {
   const [running, setRunning] = useState(false);
   const runningRef = useRef(running);
   const [walkLoad, setWalkLoad] = useState<WalkLoad>('idle');
+  const [soundOn, setSoundOn] = useState(sound.on);
+  /** Sound coming back is heard (rising); muting is silent. */
+  const toggleSoundRef = useRef(() => {
+    sound.setOn(!sound.on);
+    setSoundOn(sound.on);
+    sound.toggle(true);
+  });
+  useEffect(() => sound.attach(), []);
   const walkLoadTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   /** Starts walk mode, saying it's getting ready if its download is slow. */
   const startWalkRef = useRef(() => {
@@ -222,6 +232,7 @@ export function App() {
         '+': () => viewer.zoomBy(1.25),
         '=': () => viewer.zoomBy(1.25),
         '-': () => viewer.zoomBy(0.8),
+        m: () => toggleSoundRef.current(),
         ...(mode === 'map' && { r: () => viewer.resetView(), w: () => startWalkRef.current() }),
         ...(mode === 'pick' && !onControl && { enter: () => viewer.walkFromCentre() }),
         ...(mode !== 'map' && { escape: () => viewer.stopWalking() }),
@@ -296,6 +307,18 @@ export function App() {
       <header className="hud hud-top">
         <div className="panel brand">
           <h1>Leuven</h1>
+        </div>
+        <div className="panel toolbar">
+          <ToolButton
+            label="Mute"
+            shortcut="M"
+            pressed={!soundOn}
+            quiet
+            disabled={false}
+            onPress={() => toggleSoundRef.current()}
+          >
+            <SoundIcon on={soundOn} />
+          </ToolButton>
         </div>
         <Credits open={creditsOpen} onToggle={() => setCreditsOpen((open) => !open)} />
       </header>
@@ -467,6 +490,8 @@ function ToolButton(props: {
   hold?: boolean;
   /** Its action is under way (walk mode downloading). */
   busy?: boolean;
+  /** It makes its own sound, rather than the usual tap or toggle. */
+  quiet?: boolean;
   disabled: boolean;
   onPress: () => void;
   /** About to be pressed (hovered or focused): a chance to get ready. */
@@ -481,7 +506,12 @@ function ToolButton(props: {
       aria-pressed={props.pressed}
       aria-busy={props.busy || undefined}
       disabled={props.disabled}
-      onClick={props.onPress}
+      onClick={() => {
+        props.onPress();
+        if (props.quiet) return;
+        if (props.pressed === undefined) sound.tap();
+        else sound.toggle(!props.pressed);
+      }}
       onPointerEnter={props.onWarm}
       onFocus={props.onWarm}
     >
