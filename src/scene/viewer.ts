@@ -26,13 +26,14 @@ import type { City } from '../data/city.ts';
 import { clampToArea } from '../data/geometry.ts';
 import type { StreetIndex } from '../data/streets.ts';
 import { partyWalls } from './buildings.ts';
-import { buildCell, partition } from './cells.ts';
+import type { PartyWalls } from './buildings.ts';
+import { buildCell, buildFurniture, partition } from './cells.ts';
 import type { Cell, DetailMarks } from './cells.ts';
 import { createFacadeMaterial, setPixelSize } from './facade-material.ts';
 import { LIGHT } from './lighting.ts';
 import { SLAB_DEPTH } from './ground.ts';
 import { LINE_LOD } from './paint.ts';
-import { geometryBytes } from './mesh-builder.ts';
+import { LineBuilder, MeshBuilder, corners, geometryBytes } from './mesh-builder.ts';
 import type { V3 } from './mesh-builder.ts';
 import { BOUNCE_LIGHT, OUTLINE, SKY, SKY_LIGHT, SUN } from './palette.ts';
 import {
@@ -96,6 +97,8 @@ export interface Viewer {
   /** Turns the walking view while held: -1 left, 1 right, 0 stops. */
   look(direction: number): void;
   stats(): ViewerStats;
+  /** Settles once the first frame is drawn, a few tasks after `createViewer` returns. */
+  ready: Promise<void>;
   dispose(): void;
 }
 
@@ -119,6 +122,8 @@ interface CellEntry {
   box: Box3;
   /** Its mesh, outlines and shadow casters once built; empty until then. */
   objects: Object3D[];
+  /** Its street furniture, built after the rest (see `furnish`). */
+  furniture: Mesh | undefined;
   /** Where the rails and the catenary masts end in its outlines, which only show zoomed in. */
   detail: DetailMarks;
   /** Where the trunks, what else casts shadows and the fine road paint start in its mesh. */
@@ -155,6 +160,8 @@ const FRAME_TRIANGLES = 600_000;
 const PROP_ZOOM = 2;
 /** Time the idle builder may take per slice before handing the main thread back (ms). */
 const IDLE_SLICE_MS = 8;
+/** Time the first frame's cells may take to build before the page gets a turn (ms). */
+const STEP_MS = 40;
 /**
  * The largest screen pixel, in metres, at which rails and catenary masts show. Any bigger and
  * a track's two rails come under two pixels apart, so a yard's tracks merge into one dark
@@ -167,7 +174,7 @@ const MAST_PIXEL = 0.9;
 /** Triangles a mesh draws within its draw range. */
 function drawn({ geometry }: Mesh): number {
   const { start, count } = geometry.drawRange;
-  return Math.min(count, geometry.getAttribute('position').count - start) / 3;
+  return Math.min(count, corners(geometry) - start) / 3;
 }
 
 const SCREEN_CORNERS = [
@@ -184,6 +191,8 @@ const idle = (run: () => void) =>
     : (setTimeout(run, 16) as unknown as number);
 const cancelIdle = (handle: number) =>
   'cancelIdleCallback' in globalThis ? cancelIdleCallback(handle) : clearTimeout(handle);
+/** Hands the main thread back for input and paint, then carries on. */
+const nextTask = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 function toonGradient(): DataTexture {
   const steps = new Uint8Array([150, 210, 255]);
@@ -217,30 +226,39 @@ export function createViewer(options: ViewerOptions): Viewer {
   const gradientMap = toonGradient();
   // One material for every cell: walls get windows, roads their texture and paint (paint.ts).
   const material = createFacadeMaterial(gradientMap);
+  // A mesh without a `facade` attribute (street furniture) reads 0: a plain surface.
+  Object.assign(material, { defaultAttributeValues: { facade: [0] } });
   const ink = new LineBasicMaterial({ color: OUTLINE });
 
   // Cells are built when they first come into view, and the rest while the page is idle, so
-  // the first frame costs what the visible part of the city costs.
-  const walls = partyWalls(city.buildings);
-  const cells: CellEntry[] = partition(city, terraceParasols(city)).map((cell) => ({
-    cell,
-    // Until it's built, a guess: buildings belong to the cell of their first corner and can
-    // overhang it a little.
-    box: new Box3(
-      new Vector3(cell.bounds.minX - 60, -SLAB_DEPTH, cell.bounds.minZ - 60),
-      new Vector3(cell.bounds.maxX + 60, MAX_HEIGHT, cell.bounds.maxZ + 60),
-    ),
-    objects: [],
-    detail: { rails: 0, masts: 0 },
-    trunksFrom: 0,
-    shadowFrom: 0,
-    fineVertices: 0,
-  }));
+  // the first frame costs what the visible part of the city costs. The city is cut into them
+  // after `createViewer` returns (see `ready`).
+  let walls: PartyWalls;
+  const cells: CellEntry[] = [];
+  function cut(): void {
+    for (const cell of partition(city, terraceParasols(city))) {
+      cells.push({
+        cell,
+        // Until it's built, a guess: buildings belong to the cell of their first corner and can
+        // overhang it a little.
+        box: new Box3(
+          new Vector3(cell.bounds.minX - 60, -SLAB_DEPTH, cell.bounds.minZ - 60),
+          new Vector3(cell.bounds.maxX + 60, MAX_HEIGHT, cell.bounds.maxZ + 60),
+        ),
+        objects: [],
+        furniture: undefined,
+        detail: { rails: 0, masts: 0 },
+        trunksFrom: 0,
+        shadowFrom: 0,
+        fineVertices: 0,
+      });
+    }
+  }
 
   /** Vertices and bytes of geometry the built cells hand the GPU. */
   const held = { vertices: 0, bytes: 0 };
   function build(entry: CellEntry): void {
-    const { mesh, lines, props, trunksFrom, shadowFrom, fineVertices, detail } = buildCell(
+    const { mesh, lines, trunksFrom, shadowFrom, fineVertices, detail } = buildCell(
       entry.cell,
       city.area,
       walls,
@@ -253,27 +271,46 @@ export function createViewer(options: ViewerOptions): Viewer {
     // extra upload, one draw call as before.
     const shape = new BufferGeometry();
     shape.setAttribute('position', surfaces.geometry.getAttribute('position'));
+    shape.setIndex(surfaces.geometry.index);
     // Its bounds are its cell's: computing them would need the array the upload let go of.
     shape.boundingBox = surfaces.geometry.boundingBox;
     shape.boundingSphere = surfaces.geometry.boundingSphere;
     const casters = new Mesh(shape, material);
     casters.castShadow = true;
     casters.layers.mask = SHADOW_LAYER;
-    // Street furniture shares the material and its program: one more draw call, only up close.
-    const furniture = new Mesh(props.build({ facade: true }), material);
-    furniture.castShadow = true;
-    furniture.receiveShadow = true;
     const outlines = new LineSegments(lines.build(), ink);
     // Cells are culled by their boxes below: three's bounding spheres are far looser.
-    entry.objects = [surfaces, outlines, casters, furniture];
-    for (const { geometry } of [surfaces, outlines, furniture]) {
+    entry.objects = [surfaces, outlines, casters];
+    hold(surfaces, outlines);
+    entry.box.copy(surfaces.geometry.boundingBox!);
+    for (const object of entry.objects) object.frustumCulled = false;
+    scene.add(surfaces, outlines, casters);
+    if (propsShown) furnish(entry);
+  }
+
+  /**
+   * Builds a cell's street furniture. It shows only up close, so it waits for the idle builder,
+   * unless the view gets close first (see `prepare`).
+   */
+  function furnish(entry: CellEntry): void {
+    // It shares the material and its program: one more draw call, only up close. It has no
+    // windows, so it leaves out the facade attribute and the shader reads its default.
+    const furniture = new Mesh(buildFurniture(entry.cell).build(), material);
+    furniture.castShadow = true;
+    furniture.receiveShadow = true;
+    furniture.frustumCulled = false;
+    furniture.visible = false; // until `cull` says otherwise
+    entry.furniture = furniture;
+    hold(furniture);
+    entry.box.union(furniture.geometry.boundingBox!);
+    scene.add(furniture);
+  }
+
+  function hold(...objects: { geometry: BufferGeometry }[]): void {
+    for (const { geometry } of objects) {
       held.vertices += geometry.getAttribute('position').count;
       held.bytes += geometryBytes(geometry);
     }
-    entry.box.copy(surfaces.geometry.boundingBox!);
-    if (entry.cell.props.length) entry.box.union(furniture.geometry.boundingBox!);
-    for (const object of entry.objects) object.frustumCulled = false;
-    scene.add(surfaces, outlines, casters, furniture);
   }
 
   const sky = new HemisphereLight(SKY_LIGHT, BOUNCE_LIGHT, LIGHT.sky);
@@ -378,10 +415,16 @@ export function createViewer(options: ViewerOptions): Viewer {
   const corner = new Vector3();
   const forward = new Vector3();
   const ground = SCREEN_CORNERS.map((): [number, number, number] => [0, 0, 0]);
-  /** Builds any cell the camera can see, and fits the shadow map to the view. */
-  function prepare(): void {
+  /** Points `frustum` at what the view sees now. */
+  function aim(): void {
+    view.updateMatrixWorld();
     viewProjection.multiplyMatrices(view.projectionMatrix, view.matrixWorldInverse);
     frustum.setFromProjectionMatrix(viewProjection);
+  }
+
+  /** Builds any cell the camera can see, and fits the shadow map to the view. */
+  function prepare(): void {
+    aim();
     for (const entry of cells) {
       if (!entry.objects.length && frustum.intersectsBox(entry.box)) build(entry);
     }
@@ -431,6 +474,16 @@ export function createViewer(options: ViewerOptions): Viewer {
         build(entry);
         added = true;
       }
+      // Up close, no cell shows or casts without its furniture.
+      if (
+        propsShown &&
+        entry.objects.length &&
+        !entry.furniture &&
+        (frustum.intersectsBox(entry.box) || shadowFrustum.intersectsBox(entry.box))
+      ) {
+        furnish(entry);
+        added ||= shadowFrustum.intersectsBox(entry.box);
+      }
     }
     if (refit || added) renderer.shadowMap.needsUpdate = true;
   }
@@ -478,9 +531,10 @@ export function createViewer(options: ViewerOptions): Viewer {
     // texel; landing refits it round the walker with theirs.
     const flying = walk?.flightSpan !== undefined;
     const fromStreet = view !== camera && !flying;
-    for (const { box, cell, objects, detail, trunksFrom, shadowFrom, fineVertices } of cells) {
-      const [surfaces, outlines, casters, furniture] = objects as [Mesh?, Mesh?, Mesh?, Mesh?];
-      if (!surfaces || !outlines || !casters || !furniture) continue;
+    for (const entry of cells) {
+      const { box, cell, objects, detail, trunksFrom, shadowFrom, fineVertices } = entry;
+      const [surfaces, outlines, casters] = objects as [Mesh?, Mesh?, Mesh?];
+      if (!surfaces || !outlines || !casters) continue;
       const skip = pixel > MAST_PIXEL ? detail.masts : pixel > RAIL_PIXEL ? detail.rails : 0;
       outlines.geometry.setDrawRange(skip * 2, Infinity);
       const inView = frustum.intersectsBox(box);
@@ -490,14 +544,17 @@ export function createViewer(options: ViewerOptions): Viewer {
       casters.visible = casts;
       const from = fromStreet ? trunksFrom : shadowFrom;
       if (casts) casters.geometry.setDrawRange(from, fineVertices - from);
-      const furnitureCasts = casts && !flying;
-      furniture.layers.mask = (inView ? VIEW_LAYER : 0) | (furnitureCasts ? SHADOW_LAYER : 0);
-      furniture.visible = (inView || furnitureCasts) && propsShown && cell.props.length > 0;
       if (inView) {
         draw(surfaces);
         calls++; // its outlines
       }
       if (casts) draw(casters);
+      // Up close, `prepare` has built it for every cell in view or casting.
+      const { furniture } = entry;
+      if (!furniture) continue;
+      const furnitureCasts = casts && !flying;
+      furniture.layers.mask = (inView ? VIEW_LAYER : 0) | (furnitureCasts ? SHADOW_LAYER : 0);
+      furniture.visible = (inView || furnitureCasts) && propsShown && cell.props.length > 0;
       if (furniture.visible && inView) draw(furniture);
       if (furniture.visible && furnitureCasts) draw(furniture);
     }
@@ -509,14 +566,27 @@ export function createViewer(options: ViewerOptions): Viewer {
   function buildInBackground(): void {
     idleHandle = 0;
     const t = controls.target;
-    const waiting = cells
-      .filter((entry) => !entry.objects.length)
-      .toSorted((a, b) => a.box.distanceToPoint(t) - b.box.distanceToPoint(t));
+    const near = (a: CellEntry, b: CellEntry) =>
+      a.box.distanceToPoint(t) - b.box.distanceToPoint(t);
+    // The cells first, then their furniture, nearest first.
+    const waiting = [
+      ...cells.filter((entry) => !entry.objects.length).toSorted(near),
+      ...cells.filter((entry) => !entry.furniture).toSorted(near),
+    ];
     const start = performance.now();
+    // A frame is drawn only when it would show something new: a cell that came into view, or
+    // the shadow map redrawn with all its casters.
+    let changed = false;
     for (const entry of waiting) {
       if (performance.now() - start > IDLE_SLICE_MS) break;
+      if (entry.objects.length) {
+        // Off screen: up close, `prepare` furnishes what shows or casts before it's drawn.
+        if (!entry.furniture) furnish(entry);
+        continue;
+      }
       build(entry);
       missingCasters ||= shadowFrustum.intersectsBox(entry.box);
+      changed ||= frustum.intersectsBox(entry.box);
     }
     // Once the last cell that casts into the shadow square exists, redraw it with them all.
     if (
@@ -525,9 +595,12 @@ export function createViewer(options: ViewerOptions): Viewer {
     ) {
       missingCasters = false;
       renderer.shadowMap.needsUpdate = true;
+      changed = true;
     }
-    invalidate();
-    if (cells.some((entry) => !entry.objects.length)) idleHandle = idle(buildInBackground);
+    if (changed) invalidate();
+    // What the cells hand the GPU, for the smoke test, whether or not a frame is drawn.
+    publish({ vertices: held.vertices, geometryBytes: held.bytes });
+    if (cells.some((e) => !e.furniture)) idleHandle = idle(buildInBackground);
   }
 
   const peak = { drawCalls: 0, triangles: 0 };
@@ -776,7 +849,9 @@ export function createViewer(options: ViewerOptions): Viewer {
   const onRestored = () => {
     for (const entry of cells) {
       scene.remove(...entry.objects);
+      if (entry.furniture) scene.remove(entry.furniture);
       entry.objects = [];
+      entry.furniture = undefined;
     }
     [held.vertices, held.bytes] = [0, 0];
     shadow = undefined;
@@ -788,11 +863,52 @@ export function createViewer(options: ViewerOptions): Viewer {
 
   resize();
   resetView();
-  renderer.shadowMap.needsUpdate = true;
-  renderNow();
-  idleHandle = idle(buildInBackground);
+  // Shaders compile on the GPU's own threads (KHR_parallel_shader_compile) while the city is cut
+  // and its first cells built, so the first frame doesn't wait on them. A triangle and a line
+  // stand in for the cells: the programs depend on the material and the scene, not the shape.
+  const sample = new MeshBuilder();
+  sample.triangle([0, 0, 0], [1, 0, 0], [0, 0, 1], 0, [0, 1, 0]);
+  const ruler = new LineBuilder();
+  ruler.segment([0, 0, 0], [1, 0, 0]);
+  const standIns = new Scene();
+  const standIn = new Mesh(sample.build({ facade: true }), material);
+  standIn.receiveShadow = true;
+  standIns.add(standIn, new LineSegments(ruler.build(), ink));
+  renderer.compileAsync(standIns, camera, scene).catch(() => {}); // the first frame compiles anyway
+
+  /**
+   * The first frame, with the main thread handed back between its steps (cutting the city into
+   * cells, building those in view a few at a time, drawing), so the page keeps painting and
+   * taking input while it loads. Settles once the first frame is drawn.
+   */
+  const ready = (async () => {
+    await nextTask();
+    if (disposed) return;
+    walls = partyWalls(city.buildings);
+    await nextTask();
+    if (disposed) return;
+    let since = performance.now();
+    cut();
+    aim();
+    for (const entry of cells) {
+      if (performance.now() - since > STEP_MS) {
+        // eslint-disable-next-line no-await-in-loop -- taking turns with the page is the point
+        await nextTask();
+        if (disposed) return;
+        since = performance.now();
+        aim(); // the view may have moved meanwhile
+      }
+      if (!entry.objects.length && frustum.intersectsBox(entry.box)) build(entry);
+    }
+    await nextTask();
+    if (disposed) return;
+    renderer.shadowMap.needsUpdate = true;
+    renderNow();
+    idleHandle = idle(buildInBackground);
+  })();
 
   return {
+    ready,
     rotate,
     zoomBy,
     resetView,

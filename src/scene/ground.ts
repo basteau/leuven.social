@@ -48,10 +48,8 @@ function addRing(mesh: MeshBuilder, ring: Float32Array, y: number, color: number
     { length: ring.length / 2 },
     (_, i) => new Vector2(ring[i * 2]!, ring[i * 2 + 1]!),
   );
-  for (const [i, j, k] of ShapeUtils.triangulateShape(contour, [])) {
-    const p = (idx: number) => [contour[idx]!.x, y, contour[idx]!.y] as const;
-    mesh.triangle(p(i!), p(j!), p(k!), color, UP, -surface);
-  }
+  const points = contour.map((p) => [p.x, y, p.y] as const);
+  mesh.polygon(points, ShapeUtils.triangulateShape(contour, []), color, UP, -surface);
 }
 
 function addRings(mesh: MeshBuilder, rings: readonly Float32Array[], y: number, color: number) {

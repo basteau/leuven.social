@@ -4,15 +4,21 @@ import type { Building } from '../data/city.ts';
 import {
   SHOP_FRONT,
   addBuilding,
-  buildingsGeometry,
+  buildingsGeometry as indexed,
   cutAt,
   partyWalls,
   planRoof,
 } from './buildings.ts';
 import { LANDMARK_MODELS } from './landmark-models.ts';
 import { LANCETS } from './landmarks.ts';
-import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
+import { LineBuilder, MeshBuilder, unindexed } from './mesh-builder.ts';
 import { pick } from './palette.ts';
+
+/** The geometry as the tests read it, triangle by triangle and segment by segment. */
+const buildingsGeometry = (...args: Parameters<typeof indexed>) => {
+  const { surfaces, outlines } = indexed(...args);
+  return { surfaces: unindexed(surfaces), outlines: unindexed(outlines) };
+};
 
 const box = (w: number, d: number): Float32Array => new Float32Array([0, 0, w, 0, w, d, 0, d]);
 
@@ -304,7 +310,7 @@ describe('party walls', () => {
     const walls = partyWalls([left, right]);
     const mesh = new MeshBuilder();
     addBuilding(mesh, new LineBuilder(), left, walls);
-    const p = mesh.build().getAttribute('position');
+    const p = unindexed(mesh.build()).getAttribute('position');
     // Triangles lying in the seam's plane, x = 6.
     const seam = Array.from({ length: p.count / 3 }, (_, t) => [t * 3, t * 3 + 1, t * 3 + 2])
       .filter((tri) => tri.every((i) => p.getX(i) === 6))

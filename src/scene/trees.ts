@@ -73,6 +73,12 @@ export function treeSolid(
 
 export type TreePart = 'trunk' | 'crown';
 
+/** A side of the trunk as the cylinder writes it: triangles a, b, d and b, c, d. */
+const SIDE = [
+  [0, 1, 3],
+  [1, 2, 3],
+];
+
 /**
  * One low-poly tree at (x, z), written straight into a cell's mesh: no instancing, so trees are
  * culled with their cell and cost no draw call of their own. It grows to its surveyed height
@@ -100,7 +106,9 @@ export function addTree(
     ['crown', CROWN, crownColor(seed, height || scale * MODEL_HEIGHT), CROWN_Y],
   ] as const) {
     if (!parts.includes(part)) continue;
-    for (let i = 0; i < shape.length; i += 3) {
+    // Each side of the trunk is a flat quad, (a, b, d) then (b, c, d): one vertex per corner.
+    const step = part === 'trunk' ? 6 : 3;
+    for (let i = 0; i < shape.length; i += step) {
       const [a, b, d] = [place(shape[i]!), place(shape[i + 1]!), place(shape[i + 2]!)];
       // Outward from the shape's axis, so the builder can orient every face.
       const hint: V3 = [
@@ -108,7 +116,8 @@ export function addTree(
         (a[1] + b[1] + d[1]) / 3 - centreY * scale,
         (a[2] + b[2] + d[2]) / 3 - z,
       ];
-      mesh.triangle(a, b, d, color, hint);
+      if (step === 3) mesh.triangle(a, b, d, color, hint);
+      else mesh.polygon([a, b, place(shape[i + 4]!), d], SIDE, color, hint);
     }
   }
 }

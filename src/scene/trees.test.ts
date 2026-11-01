@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { MeshBuilder } from './mesh-builder.ts';
+import { MeshBuilder, unindexed } from './mesh-builder.ts';
 import { deltaE, toOklab } from '../data/colour.ts';
 import { trunkRadius } from '../data/trees.ts';
 import { TREE } from './palette.ts';
@@ -9,7 +9,7 @@ import { MODEL_HEIGHT, TREE_TRIANGLES, addTree, crownColor, treeSolid } from './
 test('a tree is a slim trunk and a low-poly crown, all facing outward', () => {
   const mesh = new MeshBuilder();
   addTree(mesh, 100, -50, 7);
-  const g = mesh.build();
+  const g = unindexed(mesh.build());
   expect(TREE_TRIANGLES).toBe(4 * 2 + 20);
   expect(g.getAttribute('position').count).toBe(TREE_TRIANGLES * 3);
   g.computeBoundingBox();
@@ -28,7 +28,7 @@ test('a tree is a slim trunk and a low-poly crown, all facing outward', () => {
 function size(seed: number, height = 0): number {
   const mesh = new MeshBuilder();
   addTree(mesh, 0, 0, seed, height);
-  const g = mesh.build();
+  const g = unindexed(mesh.build());
   g.computeBoundingBox();
   return g.boundingBox!.max.y;
 }
@@ -48,7 +48,7 @@ test('a tree can be written in parts, trunk and crown apart', () => {
   const [trunk, crown] = [['trunk'], ['crown']].map((parts) => {
     const mesh = new MeshBuilder();
     addTree(mesh, 0, 0, 2, 0, parts as ['trunk'] | ['crown']);
-    return mesh.build().getAttribute('position').count / 3;
+    return unindexed(mesh.build()).getAttribute('position').count / 3;
   });
   expect(trunk).toBe(8);
   expect(crown).toBe(20);
@@ -66,7 +66,7 @@ test('a trunk is never drawn wider than street furniture keeps clear of', () => 
     for (let seed = 0; seed < 20; seed++) {
       const mesh = new MeshBuilder();
       addTree(mesh, 0, 0, seed, height);
-      const position = mesh.build().getAttribute('position');
+      const position = unindexed(mesh.build()).getAttribute('position');
       for (let i = 0; i < position.count; i++) {
         if (position.getY(i) > 0.01) continue; // the trunk's foot, its widest
         expect(Math.hypot(position.getX(i), position.getZ(i))).toBeLessThanOrEqual(

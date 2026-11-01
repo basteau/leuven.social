@@ -187,9 +187,11 @@ export function characterGeometry(): BufferGeometry {
   const skinIndex = new Uint16Array(count * 4);
   const skinWeight = new Float32Array(count * 4);
   const dither = new Uint8Array(count);
+  const index: number[] = [];
   let offset = 0;
   for (const piece of pieces) {
     const n = piece.geometry.getAttribute('position').count;
+    for (const i of piece.geometry.index!.array) index.push(offset + i);
     position.set(piece.geometry.getAttribute('position').array, offset * 3);
     const bytes = (name: string) =>
       (piece.geometry.getAttribute(name) as InterleavedBufferAttribute).data.array;
@@ -209,6 +211,7 @@ export function characterGeometry(): BufferGeometry {
   geometry.setAttribute('skinIndex', new Uint16BufferAttribute(skinIndex, 4));
   geometry.setAttribute('skinWeight', new BufferAttribute(skinWeight, 4));
   geometry.setAttribute('dither', new BufferAttribute(dither, 1));
+  geometry.setIndex(index);
   geometry.computeBoundingSphere();
   return geometry;
 }

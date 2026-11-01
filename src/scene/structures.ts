@@ -28,10 +28,8 @@ export function addTank(mesh: MeshBuilder, lines: LineBuilder, { height, ring }:
     );
     lines.segment([a.x, height, a.y], [b.x, height, b.y]);
   }
-  for (const [i, j, k] of ShapeUtils.triangulateShape(contour, [])) {
-    const p = (idx: number): V3 => [contour[idx]!.x, height, contour[idx]!.y];
-    mesh.triangle(p(i!), p(j!), p(k!), STRUCTURES.tankTop, UP);
-  }
+  const top = contour.map((p): V3 => [p.x, height, p.y]);
+  mesh.polygon(top, ShapeUtils.triangulateShape(contour, []), STRUCTURES.tankTop, UP);
 }
 
 /** The capstone along a parapet's top: how far it overhangs each face, and how thick it is (m). */

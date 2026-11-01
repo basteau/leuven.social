@@ -206,12 +206,12 @@ export interface DetailMarks {
 }
 
 /**
- * Everything in one cell as one mesh and one set of outlines (two draw calls), plus its small
- * street furniture as a third mesh, so it can hide when zoomed out. In the main mesh the flat
+ * Everything in one cell as one mesh and one set of outlines (two draw calls), but its small
+ * street furniture (see `buildFurniture`). In the main mesh the flat
  * ground comes first, then the tree trunks (from `trunksFrom`), and the rest from `shadowFrom`, so
  * the shadow pass can skip them: the ground can't shade anything, and seen from above a trunk's
  * shadow hides in its crown's. The fine road paint comes last (from `fineVertices`), so a
- * zoomed-out view can skip that.
+ * zoomed-out view can skip that. The marks count indices, as draw ranges do.
  */
 export function buildCell(
   cell: Cell,
@@ -220,7 +220,6 @@ export function buildCell(
 ): {
   mesh: MeshBuilder;
   lines: LineBuilder;
-  props: MeshBuilder;
   trunksFrom: number;
   shadowFrom: number;
   fineVertices: number;
@@ -228,16 +227,15 @@ export function buildCell(
 } {
   const mesh = new MeshBuilder();
   const lines = new LineBuilder();
-  const props = new MeshBuilder();
   const { trees } = cell;
   addGround(mesh, area, cell.bounds, cell.ground);
   // Track beds are flat ground too, so they join it before the shadow pass's start.
   addTracks(mesh, cell.rails);
-  const trunksFrom = mesh.vertices;
+  const trunksFrom = mesh.indices;
   for (let i = 0; i < trees.length; i += 4) {
     addTree(mesh, trees[i]!, trees[i + 1]!, trees[i + 2]!, trees[i + 3]!, ['trunk']);
   }
-  const shadowFrom = mesh.vertices;
+  const shadowFrom = mesh.indices;
   addRailLines(lines, cell.rails);
   const rails = lines.segments;
   addMasts(lines, cell.masts);
@@ -254,8 +252,18 @@ export function buildCell(
   for (const p of cell.parasols) addParasol(mesh, lines, p);
   for (const t of cell.tanks) addTank(mesh, lines, t);
   for (const line of cell.parapets) addParapet(mesh, lines, line);
-  for (const p of cell.props) addProp(LARGE_PROPS.has(p.kind) ? mesh : props, p);
-  const fineVertices = mesh.vertices;
+  for (const p of cell.props) if (LARGE_PROPS.has(p.kind)) addProp(mesh, p);
+  const fineVertices = mesh.indices;
   addFinePaint(mesh, cell.ground.markings);
-  return { mesh, lines, props, trunksFrom, shadowFrom, fineVertices, detail };
+  return { mesh, lines, trunksFrom, shadowFrom, fineVertices, detail };
+}
+
+/**
+ * A cell's small street furniture, as a mesh of its own that hides when zoomed out. It only
+ * shows up close, so it's built apart from the rest, after the first frame.
+ */
+export function buildFurniture(cell: Cell): MeshBuilder {
+  const props = new MeshBuilder();
+  for (const p of cell.props) if (!LARGE_PROPS.has(p.kind)) addProp(props, p);
+  return props;
 }

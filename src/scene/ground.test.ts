@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { SLAB_DEPTH, addGround, addSlabInk } from './ground.ts';
-import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
+import { LineBuilder, MeshBuilder, unindexed } from './mesh-builder.ts';
 
 const square = new Float32Array([0, 0, 10, 0, 10, 10, 0, 10]);
 const layers = {
@@ -27,7 +27,7 @@ const area = [
 const count = (within: (typeof area)[number]) => {
   const mesh = new MeshBuilder();
   addGround(mesh, area, within, layers);
-  return mesh.build();
+  return unindexed(mesh.build());
 };
 
 test('a cell holding the whole area: slab tops, the outline as earth sides, then the layers', () => {
@@ -52,7 +52,7 @@ test('paths are ribbons of their width, running on past their ends', () => {
   const mesh = new MeshBuilder();
   const within = { minX: -100, minZ: -100, maxX: 100, maxZ: 100 };
   addGround(mesh, area, within, { ...layers, paths: [{ width: 2, paved: true, line }] });
-  const g = mesh.build();
+  const g = unindexed(mesh.build());
   // The zero-length middle segment is skipped: two quads on top of the slab and layers.
   expect(g.getAttribute('position').count).toBe(((2 + 7) * 2 + 10 * 2 + 2 * 2) * 3);
   const p = g.getAttribute('position');
@@ -68,7 +68,7 @@ test('the road surface carries texture codes, and coarse paint lands on top', ()
   const within = { minX: -100, minZ: -100, maxX: 100, maxZ: 100 };
   const zebra = { kind: 'zebra' as const, line: new Float32Array([2, 0, 2, 6]) };
   addGround(mesh, area, within, { ...layers, markings: [zebra] });
-  const g = mesh.build({ facade: true });
+  const g = unindexed(mesh.build({ facade: true }));
   const p = g.getAttribute('position');
   const f = g.getAttribute('facade');
   const at = (y: number) =>
@@ -88,5 +88,5 @@ test('the slab gets an ink lip along its top and bottom edges and down its corne
   addSlabInk(lines, area, { minX: -100, minZ: -100, maxX: 100, maxZ: 100 });
   // 7 outline edges, a top and a bottom line each, and one vertical down each of the L's 6
   // corners (not where the west side runs on from one rectangle into the next).
-  expect(lines.build().getAttribute('position').count / 2).toBe(7 * 2 + 6);
+  expect(unindexed(lines.build()).getAttribute('position').count / 2).toBe(7 * 2 + 6);
 });
