@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import type { ReactNode, Ref } from 'react';
 
 import { sound } from '../audio/sound.ts';
+import { strayPress } from './input.ts';
 
 interface Common {
   /** The key as shown; `keys` names it for assistive tech when the two differ. */
@@ -41,6 +43,8 @@ export function ActionButton(
     onWarm?: () => void;
   },
 ) {
+  // Actions swap places with each other: the press that brought this one shouldn't press it too.
+  const [mountedAt] = useState(() => performance.now());
   return (
     <button
       type="button"
@@ -48,7 +52,9 @@ export function ActionButton(
       aria-keyshortcuts={shortcutOf(props)}
       aria-busy={props.busy || undefined}
       disabled={props.disabled}
-      onClick={() => press(props)}
+      onClick={(event) => {
+        if (!strayPress(event.detail, performance.now() - mountedAt)) press(props);
+      }}
       onPointerEnter={props.onWarm}
       onFocus={props.onWarm}
     >
