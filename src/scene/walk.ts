@@ -31,9 +31,11 @@ import {
   chaseFov,
   clearPitch,
   createBoom,
+  createSteerFrame,
   easeBoom,
   figureOpacity,
   flight,
+  followStrength,
   freeLength,
   headLook,
   mapYaw,
@@ -43,6 +45,7 @@ import {
   settleReach,
   shoulderPitch,
   spanAt,
+  steerYaw,
   stretchBoom,
   turnBoom,
   wheelKind,
@@ -100,12 +103,11 @@ const LOOK_KEY_EASE = 0.08;
 /** A turn button turns the view this far. */
 const TURN_STEP = Math.PI / 4;
 /**
- * After someone last looked around (ms), the camera drifts back behind the walker while it
- * moves: this share of the way per second walking, more at a run or on a route.
+ * While the walker moves, the camera swings round behind its back by this share of the way per
+ * second at a walk, twice that at a run; on a route a little less, as routes turn often.
  */
-const RECENTRE_WAIT_MS = 1500;
-const RECENTRE_RATE = 0.45;
-const ROUTE_RECENTRE_RATE = 1.1;
+const FOLLOW_RATE = 2.2;
+const ROUTE_FOLLOW_RATE = 1.6;
 /** The thumb stick: how far it reaches (px); pushed to the rim, it runs. */
 const STICK_RADIUS = 52;
 /** Touches that start in this share of the screen, from its left edge, steer. */
@@ -282,6 +284,7 @@ export function createWalk(host: WalkHost): Walk {
   /** How far the boom reaches at a pitch, as far as a tight spot needs to know. */
   const freeAt = (pitch: number) =>
     boomReach(heightAt, lookAt, boom.yaw, pitch, SHORT_BOOM, inTree);
+  const steerFrame = createSteerFrame();
   const followX = spring();
   const followZ = spring();
   /** How far into a run the walker is, for the lens: 0 walking, 1 flat out. */
@@ -339,6 +342,7 @@ export function createWalk(host: WalkHost): Walk {
     moving = true;
     sprint = 0;
     Object.assign(boom, createBoom(yaw));
+    Object.assign(steerFrame, createSteerFrame());
     Object.assign(followX, spring(x));
     Object.assign(followZ, spring(z));
     if (!character) {
@@ -607,11 +611,14 @@ export function createWalk(host: WalkHost): Walk {
     if (walker && character) {
       if (mode === 'walk') {
         // Keys and the stick steer relative to the screen: up is away from the camera.
-        const steering = stick.right !== 0 || stick.up !== 0;
-        const right = steering ? stick.right : keyRight;
-        const up = steering ? stick.up : keyUp;
-        const fx = -Math.sin(boom.yaw);
-        const fz = -Math.cos(boom.yaw);
+        const sticking = stick.right !== 0 || stick.up !== 0;
+        const right = sticking ? stick.right : keyRight;
+        const up = sticking ? stick.up : keyUp;
+        // Steered by the camera as it was when the input last changed, give or take looks by
+        // hand: the camera swinging round behind doesn't turn a held key's way with it.
+        const yaw = steerYaw(steerFrame, boom.aimYaw, right, up);
+        const fx = -Math.sin(yaw);
+        const fz = -Math.cos(yaw);
         const sx = -fz * right + fx * up;
         const sz = fx * right + fz * up;
         for (let n = ticks(sim, elapsed); n > 0; n--) {
@@ -642,13 +649,17 @@ export function createWalk(host: WalkHost): Walk {
           busy = true;
           lastLook = now;
         }
-        // On the move, the camera drifts back round behind unless someone is looking about.
-        if (now - lastLook > RECENTRE_WAIT_MS && walker.speed > 0.1 && !reducedMotion) {
+        // On the move, the camera comes round behind the walker's back, unless someone has
+        // just looked about: then it waits a moment and eases back in.
+        const follow = followStrength((now - lastLook) / 1000);
+        if (follow > 0 && walker.speed > 0.1 && !reducedMotion) {
           const pace = Math.min(1, walker.speed / WALK_SPEED) * (1 + runBlend(walker.speed));
           const rate = walker.route
-            ? ROUTE_RECENTRE_RATE
-            : RECENTRE_RATE * recentreWeight(walker.heading, boom.aimYaw);
-          recentre(boom, walker.heading, rate * pace, dt);
+            ? ROUTE_FOLLOW_RATE
+            : FOLLOW_RATE * recentreWeight(walker.heading, boom.aimYaw);
+          steerFrame.drift = wrap(
+            steerFrame.drift + recentre(boom, walker.heading, rate * pace * follow, dt),
+          );
         }
       } else {
         [prevX, prevZ, prevHeading, prevPhase] = [walker.x, walker.z, walker.heading, walker.phase];

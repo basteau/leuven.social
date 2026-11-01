@@ -14,9 +14,11 @@ import {
   chaseFov,
   clearPitch,
   createBoom,
+  createSteerFrame,
   easeBoom,
   figureOpacity,
   flight,
+  followStrength,
   freeLength,
   headLook,
   mapYaw,
@@ -27,6 +29,7 @@ import {
   settleReach,
   shoulderPitch,
   spanAt,
+  steerYaw,
   stretchBoom,
   turnBoom,
   wheelKind,
@@ -282,11 +285,64 @@ describe('following', () => {
     expect(Math.abs(across.aimYaw)).toBeGreaterThan(Math.PI - 0.2);
   });
 
-  test('recentres walking away from the camera, a little sideways, never toward it', () => {
+  test('swings behind after a turn to either side, never round to a walker coming toward it', () => {
     expect(recentreWeight(0, Math.PI)).toBe(1);
-    expect(recentreWeight(Math.PI / 2, Math.PI)).toBeGreaterThan(0);
-    expect(recentreWeight(Math.PI / 2, Math.PI)).toBeLessThan(0.1);
+    expect(recentreWeight(Math.PI / 2, Math.PI)).toBe(1);
+    expect(recentreWeight(-Math.PI / 2, Math.PI)).toBe(1);
+    // Backing off diagonally barely turns it; straight at the camera, not at all.
+    expect(recentreWeight((3 * Math.PI) / 4, Math.PI)).toBeGreaterThan(0);
+    expect(recentreWeight((3 * Math.PI) / 4, Math.PI)).toBeLessThan(0.15);
     expect(recentreWeight(Math.PI, Math.PI)).toBe(0);
+  });
+
+  test('a turn to the side is behind the walker within a second, the same at any frame rate', () => {
+    const ends = [30, 60, 144].map((hz) => {
+      const boom = createBoom(Math.PI); // behind a walker facing +z, who turns to +x
+      for (let i = 0; i < hz; i++) {
+        recentre(boom, Math.PI / 2, 2.2 * recentreWeight(Math.PI / 2, boom.aimYaw), 1 / hz);
+      }
+      return boom.aimYaw;
+    });
+    // Behind a walker facing +x is yaw -π/2: from π, the short way through -π.
+    for (const yaw of ends) expect(Math.abs(yaw + Math.PI / 2)).toBeLessThan(0.2);
+    expect(ends[0]).toBeCloseTo(ends[2]!, 2);
+  });
+
+  test('says how far it turned, so steering can leave that out', () => {
+    const boom = createBoom(3);
+    const turned = recentre(boom, 0, 2, 0.1);
+    expect(turned).toBeCloseTo(boom.aimYaw - 3);
+    expect(turned).toBeGreaterThan(0);
+  });
+
+  test('waits after a look by hand, then eases back in', () => {
+    expect(followStrength(0)).toBe(0);
+    expect(followStrength(0.9)).toBe(0);
+    const ramp = [1.1, 1.3, 1.5].map(followStrength);
+    expect(ramp[0]).toBeGreaterThan(0);
+    expect(ramp[0]).toBeLessThan(ramp[1]!);
+    expect(ramp[1]).toBeLessThan(ramp[2]!);
+    expect(followStrength(5)).toBe(1);
+    expect(followStrength(Infinity)).toBe(1);
+  });
+
+  test('a held key keeps its way while the camera swings round, a new key steers by the camera', () => {
+    const frame = createSteerFrame();
+    // Holding right (D) with the camera at yaw 0.
+    expect(steerYaw(frame, 0, 1, 0)).toBe(0);
+    // Following swings the aim by 0.8: the key still steers by yaw 0.
+    frame.drift += 0.8;
+    expect(steerYaw(frame, 0.8, 1, 0)).toBeCloseTo(0);
+    // A look by hand on top turns the steering with it.
+    expect(steerYaw(frame, 1.1, 1, 0)).toBeCloseTo(0.3);
+    // Adding forward (W) is a new direction: by the camera as it is now.
+    expect(steerYaw(frame, 1.1, 1, 1)).toBeCloseTo(1.1);
+    expect(frame.drift).toBe(0);
+    // A stick drifting a little stays in its frame; letting go forgets it.
+    frame.drift = 0.4;
+    expect(steerYaw(frame, 1.5, 0.9, 1)).toBeCloseTo(1.1);
+    expect(steerYaw(frame, 1.5, 0, 0)).toBe(1.5);
+    expect(frame.input).toBeNaN();
   });
 
   test('the head looks where the camera looks, or back at the camera in front of it', () => {

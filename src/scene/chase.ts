@@ -255,22 +255,73 @@ export function figureOpacity(dx: number, dy: number, dz: number): number {
 
 /**
  * Turns where the boom aims round behind a walker facing `heading`, by a share of the way each
- * second (`rate`): the auto-recentre while walking. Its pitch eases back to the default too.
+ * second (`rate`): the camera following the walker's back. Its pitch eases back to the default
+ * too. Returns how far it turned the aim (radians), so steering can leave that turn out.
  */
-export function recentre(boom: Boom, heading: number, rate: number, dt: number): void {
+export function recentre(boom: Boom, heading: number, rate: number, dt: number): number {
   const keep = Math.exp(-rate * dt);
+  const before = boom.aimYaw;
   boom.aimYaw = wrap(heading + Math.PI - wrap(heading + Math.PI - boom.aimYaw) * keep);
   boom.aimPitch = PITCH + (boom.aimPitch - PITCH) * keep;
+  return wrap(boom.aimYaw - before);
+}
+
+/** The camera follows fully a walker turned up to this far from its back (radians), not at all past the second. */
+const FOLLOW_FULL = (100 * Math.PI) / 180;
+const FOLLOW_NONE = (145 * Math.PI) / 180;
+
+/**
+ * How much the boom should swing behind a walker going `heading` with the boom at `yaw`: fully
+ * after a turn to either side, so the camera comes round to its back; not at all walking toward
+ * the camera, where swinging round would spin the view and turn the controls with it.
+ */
+export function recentreWeight(heading: number, yaw: number): number {
+  const off = Math.abs(wrap(heading + Math.PI - yaw));
+  const t = Math.min(1, Math.max(0, (FOLLOW_NONE - off) / (FOLLOW_NONE - FOLLOW_FULL)));
+  return t * t * (3 - 2 * t);
+}
+
+/** After someone last turned the view (s), the camera leaves it this long, then takes this long to follow fully. */
+const FOLLOW_WAIT = 1;
+const FOLLOW_RAMP = 0.6;
+
+/** How much the camera follows (0 to 1), `since` seconds after the view was last turned by hand. */
+export function followStrength(since: number): number {
+  const t = Math.min(1, Math.max(0, (since - FOLLOW_WAIT) / FOLLOW_RAMP));
+  return t * t * (3 - 2 * t);
 }
 
 /**
- * How much the boom should recentre behind a walker going `heading` with the boom at `yaw`:
- * fully walking away from the camera, a little sideways, not at all walking toward it (that
- * would swing the camera round in front and turn the controls with it).
+ * The frame keys and the stick steer in: the camera's aim, less however far following the
+ * walker has swung it since the input last changed. Holding a key to walk sideways then walks
+ * a straight line while the camera comes round behind, instead of a spiral; pressing anything
+ * new (or the stick swinging past ~30°) steers by the camera as it is now. A look by hand
+ * turns the aim, so it turns the steering at once.
  */
-export function recentreWeight(heading: number, yaw: number): number {
-  const away = Math.cos(wrap(heading + Math.PI - yaw));
-  return Math.min(1, Math.max(0, (away + 0.3) / 1.3)) ** 2;
+export interface SteerFrame {
+  /** How far following has turned the aim since the input changed (radians). */
+  drift: number;
+  /** The input's direction when it last changed (radians), NaN with nothing held. */
+  input: number;
+}
+
+export const createSteerFrame = (): SteerFrame => ({ drift: 0, input: Number.NaN });
+
+const RELATCH = 0.5;
+
+/** The yaw to steer by for input `right` and `up`, the boom aiming at `aimYaw`. */
+export function steerYaw(frame: SteerFrame, aimYaw: number, right: number, up: number): number {
+  if (right === 0 && up === 0) {
+    frame.input = Number.NaN;
+    frame.drift = 0;
+    return aimYaw;
+  }
+  const input = Math.atan2(right, up);
+  if (!(Math.abs(wrap(input - frame.input)) <= RELATCH)) {
+    frame.input = input;
+    frame.drift = 0;
+  }
+  return wrap(aimYaw - frame.drift);
 }
 
 /** Where the head turns, from where the camera looks: ahead, or back at the camera when it's in front. */
