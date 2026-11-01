@@ -1,6 +1,7 @@
 /**
- * Bakes public/data/city.bin from the research downloads in data/ (see data/README.md).
- * Only this edge reads files; the transforms live in src/data and are unit-tested.
+ * Bakes public/data/city.bin from data/derived/ and the GRB downloads (`bun run data` makes
+ * both; see docs/DATA.md). Only this edge reads files; the transforms live in src/data and
+ * are unit-tested. Same inputs, same bytes: `bun run data:check` holds it to that.
  *
  *   bun run bake
  */
@@ -14,6 +15,7 @@ import {
   clipLine,
   clipRingToArea,
   normalizeRing,
+  orientedRect,
   ringInArea,
   signedArea,
   simplifyRing,
@@ -23,13 +25,15 @@ import { elementCentre, findElement, labelName } from '../src/data/labels.ts';
 import type { OsmElement } from '../src/data/labels.ts';
 import { EdgeIndex, RingIndex, placeProps } from '../src/data/props.ts';
 import { bridgeParapets, tankOutline } from '../src/data/structures.ts';
+import { SOURCES } from '../src/data/sources.ts';
 import { mergeTrees } from '../src/data/trees.ts';
+import { DATA } from './data-files.ts';
 
-const root = new URL('../', import.meta.url);
+const OUT = new URL('../public/data/city.bin', import.meta.url).pathname;
 const read = async <T>(path: string): Promise<T> => {
-  const file = Bun.file(new URL(path, root));
+  const file = Bun.file(`${DATA}/${path}`);
   if (!(await file.exists())) {
-    throw new Error(`Missing ${path}. Build it first: see data/README.md.`);
+    throw new Error(`Missing data/${path}. Make it first: bun run data (docs/DATA.md).`);
   }
   return (await file.json()) as T;
 };
@@ -97,16 +101,16 @@ const GREEN_LANDUSE = new Set(['grass', 'meadow', 'cemetery', 'forest', 'recreat
 const MIN_COURTYARD = 12;
 
 const [local, crowns, knw, wbn, wtz, osmAreas, osmRoads, osmPoints] = await Promise.all([
-  read<{ buildings: LocalBuilding[] }>('data/derived/leuven_buildings_local.json'),
-  read<{ trees: [number, number, number][] }>('data/derived/lidar_trees.json'),
+  read<{ buildings: LocalBuilding[] }>('derived/leuven_buildings_local.json'),
+  read<{ trees: [number, number, number][] }>('derived/lidar_trees.json'),
   read<{ structures: { kind: string; h: number; ring: [number, number][] }[] }>(
-    'data/derived/grb_structures.json',
+    'derived/grb_structures.json',
   ),
-  read<Collection>('data/grb/grb_WBN.geojson'),
-  read<Collection>('data/grb/grb_WTZ.geojson'),
-  read<Collection>('data/derived/osm_areas.geojson'),
-  read<Collection>('data/derived/osm_roads.geojson'),
-  read<Collection>('data/derived/osm_points.geojson'),
+  read<Collection>('grb/grb_WBN.geojson'),
+  read<Collection>('grb/grb_WTZ.geojson'),
+  read<Collection>('derived/osm_areas.geojson'),
+  read<Collection>('derived/osm_roads.geojson'),
+  read<Collection>('derived/osm_points.geojson'),
 ]);
 
 const buildings: Building[] = [];
@@ -192,31 +196,23 @@ const parapets = knw.structures
   .flatMap((line) => AREA.flatMap((rect) => clipLine(line, rect)))
   .map((line) => new Float32Array(line));
 
-// Labels: names and places read from the OSM element (or GRB footprint) each one refers to.
+// Labels: names and places read from the OSM element (or GRB footprint) each one refers to,
+// in every Overpass download of the manifest.
 const osmElements = (
   await Promise.all(
-    [
-      ...new Bun.Glob('data/osm/raw_*.json').scanSync({
-        cwd: Bun.fileURLToPath(root),
-        followSymlinks: true,
-      }),
-    ]
-      .toSorted()
-      .map((path) => read<{ elements: OsmElement[] }>(path)),
+    SOURCES.filter((s) => s.kind === 'overpass').map((s) =>
+      read<{ elements: OsmElement[] }>(s.output),
+    ),
   )
 ).flatMap((dump) => dump.elements);
 const labels = LANDMARKS.map((ref) => {
   const minZoom = ref.minZoom ?? 0;
   if ('grb' in ref) {
-    const b = local.buildings.find((building) => building.id === ref.grb);
-    if (!b?.name) throw new Error(`Label: GRB footprint ${ref.grb} has no OSM name.`);
-    const xs = b.ring.map(([x]) => x);
-    const zs = b.ring.map(([, z]) => z);
-    const [x, z] = [
-      (Math.min(...xs) + Math.max(...xs)) / 2,
-      (Math.min(...zs) + Math.max(...zs)) / 2,
-    ];
-    return { name: b.name, x, z, minZoom };
+    const name = local.buildings.find((building) => building.id === ref.grb)?.name;
+    const b = buildings.find((building) => building.id === ref.grb);
+    if (!name || !b) throw new Error(`Label: GRB footprint ${ref.grb} has no OSM name.`);
+    const { cx: x, cz: z } = orientedRect(b.ring);
+    return { name, x, z, minZoom };
   }
   const element = findElement(ref, osmElements);
   const name = element?.tags && labelName(element.tags);
@@ -258,7 +254,7 @@ const city: City = {
 };
 
 const bytes = await packCity(city);
-await Bun.write(new URL('public/data/city.bin', root), bytes);
+await Bun.write(OUT, bytes);
 
 const tiers = Object.groupBy(buildings, (b) => b.tier);
 console.log(
