@@ -11,6 +11,7 @@ import {
   ResetIcon,
   RotateLeftIcon,
   RotateRightIcon,
+  RunIcon,
   WalkIcon,
 } from './icons.tsx';
 
@@ -21,24 +22,30 @@ const LOAD_TIMEOUT_MS = 20_000;
 
 const CREDITS_VISIBLE_MS = 5_000;
 
-/** Keys that walk, as screen directions: right and up. */
+/**
+ * Keys held while walking, by where they sit rather than what they type, so W A S D and Q E
+ * keep their shape on AZERTY (Belgium's own layout) as on QWERTY. Walking keys are screen
+ * directions (right, up); turning keys turn the view (left -1, right 1); Shift runs.
+ */
 const WALK_KEYS: Record<string, readonly [number, number]> = {
-  w: [0, 1],
-  arrowup: [0, 1],
-  s: [0, -1],
-  arrowdown: [0, -1],
-  a: [-1, 0],
-  arrowleft: [-1, 0],
-  d: [1, 0],
-  arrowright: [1, 0],
+  KeyW: [0, 1],
+  ArrowUp: [0, 1],
+  KeyS: [0, -1],
+  ArrowDown: [0, -1],
+  KeyA: [-1, 0],
+  ArrowLeft: [-1, 0],
+  KeyD: [1, 0],
+  ArrowRight: [1, 0],
 };
+const LOOK_KEYS: Record<string, number> = { KeyQ: -1, KeyE: 1 };
+const RUN_KEYS = new Set(['ShiftLeft', 'ShiftRight']);
 
 const MAP_LABEL =
   'Map of Leuven’s centre around Grote Markt, Oude Markt and Ladeuzeplein. Drag or use the arrow keys to pan; scroll, pinch or press plus and minus to zoom; Q and E turn the view; W starts a walk.';
 const MAP_LABELS: Record<WalkMode, string> = {
   map: MAP_LABEL,
   pick: 'Map of Leuven. Click or tap a street to start walking there, or press Enter to start in the middle of the view. Escape cancels.',
-  walk: 'Walking in Leuven. W, A, S and D or the arrow keys walk; click or tap a street to walk there; Q and E turn the view; Escape returns to the map.',
+  walk: 'Walking in Leuven. W, A, S and D or the arrow keys walk, and hold Shift to run; drag to look around; click or tap a street to walk there; hold Q or E to turn the view; Escape returns to the map.',
 };
 
 const reducedMotion = () => globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
@@ -80,6 +87,8 @@ export function App() {
   const [walkMode, setWalkMode] = useState<WalkMode>('map');
   const walkModeRef = useRef(walkMode);
   const [blocked, setBlocked] = useState(0);
+  const [running, setRunning] = useState(false);
+  const runningRef = useRef(running);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -149,9 +158,15 @@ export function App() {
     if (!app) return;
     const held = new Set<string>();
     const steer = () => {
-      let [right, up] = [0, 0];
-      for (const key of held) [right, up] = [right + WALK_KEYS[key]![0], up + WALK_KEYS[key]![1]];
-      viewerRef.current?.steer(Math.sign(right), Math.sign(up));
+      let [right, up, look] = [0, 0, 0];
+      for (const key of held) {
+        const [r, u] = WALK_KEYS[key] ?? [0, 0];
+        [right, up, look] = [right + r, up + u, look + (LOOK_KEYS[key] ?? 0)];
+      }
+      const viewer = viewerRef.current;
+      viewer?.steer(Math.sign(right), Math.sign(up));
+      viewer?.look(Math.sign(look));
+      viewer?.run(runningRef.current || [...held].some((code) => RUN_KEYS.has(code)));
     };
     const release = () => {
       if (!held.size) return;
@@ -166,12 +181,15 @@ export function App() {
       const viewer = viewerRef.current;
       if (!viewer) return;
       const key = event.key.toLowerCase();
+      const { code } = event;
       const mode = walkModeRef.current;
-      if (mode === 'walk' && Object.hasOwn(WALK_KEYS, key)) {
+      const walking =
+        Object.hasOwn(WALK_KEYS, code) || Object.hasOwn(LOOK_KEYS, code) || RUN_KEYS.has(code);
+      if (mode === 'walk' && walking) {
         setBlocked(0);
         event.preventDefault();
-        if (!held.has(key)) {
-          held.add(key);
+        if (!held.has(code)) {
+          held.add(code);
           steer();
         }
         return;
@@ -194,7 +212,7 @@ export function App() {
     const onKeyUp = (event: KeyboardEvent) => {
       // macOS sends no keyup for keys released while ⌘ is down.
       if (event.key === 'Meta') release();
-      else if (held.delete(event.key.toLowerCase())) steer();
+      else if (held.delete(event.code)) steer();
     };
     app.addEventListener('keydown', onKeyDown);
     globalThis.addEventListener('keyup', onKeyUp);
@@ -206,6 +224,12 @@ export function App() {
       globalThis.removeEventListener('blur', release);
     };
   }, []);
+
+  const toggleRun = () => {
+    runningRef.current = !runningRef.current;
+    setRunning(runningRef.current);
+    viewerRef.current?.run(runningRef.current);
+  };
 
   // "Can't walk there" stays until the next try, so nobody misses it.
   useEffect(() => {
@@ -284,8 +308,13 @@ export function App() {
             'Pick a street to start walking.'
           ) : (
             <>
-              Pick a street to walk there
-              <span className="hint-keys">, or use W&nbsp;A&nbsp;S&nbsp;D</span>.
+              <span className="hint-keys">
+                W&nbsp;A&nbsp;S&nbsp;D to walk, hold Shift to run, drag to look. Click a street to
+                go there.
+              </span>
+              <span className="hint-touch">
+                Drag on the left to walk, on the right to look. Tap a street to go there.
+              </span>
             </>
           )}
         </output>
@@ -357,13 +386,14 @@ export function App() {
           <fieldset className="panel toolbar">
             <legend className="sr-only">Walking</legend>
             <ToolButton
-              label="Map"
-              shortcut="Esc"
-              keys="Escape"
+              label="Run"
+              shortcut="Shift"
+              hold
+              pressed={running}
               disabled={!ready}
-              onPress={() => viewerRef.current?.stopWalking()}
+              onPress={toggleRun}
             >
-              <MapIcon />
+              <RunIcon />
             </ToolButton>
             <ToolButton
               label="Turn left"
@@ -381,6 +411,16 @@ export function App() {
             >
               <RotateRightIcon />
             </ToolButton>
+            {/* Last, away from where a left thumb steers. */}
+            <ToolButton
+              label="Map"
+              shortcut="Esc"
+              keys="Escape"
+              disabled={!ready}
+              onPress={() => viewerRef.current?.stopWalking()}
+            >
+              <MapIcon />
+            </ToolButton>
           </fieldset>
         )}
       </footer>
@@ -393,6 +433,10 @@ function ToolButton(props: {
   /** The key as shown; `keys` names it for assistive tech when the two differ. */
   shortcut: string;
   keys?: string;
+  /** For a toggle: whether it's on. */
+  pressed?: boolean;
+  /** The key is held for the same effect rather than pressed for this button: not its shortcut. */
+  hold?: boolean;
   disabled: boolean;
   onPress: () => void;
   children: ReactNode;
@@ -401,7 +445,8 @@ function ToolButton(props: {
     <button
       type="button"
       className="button"
-      aria-keyshortcuts={props.keys ?? props.shortcut}
+      aria-keyshortcuts={props.hold ? undefined : (props.keys ?? props.shortcut)}
+      aria-pressed={props.pressed}
       disabled={props.disabled}
       onClick={props.onPress}
     >
