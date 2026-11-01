@@ -493,7 +493,12 @@ export function createViewer(options: ViewerOptions): Viewer {
       triangles += drawn(mesh);
     };
     const pixel = viewSpan() / buffer.y;
-    for (const { box, cell, objects, detail, shadowFrom, fineVertices } of cells) {
+    // From above a trunk's shadow hides in its crown's; from the street it doesn't. Mid-flight
+    // the shadow square spans the map view, where a trunk's or a lamp's shadow is less than a
+    // texel; landing refits it round the walker with theirs.
+    const flying = walk?.flightSpan !== undefined;
+    const fromStreet = view !== camera && !flying;
+    for (const { box, cell, objects, detail, trunksFrom, shadowFrom, fineVertices } of cells) {
       const [surfaces, outlines, casters, furniture] = objects as [Mesh?, Mesh?, Mesh?, Mesh?];
       if (!surfaces || !outlines || !casters || !furniture) continue;
       const skip = pixel > MAST_PIXEL ? detail.masts : pixel > RAIL_PIXEL ? detail.rails : 0;
@@ -503,8 +508,9 @@ export function createViewer(options: ViewerOptions): Viewer {
       outlines.visible = inView;
       const casts = shadowPass && shadowFrustum.intersectsBox(box);
       casters.visible = casts;
-      if (casts) casters.geometry.setDrawRange(shadowFrom, fineVertices - shadowFrom);
-      const furnitureCasts = casts;
+      const from = fromStreet ? trunksFrom : shadowFrom;
+      if (casts) casters.geometry.setDrawRange(from, fineVertices - from);
+      const furnitureCasts = casts && !flying;
       furniture.layers.mask = (inView ? VIEW_LAYER : 0) | (furnitureCasts ? SHADOW_LAYER : 0);
       furniture.visible = (inView || furnitureCasts) && propsShown && cell.props.length > 0;
       if (inView) {
