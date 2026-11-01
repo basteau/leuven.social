@@ -59,7 +59,10 @@ body {
   background: var(--sky-horizon);
 }
 
-h1 {
+h1,
+h2,
+h3,
+h4 {
   text-wrap: balance;
 }
 
@@ -262,6 +265,8 @@ fieldset {
   padding: var(--space-l);
   font-weight: 600;
   text-align: center;
+  /* A short centred message: even lines, not one long and a word left over. */
+  text-wrap: balance;
 }
 
 /* An action: a pill with an icon and its name, the one or two things each mode is for. */
@@ -374,7 +379,8 @@ fieldset {
   display: none;
   align-items: center;
   gap: var(--space-s);
-  padding: var(--space-xs) var(--space-s);
+  padding-block: var(--space-xs);
+  padding-inline: var(--space-s);
   border-radius: 6px;
   background: var(--ink);
   color: var(--paper);
@@ -470,7 +476,8 @@ fieldset {
   max-inline-size: 17rem;
   min-block-size: 40px;
   margin-inline-start: 2px;
-  padding: var(--space-xs) var(--space-m);
+  padding-block: var(--space-xs);
+  padding-inline: var(--space-m);
   border-radius: var(--radius-inner);
   background: var(--sign);
   color: var(--paper);
@@ -525,12 +532,15 @@ fieldset {
   display: block;
   max-inline-size: min(30rem, 100%);
   margin: 0;
-  padding: var(--space-xs) var(--space-m);
+  padding-block: var(--space-xs);
+  padding-inline: var(--space-m);
   border-radius: var(--radius);
   font-size: 0.8125rem;
   font-weight: 600;
   line-height: 1.5;
   text-align: center;
+  /* Centred over two lines at most: balanced, so no word hangs alone on the second. */
+  text-wrap: balance;
   /* Read, not touched: taps go through to the map. */
   pointer-events: none;
 }
