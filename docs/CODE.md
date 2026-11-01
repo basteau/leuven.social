@@ -11,7 +11,7 @@ The code is split by what it is allowed to know about. Lint enforces the arrows,
 | `src/app`   | The React shell: HUD, loading and error states, keyboard shortcuts                  | `src/data`, `src/scene`                                              |
 | `scripts/`  | Build-time edges: fetching and baking data, icons, budgets, the smoke test, deploys | `src/data`, plus the `Bun` global for files and processes            |
 
-`src/scene` exposes one entry point, `createViewer()`. It returns a small imperative handle (`rotate`, `zoomBy`, `resetView`, the walk controls `pickWalkStart`, `walkFromCentre`, `steer`, `run`, `look` and `stopWalking`, `stats`, `dispose`), so React never touches three.js objects. Walk mode reports back through two callbacks, `onWalkModeChange` and `onWalkBlocked`.
+`src/scene` exposes one entry point, `createViewer()`. It returns a small imperative handle (`rotate`, `zoomBy`, `resetView`, the walk controls `preloadWalk`, `pickWalkStart`, `walkFromCentre`, `steer`, `run`, `look` and `stopWalking`, `stats`, `dispose`), so React never touches three.js objects. Walk mode is its own chunk, which the viewer imports the first time it's needed. It reports back through three callbacks: `onWalkModeChange`, `onWalkBlocked`, and `onWalkUnavailable` when its download fails.
 
 ## Portable by default
 

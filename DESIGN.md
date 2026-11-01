@@ -110,7 +110,7 @@ Tokens are oklch, in `src/app/app.css`:
 - Icon plus a visible text label.
 - A keyboard shortcut is shown on devices that have hover.
 - Below 30 rem of width the toolbar becomes a tab bar: icon above label, no shortcut hints.
-- **Walk** sits in its own panel beside the view toolbar and wraps above it when the row runs out. Picking a start shows a one-line hint, a reticle in the middle of the view, and **Start here** / **Cancel**. Walking swaps the toolbar for **Map** (back to the map view), **Run** (a toggle, filled while on), **Turn left** and **Turn right**, under a one-line hint: keys and the mouse on devices with a fine pointer, thumbs everywhere else.
+- **Walk** sits in its own panel beside the view toolbar and wraps above it when the row runs out. Walking downloads on first use; if that takes over a quarter of a second, the hint says "Getting ready to walk…", and if it fails, "Walking couldn’t load. Check your connection and try again." Picking a start shows a one-line hint, a reticle in the middle of the view, and **Start here** / **Cancel**. Walking swaps the toolbar for **Map** (back to the map view), **Run** (a toggle, filled while on), **Turn left** and **Turn right**, under a one-line hint: keys and the mouse on devices with a fine pointer, thumbs everywhere else.
 - **On touch,** a thumb that lands on the left of the screen grows a stick under it (ink ring, paper knob) and steers; anywhere else it looks around. Pushed to the rim, the stick runs.
 - A spot that can't be walked to says so in the hint ("Can’t walk there. Pick a street or square.") until the next try.
 

@@ -28,9 +28,11 @@ The aim is a city that opens instantly and costs nothing while you look at it, o
 
 Walk mode puts a figure on the streets (`character.ts`) and follows it with a perspective chase camera (`chase.ts`, glued in `walk.ts`): the one other camera, used only while walking. Every frame still goes through the viewer's one render path. It must hold 60 fps:
 
+- **Its own chunk.** Everything only walking needs (`walk.ts`, the figure, its steering, the camera boom, the route hint, the walk grid and A*) is a dynamic `import()` in the viewer, downloaded the first time someone starts a walk, or hovers or focuses **Walk** just before. The map's first load never pays for it. Three.js classes only walking uses still ship with the engine, since three.js is one module to the bundler. The fog lives in the viewer, so starting a walk compiles no shader.
+
 - **Walkability is built on demand.** `WalkGrid` (`src/data/walkable.ts`) rasterises roads, squares and paths at 1 m, minus building footprints, in 64 m tiles the first time something asks about them. A click costs one A* search (`route.ts`) inside a window around both ends, a few milliseconds, then string-pulling into a handful of straight legs.
 - **The haze is the far clip.** Fog fades the city into the horizon colour from 90 m to 330 m beyond the walker, and the camera's far plane sits just past it, so the cells further out are culled. The fog is always in the scene (far off on the map) so walking never recompiles a shader. A sky dome (one call) fills the sky behind it.
-- **Shadows don't follow the view.** From the street the shadow map covers a square around the walker (60 m plus the usual reach for tall roofs) whichever way the camera looks, so looking around never redraws it; it redraws only after walking out of it, every few dozen metres.
+- **Shadows don't follow the view.** From the street the shadow map covers a square around the walker (45 m, plus 30 m for roofs) whichever way the camera looks, at about 12 cm a texel, and is redrawn as soon as it is 1.6× coarser than that (the map tolerates 4×), so the flight in never leaves map-sized texels on the street, so looking around never redraws it; it redraws only after walking out of it, every few dozen metres.
 - **The camera's collision is a lookup.** The boom is checked in half-metre steps against the walk grid's building heights, a few dozen lookups per frame.
 - **Two draw calls for the figure.** It's a few boxes on a twelve-bone `SkinnedMesh`. The ink outline is an inverted hull in the same geometry, and the blob shadow is dithered by the shader instead of blended, so figure, outline and shadow are one call. Its x-ray twin, a checkerboard silhouette drawn only where a building hides it, is the second. The route hint is one more while a walk is under way; dots behind the walker drop off by moving its draw range.
 - **Animate only while something moves.** The walk loop runs while the walker moves, turns or idles (four seconds after stopping, none with reduced motion), and while the camera flies, turns or eases. Then it stops, and the map is back to rendering on demand. Nothing is allocated per frame.
@@ -44,7 +46,8 @@ The size and render budgets are enforced by `bun run verify`; if one is exceeded
 | -------------------------------------- | ------ | ------------------- |
 | App shell JS (React + HUD), gzipped    | 90 KB  | `scripts/budget.ts` |
 | 3D engine JS (three.js chunk), gzipped | 170 KB | `scripts/budget.ts` |
-| All JS, gzipped                        | 250 KB | `scripts/budget.ts` |
+| Walk mode JS (loaded on first walk)    | 14 KB  | `scripts/budget.ts` |
+| First-load JS (shell + engine)         | 250 KB | `scripts/budget.ts` |
 | CSS, gzipped                           | 6 KB   | `scripts/budget.ts` |
 | City data                              | 1 MB   | `scripts/budget.ts` |
 | Draw calls per frame                   | 100    | `scripts/smoke.ts`  |
