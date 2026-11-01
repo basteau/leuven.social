@@ -617,6 +617,12 @@ fieldset {
   stroke-width: 6;
 }
 
+.corner-end {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-s);
+}
+
 .credits {
   display: flex;
   align-items: flex-start;

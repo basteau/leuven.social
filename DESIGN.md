@@ -82,7 +82,7 @@ Values live in `src/scene/palette.ts`; change them there only. Each building's c
 
 ## HUD
 
-The HUD is a frame round the city: a corner at the top start, the credits at the top end, a rail of map controls at the bottom end and the mode's one or two actions in the middle of the bottom edge. The middle of the screen stays city.
+The HUD is a frame round the city: a corner at the top start, the credits and Mute at the top end, a rail of map controls at the bottom end and the mode's one or two actions in the middle of the bottom edge. The middle of the screen stays city.
 
 ### Tokens
 
@@ -184,7 +184,7 @@ A tiny city sounds like a toy: felt and soft wood, never game-show beeps. Sounds
 | Walking to a spot    | A quiet tick on setting off, a lighter pair of notes on arriving                                                                                                                                                                                                           |
 
 - **On by default, never before a gesture.** The audio context is made on the first tap, click or key after sound is on, as browsers require.
-- **Mute** (top start, or M) is a toggle that fills while muted, so the corner stays calm while sound plays. The choice is remembered.
+- **Mute** (M) is a round control in the very top-end corner, beside the credits: a setting, not a map control, so it stays out of the rail and out of thumb reach. It names itself in its tip, fills while muted so the corner stays calm while sound plays, and the choice is remembered.
 - **Quiet:** a master level of 0.4 over voices of 0.03 to about 0.2, so even a running step peaks around a twelfth of full scale.
 - **Silent while the tab is hidden,** and nothing plays per frame: each sound is scheduled when its event happens.
 - Every voice rises over at least 3 ms and falls exponentially (no clicks), and passes through a filter: lowpass on tones for warmth, a band on noise. These follow Raphael Salaja's `create-sound` and `generating-sounds-with-ai` rules.

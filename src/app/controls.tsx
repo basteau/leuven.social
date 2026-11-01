@@ -1,5 +1,7 @@
 import type { ReactNode, Ref } from 'react';
 
+import { sound } from '../audio/sound.ts';
+
 interface Common {
   /** The key as shown; `keys` names it for assistive tech when the two differ. */
   shortcut: string;
@@ -8,10 +10,20 @@ interface Common {
   hold?: boolean;
   disabled: boolean;
   onPress: () => void;
+  /** It plays its own sound (Mute), instead of the usual tap. */
+  ownSound?: boolean;
   children: ReactNode;
 }
 
 const shortcutOf = (props: Common) => (props.hold ? undefined : (props.keys ?? props.shortcut));
+
+/** Presses, then sounds: a soft tap, or for a toggle the way it's turning. */
+function press(props: Common & { pressed?: boolean }): void {
+  props.onPress();
+  if (props.ownSound) return;
+  if (props.pressed === undefined) sound.tap();
+  else sound.toggle(!props.pressed);
+}
 
 /**
  * A pill with an icon and a visible label: the one or two things each mode is for (Walk, Start
@@ -36,7 +48,7 @@ export function ActionButton(
       aria-keyshortcuts={shortcutOf(props)}
       aria-busy={props.busy || undefined}
       disabled={props.disabled}
-      onClick={props.onPress}
+      onClick={() => press(props)}
       onPointerEnter={props.onWarm}
       onFocus={props.onWarm}
     >
@@ -56,27 +68,28 @@ export function RoundButton({
   ...props
 }: Common & {
   label: string;
-  /** For a toggle: whether it's on. A toggle shows its label, small, under the icon. */
+  /** For a toggle: whether it's on. */
   pressed?: boolean;
+  /** Big (Run) shows its label, small, under the icon; the rest name themselves in the tip. */
   big?: boolean;
   ref?: Ref<HTMLButtonElement>;
 }) {
-  const toggle = props.pressed !== undefined;
+  const labelled = props.big;
   return (
     <button
       ref={ref}
       type="button"
       className={props.big ? 'round big' : 'round'}
-      aria-label={toggle ? undefined : props.label}
+      aria-label={labelled ? undefined : props.label}
       aria-keyshortcuts={shortcutOf(props)}
       aria-pressed={props.pressed}
       disabled={props.disabled}
-      onClick={props.onPress}
+      onClick={() => press(props)}
     >
       {props.children}
-      {toggle && <span className="round-label">{props.label}</span>}
+      {labelled && <span className="round-label">{props.label}</span>}
       <span className="tip" aria-hidden="true">
-        {toggle ? (props.hold ? 'Hold' : 'Press') : props.label} <kbd>{props.shortcut}</kbd>
+        {labelled ? (props.hold ? 'Hold' : 'Press') : props.label} <kbd>{props.shortcut}</kbd>
       </span>
     </button>
   );

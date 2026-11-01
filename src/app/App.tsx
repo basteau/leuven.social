@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { sound } from '../audio/sound.ts';
 import { CITY_URL, loadCity } from '../data/load.ts';
 import type { Viewer, WalkMode } from '../scene/viewer.ts';
 import { ActionButton, RoundButton } from './controls.tsx';
@@ -14,6 +15,7 @@ import {
   RotateLeftIcon,
   RotateRightIcon,
   RunIcon,
+  SoundIcon,
   WalkIcon,
 } from './icons.tsx';
 import { useShortcuts } from './shortcuts.ts';
@@ -106,6 +108,14 @@ export function App() {
   const [walkLoad, setWalkLoad] = useState<WalkLoad>('idle');
   const walkLoadTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [street, setStreet] = useState<string | null>(null);
+  const [soundOn, setSoundOn] = useState(sound.on);
+  /** Sound coming back is heard (rising); muting is silent. */
+  const toggleSoundRef = useRef(() => {
+    sound.setOn(!sound.on);
+    setSoundOn(sound.on);
+    sound.toggle(true);
+  });
+  useEffect(() => sound.attach(), []);
   const [coach, setCoach] = useState(() => !coached());
   const coachTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   // The compass turns with every frame of a rotation: written straight to its style, not state.
@@ -213,6 +223,7 @@ export function App() {
     running: runningRef,
     startWalk: () => startWalkRef.current(),
     onWalkKey: () => steppedRef.current(),
+    toggleSound: () => toggleSoundRef.current(),
   });
 
   const toggleRun = () => {
@@ -302,7 +313,20 @@ export function App() {
           )}
           <StreetSign name={walkMode === 'walk' ? street : null} />
         </div>
-        <Credits open={creditsOpen} onToggle={() => setCreditsOpen((open) => !open)} />
+        {/* The top-end corner: the credits, and Mute out of the way, in the very corner. */}
+        <div className="corner-end">
+          <Credits open={creditsOpen} onToggle={() => setCreditsOpen((open) => !open)} />
+          <RoundButton
+            label="Mute"
+            shortcut="M"
+            pressed={!soundOn}
+            ownSound
+            disabled={false}
+            onPress={() => toggleSoundRef.current()}
+          >
+            <SoundIcon on={soundOn} />
+          </RoundButton>
+        </div>
       </header>
 
       {/* One region for loading and errors, so screen readers hear every change. */}
