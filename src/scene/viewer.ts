@@ -515,10 +515,14 @@ export function createViewer(options: ViewerOptions): Viewer {
       .filter((entry) => !entry.objects.length)
       .toSorted((a, b) => a.box.distanceToPoint(t) - b.box.distanceToPoint(t));
     const start = performance.now();
+    // A frame is drawn only when it would show something new: a cell that came into view, or
+    // the shadow map redrawn with all its casters.
+    let changed = false;
     for (const entry of waiting) {
       if (performance.now() - start > IDLE_SLICE_MS) break;
       build(entry);
       missingCasters ||= shadowFrustum.intersectsBox(entry.box);
+      changed ||= frustum.intersectsBox(entry.box);
     }
     // Once the last cell that casts into the shadow square exists, redraw it with them all.
     if (
@@ -527,8 +531,11 @@ export function createViewer(options: ViewerOptions): Viewer {
     ) {
       missingCasters = false;
       renderer.shadowMap.needsUpdate = true;
+      changed = true;
     }
-    invalidate();
+    if (changed) invalidate();
+    // What the cells hand the GPU, for the smoke test, whether or not a frame is drawn.
+    publish({ vertices: held.vertices, geometryBytes: held.bytes });
     if (cells.some((entry) => !entry.objects.length)) idleHandle = idle(buildInBackground);
   }
 
