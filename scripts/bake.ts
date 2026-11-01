@@ -414,8 +414,8 @@ const trees = clearCrowns(allTrees, mappedTrees, (x, z, r) =>
 );
 
 // The street sign: every named road and path as a centre line, and every named square, sharing
-// one table of names (src/data/streets.ts). Simplified to a metre: the sign needs no more.
-const STREET_SIMPLIFY = 1;
+// one table of names (src/data/streets.ts). Simplified to 2 m: well inside the sign's 20 m reach.
+const STREET_SIMPLIFY = 2;
 const waysByName = Map.groupBy(
   osmRoads.features.flatMap((f) => {
     const name = streetName(f.properties);
@@ -433,10 +433,13 @@ const streetLines = [...waysByName].flatMap(([name, ways]) =>
 );
 const squareNames = squareRings.map((square) => square.props.name?.trim() || null);
 const names = nameTable([...streetLines.map((s) => s.name), ...squareNames]);
-// Grouped by name, so a street's ways sit together in the file.
+// In strips like the props, so each line starts near the one before it and its start costs little.
 const streets = streetLines
   .map((s, i) => ({ name: names.index[i]!, line: s.line }))
-  .toSorted((a, b) => a.name - b.name);
+  .toSorted(
+    (a, b) =>
+      Math.floor(a.line[1]! / STRIP) - Math.floor(b.line[1]! / STRIP) || a.line[0]! - b.line[0]!,
+  );
 const plazaNames = names.index.slice(streetLines.length);
 
 const city: City = {
