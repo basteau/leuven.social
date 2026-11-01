@@ -1,7 +1,10 @@
 import { Color, MeshToonMaterial } from 'three';
 import type { Texture } from 'three';
 
+import { LUMA, SHADE_CHROMA, SHADE_HUE, SHADE_RANGE } from './lighting.ts';
 import { WINDOW } from './palette.ts';
+
+const f = (v: number) => v.toFixed(4);
 
 /**
  * The building material: toon shading plus procedural windows, drawn from world position on
@@ -68,8 +71,20 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
           float glow = step(0.93, fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453));
           diffuseColor.rgb = mix(diffuseColor.rgb, mix(uGlass, uLit, glow * detail), coverage * 0.8);
         }`,
+      )
+      .replace(
+        '#include <opaque_fragment>',
+        `// Shade keeps a richer version of its own hue at the same lightness (lighting.ts), so
+        // sand in shadow stays sand instead of matching asphalt in the sun.
+        vec3 luma = vec3(${LUMA.map(f).join(', ')});
+        float shadeRatio = dot(outgoingLight, luma) / max(dot(diffuseColor.rgb, luma), 1e-4);
+        vec3 own = diffuseColor.rgb * shadeRatio;
+        vec3 rich = max(vec3(dot(own, luma)) + (own - dot(own, luma)) * ${f(SHADE_CHROMA)}, 0.0);
+        float keep = ${f(SHADE_HUE)} * (1.0 - smoothstep(${f(SHADE_RANGE[0])}, ${f(SHADE_RANGE[1])}, shadeRatio));
+        outgoingLight = mix(outgoingLight, rich, keep);
+        #include <opaque_fragment>`,
       );
   };
-  material.customProgramCacheKey = () => 'facade-v1';
+  material.customProgramCacheKey = () => 'facade-v1-shade';
   return material;
 }

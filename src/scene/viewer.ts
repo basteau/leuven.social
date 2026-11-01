@@ -26,6 +26,7 @@ import { partyWalls } from './buildings.ts';
 import { buildCell, partition } from './cells.ts';
 import type { Cell } from './cells.ts';
 import { createFacadeMaterial } from './facade-material.ts';
+import { LIGHT } from './lighting.ts';
 import { SLAB_DEPTH } from './ground.ts';
 import type { V3 } from './mesh-builder.ts';
 import { BOUNCE_LIGHT, OUTLINE, SKY_LIGHT, SUN } from './palette.ts';
@@ -152,8 +153,8 @@ export function createViewer(options: ViewerOptions): Viewer {
     scene.add(surfaces, outlines);
   }
 
-  scene.add(new HemisphereLight(SKY_LIGHT, BOUNCE_LIGHT, 1.3));
-  const sun = new DirectionalLight(SUN, 2.2);
+  scene.add(new HemisphereLight(SKY_LIGHT, BOUNCE_LIGHT, LIGHT.sky));
+  const sun = new DirectionalLight(SUN, LIGHT.sun);
   const light = lightFrame(SUN_DIRECTION);
   sun.castShadow = true;
   sun.shadow.mapSize.set(SHADOW_MAP, SHADOW_MAP);

@@ -5,11 +5,13 @@
 
 export type Lab = [l: number, a: number, b: number];
 
-const linear = (c: number) => {
+/** An sRGB channel (0–255) as linear light (0–1). */
+export const linear = (c: number) => {
   const u = c / 255;
   return u <= 0.04045 ? u / 12.92 : ((u + 0.055) / 1.055) ** 2.4;
 };
-const gamma = (u: number) => {
+/** Linear light (0–1) back to an sRGB channel (0–255), clipped. */
+export const gamma = (u: number) => {
   const c = u <= 0.0031308 ? u * 12.92 : 1.055 * Math.max(u, 0) ** (1 / 2.4) - 0.055;
   return Math.round(Math.min(1, Math.max(0, c)) * 255);
 };

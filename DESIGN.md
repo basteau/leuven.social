@@ -25,6 +25,7 @@ Leuven as a tiny city you could hold in your hands: a warm, crisp, low-poly dior
 
 - Golden hour: a warm sun (`#ffe2b8`) from the south-west, long shadows.
 - A cool sky fill (`#cfe3ff`) and a warm ground bounce.
+- Shade keeps its colour: a shadow is a darker, slightly richer version of the surface's own hue, not the sky's blue-grey, so sand in shadow still reads as sand next to sunlit asphalt (`src/scene/lighting.ts`; a test holds every ground colour to it).
 
 ### Landmarks and squares
 
@@ -48,7 +49,7 @@ Values live in `src/scene/palette.ts`; change them there only. Each building's c
 | Paths                  | Pale slabs when paved, sand for gravel trails                                                                                                      | Parks and the Dijle walks read as places to walk, not as roads                           |
 | Trees                  | One low-poly tree, scaled to the LiDAR height of each one                                                                                          | Parks and gardens are as wooded as they really are                                       |
 | Windows                | Deep blue-grey glass, ~7% lit warm (`#f3c873`)                                                                                                     | The sun catching a few panes; reads as life without noise                                |
-| Ground                 | Garden green-beige base, warm grey roads, sand cobbles for squares, river blue                                                                     | Squares should glow slightly against the roads                                           |
+| Ground                 | Garden green-beige base, warm grey roads, golden sand cobbles for squares, river blue                                                              | Squares should glow slightly against the roads                                           |
 | Diorama slab           | Earth brown sides                                                                                                                                  | Frames the city as an object                                                             |
 | Outlines               | `#2b2420` warm ink                                                                                                                                 | Ties scene and HUD together (same ink as the panels)                                     |
 
