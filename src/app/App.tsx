@@ -278,23 +278,26 @@ export function App() {
       {walkMode === 'pick' && <Reticle />}
 
       <header className="hud hud-top">
-        {walkMode === 'walk' ? (
-          <ActionButton
-            label="Map"
-            shortcut="Esc"
-            keys="Escape"
-            disabled={!ready}
-            onPress={() => viewer()?.stopWalking()}
-          >
-            <BackIcon />
-          </ActionButton>
-        ) : (
-          <div className="panel brand">
-            <GableIcon />
-            <h1>Leuven</h1>
-          </div>
-        )}
-        <StreetSign name={walkMode === 'map' ? null : street} />
+        {/* The top-start corner: who we are on the map; walking, the way back and the street. */}
+        <div className="corner">
+          {walkMode === 'walk' ? (
+            <ActionButton
+              label="Map"
+              shortcut="Esc"
+              keys="Escape"
+              disabled={!ready}
+              onPress={() => viewer()?.stopWalking()}
+            >
+              <BackIcon />
+            </ActionButton>
+          ) : (
+            <div className="panel brand">
+              <GableIcon />
+              <h1>Leuven</h1>
+            </div>
+          )}
+          <StreetSign name={walkMode === 'walk' ? street : null} />
+        </div>
         <Credits open={creditsOpen} onToggle={() => setCreditsOpen((open) => !open)} />
       </header>
 

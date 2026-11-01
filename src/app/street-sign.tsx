@@ -1,7 +1,8 @@
 /**
- * The street the walker is on (or the picking reticle points at), on a plate like Leuven's own
- * street signs: enamel blue, a white rim, two rivets. A new name slides in calmly; screen readers
- * hear it politely, since the region stays in the page while the plate comes and goes.
+ * The street the walker is on, on a small plate like Leuven's own street signs (enamel blue under
+ * a pale rim), hung in the corner under the way back to the map. A new name slides in
+ * calmly from the side; screen readers hear it politely, since the region stays in the page while
+ * the plate comes and goes.
  */
 export function StreetSign(props: { name: string | null }) {
   return (

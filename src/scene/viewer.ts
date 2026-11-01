@@ -62,10 +62,7 @@ export interface ViewerOptions {
   onWalkBlocked?: () => void;
   /** Walk mode's code couldn't be downloaded (it loads the first time someone walks). */
   onWalkUnavailable?: () => void;
-  /**
-   * The street or square under the walker, or under the middle of the view while picking a
-   * start, changed (null: none, or back on the map).
-   */
+  /** The street or square under the walker changed (null: none, or not walking). */
   onStreetChange?: (name: string | null) => void;
   /** Which way the view looks, clockwise from north (radians), whenever it turns. */
   onHeading?: (heading: number) => void;
@@ -468,7 +465,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     signHeading();
   }
 
-  // The street sign: names are looked up only off the map, and again only after a step. The
+  // The street sign: names are looked up only while walking, and again only after a step. The
   // lookup arrives with walk mode, so the map's first load doesn't carry it.
   let streets: StreetIndex | undefined;
   let signed: string | null = null;
@@ -477,7 +474,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     if (!options.onStreetChange) return;
     const t = controls.target;
     let name: string | null = null;
-    if (walk && walk.mode !== 'map') {
+    if (walk?.mode === 'walk') {
       if (Math.hypot(t.x - signedAt.x, t.z - signedAt.z) < STREET_STEP) return;
       signedAt.x = t.x;
       signedAt.z = t.z;
