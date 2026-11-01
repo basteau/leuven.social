@@ -2,7 +2,6 @@ import {
   BackSide,
   BufferAttribute,
   Color,
-  Fog,
   Mesh,
   MeshBasicMaterial,
   PerspectiveCamera,
@@ -10,7 +9,7 @@ import {
   SphereGeometry,
   Vector2,
 } from 'three';
-import type { OrthographicCamera, Scene, Texture } from 'three';
+import type { Fog, OrthographicCamera, Scene, Texture } from 'three';
 import type { MapControls } from 'three/addons/controls/MapControls.js';
 
 import type { City } from '../data/city.ts';
@@ -100,6 +99,8 @@ export interface WalkHost {
   overlay: HTMLElement;
   city: City;
   gradientMap: Texture;
+  /** The scene's fog, kept far off on the map: walking draws it in to the haze. */
+  fog: Fog;
   reducedMotion: boolean;
   /** The map camera's yaw, read and set. */
   yaw(): number;
@@ -193,9 +194,7 @@ export function createWalk(host: WalkHost): Walk {
   };
 
   const view = new PerspectiveCamera(CHASE_FOV, 1, 0.1, 1000);
-  const fog = new Fog(SKY.horizon, 1e7, 1e7 + 1);
-  // Always there, far off on the map, so walking never recompiles the city's shaders.
-  scene.fog = fog;
+  const { fog } = host;
   const sky = createSky();
   scene.add(sky);
 

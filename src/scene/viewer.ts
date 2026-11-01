@@ -3,6 +3,7 @@ import {
   Box3,
   DataTexture,
   DirectionalLight,
+  Fog,
   Frustum,
   HemisphereLight,
   LineBasicMaterial,
@@ -11,14 +12,13 @@ import {
   Mesh,
   NearestFilter,
   OrthographicCamera,
-  PerspectiveCamera,
   RedFormat,
   Scene,
   Vector2,
   Vector3,
   WebGLRenderer,
 } from 'three';
-import type { BufferGeometry, Material, Object3D } from 'three';
+import type { BufferGeometry, Material, Object3D, PerspectiveCamera } from 'three';
 import { MapControls } from 'three/addons/controls/MapControls.js';
 
 import type { City } from '../data/city.ts';
@@ -32,7 +32,7 @@ import { LIGHT } from './lighting.ts';
 import { SLAB_DEPTH } from './ground.ts';
 import { LINE_LOD } from './paint.ts';
 import type { V3 } from './mesh-builder.ts';
-import { BOUNCE_LIGHT, OUTLINE, SKY_LIGHT, SUN } from './palette.ts';
+import { BOUNCE_LIGHT, OUTLINE, SKY, SKY_LIGHT, SUN } from './palette.ts';
 import {
   depthRange,
   fitShadow,
@@ -43,8 +43,7 @@ import {
 } from './shadow-fit.ts';
 import type { ShadowSquare } from './shadow-fit.ts';
 import { terraceParasols } from './terraces.ts';
-import { createWalk } from './walk.ts';
-import type { WalkMode } from './walk.ts';
+import type { Walk, WalkMode } from './walk.ts';
 
 export type { WalkMode } from './walk.ts';
 
@@ -60,6 +59,8 @@ export interface ViewerOptions {
   onWalkModeChange?: (mode: WalkMode) => void;
   /** A spot that can't be walked to was picked. */
   onWalkBlocked?: () => void;
+  /** Walk mode's code couldn't be downloaded (it loads the first time someone walks). */
+  onWalkUnavailable?: () => void;
 }
 
 export interface ViewerStats {
@@ -72,6 +73,8 @@ export interface Viewer {
   /** Multiplies the zoom, within the controls' limits. */
   zoomBy(factor: number): void;
   resetView(): void;
+  /** Starts downloading walk mode, for when someone is about to walk. */
+  preloadWalk(): void;
   /** Starts walk mode: the next click on the map says where. */
   pickWalkStart(): void;
   /** Starts walking from the street nearest the middle of the view. */
@@ -163,6 +166,10 @@ export function createViewer(options: ViewerOptions): Viewer {
   renderer.shadowMap.autoUpdate = false;
 
   const scene = new Scene();
+  // Walking fades the far city into the horizon's haze. The fog is always there, far off on
+  // the map, so starting a walk never recompiles the city's shaders.
+  const fog = new Fog(SKY.horizon, 1e7, 1e7 + 1);
+  scene.fog = fog;
   const gradientMap = toonGradient();
   // One material for every cell: walls get windows, roads their texture and paint (paint.ts).
   const material = createFacadeMaterial(gradientMap);
@@ -254,10 +261,11 @@ export function createViewer(options: ViewerOptions): Viewer {
 
   // The camera that draws: the map's, or the walking one while walking.
   let view: OrthographicCamera | PerspectiveCamera = camera;
+  let street: PerspectiveCamera | undefined;
   /** Height of the view (m) where it looks: what decides how much detail is worth drawing. */
   const viewSpan = () =>
-    view instanceof PerspectiveCamera
-      ? 2 * view.position.distanceTo(controls.target) * Math.tan((view.fov * Math.PI) / 360)
+    street
+      ? 2 * street.position.distanceTo(controls.target) * Math.tan((street.fov * Math.PI) / 360)
       : VIEW_HEIGHT / camera.zoom;
 
   let yaw = Math.PI / 4;
@@ -311,7 +319,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     const halfW = halfH * (buffer.x / buffer.y);
     Object.assign(camera, { left: -halfW, right: halfW, top: halfH, bottom: -halfH });
     camera.updateProjectionMatrix();
-    walk.resized();
+    walk?.resized();
     invalidate();
   }
 
@@ -347,7 +355,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     camera.getWorldDirection(forward);
     const span = viewSpan();
     const t = controls.target;
-    const reach = Math.max(WALK_SHADOW, walk.flightSpan ?? span);
+    const reach = Math.max(WALK_SHADOW, walk?.flightSpan ?? span);
     const ground =
       view === camera
         ? [
@@ -434,9 +442,9 @@ export function createViewer(options: ViewerOptions): Viewer {
   }
 
   function render(): void {
-    if (view instanceof PerspectiveCamera) {
-      view.aspect = buffer.x / buffer.y;
-      view.updateProjectionMatrix();
+    if (street) {
+      street.aspect = buffer.x / buffer.y;
+      street.updateProjectionMatrix();
     }
     // World metres per drawing-buffer pixel (where the walking camera looks, from the street):
     // how much road paint and texture is worth drawing.
@@ -463,10 +471,10 @@ export function createViewer(options: ViewerOptions): Viewer {
     });
 
     placed.length = 0;
-    const street = view instanceof PerspectiveCamera;
+    const fromStreet = street !== undefined;
     const zoom = VIEW_HEIGHT / viewSpan();
     for (const { el, w, h, world, minZoom } of labels) {
-      const hidden = street ? world.distanceTo(view.position) > LABEL_REACH : zoom < minZoom;
+      const hidden = fromStreet ? world.distanceTo(view.position) > LABEL_REACH : zoom < minZoom;
       if (hidden) {
         el.hidden = true;
         continue;
@@ -487,27 +495,55 @@ export function createViewer(options: ViewerOptions): Viewer {
     }
   }
 
-  const walk = createWalk({
-    scene,
-    camera,
-    controls,
-    canvas,
-    overlay: labelLayer,
-    city,
-    gradientMap,
-    reducedMotion,
-    yaw: () => yaw,
-    setYaw: (to) => {
-      yaw = to;
-    },
-    placeCamera,
-    useView: (to) => {
-      view = to ?? camera;
-    },
-    render: renderNow,
-    ...(options.onWalkModeChange && { onModeChange: options.onWalkModeChange }),
-    ...(options.onWalkBlocked && { onBlocked: options.onWalkBlocked }),
-  });
+  // Walking is its own chunk, downloaded the first time someone walks (or is about to).
+  let walk: Walk | undefined;
+  let loadingWalk: Promise<Walk> | undefined;
+  let disposed = false;
+  function loadWalk(): Promise<Walk> {
+    loadingWalk ??= import('./walk.ts').then(({ createWalk }) => {
+      if (disposed) throw new Error('The map closed while walk mode loaded.');
+      walk ??= createWalk({
+        scene,
+        camera,
+        controls,
+        canvas,
+        overlay: labelLayer,
+        city,
+        gradientMap,
+        fog,
+        reducedMotion,
+        yaw: () => yaw,
+        setYaw: (to) => {
+          yaw = to;
+        },
+        placeCamera,
+        useView: (to) => {
+          street = to ?? undefined;
+          view = to ?? camera;
+        },
+        render: renderNow,
+        ...(options.onWalkModeChange && { onModeChange: options.onWalkModeChange }),
+        ...(options.onWalkBlocked && { onBlocked: options.onWalkBlocked }),
+      });
+      return walk;
+    });
+    // A failed download can be tried again.
+    loadingWalk.catch(() => {
+      loadingWalk = undefined;
+    });
+    return loadingWalk;
+  }
+  function withWalk(act: (loaded: Walk) => void): void {
+    if (walk) {
+      act(walk);
+      return;
+    }
+    loadWalk().then(act, (error: unknown) => {
+      if (disposed) return;
+      console.error(error);
+      options.onWalkUnavailable?.();
+    });
+  }
 
   let frame = 0;
   function renderNow(): void {
@@ -517,7 +553,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   }
   function invalidate(): void {
     // While walking, the walk loop draws every frame itself.
-    if (frame || walk.animating) return;
+    if (frame || walk?.animating) return;
     frame = requestAnimationFrame(() => {
       frame = 0;
       render();
@@ -541,11 +577,11 @@ export function createViewer(options: ViewerOptions): Viewer {
 
   let spin = 0;
   function rotate(direction: 1 | -1): void {
-    if (walk.mode === 'walk') {
+    if (walk?.mode === 'walk') {
       walk.turn(direction);
       return;
     }
-    walk.land();
+    walk?.land();
     const from = yaw;
     const to =
       Math.round((yaw - Math.PI / 4) / (Math.PI / 2)) * (Math.PI / 2) +
@@ -563,18 +599,18 @@ export function createViewer(options: ViewerOptions): Viewer {
       yaw = from + (to - from) * (1 - (1 - t) ** 3);
       placeCamera();
       // Already inside a frame: don't wait for the next one, unless the walk loop draws it.
-      if (!walk.animating) renderNow();
+      if (!walk?.animating) renderNow();
       spin = t < 1 ? requestAnimationFrame(step) : 0;
     };
     spin = requestAnimationFrame(step);
   }
 
   function zoomBy(factor: number): void {
-    if (walk.mode === 'walk') {
+    if (walk?.mode === 'walk') {
       walk.zoom(factor);
       return;
     }
-    walk.land();
+    walk?.land();
     camera.zoom = Math.min(controls.maxZoom, Math.max(controls.minZoom, camera.zoom * factor));
     camera.updateProjectionMatrix();
     controls.update();
@@ -583,7 +619,7 @@ export function createViewer(options: ViewerOptions): Viewer {
 
   function resetView(): void {
     cancelAnimationFrame(spin);
-    walk.land();
+    walk?.land();
     yaw = Math.PI / 4;
     camera.zoom = 1;
     camera.updateProjectionMatrix();
@@ -623,12 +659,15 @@ export function createViewer(options: ViewerOptions): Viewer {
     rotate,
     zoomBy,
     resetView,
-    pickWalkStart: () => walk.pick(),
-    walkFromCentre: () => walk.startAtCentre(),
-    stopWalking: () => walk.exit(),
-    steer: (x, y) => walk.steer(x, y),
-    run: (on) => walk.run(on),
-    look: (direction) => walk.look(direction),
+    preloadWalk: () => {
+      loadWalk().catch(() => {}); // a warm-up: the next real attempt reports any failure
+    },
+    pickWalkStart: () => withWalk((loaded) => loaded.pick()),
+    walkFromCentre: () => withWalk((loaded) => loaded.startAtCentre()),
+    stopWalking: () => walk?.exit(),
+    steer: (x, y) => walk?.steer(x, y),
+    run: (on) => walk?.run(on),
+    look: (direction) => walk?.look(direction),
     stats: () => ({
       drawCalls: renderer.info.render.calls,
       triangles: renderer.info.render.triangles,
@@ -637,7 +676,8 @@ export function createViewer(options: ViewerOptions): Viewer {
       cancelAnimationFrame(frame);
       cancelAnimationFrame(spin);
       cancelIdle(idleHandle);
-      walk.dispose();
+      disposed = true;
+      walk?.dispose();
       observer.disconnect();
       densityQuery?.removeEventListener('change', onDensity);
       canvas.removeEventListener('webglcontextrestored', onRestored);
