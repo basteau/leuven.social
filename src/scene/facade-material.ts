@@ -2,6 +2,7 @@ import { Color, MeshToonMaterial } from 'three';
 import type { Texture } from 'three';
 
 import { SHOP_FRONT } from './buildings.ts';
+import { LANCETS } from './landmarks.ts';
 import { LUMA, SHADE_CHROMA, SHADE_HUE, SHADE_RANGE } from './lighting.ts';
 import { linearVertexColors } from './mesh-builder.ts';
 import { ANGLES, LINE_LOD, PAINT_HALF, PAINT_KIND, STRIPE_LOD, SURFACE } from './paint.ts';
@@ -17,9 +18,9 @@ const vec = (hex: number) => {
 
 /**
  * The one material every cell draws with: toon shading plus detail from world position.
- * - Walls (`facade` > 0 holds the wall top, plus SHOP_FRONT over a shop front): windows in each
- *   building's own rhythm, fading to an average wall tint when a window shrinks below two pixels
- *   instead of aliasing into stripes.
+ * - Walls (`facade` > 0 holds the wall top, plus SHOP_FRONT over a shop front, LANCETS on a
+ *   church): windows in each building's own rhythm, or a church's tall pointed lancets, fading to
+ *   an average wall tint when a window shrinks below two pixels instead of aliasing into stripes.
  * - Road surfaces (`facade` a small negative code, paint.ts): asphalt patches, setts, paving
  *   joints, each fading out before it's finer than a pixel.
  * - Road paint (larger negative codes): the vertex shader widens a line to cover a whole pixel, or
@@ -117,16 +118,19 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
         '#include <color_fragment>',
         `#include <color_fragment>
         if (vFacade > 0.0) {
-          // Walls carry their top height, plus SHOP_FRONT on buildings with a shop front.
-          float shop = step(${f(SHOP_FRONT / 2)}, vFacade);
-          float top = vFacade - shop * ${f(SHOP_FRONT)};
+          // Walls carry their top height, plus SHOP_FRONT on buildings with a shop front and
+          // LANCETS on churches.
+          float church = step(${f((SHOP_FRONT + LANCETS) / 2)}, vFacade);
+          float shop = step(${f(SHOP_FRONT / 2)}, vFacade) - church;
+          float top = vFacade - shop * ${f(SHOP_FRONT)} - church * ${f(LANCETS)};
           // Each building's own rhythm, seeded by its wall height: bay width, window width,
           // and as many storeys as fit, so the top row always sits under the eaves.
           float seed = fract(sin(top * 91.345) * 43758.5453);
           float seed2 = fract(seed * 13.17 + 0.37);
           float storey = clamp(top / max(1.0, floor(top / 3.2 + 0.5)), 2.8, 4.0);
-          vec2 size = vec2(mix(2.2, 3.4, seed), storey);
-          float halfWidth = mix(0.17, 0.25, seed2);
+          // A church: a lancet 1.5 m wide every 5.5 m.
+          vec2 size = vec2(mix(mix(2.2, 3.4, seed), 5.5, church), storey);
+          float halfWidth = mix(mix(0.17, 0.25, seed2), 0.75 / 5.5, church);
           vec2 p = vec2(dot(vWorld.xz, vec2(-vWallNormal.y, vWallNormal.x)), vWorld.y);
           vec2 cell = floor(p / size);
           vec2 g = fract(p / size);
@@ -134,6 +138,12 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
           // Only between the ground-floor sill and just under the eaves.
           window *= step(1.0, p.y) * step(p.y, top - 0.7);
           float average = 2.0 * halfWidth * 0.48 * step(1.0, p.y);
+          // Lancets from 3 m to 2 m under the eaves, narrowing to a point over their last 1.6 m.
+          float apex = top - 2.0;
+          float lancet = step(3.0, p.y) * step(p.y, apex) *
+            step(abs(g.x - 0.5) * size.x, 0.75 * sqrt(clamp((apex - p.y) / 1.6, 0.0, 1.0)));
+          window = mix(window, lancet, church);
+          average = mix(average, 2.0 * halfWidth * step(3.0, p.y) * step(p.y, apex), church);
           vec3 glass = uGlass;
           // A shop front: one wide pane per bay on the ground floor, under an awning in the
           // shop's colour.
@@ -150,7 +160,7 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
           float span = 2.0 * halfWidth * size.x;
           float detail = 1.0 - smoothstep(span / 3.0, span / 2.0, pixel);
           float coverage = mix(average, window, detail);
-          float glow = step(0.93, fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453)) * (1.0 - ground);
+          float glow = step(0.93, fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453)) * (1.0 - ground - church);
           diffuseColor.rgb = mix(diffuseColor.rgb, mix(glass, uLit, glow * detail), coverage * 0.8);
           diffuseColor.rgb = mix(diffuseColor.rgb, canvas, awning * (1.0 - smoothstep(0.3, 0.6, pixel)));
         } else if (vFacade < ${f(-SLEEPER_CODE + 0.5)}) {

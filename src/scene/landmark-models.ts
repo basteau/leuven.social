@@ -75,7 +75,7 @@ const SINT_PIETERSKERK: LandmarkModel = {
   base: 13.5,
   wall: LANDMARK.limestone,
   roof: LANDMARK.slate,
-  windows: false,
+  windows: 'lancet',
   parts: [
     {
       type: 'hall',
@@ -224,7 +224,7 @@ const ABDIJ_VAN_PARK: LandmarkModel = {
   base: 12,
   wall: LANDMARK.trim,
   roof: LANDMARK.slate,
-  windows: false,
+  windows: 'lancet',
   parts: [
     { type: 'hall', u: -5.7, v: -0.2, length: 25.7, width: 4.9, eave: 14, ridge: 20, hips: [0, 0] },
     { type: 'spire', u: 25, v: -0.5, radius: 6.4, sides: 4, top: 36, tip: 36 },

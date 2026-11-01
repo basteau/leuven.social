@@ -10,6 +10,7 @@ import {
   planRoof,
 } from './buildings.ts';
 import { LANDMARK_MODELS } from './landmark-models.ts';
+import { LANCETS } from './landmarks.ts';
 import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
 import { pick } from './palette.ts';
 
@@ -159,8 +160,8 @@ describe('buildingsGeometry', () => {
     expect(values).toEqual(new Set([Math.fround(planRoof(b).eave + SHOP_FRONT), 0]));
   });
 
-  test('churches and sheds get no window grid', () => {
-    expect(facades(building({ kind: 'church', roof: 'flat' }))).toEqual(new Set([0]));
+  test('churches mark their walls for lancets; sheds get no windows', () => {
+    expect(facades(building({ kind: 'church', roof: 'flat' }))).toEqual(new Set([10 + LANCETS, 0]));
     expect(facades(building({ kind: 'shed', roof: 'flat' }))).toEqual(new Set([0]));
   });
 

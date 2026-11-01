@@ -3,6 +3,12 @@ import { orientedRect } from '../data/geometry.ts';
 import type { LineBuilder, MeshBuilder, V3 } from './mesh-builder.ts';
 
 /**
+ * Added to a wall's `facade` value (its top height) on a church: the facade shader draws tall
+ * pointed lancet windows instead of the window grid (facade-material.ts).
+ */
+export const LANCETS = 400;
+
+/**
  * Hero landmarks as a few low-poly parts placed in their footprint's frame: u runs along the
  * footprint's long side (its oriented rectangle), v across it, both in metres from its centre.
  * The parts are fitted by hand to the LiDAR heights, so they stay true to the real building.
@@ -53,8 +59,8 @@ export interface LandmarkModel {
   base: number;
   wall: number;
   roof: number;
-  /** Whether the base and halls get the window grid; churches don't. */
-  windows: boolean;
+  /** Whether the base and halls get the window grid, or a church's lancets. */
+  windows: boolean | 'lancet';
   parts: readonly Part[];
 }
 
@@ -84,7 +90,7 @@ function addHall(mesh: MeshBuilder, lines: LineBuilder, f: Frame, h: Hall, m: La
     return [x - ox, y, z - oz];
   };
   const { length: L, width: W, eave, from = 0 } = h;
-  const facade = h.windows && m.windows ? eave : 0;
+  const facade = m.windows === 'lancet' ? eave + LANCETS : h.windows && m.windows ? eave : 0;
   const corners = [
     [-L, -W],
     [L, -W],

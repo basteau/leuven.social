@@ -7,7 +7,7 @@ import type { OrientedRect } from '../data/geometry.ts';
 import { straightSkeleton } from '../data/skeleton.ts';
 import type { Skeleton } from '../data/skeleton.ts';
 import { LANDMARK_MODELS } from './landmark-models.ts';
-import { addLandmark, addTower } from './landmarks.ts';
+import { LANCETS, addLandmark, addTower } from './landmarks.ts';
 import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
 import type { V3 } from './mesh-builder.ts';
 import { addParasol } from './terraces.ts';
@@ -37,8 +37,6 @@ export type RoofPlan =
     };
 
 const PITCHED_KINDS = new Set(['house', 'apartments', 'retail', 'other']);
-/** Churches and sheds don't get the window grid: it would read as an office block. */
-const WINDOWLESS = new Set(['church', 'shed']);
 /**
  * Added to a wall's `facade` value (its top height, at most 90 m) when its ground floor is a
  * shop front: shops, cafés, offices and hotels (`retail`). The facade shader reads it back.
@@ -424,8 +422,10 @@ export function addBuilding(
   const [ring, ...holes] = wallRings(b, plan) as [ArrayLike<number>, ...ArrayLike<number>[]];
 
   const top = plan.eave;
-  const windowless = landmark ? !landmark.windows : WINDOWLESS.has(b.kind);
-  const facade = windowless ? 0 : top + (b.kind === 'retail' ? SHOP_FRONT : 0);
+  // Sheds get no windows, churches lancets: the window grid would make an office block of them.
+  const windows = landmark?.windows ?? (b.kind === 'church' ? 'lancet' : b.kind !== 'shed');
+  const front = windows === 'lancet' ? LANCETS : b.kind === 'retail' ? SHOP_FRONT : 0;
+  const facade = windows ? top + front : 0;
   for (const r of [ring, ...holes]) addWalls(mesh, ink, r, top, wall, facade, walls);
   if (b.tower && !landmark) addTower(mesh, ink, ring, b.tower, wall, LANDMARK.spire);
 
