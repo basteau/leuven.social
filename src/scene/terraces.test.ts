@@ -63,13 +63,18 @@ describe('terraceParasols', () => {
   });
 });
 
-test('a parasol is a four-sided canopy facing up and out, with an inked rim', () => {
+test('a parasol is a canopy facing up and out with an underside, on a pole and a foot', () => {
   const mesh = new MeshBuilder();
   const lines = new LineBuilder();
   addParasol(mesh, lines, { x: 0, z: 0, ux: 1, uz: 0, color: PARASOLS[0] });
   const g = mesh.build();
-  expect(g.getAttribute('position').count).toBe(4 * 3);
+  expect(g.getAttribute('position').count).toBe(26 * 3);
   const normals = g.getAttribute('normal');
-  for (let i = 0; i < normals.count; i++) expect(normals.getY(i)).toBeGreaterThan(0);
+  // The canopy's top faces up, its underside down.
+  for (let i = 0; i < 12; i++) expect(normals.getY(i)).toBeGreaterThan(0);
+  for (let i = 12; i < 24; i++) expect(normals.getY(i)).toBeLessThan(0);
+  // The pole and foot reach the ground.
+  g.computeBoundingBox();
+  expect(g.boundingBox!.min.y).toBe(0);
   expect(lines.build().getAttribute('position').count / 2).toBe(4);
 });

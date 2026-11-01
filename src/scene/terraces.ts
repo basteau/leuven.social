@@ -1,7 +1,7 @@
 import type { City } from '../data/city.ts';
 import { orientedRect, pointInRing } from '../data/geometry.ts';
 import type { LineBuilder, MeshBuilder, V3 } from './mesh-builder.ts';
-import { PARASOLS, pick } from './palette.ts';
+import { PARASOLS, PROPS, pick } from './palette.ts';
 
 /** Squares that get café terraces, by name. Oude Markt is known as the longest bar in Europe. */
 const TERRACE_SQUARES = new Set(['Oude Markt']);
@@ -68,7 +68,48 @@ export function terraceParasols(city: City): Parasol[] {
   return parasols;
 }
 
-/** A square canopy on a pole height a little over head height: four triangles and a rim. */
+/** The pole's half width, and the weighted foot's half width and height (m). */
+const POLE = 0.05;
+const FOOT = 0.28;
+const FOOT_HEIGHT = 0.12;
+
+/** An upright box square to the parasol's row: four sides and, if asked, a top. */
+function post(
+  mesh: MeshBuilder,
+  p: Parasol,
+  half: number,
+  [y0, y1]: readonly [number, number],
+  color: number,
+  top: boolean,
+): void {
+  const corner = (a: number, b: number, y: number): V3 => [
+    p.x + (a * p.ux - b * p.uz) * half,
+    y,
+    p.z + (a * p.uz + b * p.ux) * half,
+  ];
+  const around = [
+    [1, 1],
+    [-1, 1],
+    [-1, -1],
+    [1, -1],
+  ] as const;
+  for (let k = 0; k < 4; k++) {
+    const [a, b] = around[k]!;
+    const [c, d] = around[(k + 1) % 4]!;
+    const out: V3 = [(a + c) * p.ux - (b + d) * p.uz, 0, (a + c) * p.uz + (b + d) * p.ux];
+    mesh.quad(corner(a, b, y0), corner(c, d, y0), corner(c, d, y1), corner(a, b, y1), color, out);
+  }
+  if (top) {
+    const [a, b, c, d] = around.map(([u, v]) => corner(u, v, y1));
+    mesh.quad(a!, b!, c!, d!, color, [0, 1, 0]);
+  }
+}
+
+/**
+ * A square canopy on a pole a little over head height, on a weighted foot: the canopy's four
+ * triangles above and below (seen from the terrace, it has an underside) and its rim, the pole
+ * and the foot. 26 triangles.
+ */
 export function addParasol(mesh: MeshBuilder, lines: LineBuilder, p: Parasol): void {
   const rim = 2.3;
   const apex: V3 = [p.x, 3, p.z];
@@ -89,4 +130,9 @@ export function addParasol(mesh: MeshBuilder, lines: LineBuilder, p: Parasol): v
     mesh.triangle(a, b, apex, p.color, out);
     lines.segment(a, b);
   }
+  for (let k = 0; k < 4; k++) {
+    mesh.triangle(corners[k]!, corners[(k + 1) % 4]!, apex, p.color, [0, -1, 0]);
+  }
+  post(mesh, p, POLE, [FOOT_HEIGHT, 2.95], PROPS.iron, false);
+  post(mesh, p, FOOT, [0, FOOT_HEIGHT], PROPS.iron, true);
 }
