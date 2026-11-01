@@ -256,6 +256,11 @@ export function createViewer(options: ViewerOptions): Viewer {
   let shadow: ShadowSquare | undefined;
   let propsShown = false;
   const shadowFrustum = new Frustum();
+  /** Whether cells built since the shadow map was drawn cast into it. */
+  let missingCasters = false;
+  /** The part of the shadow square the view needs now, in the same light frame. */
+  const needFrustum = new Frustum();
+  const needProjection = new Matrix4();
 
   const camera = new OrthographicCamera(-1, 1, 1, -1, 1, CAMERA_DISTANCE * 2);
   const controls = new MapControls(camera, canvas);
@@ -351,7 +356,38 @@ export function createViewer(options: ViewerOptions): Viewer {
     const near = camera.zoom >= PROP_ZOOM;
     if (near !== propsShown) shadow = undefined;
     propsShown = near;
-    if (shadow && shadowCovers(shadow, need)) return;
+    const refit = !shadow || !shadowCovers(shadow, need);
+    if (refit) fitShadowTo(need);
+    // What casts into the view has to exist before the shadow pass draws: build it now, and
+    // redraw if that adds to a square already drawn. The rest of the square, its room to pan,
+    // waits for the idle builder (see `buildInBackground`).
+    const [dx, dy] = [need.x - shadow!.x, need.y - shadow!.y];
+    const { near: front, far: back, matrixWorldInverse } = sun.shadow.camera;
+    needFrustum.setFromProjectionMatrix(
+      needProjection
+        .makeOrthographic(
+          dx - need.half,
+          dx + need.half,
+          dy + need.half,
+          dy - need.half,
+          front,
+          back,
+        )
+        .multiply(matrixWorldInverse),
+    );
+    let added = false;
+    for (const entry of cells) {
+      if (!entry.objects.length && needFrustum.intersectsBox(entry.box)) {
+        build(entry);
+        added = true;
+      }
+    }
+    if (refit || added) renderer.shadowMap.needsUpdate = true;
+  }
+
+  /** Moves the shadow map to a square fitted to what the view needs. */
+  function fitShadowTo(need: ShadowSquare): void {
+    missingCasters = false;
     shadow = fitShadow(need, SHADOW_MAP);
     sun.position.set(...shadowPoint(light, shadow.x, shadow.y, farthest + 10));
     sun.target.position.set(...shadowPoint(light, shadow.x, shadow.y, 0));
@@ -370,11 +406,6 @@ export function createViewer(options: ViewerOptions): Viewer {
     sun.target.updateMatrixWorld();
     sun.shadow.updateMatrices(sun);
     shadowFrustum.copy(sun.shadow.getFrustum());
-    // Everything that can cast into the square has to exist before its one shadow pass.
-    for (const entry of cells) {
-      if (!entry.objects.length && shadowFrustum.intersectsBox(entry.box)) build(entry);
-    }
-    renderer.shadowMap.needsUpdate = true;
   }
 
   /**
@@ -422,6 +453,15 @@ export function createViewer(options: ViewerOptions): Viewer {
     for (const entry of waiting) {
       if (performance.now() - start > IDLE_SLICE_MS) break;
       build(entry);
+      missingCasters ||= shadowFrustum.intersectsBox(entry.box);
+    }
+    // Once the last cell that casts into the shadow square exists, redraw it with them all.
+    if (
+      missingCasters &&
+      !cells.some((e) => !e.objects.length && shadowFrustum.intersectsBox(e.box))
+    ) {
+      missingCasters = false;
+      renderer.shadowMap.needsUpdate = true;
     }
     invalidate();
     if (cells.some((entry) => !entry.objects.length)) idleHandle = idle(buildInBackground);
