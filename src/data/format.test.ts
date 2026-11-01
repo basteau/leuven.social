@@ -37,6 +37,18 @@ const city: City = {
       ring: square(3.3, 8.8, 6),
       holes: [],
     },
+    {
+      // Ids are stored as the change from the one before, which can go down.
+      id: 3,
+      tier: 'fringe',
+      kind: 'shed',
+      roof: 'flat',
+      height: 3,
+      eave: 3,
+      roofColor: 0xfedcba,
+      ring: square(-480.2, 300.1, 4),
+      holes: [],
+    },
   ],
   roads: [square(0, 0, 100)],
   carriageways: [
@@ -76,6 +88,9 @@ const city: City = {
   ],
   plazaNames: [0, -1],
 };
+
+/** Fifty small rings in a row, starting at x. */
+const block = (x: number) => Array.from({ length: 50 }, (_, i) => square(x + i * 7, 3000, 5));
 
 // A kind byte past the end of its list: find it where two cities differ only in that kind.
 const badKind = (a: City, b: City) => {
@@ -131,8 +146,17 @@ describe('city format', () => {
   test('gzip pack and unpack, and accepts already-inflated bytes', async () => {
     const packed = await packCity(city);
     expect(packed[0]).toBe(0x1f);
-    expect((await unpackCity(packed)).buildings).toHaveLength(2);
-    expect((await unpackCity(encodeCity(city))).buildings).toHaveLength(2);
+    expect((await unpackCity(packed)).buildings).toHaveLength(3);
+    expect((await unpackCity(encodeCity(city))).buildings).toHaveLength(3);
+  });
+
+  test('each ring starts from the one before it: a block of them costs the same anywhere', () => {
+    const size = (x: number) => encodeCity({ ...city, green: block(x) }).length;
+    // Only the first ring's start moves, by a varint byte or two.
+    expect(size(-3000) - size(0)).toBeLessThanOrEqual(2);
+    expect(decodeCity(encodeCity({ ...city, green: block(-3000) })).green).toEqual(
+      block(-3000).map((r) => Float32Array.from(exact(r))),
+    );
   });
 
   test('rejects foreign or truncated data', () => {

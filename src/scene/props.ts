@@ -1,23 +1,28 @@
 import type { Prop, PropKind } from '../data/city.ts';
+import {
+  BIKE_SHIFT,
+  HANDLEBAR,
+  ROW_GAP,
+  STAND_SPACING,
+  propScale,
+  rackRows,
+} from '../data/props.ts';
 import { GROUND, BIKES, PROPS, pick } from './palette.ts';
 import type { MeshBuilder, V3 } from './mesh-builder.ts';
 
 /**
  * Low-poly street furniture, a few boxes and panels each, written into a cell's props mesh.
- * Models are true to life, then drawn a third larger, as a diorama does: at life size a lamp
- * post or a bike is a pixel or two even zoomed in. Each prop stands in its own frame: v along
- * its facing (towards the nearest kerb, path or wall), u across it.
+ * Models are true to life, then drawn a third larger (`propScale`), as a diorama does: at life
+ * size a lamp post or a bike is a pixel or two even zoomed in. Each prop stands in its own frame:
+ * v along its facing (see `placeProps`), u across it, within the footprint the bake keeps clear.
  */
 
 /** Props that stay in view at every zoom, in the cell's main mesh; the rest hide when far. */
 export const LARGE_PROPS: ReadonlySet<PropKind> = new Set(['needle']);
-/** How much larger than life small props are drawn. */
-export const PROP_SCALE = 1.3;
 /** Share of a rack's stands that hold a bike. Leuven's racks are rarely empty. */
 const OCCUPANCY = 0.8;
-/** Stands per row; bigger racks get a second row, back to back. */
-const ROW = 12;
-const STAND_SPACING = 0.7;
+/** Half a bike tube's width: chunky, so a frame still shows its colour zoomed out (m). */
+const TUBE = 0.045;
 
 interface Frame {
   x: number;
@@ -129,31 +134,74 @@ const hash = (a: number, b: number) => {
   return (Math.imul(h, 0x27d4eb2d) >>> 0) / 2 ** 32;
 };
 
+/** A tube in a bike's plane (u fixed), from (v, y) to (v, y), as a thin two-sided strip. */
+function tube(
+  mesh: MeshBuilder,
+  f: Frame,
+  u: number,
+  [va, ya]: readonly [number, number],
+  [vb, yb]: readonly [number, number],
+  color: number,
+): void {
+  const length = Math.hypot(vb - va, yb - ya);
+  const [nv, ny] = [((ya - yb) / length) * TUBE, ((vb - va) / length) * TUBE];
+  panel(
+    mesh,
+    [
+      at(f, u, va - nv, ya - ny),
+      at(f, u, vb - nv, yb - ny),
+      at(f, u, vb + nv, yb + ny),
+      at(f, u, va + nv, ya + ny),
+    ],
+    color,
+  );
+}
+
+/**
+ * A city bike, seen side on: hexagonal wheels, a filled rear triangle that carries its colour on
+ * the map, top and down tubes, a fork and a handlebar across. 34 triangles.
+ */
 function addBike(mesh: MeshBuilder, f: Frame, u: number, v: number, color: number): void {
   const r = 0.33;
   const [rear, front] = [v - 0.55, v + 0.55];
   for (const c of [rear, front]) {
-    panel(
-      mesh,
-      [at(f, u, c - r, r), at(f, u, c, 0), at(f, u, c + r, r), at(f, u, c, 2 * r)],
-      PROPS.wheel,
-    );
+    const rim = Array.from({ length: 6 }, (_, i) => {
+      const t = Math.PI / 2 + (i * Math.PI) / 3;
+      return at(f, u, c + Math.cos(t) * r, r + Math.sin(t) * r);
+    });
+    panel(mesh, rim, PROPS.wheel);
   }
-  panel(mesh, [at(f, u, rear, r), at(f, u, front, r), at(f, u, v - 0.15, 0.95)], color);
+  const bracket = [v - 0.1, 0.3] as const;
+  const seat = [v - 0.28, 0.9] as const;
+  const head = [v + 0.38, 0.82] as const;
+  panel(mesh, [at(f, u, rear, r), at(f, u, ...bracket), at(f, u, ...seat)], color);
+  tube(mesh, f, u, seat, head, color);
+  tube(mesh, f, u, bracket, head, color);
+  tube(mesh, f, u, [front, r], [v + 0.34, 1], color);
+  // The handlebar, across the bike: seen end on from the side, a dash from the front.
+  panel(
+    mesh,
+    [
+      at(f, u - HANDLEBAR, v + 0.34, 0.97),
+      at(f, u + HANDLEBAR, v + 0.34, 0.97),
+      at(f, u + HANDLEBAR, v + 0.34, 1.03),
+      at(f, u - HANDLEBAR, v + 0.34, 1.03),
+    ],
+    PROPS.wheel,
+  );
 }
 
 function addBikes(mesh: MeshBuilder, f: Frame, stands: number, seed: number): void {
-  const rows = stands > ROW ? 2 : 1;
-  const perRow = Math.ceil(stands / rows);
+  const { rows, perRow } = rackRows(stands);
   for (let row = 0; row < rows; row++) {
     // A second row stands behind the first, away from the kerb.
-    const v = rows === 1 ? 0 : row === 0 ? 0.9 : -0.9;
+    const v = rows === 1 ? 0 : row === 0 ? ROW_GAP : -ROW_GAP;
     for (let i = 0; i < perRow; i++) {
       const slot = row * perRow + i;
       if (hash(seed, slot) > OCCUPANCY) continue;
       const u = (i - (perRow - 1) / 2) * STAND_SPACING;
       // Bikes are never parked quite straight.
-      const shift = (hash(seed + 1, slot) - 0.5) * 0.3;
+      const shift = (hash(seed + 1, slot) - 0.5) * 2 * BIKE_SHIFT;
       addBike(mesh, f, u, v + shift, pick(BIKES, seed * 31 + slot));
     }
   }
@@ -209,7 +257,8 @@ const MODELS: Record<PropKind, (mesh: MeshBuilder, f: Frame, p: Prop, seed: numb
   },
   busstop(mesh, f) {
     box(mesh, f, [-0.07, 0.07], [-0.07, 0.07], [0, 2.6], PROPS.iron, false);
-    box(mesh, f, [-0.28, 0.28], [-0.05, 0.05], [2.15, 2.75], PROPS.sign);
+    // The sign stands across the kerb, so a bus coming either way sees it.
+    box(mesh, f, [-0.05, 0.05], [-0.28, 0.28], [2.15, 2.75], PROPS.sign);
   },
   statue(mesh, f, p) {
     // A tagged height is drawn true; untagged statues are a typical one, drawn large.
@@ -271,7 +320,12 @@ const MODELS: Record<PropKind, (mesh: MeshBuilder, f: Frame, p: Prop, seed: numb
 
 /** One prop, in its own frame, written into `mesh`. */
 export function addProp(mesh: MeshBuilder, p: Prop): void {
-  const scale = LARGE_PROPS.has(p.kind) ? 1 : PROP_SCALE;
-  const f = { x: p.x, z: p.z, fx: Math.cos(p.angle), fz: Math.sin(p.angle), scale };
+  const f = {
+    x: p.x,
+    z: p.z,
+    fx: Math.cos(p.angle),
+    fz: Math.sin(p.angle),
+    scale: propScale(p.kind),
+  };
   MODELS[p.kind](mesh, f, p, Math.round(p.x * 7) ^ Math.round(p.z * 13));
 }

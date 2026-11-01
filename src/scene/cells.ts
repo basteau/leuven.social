@@ -207,8 +207,10 @@ export interface DetailMarks {
 /**
  * Everything in one cell as one mesh and one set of outlines (two draw calls), plus its small
  * street furniture as a third mesh, so it can hide when zoomed out. In the main mesh the flat
- * ground comes first (up to `groundVertices`) so the shadow pass can skip it, and the fine road
- * paint last (from `fineVertices`) so a zoomed-out view can.
+ * ground comes first, then the tree trunks (from `trunksFrom`), and the rest from `shadowFrom`, so
+ * the shadow pass can skip them: the ground can't shade anything, and seen from above a trunk's
+ * shadow hides in its crown's. The fine road paint comes last (from `fineVertices`), so a
+ * zoomed-out view can skip that.
  */
 export function buildCell(
   cell: Cell,
@@ -218,17 +220,23 @@ export function buildCell(
   mesh: MeshBuilder;
   lines: LineBuilder;
   props: MeshBuilder;
-  groundVertices: number;
+  trunksFrom: number;
+  shadowFrom: number;
   fineVertices: number;
   detail: DetailMarks;
 } {
   const mesh = new MeshBuilder();
   const lines = new LineBuilder();
   const props = new MeshBuilder();
+  const { trees } = cell;
   addGround(mesh, area, cell.bounds, cell.ground);
   // Track beds are flat ground too, so they join it before the shadow pass's start.
   addTracks(mesh, cell.rails);
-  const groundVertices = mesh.vertices;
+  const trunksFrom = mesh.vertices;
+  for (let i = 0; i < trees.length; i += 4) {
+    addTree(mesh, trees[i]!, trees[i + 1]!, trees[i + 2]!, trees[i + 3]!, ['trunk']);
+  }
+  const shadowFrom = mesh.vertices;
   addRailLines(lines, cell.rails);
   const rails = lines.segments;
   addMasts(lines, cell.masts);
@@ -239,8 +247,8 @@ export function buildCell(
   for (const ring of cell.platforms) addPlatform(mesh, lines, ring, cell.bounds);
   for (const bay of cell.canopies) addCanopyBay(mesh, lines, bay);
   for (const b of cell.buildings) addBuilding(mesh, lines, b, walls);
-  for (let i = 0; i < cell.trees.length; i += 4) {
-    addTree(mesh, cell.trees[i]!, cell.trees[i + 1]!, cell.trees[i + 2]!, cell.trees[i + 3]!);
+  for (let i = 0; i < trees.length; i += 4) {
+    addTree(mesh, trees[i]!, trees[i + 1]!, trees[i + 2]!, trees[i + 3]!, ['crown']);
   }
   for (const p of cell.parasols) addParasol(mesh, lines, p);
   for (const t of cell.tanks) addTank(mesh, lines, t);
@@ -248,5 +256,5 @@ export function buildCell(
   for (const p of cell.props) addProp(LARGE_PROPS.has(p.kind) ? mesh : props, p);
   const fineVertices = mesh.vertices;
   addFinePaint(mesh, cell.ground.markings);
-  return { mesh, lines, props, groundVertices, fineVertices, detail };
+  return { mesh, lines, props, trunksFrom, shadowFrom, fineVertices, detail };
 }

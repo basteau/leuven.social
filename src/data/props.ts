@@ -1,8 +1,8 @@
 /**
  * Street furniture and small monuments from OpenStreetMap points: lamps, benches, bike racks,
- * bus stops, statues, fountains and pumps. They are what makes a street read as a
- * street at zoom 2–4. A point has no direction, so each prop turns to face the nearest kerb,
- * path or wall, the way benches, racks and shelters really stand.
+ * bus stops, statues, fountains and pumps. They are what makes a street read as a street at
+ * zoom 2–4. A point has neither a size nor a direction, so each kind gets a footprint and a rule
+ * (`placeProps`): what it may stand on, how much room it keeps, and which way it turns.
  */
 
 import type { Prop, PropKind } from './city.ts';
@@ -14,15 +14,55 @@ type Tags = Record<string, string | undefined>;
 export const MAX_STANDS = 24;
 /** Stands in a rack whose capacity isn't tagged: a typical Leuven pavement rack. */
 export const DEFAULT_STANDS = 6;
+/** Stands per row; bigger racks get a second row, back to back. */
+export const ROW = 12;
+export const STAND_SPACING = 0.7;
 /** Sculptures at least this tall (m) are needles, seen from across the city (Jan Fabre's Totem). */
 export const NEEDLE_HEIGHT = 12;
+/**
+ * How much larger than life small props are drawn: at life size a lamp post or a bike is a pixel
+ * or two even zoomed in. The needle is seen from across the city as it is.
+ */
+export const propScale = (kind: PropKind): number => (kind === 'needle' ? 1 : 1.3);
 
 const SCULPTURES = new Set(['statue', 'sculpture', 'bust']);
 /** Racks we can't see from above: in a basement, a building or behind doors. */
 const HIDDEN_RACKS = new Set(['underground', 'indoor']);
+/** Lamps without a post of their own: on a façade, or hung over the street. */
+const POSTLESS_MOUNTS = new Set(['wall', 'suspended', 'wire', 'ceiling']);
+const POSTLESS_SUPPORTS = new Set(['wall_mounted', 'suspended', 'wire', 'ceiling']);
+/** Kinds whose OSM `direction` says which way they face: a bench's sitter, a lamp's light. */
+const DIRECTED = new Set<PropKind>(['bench', 'lamp', 'statue']);
+const POINTS = 'N NNE NE ENE E ESE SE SSE S SSW SW WSW W WNW NW NNW'.split(' ');
 
-/** Which OSM points are props, and how big. A tagged height counts for monuments only. */
-export function propFromOsm(tags: Tags): { kind: PropKind; size: number } | null {
+/**
+ * An OSM `direction` (degrees clockwise from north, or a compass point) as a turn in the map's
+ * frame: radians from +x (east) towards +z (south). Null when there is none or it's a range.
+ */
+export function directionFromOsm(tag: string | undefined): number | null {
+  if (tag === undefined) return null;
+  const point = POINTS.indexOf(tag.trim().toUpperCase());
+  const degrees =
+    point >= 0 ? point * 22.5 : /^-?\d+(\.\d+)?$/.test(tag.trim()) ? Number(tag) : NaN;
+  if (Number.isNaN(degrees)) return null;
+  const bearing = (degrees * Math.PI) / 180;
+  return Math.atan2(-Math.cos(bearing), Math.sin(bearing));
+}
+
+/**
+ * Which OSM points are props, and how big. A tagged height counts for monuments only; a tagged
+ * direction for the kinds that face one way (`facing`, else null).
+ */
+export function propFromOsm(
+  tags: Tags,
+): { kind: PropKind; size: number; facing: number | null } | null {
+  const style = styleFromOsm(tags);
+  if (!style) return null;
+  const facing = DIRECTED.has(style.kind) ? directionFromOsm(tags.direction) : null;
+  return { ...style, facing };
+}
+
+function styleFromOsm(tags: Tags): { kind: PropKind; size: number } | null {
   const tagged = Number.parseFloat(tags.height ?? '');
   const height = tagged > 0 && tagged < 60 ? tagged : 0;
   // A fountain that is also a sculpture (Fonske) is still a fountain: it gets a basin.
@@ -42,11 +82,159 @@ export function propFromOsm(tags: Tags): { kind: PropKind; size: number } | null
   }
   if (tags.highway === 'bus_stop')
     return { kind: tags.shelter === 'yes' ? 'shelter' : 'busstop', size: 0 };
-  if (tags.highway === 'street_lamp') return { kind: 'lamp', size: 0 };
+  if (tags.highway === 'street_lamp') {
+    const postless =
+      POSTLESS_MOUNTS.has(tags.lamp_mount ?? '') || POSTLESS_SUPPORTS.has(tags.support ?? '');
+    return postless ? null : { kind: 'lamp', size: 0 };
+  }
   return null;
 }
 
+/**
+ * A footprint on the ground: its centre, its facing (a unit vector) and how far it reaches across
+ * (u) and along (v) that facing. Each prop is drawn in this frame (src/scene/props.ts).
+ */
+export interface Footprint {
+  x: number;
+  z: number;
+  fx: number;
+  fz: number;
+  u0: number;
+  u1: number;
+  v0: number;
+  v1: number;
+}
+
+/**
+ * What each model covers below head height, at life size (m): across its facing (u), then along
+ * it (v, + is the way it faces). A bench keeps room for the legs in front of its seat; a lamp's
+ * lantern hangs above it all. src/scene/props.test.ts checks every model stays inside.
+ */
+const EXTENT: Record<Exclude<PropKind, 'bikes'>, readonly [number, number, number, number]> = {
+  lamp: [-0.12, 0.12, -0.12, 0.12],
+  bench: [-0.9, 0.9, -0.25, 0.7],
+  shelter: [-1.6, 1.6, -0.75, 0.75],
+  busstop: [-0.1, 0.1, -0.3, 0.3],
+  statue: [-0.6, 0.6, -0.6, 0.6],
+  fountain: [-2, 2, -2, 2],
+  pump: [-0.42, 0.42, -0.42, 0.42],
+  needle: [-0.8, 0.8, -0.8, 0.8],
+};
+/** A bike is this long from wheel to wheel, and may be parked this far off its stand (m). */
+const BIKE_HALF_LENGTH = 0.88;
+export const BIKE_SHIFT = 0.15;
+/** Half a handlebar's width: what a rack's end bikes reach past their stand (m). */
+export const HANDLEBAR = 0.25;
+/** A rack's second row stands this far behind the first (m). */
+export const ROW_GAP = 0.9;
+
+/** How a rack of this many stands is laid out: rows back to back, stands along the kerb. */
+export function rackRows(stands: number): { rows: number; perRow: number } {
+  const rows = stands > ROW ? 2 : 1;
+  return { rows, perRow: Math.ceil(stands / rows) };
+}
+
+/** Where a prop stands and what it covers, drawn to scale. */
+export function propFootprint(p: Prop): Footprint {
+  let [u0, u1, v0, v1] =
+    p.kind === 'bikes' ? rackExtent(p.size) : (EXTENT[p.kind] as [number, number, number, number]);
+  const s = propScale(p.kind);
+  [u0, u1, v0, v1] = [u0 * s, u1 * s, v0 * s, v1 * s];
+  return { x: p.x, z: p.z, fx: Math.cos(p.angle), fz: Math.sin(p.angle), u0, u1, v0, v1 };
+}
+
+function rackExtent(stands: number): [number, number, number, number] {
+  const { rows, perRow } = rackRows(stands);
+  const across = ((perRow - 1) / 2) * STAND_SPACING + HANDLEBAR;
+  const along = BIKE_HALF_LENGTH + BIKE_SHIFT + (rows === 2 ? ROW_GAP : 0);
+  return [-across, across, -along, along];
+}
+
+const grow = (f: Footprint, by: number): Footprint => ({
+  ...f,
+  u0: f.u0 - by,
+  u1: f.u1 + by,
+  v0: f.v0 - by,
+  v1: f.v1 + by,
+});
+
+/** A point in a footprint's own frame: across (u) and along (v) its facing. */
+const local = (f: Footprint, x: number, z: number): [u: number, v: number] => {
+  const [dx, dz] = [x - f.x, z - f.z];
+  return [-dx * f.fz + dz * f.fx, dx * f.fx + dz * f.fz];
+};
+
+const corners = (f: Footprint): [number, number][] =>
+  [
+    [f.u0, f.v0],
+    [f.u1, f.v0],
+    [f.u1, f.v1],
+    [f.u0, f.v1],
+  ].map(([u, v]) => [f.x - f.fz * u! + f.fx * v!, f.z + f.fx * u! + f.fz * v!]);
+
+/** Whether a line segment crosses or lies in a footprint (Liang–Barsky clipping). */
+export function segmentInFootprint(
+  f: Footprint,
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+): boolean {
+  const [ua, va] = local(f, ax, az);
+  const [ub, vb] = local(f, bx, bz);
+  let [t0, t1] = [0, 1];
+  for (const [p, q] of [
+    [ua - ub, ua - f.u0],
+    [ub - ua, f.u1 - ua],
+    [va - vb, va - f.v0],
+    [vb - va, f.v1 - va],
+  ] as const) {
+    if (p === 0) {
+      if (q < 0) return false;
+      continue;
+    }
+    const t = q / p;
+    if (p < 0) t0 = Math.max(t0, t);
+    else t1 = Math.min(t1, t);
+    if (t0 > t1) return false;
+  }
+  return true;
+}
+
+/** Whether two footprints overlap: no gap along any of their four sides (separating axes). */
+export function footprintsOverlap(a: Footprint, b: Footprint): boolean {
+  const [ca, cb] = [corners(a), corners(b)];
+  for (const [ax, az] of [
+    [a.fx, a.fz],
+    [-a.fz, a.fx],
+    [b.fx, b.fz],
+    [-b.fz, b.fx],
+  ] as const) {
+    const project = (c: [number, number][]) => c.map(([x, z]) => x * ax + z * az);
+    const [pa, pb] = [project(ca), project(cb)];
+    if (Math.max(...pa) < Math.min(...pb) || Math.max(...pb) < Math.min(...pa)) return false;
+  }
+  return true;
+}
+
+/** Whether a disc (a tree trunk), or with no radius a point, lies in a footprint. */
+export function discInFootprint(f: Footprint, x: number, z: number, radius: number): boolean {
+  const [u, v] = local(f, x, z);
+  const du = u - Math.min(Math.max(u, f.u0), f.u1);
+  const dv = v - Math.min(Math.max(v, f.v0), f.v1);
+  return du * du + dv * dv < radius * radius || (du === 0 && dv === 0);
+}
+
+/** Bucket keys for a grid cell; coordinates within ±2 million cells. */
 const key = (i: number, j: number) => (i + 32768) * 65536 + (j + 32768);
+
+function* cellsAround(size: number, x: number, z: number, reach: number): Generator<number> {
+  for (let i = Math.floor((x - reach) / size); i <= Math.floor((x + reach) / size); i++) {
+    for (let j = Math.floor((z - reach) / size); j <= Math.floor((z + reach) / size); j++) {
+      yield key(i, j);
+    }
+  }
+}
 
 /**
  * Line segments bucketed on a square grid, for "what's the nearest edge to here" over the
@@ -82,36 +270,50 @@ export class EdgeIndex {
     }
   }
 
+  /** Whether any edge within `reach` of (x, z) passes `test`. */
+  some(
+    x: number,
+    z: number,
+    reach: number,
+    test: (ax: number, az: number, bx: number, bz: number) => boolean,
+  ): boolean {
+    for (const k of cellsAround(this.#size, x, z, reach)) {
+      const list = this.#cells.get(k) ?? [];
+      for (let i = 0; i < list.length; i += 4) {
+        if (test(list[i]!, list[i + 1]!, list[i + 2]!, list[i + 3]!)) return true;
+      }
+    }
+    return false;
+  }
+
   /**
    * The nearest point on any edge within `reach` metres: the offset to it from (x, z), and the
    * direction of its edge. Null when nothing is that close.
    */
-  nearest(
-    x: number,
-    z: number,
-    reach: number,
-  ): { dx: number; dz: number; distance: number; ux: number; uz: number } | null {
-    const s = this.#size;
-    let best: { dx: number; dz: number; distance: number; ux: number; uz: number } | null = null;
-    for (let i = Math.floor((x - reach) / s); i <= Math.floor((x + reach) / s); i++) {
-      for (let j = Math.floor((z - reach) / s); j <= Math.floor((z + reach) / s); j++) {
-        const list = this.#cells.get(key(i, j)) ?? [];
-        for (let k = 0; k < list.length; k += 4) {
-          const [ax, az, bx, bz] = [list[k]!, list[k + 1]!, list[k + 2]!, list[k + 3]!];
-          const [ex, ez] = [bx - ax, bz - az];
-          const length2 = ex * ex + ez * ez;
-          if (length2 < 1e-12) continue;
-          const t = Math.min(1, Math.max(0, ((x - ax) * ex + (z - az) * ez) / length2));
-          const [dx, dz] = [ax + ex * t - x, az + ez * t - z];
-          const distance = Math.hypot(dx, dz);
-          if (distance > reach || (best && distance >= best.distance)) continue;
-          const length = Math.sqrt(length2);
-          best = { dx, dz, distance, ux: ex / length, uz: ez / length };
-        }
-      }
-    }
+  nearest(x: number, z: number, reach: number): Nearest | null {
+    let best: Nearest | null = null;
+    this.some(x, z, reach, (ax, az, bx, bz) => {
+      const [ex, ez] = [bx - ax, bz - az];
+      const length2 = ex * ex + ez * ez;
+      if (length2 < 1e-12) return false;
+      const t = Math.min(1, Math.max(0, ((x - ax) * ex + (z - az) * ez) / length2));
+      const [dx, dz] = [ax + ex * t - x, az + ez * t - z];
+      const distance = Math.hypot(dx, dz);
+      if (distance > reach || (best && distance >= best.distance)) return false;
+      const length = Math.sqrt(length2);
+      best = { dx, dz, distance, ux: ex / length, uz: ez / length };
+      return false;
+    });
     return best;
   }
+}
+
+export interface Nearest {
+  dx: number;
+  dz: number;
+  distance: number;
+  ux: number;
+  uz: number;
 }
 
 /** Rings bucketed by their bounding boxes, for "is this point inside any of them". */
@@ -146,10 +348,104 @@ export class RingIndex {
   }
 }
 
-/** How far a prop looks for something to face (m). Further out it keeps its default turn. */
+/** Areas (rings) and lines, for "does this footprint touch any of them". */
+export class Shapes {
+  readonly edges = new EdgeIndex();
+  readonly #rings = new RingIndex();
+  /** The longest edge added: how far around a footprint to look for one crossing it. */
+  #longest = 0;
+
+  ring(points: ArrayLike<number>): void {
+    this.#rings.add(points);
+    this.#add(points, true);
+  }
+
+  line(points: ArrayLike<number>): void {
+    this.#add(points, false);
+  }
+
+  #add(points: ArrayLike<number>, closed: boolean): void {
+    this.edges.add(points, closed);
+    const n = points.length;
+    for (let i = 0; i < (closed ? n : n - 2); i += 2) {
+      const j = (i + 2) % n;
+      this.#longest = Math.max(
+        this.#longest,
+        Math.hypot(points[j]! - points[i]!, points[j + 1]! - points[i + 1]!),
+      );
+    }
+  }
+
+  contains(x: number, z: number): boolean {
+    return this.#rings.contains(x, z);
+  }
+
+  /** Whether a footprint reaches into an area or across a line. */
+  touches(f: Footprint): boolean {
+    if (this.contains(f.x, f.z)) return true;
+    // A segment crossing the footprint has a point within its half diagonal of the centre.
+    const reach = Math.hypot(Math.max(-f.u0, f.u1), Math.max(-f.v0, f.v1));
+    return this.edges.some(f.x, f.z, reach, (ax, az, bx, bz) =>
+      segmentInFootprint(f, ax, az, bx, bz),
+    );
+  }
+}
+
+/** What the bake knows about the ground round a prop. */
+export interface Surroundings {
+  /** Carriageways and cycle tracks: their edges are kerbs; props keep off them where they can. */
+  roads: Shapes;
+  /** Footprints and tanks (areas) and bridge parapets (lines): nothing stands in them. */
+  solid: Shapes;
+  /** Rivers, ponds and basins: only monuments stand in them (Fonske, Fiere Margriet). */
+  water: Shapes;
+  /** Edges to line up with where no kerb is near: paths, walls, squares, the road's edge. */
+  edges: EdgeIndex;
+  /** Squares: a bench on one faces into it. */
+  squares: RingIndex;
+  /** Tree trunks (x, z, radius) mapped in OSM. */
+  trunks: readonly (readonly [number, number, number])[];
+}
+
+/** The order props claim their ground: monuments first, then what the street needs most. */
+const PRIORITY: readonly PropKind[] = [
+  'needle',
+  'fountain',
+  'statue',
+  'pump',
+  'shelter',
+  'busstop',
+  'lamp',
+  'bench',
+  'bikes',
+];
+/** Sculptures and wells: they stand in their basin or pond, and trees give way to them. */
+const MONUMENTS = new Set<PropKind>(['needle', 'fountain', 'statue', 'pump']);
+/** How far a mapped prop may be moved off something it collides with (m); further, it goes. */
+const NUDGE: Record<PropKind, number> = {
+  needle: 0.5,
+  fountain: 1,
+  statue: 1,
+  pump: 1,
+  shelter: 2,
+  busstop: 1.5,
+  lamp: 1.5,
+  bench: 1.5,
+  bikes: 2.5,
+};
+/** Free ground kept round each footprint, so props stand apart and off walls and kerbs (m). */
+export const CLEARANCE = 0.25;
+/** Nudges are tried in rings this far apart, in this many directions. */
+const STEP = 0.25;
+const DIRECTIONS = 16;
+/** A lamp, shelter or bus stop turns to a kerb this close (m); further, to any edge. */
+const KERB_REACH = 8;
+/** How far a prop looks for something to line up with (m). Further out it keeps its own turn. */
 const REACH = 25;
-/** Two props of a kind closer than this are one point mapped twice (m). */
-const SAME_PROP = 0.5;
+/** A bench with a wall this close on one side only turns its back to it (m). */
+const WALL_BEHIND = 3;
+/** How far a bench looks to see whether a square lies in front (m). */
+const SQUARE_AHEAD = 3;
 
 export interface PropPoint {
   x: number;
@@ -157,33 +453,167 @@ export interface PropPoint {
   tags: Tags;
 }
 
+export interface PlacedProps {
+  props: Prop[];
+  /** Mapped props moved off a kerb, a wall, a trunk or another prop. */
+  nudged: number;
+  /** Props with no room within their nudge: a second mapping of one prop, or walled in. */
+  dropped: number;
+}
+
+/** The OSM node id (`_osm: node/123`), so props settle in the same order on every bake. */
+const osmId = (tags: Tags): number => Number(/(\d+)$/.exec(tags['_osm'] ?? '')?.[1] ?? Infinity);
+
 /**
- * The props among the points, each turned to face the nearest edge in `edges` (kerbs, paths,
- * walls) and dropped where `blocked` holds one (inside a building, or in the river).
+ * The props among the points, placed by rule:
+ *
+ * - Turned: lamps (head over the road), shelters (open side to it) and bus stops (sign across it)
+ *   square to the nearest kerb; bike racks along the nearest kerb, wall or path; benches and
+ *   monuments along the nearest edge, facing away from a wall close behind, into a square, or
+ *   else towards the edge. A tagged `direction` wins.
+ * - Placed in priority order (monuments, shelters, bus stops, lamps, benches, racks), then by OSM
+ *   id: each keeps clear of buildings, water, tanks, parapets, mapped trunks and the props placed
+ *   before it, and of the carriageway unless it was mapped there (medians, racks in a parking
+ *   lane). A prop that collides is moved to the nearest free spot within its nudge, or dropped:
+ *   one of the same kind standing on it is the same prop mapped twice.
  */
-export function placeProps(
-  points: readonly PropPoint[],
-  edges: EdgeIndex,
-  blocked: RingIndex,
-): Prop[] {
-  const props: Prop[] = [];
-  const seen = new Map<string, Prop[]>();
-  for (const { x, z, tags } of points) {
-    const style = propFromOsm(tags);
-    if (!style || blocked.contains(x, z)) continue;
-    const near = `${style.kind}:${Math.round(x)},${Math.round(z)}`;
-    const twins = seen.get(near) ?? [];
-    if (twins.some((p) => Math.hypot(p.x - x, p.z - z) < SAME_PROP)) continue;
-    const edge = edges.nearest(x, z, REACH);
-    // Face the edge; a prop standing right on it faces across it instead.
-    const angle = !edge
-      ? 0
-      : edge.distance > 0.05
-        ? Math.atan2(edge.dz, edge.dx)
-        : Math.atan2(edge.ux, -edge.uz);
-    const prop = { kind: style.kind, x, z, angle, size: style.size };
-    seen.set(near, [...twins, prop]);
-    props.push(prop);
+export function placeProps(points: readonly PropPoint[], around: Surroundings): PlacedProps {
+  const candidates = points
+    .flatMap((point, index) => {
+      const style = propFromOsm(point.tags);
+      return style ? [{ ...point, ...style, id: osmId(point.tags), index }] : [];
+    })
+    .toSorted(
+      (a, b) =>
+        PRIORITY.indexOf(a.kind) - PRIORITY.indexOf(b.kind) || a.id - b.id || a.index - b.index,
+    );
+  const trunks = new Map<number, (readonly [number, number, number])[]>();
+  const TRUNK_CELL = 8;
+  for (const t of around.trunks) {
+    const k = key(Math.floor(t[0] / TRUNK_CELL), Math.floor(t[1] / TRUNK_CELL));
+    trunks.set(k, [...(trunks.get(k) ?? []), t]);
   }
-  return props;
+  const PROP_CELL = 16;
+  const placed = new Map<number, { kind: PropKind; f: Footprint }[]>();
+  /** The furthest any placed footprint reaches from its centre. */
+  let widest = 0;
+  const near = function* <T>(grid: Map<number, T[]>, size: number, f: Footprint, reach: number) {
+    for (const k of cellsAround(size, f.x, f.z, reach)) yield* grid.get(k) ?? [];
+  };
+  const radius = (f: Footprint) => Math.hypot(Math.max(-f.u0, f.u1), Math.max(-f.v0, f.v1));
+
+  const result: PlacedProps = { props: [], nudged: 0, dropped: 0 };
+  for (const c of candidates) {
+    const angle = c.facing ?? turnOf(c.kind, c.x, c.z, around);
+    const prop: Prop = { kind: c.kind, x: c.x, z: c.z, angle, size: c.size };
+    const body = { kind: c.kind, f: propFootprint(prop) };
+    const twin = [...near(placed, PROP_CELL, body.f, widest)].some(
+      (other) => other.kind === c.kind && discInFootprint(grow(other.f, CLEARANCE), c.x, c.z, 0),
+    );
+    if (twin) {
+      result.dropped++;
+      continue;
+    }
+    const onRoad = around.roads.contains(c.x, c.z);
+    const monument = MONUMENTS.has(c.kind);
+    const clear = (f: Footprint, strict: boolean) => {
+      const room = grow(f, CLEARANCE);
+      const reach = radius(room);
+      if (
+        [...near(placed, PROP_CELL, room, reach + widest)].some((o) => footprintsOverlap(room, o.f))
+      )
+        return false;
+      if (around.solid.touches(room)) return false;
+      if (!monument) {
+        for (const [x, z, r] of near(trunks, TRUNK_CELL, room, reach + 3)) {
+          if (discInFootprint(room, x, z, r)) return false;
+        }
+        if (around.water.touches(room)) return false;
+      }
+      if (strict) return !around.roads.touches(room);
+      return onRoad || !around.roads.contains(f.x, f.z);
+    };
+    const spot = settle(body.f, NUDGE[c.kind], clear);
+    if (!spot) {
+      result.dropped++;
+      continue;
+    }
+    if (spot.x !== c.x || spot.z !== c.z) result.nudged++;
+    Object.assign(prop, { x: spot.x, z: spot.z });
+    const f = { ...body.f, x: spot.x, z: spot.z };
+    const k = key(Math.floor(f.x / PROP_CELL), Math.floor(f.z / PROP_CELL));
+    placed.set(k, [...(placed.get(k) ?? []), { kind: c.kind, f }]);
+    widest = Math.max(widest, radius(f));
+    result.props.push(prop);
+  }
+  return result;
+}
+
+/** Offsets to try, nearest first: rings of STEP, each in DIRECTIONS directions. */
+function* offsets(reach: number): Generator<[number, number]> {
+  yield [0, 0];
+  for (let r = STEP; r <= reach + 1e-9; r += STEP) {
+    for (let k = 0; k < DIRECTIONS; k++) {
+      const t = (k / DIRECTIONS) * Math.PI * 2;
+      yield [Math.cos(t) * r, Math.sin(t) * r];
+    }
+  }
+}
+
+/**
+ * The nearest spot within `reach` where `clear` holds: first clear of the roads too, then of the
+ * rest only. Offsets turn with the prop, so a rack slides along its kerb the same way anywhere.
+ */
+function settle(
+  f: Footprint,
+  reach: number,
+  clear: (f: Footprint, strict: boolean) => boolean,
+): { x: number; z: number } | null {
+  for (const strict of [true, false]) {
+    for (const [u, v] of offsets(reach)) {
+      const moved = { ...f, x: f.x - f.fz * u + f.fx * v, z: f.z + f.fx * u + f.fz * v };
+      if (clear(moved, strict)) return { x: moved.x, z: moved.z };
+    }
+  }
+  return null;
+}
+
+/** The turn (radians) that faces along `n`. */
+const turn = ([x, z]: readonly [number, number]) => Math.atan2(z, x);
+
+/** The normal of an edge, pointing at it from where we stand (across it, when right on it). */
+function towards(edge: Nearest): [number, number] {
+  const n: [number, number] = [-edge.uz, edge.ux];
+  if (edge.distance < 0.05) return n;
+  return n[0] * edge.dx + n[1] * edge.dz >= 0 ? n : [-n[0], -n[1]];
+}
+
+const nearer = (a: Nearest | null, b: Nearest | null) =>
+  !a ? b : !b ? a : a.distance <= b.distance ? a : b;
+
+/** Which way a prop turns where it was mapped, by its kind's rule (see `placeProps`). */
+export function turnOf(kind: PropKind, x: number, z: number, around: Surroundings): number {
+  if (kind === 'lamp' || kind === 'shelter' || kind === 'busstop') {
+    const edge = around.roads.edges.nearest(x, z, KERB_REACH) ?? around.edges.nearest(x, z, REACH);
+    return edge ? turn(towards(edge)) : 0;
+  }
+  const edge = nearer(around.roads.edges.nearest(x, z, REACH), around.edges.nearest(x, z, REACH));
+  if (!edge) return 0;
+  const n = towards(edge);
+  if (kind === 'bikes') return turn(n);
+  // Benches and monuments: back to a wall, else into a square, else towards the edge.
+  const wall = (s: number) => {
+    for (let d = 0.5; d <= WALL_BEHIND; d += 0.5) {
+      if (around.solid.contains(x + n[0] * d * s, z + n[1] * d * s)) return true;
+    }
+    return false;
+  };
+  const [ahead, behind] = [wall(1), wall(-1)];
+  if (ahead !== behind) return turn(ahead ? [-n[0], -n[1]] : n);
+  if (around.squares.contains(x, z)) {
+    const square = (s: number) =>
+      around.squares.contains(x + n[0] * SQUARE_AHEAD * s, z + n[1] * SQUARE_AHEAD * s);
+    if (!square(1) && square(-1)) return turn([-n[0], -n[1]]);
+  }
+  return turn(n);
 }

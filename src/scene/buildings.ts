@@ -277,32 +277,56 @@ function wallRings(b: Building, plan: RoofPlan): readonly ArrayLike<number>[] {
   return plan.type === 'hip' ? [plan.ring, ...plan.holes] : [b.ring, ...b.holes];
 }
 
-/** Walls keyed by their two end points in decimetres, the precision the city file keeps. */
-const wallKey = (ax: number, az: number, bx: number, bz: number) =>
-  `${Math.round(ax * 10)},${Math.round(az * 10)},${Math.round(bx * 10)},${Math.round(bz * 10)}`;
+/**
+ * A footprint corner as one number: its coordinates in decimetres, the precision the city file
+ * keeps, each offset to be positive and given 21 bits (±100 km).
+ */
+const pointKey = (x: number, z: number) =>
+  (Math.round(x * 10) + 2 ** 20) * 2 ** 21 + (Math.round(z * 10) + 2 ** 20);
 
 /**
  * Party walls: for every footprint edge, the wall-top height of the building on its other side.
  * Row houses share most of their walls, and a wall between two houses is never seen below the
- * lower of the two, so `addBuilding` only draws what rises above its neighbour.
+ * lower of the two, so `addBuilding` only draws what rises above its neighbour. Edges are keyed
+ * by numbers rather than strings, which keeps the lookups out of the startup profile: each corner
+ * gets an id, and an edge is its two ids.
  */
-export type PartyWalls = ReadonlyMap<string, number>;
+export interface PartyWalls {
+  corners: ReadonlyMap<number, number>;
+  edges: ReadonlyMap<number, number>;
+}
+
+/** Room for 2^22 corners: an edge key is two corner ids, under 2^44. */
+const edgeKey = (a: number, b: number) => a * 2 ** 22 + b;
+
+/** Corner ids of a ring, `undefined` where no footprint has that corner. */
+function cornerIds(ring: ArrayLike<number>, corners: ReadonlyMap<number, number>) {
+  return Array.from({ length: ring.length / 2 }, (_, i) =>
+    corners.get(pointKey(ring[i * 2]!, ring[i * 2 + 1]!)),
+  );
+}
 
 export function partyWalls(buildings: readonly Building[]): PartyWalls {
-  const walls = new Map<string, number>();
+  const corners = new Map<number, number>();
+  const edges = new Map<number, number>();
   for (const b of buildings) {
     const plan = planOf(b);
     for (const ring of wallRings(b, plan)) {
       const n = ring.length / 2;
+      const ids: number[] = [];
       for (let i = 0; i < n; i++) {
-        const j = (i + 1) % n;
-        const key = wallKey(ring[i * 2]!, ring[i * 2 + 1]!, ring[j * 2]!, ring[j * 2 + 1]!);
-        walls.set(key, plan.eave);
+        const key = pointKey(ring[i * 2]!, ring[i * 2 + 1]!);
+        let id = corners.get(key);
+        if (id === undefined) corners.set(key, (id = corners.size));
+        ids.push(id);
       }
+      for (let i = 0; i < n; i++) edges.set(edgeKey(ids[i]!, ids[(i + 1) % n]!), plan.eave);
     }
   }
-  return walls;
+  return { corners, edges };
 }
+
+const NO_WALLS: PartyWalls = { corners: new Map(), edges: new Map() };
 
 /** Walls along one ring: outer rings counter-clockwise, courtyards clockwise, so both face out. */
 function addWalls(
@@ -315,6 +339,7 @@ function addWalls(
   walls: PartyWalls,
 ): void {
   const n = ring.length / 2;
+  const ids = cornerIds(ring, walls.corners);
   for (let i = 0; i < n; i++) {
     const ax = ring[i * 2]!;
     const az = ring[i * 2 + 1]!;
@@ -323,7 +348,9 @@ function addWalls(
     // Counter-clockwise ring: the outward normal of edge a→b is (dz, -dx).
     const hint: V3 = [bz - az, 0, -(bx - ax)];
     // The neighbour across this edge walks it the other way round.
-    const neighbour = walls.get(wallKey(bx, bz, ax, az));
+    const [a, b] = [ids[i], ids[(i + 1) % n]];
+    const neighbour =
+      a === undefined || b === undefined ? undefined : walls.edges.get(edgeKey(b, a));
     const bottom = Math.min(neighbour ?? 0, top);
     if (bottom < top) {
       mesh.quad(
@@ -348,7 +375,9 @@ function addWalls(
     const cos = (d1x * d2x + d1z * d2z) / (Math.hypot(d1x, d1z) * Math.hypot(d2x, d2z) || 1);
     if (cos > CREASE) continue;
     // A corner against a neighbour is a crease only where the wall rises above it.
-    const before = walls.get(wallKey(ax, az, px, pz));
+    const prior = ids[(i + n - 1) % n];
+    const before =
+      a === undefined || prior === undefined ? undefined : walls.edges.get(edgeKey(a, prior));
     const against = Math.max(neighbour ?? 0, before ?? 0);
     if (against < top - PARTY_SLACK) lines.segment([ax, against, az], [ax, top, az]);
   }
@@ -361,7 +390,7 @@ export function addBuilding(
   mesh: MeshBuilder,
   lines: LineBuilder,
   b: Building,
-  walls: PartyWalls = new Map(),
+  walls: PartyWalls = NO_WALLS,
 ): void {
   // A hero landmark extrudes its footprint to a low base and builds its real shape on top.
   const landmark = LANDMARK_MODELS.get(b.id);
