@@ -165,6 +165,8 @@ export interface City {
   treeHeights: Float32Array;
   props: Prop[];
   tanks: Tank[];
+  /** Bridge decks (GRB structures): walkable over the water, drawn as stone above it. */
+  bridges: Float32Array[];
   /** Bridge parapets: low walls along the sides of a bridge that face the water, as open lines. */
   parapets: Float32Array[];
   /** Every street and square name, sorted, each once (src/data/streets.ts). */

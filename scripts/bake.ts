@@ -353,6 +353,12 @@ const tanks: Tank[] = knw.structures.flatMap(({ kind, h, ring }) => {
     ? [{ height: h, ring: new Float32Array(footprint) }]
     : [];
 });
+/** Bridge decks, clipped to the area: walkable over the water and drawn as stone above it. */
+const bridges = knw.structures
+  .filter((s) => s.kind === 'bridge')
+  .flatMap((s) => clipRingToArea(normalizeRing(s.ring.flat()), AREA))
+  .filter((r) => r.length >= 6)
+  .map((r) => new Float32Array(r));
 const parapets = knw.structures
   .filter((s) => s.kind === 'bridge')
   .flatMap((s) => bridgeParapets(normalizeRing(s.ring.flat()), river))
@@ -472,6 +478,7 @@ const city: City = {
   treeHeights: new Float32Array(trees.heights),
   props,
   tanks,
+  bridges,
   parapets,
   streetNames: names.table,
   streets,
@@ -505,7 +512,7 @@ console.log(
     )
       .map(([kind, list]) => `${list!.length} ${kind}`)
       .join(', ')}`,
-    `tanks ${tanks.length}, bridge parapets ${parapets.length}`,
+    `tanks ${tanks.length}, bridge decks ${bridges.length}, parapets ${parapets.length}`,
     `street names ${names.table.length}: ${streets.length} streets (${streets.reduce((sum, s) => sum + s.line.length / 2, 0)} points), ${plazaNames.filter((n) => n >= 0).length} of ${plazas.length} squares named`,
     `public/data/city.bin ${(bytes.length / 1024).toFixed(0)} KB gzipped`,
   ].join('\n'),

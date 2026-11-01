@@ -22,6 +22,7 @@ export const GROUND_RINGS = [
   'parking',
   'railLand',
   'water',
+  'bridges',
   'roads',
   'plazas',
 ] as const;
@@ -32,6 +33,7 @@ export interface GroundLayers {
   pitches: readonly Float32Array[];
   parking: readonly Float32Array[];
   water: readonly Float32Array[];
+  bridges: readonly Float32Array[];
   roads: readonly Float32Array[];
   carriageways: readonly Carriageway[];
   markings: readonly Marking[];
@@ -152,6 +154,8 @@ export function addGround(
   addRings(mesh, layers.water, 0.1, GROUND.water);
   // Above the water (footbridges), under the road surfaces that already cover their crossings.
   addPaths(mesh, layers.paths, 0.12);
+  // Bridge decks: stone slabs over the water, under any road surface that crosses them.
+  for (const ring of layers.bridges) addRing(mesh, ring, 0.13, GROUND.bridge, SURFACE.paving);
   // The road surface is pavement, with the carriageways and cycle tracks laid on it.
   for (const ring of layers.roads) addRing(mesh, ring, 0.15, GROUND.pavement, SURFACE.paving);
   for (const { kind, ring } of layers.carriageways) {

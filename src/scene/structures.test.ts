@@ -21,14 +21,17 @@ test('a tank is its footprint walled to its height under a lid, outlined at the 
   expect(lines.build().getAttribute('position').count).toBe(4 * 2);
 });
 
-test('a parapet is a low wall along its line, capped at both ends', () => {
+test('a parapet is a low wall under a capstone along its line, closed at both ends', () => {
   const [mesh, lines] = [new MeshBuilder(), new LineBuilder()];
   addParapet(mesh, lines, new Float32Array([0, 0, 10, 0, 10, 0, 20, 5]));
   const { triangles, box } = measure(mesh);
-  // Two segments (the repeated point is skipped): two sides and a top each, plus two ends.
-  expect(triangles).toBe(2 * 3 * 2 + 2 * 2);
+  // Two segments (the repeated point is skipped): two wall sides, two capstone sides and the
+  // capstone's top each, plus two ends.
+  expect(triangles).toBe(2 * 5 * 2 + 2 * 2);
   expect(box.max.y).toBeCloseTo(1.1);
   expect(box.min.y).toBeGreaterThan(0); // on the deck, not under the river
   expect(box.max.z - box.min.z).toBeGreaterThan(5);
+  // The capstone overhangs the wall: wider than the wall's 0.4 m along the first segment.
+  expect(box.min.z).toBeLessThan(-0.2);
   expect(lines.build().getAttribute('position').count).toBe(2 * 2 * 2);
 });

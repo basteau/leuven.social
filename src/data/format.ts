@@ -1,9 +1,9 @@
 /**
  * The compact binary city format ("LVN1"), served gzipped from public/data/.
  *
- * Layout: magic "LVN1", version, area rectangles, buildings, carriageways, markings, ten polygon
+ * Layout: magic "LVN1", version, area rectangles, buildings, carriageways, markings, eleven polygon
  * layers (roads, plazas, green, water, platforms, railway land, platform roofs, woods, pitches,
- * car parks), paths, rails, trees, props, tanks, parapets, street names.
+ * car parks, bridge decks), paths, rails, trees, props, tanks, parapets, street names.
  * Coordinates are decimetres, zigzag varints, delta-encoded within each ring. A ring starts from
  * where the ring before it in the same list started (the first from 0, 0): the bake writes
  * neighbours next to each other, so the jump is short.
@@ -38,7 +38,7 @@ import type { Bounds, Building, Carriageway, City, Marking, Prop, Rail } from '.
 import { boundsOf } from './geometry.ts';
 
 const MAGIC = 'LVN1';
-const VERSION = 12;
+const VERSION = 13;
 const DM = 10; // units per metre
 const ZIGZAG = { encoding: 'zigzag' } as const;
 const TURN = Math.PI * 2;
@@ -143,6 +143,7 @@ export function encodeCity(city: City): Uint8Array {
     city.woods,
     city.pitches,
     city.parking,
+    city.bridges,
   ];
   for (const layer of layers) {
     w.varint(layer.length);
@@ -261,19 +262,31 @@ export function decodeCity(bytes: Uint8Array): City {
     if (!kind) throw new CityFormatError('Bad marking kind.');
     return { kind, line: readRing(r, from) };
   });
-  const [roads, plazas, green, water, platforms, railLand, canopies, woods, pitches, parking] =
-    Array.from({ length: 10 }, () => list((from) => readRing(r, from))) as [
-      Rings,
-      Rings,
-      Rings,
-      Rings,
-      Rings,
-      Rings,
-      Rings,
-      Rings,
-      Rings,
-      Rings,
-    ];
+  const [
+    roads,
+    plazas,
+    green,
+    water,
+    platforms,
+    railLand,
+    canopies,
+    woods,
+    pitches,
+    parking,
+    bridges,
+  ] = Array.from({ length: 11 }, () => list((from) => readRing(r, from))) as [
+    Rings,
+    Rings,
+    Rings,
+    Rings,
+    Rings,
+    Rings,
+    Rings,
+    Rings,
+    Rings,
+    Rings,
+    Rings,
+  ];
 
   const paths = list((from) => {
     const packed = r.varint();
@@ -345,6 +358,7 @@ export function decodeCity(bytes: Uint8Array): City {
     treeHeights,
     props,
     tanks,
+    bridges,
     parapets,
     streetNames,
     streets,

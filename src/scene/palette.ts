@@ -56,7 +56,13 @@ export const PROPS = {
   beetle: 0x2f8a6e,
 } as const;
 /** Brewery tanks and silos in pale aluminium; bridge parapets in the warm stone of the quays. */
-export const STRUCTURES = { tank: 0xd4d2c8, tankTop: 0xb9b6ab, parapet: 0xc4ad85 } as const;
+export const STRUCTURES = {
+  tank: 0xd4d2c8,
+  tankTop: 0xb9b6ab,
+  parapet: 0xc4ad85,
+  /** The parapet's capstone, a paler, newer-looking stone. */
+  coping: 0xddd0b4,
+} as const;
 export const BIKES = [
   0x2f3a4a, 0x2b2420, 0xd2553f, 0xf6eedc, 0x8db36f, 0x5b6170, 0xe8b94a,
 ] as const;
@@ -121,6 +127,8 @@ export const GROUND = {
   pavement: 0xb3afa6,
   plaza: 0xd8bb90,
   water: 0x5f9fc4,
+  /** Bridge decks: the pavement's slabs a shade warmer, so a street runs on over the bridge. */
+  bridge: 0xb8b0a1,
   /** Paved footpaths: pale slabs, lighter than the roads. */
   path: 0xb9b0a0,
   /** Gravel and earth trails through the parks. */

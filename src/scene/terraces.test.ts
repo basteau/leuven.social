@@ -31,6 +31,7 @@ const city = (over: Partial<City> = {}): City => ({
   treeHeights: new Float32Array(),
   props: [],
   tanks: [],
+  bridges: [],
   parapets: [],
   streetNames: ['Grote Markt', 'Oude Markt'],
   streets: [],

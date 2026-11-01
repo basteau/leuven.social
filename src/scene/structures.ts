@@ -34,36 +34,54 @@ export function addTank(mesh: MeshBuilder, lines: LineBuilder, { height, ring }:
   }
 }
 
-/** A bridge parapet along an open line: a low stone wall, outlined along its top. */
+/** The capstone along a parapet's top: how far it overhangs each face, and how thick it is (m). */
+const COPING_OVER = 0.06;
+const COPING = 0.08;
+
+/**
+ * A bridge parapet along an open line: a low stone wall under a paler capstone that overhangs
+ * it a little, outlined along the capstone's edges.
+ */
 export function addParapet(mesh: MeshBuilder, lines: LineBuilder, line: ArrayLike<number>): void {
   const last = line.length / 2 - 1;
   for (let i = 0; i < last; i++) {
     const [ax, az, bx, bz] = [line[i * 2]!, line[i * 2 + 1]!, line[i * 2 + 2]!, line[i * 2 + 3]!];
     const length = Math.hypot(bx - ax, bz - az);
     if (length < 1e-6) continue;
-    const [nx, nz] = [((bz - az) / length) * PARAPET_HALF, (-(bx - ax) / length) * PARAPET_HALF];
-    const corner = (x: number, z: number, side: 1 | -1, y: number): V3 => [
-      x + nx * side,
+    const [ux, uz] = [(bz - az) / length, -(bx - ax) / length];
+    const corner = (x: number, z: number, side: 1 | -1, y: number, half = PARAPET_HALF): V3 => [
+      x + ux * half * side,
       y,
-      z + nz * side,
+      z + uz * half * side,
     ];
+    const under = PARAPET_TOP - COPING;
+    const cap = PARAPET_HALF + COPING_OVER;
     for (const side of [1, -1] as const) {
+      const out: V3 = [ux * side, 0, uz * side];
       mesh.quad(
         corner(ax, az, side, DECK),
         corner(bx, bz, side, DECK),
-        corner(bx, bz, side, PARAPET_TOP),
-        corner(ax, az, side, PARAPET_TOP),
+        corner(bx, bz, side, under),
+        corner(ax, az, side, under),
         STRUCTURES.parapet,
-        [nx * side, 0, nz * side],
+        out,
       );
-      lines.segment(corner(ax, az, side, PARAPET_TOP), corner(bx, bz, side, PARAPET_TOP));
+      mesh.quad(
+        corner(ax, az, side, under, cap),
+        corner(bx, bz, side, under, cap),
+        corner(bx, bz, side, PARAPET_TOP, cap),
+        corner(ax, az, side, PARAPET_TOP, cap),
+        STRUCTURES.coping,
+        out,
+      );
+      lines.segment(corner(ax, az, side, PARAPET_TOP, cap), corner(bx, bz, side, PARAPET_TOP, cap));
     }
     mesh.quad(
-      corner(ax, az, 1, PARAPET_TOP),
-      corner(bx, bz, 1, PARAPET_TOP),
-      corner(bx, bz, -1, PARAPET_TOP),
-      corner(ax, az, -1, PARAPET_TOP),
-      STRUCTURES.parapet,
+      corner(ax, az, 1, PARAPET_TOP, cap),
+      corner(bx, bz, 1, PARAPET_TOP, cap),
+      corner(bx, bz, -1, PARAPET_TOP, cap),
+      corner(ax, az, -1, PARAPET_TOP, cap),
+      STRUCTURES.coping,
       UP,
     );
     // Its ends, where the wall meets the bank.
@@ -75,8 +93,8 @@ export function addParapet(mesh: MeshBuilder, lines: LineBuilder, line: ArrayLik
       mesh.quad(
         corner(x, z, 1, DECK),
         corner(x, z, -1, DECK),
-        corner(x, z, -1, PARAPET_TOP),
-        corner(x, z, 1, PARAPET_TOP),
+        corner(x, z, -1, PARAPET_TOP, cap),
+        corner(x, z, 1, PARAPET_TOP, cap),
         STRUCTURES.parapet,
         [((bx - ax) / length) * sign, 0, ((bz - az) / length) * sign],
       );

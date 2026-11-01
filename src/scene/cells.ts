@@ -96,6 +96,7 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
           ground: {
             green: [],
             water: [],
+            bridges: [],
             woods: [],
             pitches: [],
             parking: [],

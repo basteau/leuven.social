@@ -64,6 +64,7 @@ const city: City = {
     { kind: 'needle', x: S + 60, z: 60, angle: 0, size: 23 },
   ],
   tanks: [{ height: 15, ring: box(S + 100, 100, 6, 6) }],
+  bridges: [],
   parapets: [new Float32Array([40, 120, 40, 130])],
   streetNames: [],
   streets: [],

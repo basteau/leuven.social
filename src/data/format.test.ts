@@ -80,6 +80,7 @@ const city: City = {
     { kind: 'needle', x: -100, z: 200.7, angle: 0, size: 23 },
   ],
   tanks: [{ height: 14.5, ring: square(500, -1000, 6) }],
+  bridges: [square(-60, 0, 10)],
   parapets: [new Float32Array([-3, 0, -3, 10]), new Float32Array([3, 0, 3, 5, 3.5, 10])],
   streetNames: ['Grote Markt', 'Naamsestraat'],
   streets: [
@@ -137,6 +138,7 @@ describe('city format', () => {
       expect(p.angle).toBeCloseTo(original.angle, 1); // a 256th of a turn
     }
     expect(decoded.tanks).toEqual(city.tanks);
+    expect(decoded.bridges.map((p) => Array.from(p))).toEqual(city.bridges.map(exact));
     expect(decoded.parapets).toEqual(city.parapets);
     expect(decoded.streetNames).toEqual(city.streetNames);
     expect(decoded.streets).toEqual(city.streets);
