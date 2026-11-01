@@ -38,6 +38,7 @@ import {
   spanAt,
   stretchBoom,
   turnBoom,
+  wheelKind,
   wrap,
 } from './chase.ts';
 import type { Boom, Lens, Shot, Vec3 } from './chase.ts';
@@ -106,6 +107,8 @@ const STICK_SHARE = 0.42;
 const ISO_PITCH = Math.atan(1 / Math.SQRT2);
 /** Within this distance of the walker (m), the flight checks it can still see it. */
 const FLIGHT_CHECK = 400;
+/** Wheel events closer together than this (ms) are one gesture: a swipe stays a swipe. */
+const GESTURE_GAP_MS = 150;
 
 export interface WalkHost {
   scene: Scene;
@@ -488,10 +491,24 @@ export function createWalk(host: WalkHost): Walk {
     if (presses.get(event.pointerId)?.stick) releaseStick();
     presses.delete(event.pointerId);
   };
+  // A trackpad's two-finger swipe looks around like a drag; a pinch or a mouse wheel zooms.
+  let gesture: 'pinch' | 'swipe' | 'wheel' = 'wheel';
+  let gestureAt = -Infinity;
   const onWheel = (event: WheelEvent) => {
     if (mode !== 'walk') return;
     event.preventDefault();
-    stretchBoom(boom, Math.exp(event.deltaY * 0.0015));
+    const kind = wheelKind(event);
+    const going = event.timeStamp - gestureAt < GESTURE_GAP_MS;
+    gesture = going && gesture === 'swipe' && kind === 'wheel' ? 'swipe' : kind;
+    gestureAt = event.timeStamp;
+    if (gesture === 'swipe') {
+      // Fingers move the world as a drag would.
+      const scale = (Math.PI * 1.2) / Math.max(700, canvas.clientWidth);
+      turnBoom(boom, -event.deltaX * scale, event.deltaY * scale);
+      lastLook = event.timeStamp;
+    } else {
+      stretchBoom(boom, Math.exp(event.deltaY * (gesture === 'pinch' ? 0.01 : 0.0015)));
+    }
     wake();
   };
   const onContextMenu = (event: Event) => {

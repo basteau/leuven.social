@@ -22,6 +22,7 @@ import {
   spanAt,
   stretchBoom,
   turnBoom,
+  wheelKind,
 } from './chase.ts';
 import type { Lens, Shot, Vec3 } from './chase.ts';
 
@@ -228,4 +229,14 @@ test('tall screens get a wider lens, so a phone still sees the street either sid
   expect(chaseFov(390 / 844)).toBeGreaterThan(80);
   const side = 2 * Math.atan(Math.tan((chaseFov(390 / 844) * Math.PI) / 360) * (390 / 844));
   expect((side * 180) / Math.PI).toBeCloseTo(44);
+});
+
+test('a trackpad swipe looks around; a pinch or a mouse wheel zooms', () => {
+  const at = { deltaMode: 0, deltaX: 0, deltaY: 0, ctrlKey: false };
+  expect(wheelKind({ ...at, deltaY: 3, ctrlKey: true })).toBe('pinch');
+  expect(wheelKind({ ...at, deltaMode: 1, deltaY: 3 })).toBe('wheel');
+  expect(wheelKind({ ...at, deltaX: -4, deltaY: 1 })).toBe('swipe');
+  expect(wheelKind({ ...at, deltaY: 100, wheelDeltaY: -120 })).toBe('wheel');
+  expect(wheelKind({ ...at, deltaY: -7, wheelDeltaY: 21 })).toBe('swipe');
+  expect(wheelKind({ ...at, deltaY: 5 })).toBe('swipe');
 });

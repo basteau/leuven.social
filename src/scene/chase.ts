@@ -221,6 +221,29 @@ export function flight(a: Shot, b: Shot, t: number, out: Lens): Lens {
   return out;
 }
 
+/** The parts of a wheel event that tell a trackpad from a mouse. */
+export interface Wheel {
+  deltaMode: number;
+  deltaX: number;
+  deltaY: number;
+  ctrlKey: boolean;
+  /** Non-standard, but Chrome, Safari and Firefox all send it: ±120 a notch on a mouse. */
+  wheelDeltaY?: number;
+}
+
+/**
+ * What a wheel event is: a pinch (the browser sends trackpad pinches as ctrl + wheel), a
+ * two-finger swipe on a trackpad, or a mouse wheel. Swipes look around, the others zoom.
+ */
+export function wheelKind(event: Wheel): 'pinch' | 'swipe' | 'wheel' {
+  if (event.ctrlKey) return 'pinch';
+  if (event.deltaMode !== 0) return 'wheel';
+  if (event.deltaX !== 0) return 'swipe';
+  const notch = event.wheelDeltaY;
+  if (notch && Number.isInteger(notch / 120)) return 'wheel';
+  return 'swipe';
+}
+
 /** The isometric map's yaw nearest a walk's camera: the map only turns in quarters. */
 export const mapYaw = (yaw: number) =>
   Math.round((yaw - Math.PI / 4) / (Math.PI / 2)) * (Math.PI / 2) + Math.PI / 4;
