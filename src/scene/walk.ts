@@ -666,7 +666,9 @@ export function createWalk(host: WalkHost): Walk {
         [boom.yaw, boom.pitch] = [boom.aimYaw, boom.aimPitch];
         boom.length = boom.distance;
       }
-      busy ||= easeBoom(boom, sprint, dt);
+      // Eased every frame: `busy ||= easeBoom(…)` would skip it whenever something else moved.
+      const easing = easeBoom(boom, sprint, dt);
+      busy ||= easing;
 
       // The boom shortens for walls: quickly, and before a corner cuts the view if it can.
       boomDirection(boom.yaw, boom.pitch, out);
