@@ -21,6 +21,8 @@
   --control: 44px;
   --control-big: 60px;
   --radius: 14px;
+  /* Inside a panel, 2px in from its 2px border: concentric with it. */
+  --radius-inner: calc(var(--radius) - 4px);
   --border: 2px;
   /* Pressing sinks a control into its shadow: hard, inked, no blur. */
   --lift: 3px;
@@ -166,12 +168,17 @@ kbd {
   padding-block-start: calc(var(--gutter) + env(safe-area-inset-top, 0px));
 }
 
-/* The street plate hangs under the Map button, both flush with the corner. */
+/*
+ * Walking, the corner is one panel: the Map button and the street plate inside it, 2px in from
+ * its border, with concentric corners, as tall as the actions (48px).
+ */
 .corner {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--space-s);
+  align-items: stretch;
+}
+
+.corner.panel {
+  padding: 2px;
 }
 
 .brand {
@@ -268,6 +275,7 @@ fieldset {
   border-radius: 999px;
   color: var(--ink);
   font: 700 0.9375rem / 1 var(--font-ui);
+  white-space: nowrap;
   cursor: pointer;
 }
 
@@ -278,6 +286,24 @@ fieldset {
 
 .action kbd {
   opacity: 0.75;
+}
+
+/* Inside a panel: bare, its corners concentric with the panel's, its hit area out to its edge. */
+.action.quiet {
+  position: relative;
+  flex: none;
+  min-block-size: 40px;
+  padding-inline: var(--space-s) var(--space-m);
+  border: 0;
+  border-radius: var(--radius-inner);
+  background: transparent;
+  box-shadow: none;
+}
+
+.action.quiet::after {
+  position: absolute;
+  inset: -4px;
+  content: '';
 }
 
 /* A round map control. In a stack, the stack is the outline and the buttons share it. */
@@ -364,7 +390,7 @@ fieldset {
 }
 
 /* Press feedback everywhere: the control sinks into its hard shadow. */
-.action:active:not(:disabled),
+.action:not(.quiet):active:not(:disabled),
 .round:not(.stack .round):active:not(:disabled) {
   translate: 0 calc(var(--lift) - 1px);
   box-shadow: var(--shadow-pressed);
@@ -432,41 +458,42 @@ fieldset {
   }
 }
 
-/* The street sign: small, quiet, read at a glance. Taps go through it to the map. */
+/* The street plate: inset in the corner panel, the accent's enamel under a paper rim. */
 .sign-slot {
-  max-inline-size: min(17rem, 100%);
+  display: flex;
 }
 
 .sign {
-  position: relative;
-  display: block;
-  padding: 0.3125rem 0.75rem;
-  border: var(--border) solid var(--ink);
-  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  max-inline-size: 17rem;
+  min-block-size: 40px;
+  margin-inline-start: 2px;
+  padding: var(--space-xs) var(--space-m);
+  border-radius: var(--radius-inner);
   background: var(--sign);
   color: var(--paper);
-  /* The enamel's rim, a little inside the edge, in the panels' paper. */
+  /* The enamel's rim, a little inside the edge. */
   box-shadow:
-    inset 0 0 0 2px var(--sign),
-    inset 0 0 0 3.5px var(--paper),
-    var(--shadow-hard);
+    inset 0 0 0 3px var(--sign),
+    inset 0 0 0 4.5px var(--paper);
   font-size: 0.875rem;
   font-weight: 750;
-  line-height: 1.3;
+  line-height: 1.25;
   letter-spacing: 0.015em;
+  text-align: center;
   text-wrap: balance;
 }
 
 .sign-name {
-  display: inline-block;
   animation: fade-in 200ms var(--ease-out);
 }
 
-/* It swings in from the corner's side; each new name follows it in. */
+/* It slides in from the Map button's side; each new name follows it in. */
 @media (prefers-reduced-motion: no-preference) {
   .sign {
-    transform-origin: 0 0;
-    animation: sign-in 260ms var(--ease-out);
+    animation: sign-in 240ms var(--ease-out);
   }
 
   .sign-name {
@@ -484,7 +511,6 @@ fieldset {
   from {
     opacity: 0;
     translate: -0.5rem 0;
-    rotate: -3deg;
   }
 }
 

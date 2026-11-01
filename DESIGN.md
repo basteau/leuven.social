@@ -95,13 +95,14 @@ Tokens are oklch, in `src/app/app.css`:
 | `--accent`, `--accent-press` | KU Leuven-ish blue (the walker's coat): the mode's primary action and a toggle that's on                                                       |
 | `--sign`                     | The street plate: the accent's hue a shade deeper. Deeper shades are set by lightness, never mixed with ink, which would turn the blue purple. |
 | `--control`, `--control-big` | 44 px round controls; 60 px for Run                                                                                                            |
+| `--radius`, `--radius-inner` | 14 px panels; 10 px for what sits inside one, concentric                                                                                       |
 | `--lift`, `--shadow-hard`    | The 3 px hard shadow every control stands on, and the 1 px one it sinks to when pressed                                                        |
 | `--gutter`                   | Edge spacing, 12–20 px with the screen, plus the safe-area insets                                                                              |
 
 ### Surfaces
 
 - 2 px ink border and a **hard 3 px drop shadow** with no blur: a nod to pixel UI that needs no transparency.
-- **Pills** for actions and the brand, **circles** for map controls, a 14 px radius for panels (the loading and error notice, hints). Controls that belong together share one capsule, split by a hairline.
+- **Pills** for actions and the brand, **circles** for map controls, a 14 px radius (`--radius`) for panels (the walking corner, the loading and error notice, hints). Things that belong together share one outline: the rail's controls one capsule split by a hairline, the walking corner one panel. What sits inside a panel is 2 px in from its 2 px border, with 10 px corners (`--radius-inner`), so they stay concentric.
 - Inner radii are concentric (outer radius minus padding).
 
 ### Type
@@ -117,15 +118,15 @@ Tokens are oklch, in `src/app/app.css`:
 - Every control is at least 44 px. On narrow screens the rail stands above the actions; on wide ones they share the bottom row.
 - **Map:** the brand in the corner, the rail, and **Walk** (W) as the primary action. Walking downloads on first use; if that takes over a quarter of a second, the hint says "Getting ready to walk…", and if it fails, "Walking couldn’t load. Check your connection and try again."
 - **Picking a start:** a reticle in the middle of the view, a hint ("Click a street to start there, or press Enter for the middle." / "Tap a street, or move the map and tap Start here."), and **Cancel** (Esc) / **Start here** (Enter).
-- **Walking:** **Map** (Esc) takes the corner, with the street plate hung under it. The rail turns and zooms the camera, with **Run** under it: a big round toggle, filled while on, labelled, under the right thumb.
+- **Walking:** the corner is one panel, 48 px tall like the actions: a bare **Map** button (Esc) and the street plate beside it. The rail turns and zooms the camera, with **Run** under it: a big round toggle, filled while on, labelled, under the right thumb.
 - **On touch,** a thumb that lands on the left of the screen grows a stick under it (ink ring, paper knob) and steers; anywhere else it looks around. Pushed to the rim, the stick runs.
 - A spot that can't be walked to says so in the hint ("Can’t walk there. Pick a street or square.") until the next try.
 
 ### The street plate
 
 - **Only while walking**, and only when the walker is on a named square or within 20 m of a named street. Names are OpenStreetMap's (`src/data/streets.ts`): a square wins over the streets round it, and at a corner the street already on the plate stays until another is 4 m closer, so it doesn't flicker.
-- **A small enamel plate in the corner,** under the Map button: accent-blue (`--sign`) with a paper rim just inside the ink border and paper text, 14 px, two lines at most. It reads as a sign on a building's corner, not as a button, and never sits in the middle of the view.
-- It swings in from the side, and each new name slides in after it (260–300 ms ease-out); with reduced motion, names only fade.
+- **An enamel plate inset in the corner panel,** beside the Map button: accent-blue (`--sign`) under a paper rim, paper text, 14 px, centred, two balanced lines at most (up to 17 rem wide). It has no border or shadow of its own: the panel's ink outline and hard shadow hold both, so it reads as part of the HUD, and never sits in the middle of the view. The Map button keeps its size; a long name wraps instead.
+- It slides in from the Map button's side, and each new name slides in after it (240–300 ms ease-out); with reduced motion, names only fade.
 - It's a polite live region ("On Brusselsestraat"), so screen readers hear each new street once.
 
 ### Hints and coaching
@@ -164,7 +165,7 @@ Places aren't named over the city: floating tags covered the very streets they n
 
 - **Rotation:** 280 ms ease-out. Instant with `prefers-reduced-motion`.
 - **Press feedback:** the control sinks into its hard shadow over 120 ms ease-out.
-- **The street plate:** swings in from the side (260 ms), each new name slides in (300 ms). With `prefers-reduced-motion` names only fade.
+- **The street plate:** slides in from the side (240 ms), each new name after it (300 ms). With `prefers-reduced-motion` names only fade.
 - **Hover:** only on devices with hover. Nothing else in the HUD animates; the compass needle turns with the view, frame by frame.
 - **Walking and running:** a procedural cycle that blends from walk to run with speed. Legs and arms swing against each other, each knee folds as its leg swings through, the hips sit as high as the planted leg reaches so the soles stay down; running lengthens the stride, bends the elbows and leans in. The torso banks into turns and the head follows the camera. Standing still, the walker breathes and glances about for four seconds, then rests.
 - **The camera** flies between the map and the street in 1.4 s, its lens widening as it closes in so the first frame matches the isometric map. Its look point trails the walker by a hair. With `prefers-reduced-motion` it cuts instead of flying, follows without easing and doesn't swing behind on routes; the figure appears without its pop and doesn't fidget. The walk cycle itself stays, since the user is moving the figure.

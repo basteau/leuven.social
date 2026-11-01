@@ -278,13 +278,17 @@ export function App() {
       {walkMode === 'pick' && <Reticle />}
 
       <header className="hud hud-top">
-        {/* The top-start corner: who we are on the map; walking, the way back and the street. */}
-        <div className="corner">
+        {/*
+          The top-start corner: who we are on the map; walking, one panel with the way back and
+          the street, the way the rail's controls share an outline.
+        */}
+        <div className={walkMode === 'walk' ? 'corner panel' : 'corner'}>
           {walkMode === 'walk' ? (
             <ActionButton
               label="Map"
               shortcut="Esc"
               keys="Escape"
+              quiet
               disabled={!ready}
               onPress={() => viewer()?.stopWalking()}
             >

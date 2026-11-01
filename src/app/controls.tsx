@@ -15,12 +15,14 @@ const shortcutOf = (props: Common) => (props.hold ? undefined : (props.keys ?? p
 
 /**
  * A pill with an icon and a visible label: the one or two things each mode is for (Walk, Start
- * here, Map). `primary` fills it with the accent; the shortcut shows where there's a keyboard.
+ * here, Map). `primary` fills it with the accent; `quiet` leaves it bare, for a panel it shares
+ * with something else. The shortcut shows where there's a keyboard.
  */
 export function ActionButton(
   props: Common & {
     label: string;
     primary?: boolean;
+    quiet?: boolean;
     /** Its action is under way (walk mode downloading). */
     busy?: boolean;
     /** About to be pressed (hovered or focused): a chance to get ready. */
@@ -30,7 +32,7 @@ export function ActionButton(
   return (
     <button
       type="button"
-      className={props.primary ? 'action primary' : 'action'}
+      className={props.primary ? 'action primary' : props.quiet ? 'action quiet' : 'action'}
       aria-keyshortcuts={shortcutOf(props)}
       aria-busy={props.busy || undefined}
       disabled={props.disabled}
