@@ -7,7 +7,22 @@ import { WALKER } from './palette.ts';
 /** Every other pixel, in a checkerboard: see-through without blending or sorting. */
 const CHECKER = 'mod(floor(gl_FragCoord.x) + floor(gl_FragCoord.y), 2.0) < 1.0';
 
-function withDither(shader: WebGLProgramParametersWithUniforms, discard: string): void {
+/**
+ * A 4×4 ordered dither (0 to 15/16 across each block of pixels): dropping the pixels whose value
+ * is at least `fade` draws the figure at that opacity in 16 even steps, still without blending.
+ */
+const BAYER = `uniform float fade;
+float bayer2(vec2 a) { a = floor(a); return fract(a.x / 2.0 + a.y * a.y * 0.75); }
+float bayer4(vec2 a) { return bayer2(0.5 * a) * 0.25 + bayer2(a); }`;
+const FADED = 'bayer4(gl_FragCoord.xy) >= fade';
+
+/** How much of the walker to draw, 0 to 1: shared by its materials, set by the walk loop. */
+export interface Fade {
+  value: number;
+}
+
+function withDither(shader: WebGLProgramParametersWithUniforms, fade: Fade, discard: string): void {
+  shader.uniforms.fade = fade;
   shader.vertexShader = shader.vertexShader
     .replace(
       '#include <common>',
@@ -20,22 +35,25 @@ function withDither(shader: WebGLProgramParametersWithUniforms, discard: string)
   shader.fragmentShader = shader.fragmentShader
     .replace(
       '#include <common>',
-      '#include <common>\nvarying float vDither;\nvarying float vHeight;',
+      `#include <common>\nvarying float vDither;\nvarying float vHeight;\n${BAYER}`,
     )
     .replace(
       '#include <clipping_planes_fragment>',
-      `#include <clipping_planes_fragment>\n${discard}`,
+      `#include <clipping_planes_fragment>\nif (${FADED}) discard;\n${discard}`,
     );
 }
 
-/** The walker's toon material: its blob shadow (the `dither` vertices) is a pixel checkerboard. */
-export function createCharacterMaterial(gradientMap: Texture): MeshToonMaterial {
+/**
+ * The walker's toon material: its blob shadow (the `dither` vertices) is a pixel checkerboard,
+ * and all of it dithers away as `fade` drops, for a camera squeezed up against it.
+ */
+export function createCharacterMaterial(gradientMap: Texture, fade: Fade): MeshToonMaterial {
   const material = new MeshToonMaterial({ vertexColors: true, gradientMap });
   material.onBeforeCompile = (shader) => {
     shader.vertexShader = linearVertexColors(shader.vertexShader);
-    withDither(shader, `if (vDither > 0.5 && ${CHECKER}) discard;`);
+    withDither(shader, fade, `if (vDither > 0.5 && ${CHECKER}) discard;`);
   };
-  material.customProgramCacheKey = () => 'walker-v1';
+  material.customProgramCacheKey = () => 'walker-v2';
   return material;
 }
 
@@ -44,7 +62,7 @@ export function createCharacterMaterial(gradientMap: Texture): MeshToonMaterial 
  * slate roofs and pale walls alike. It draws only where something nearer already filled the
  * depth buffer, and never for the shadow.
  */
-export function createXrayMaterial(): MeshBasicMaterial {
+export function createXrayMaterial(fade: Fade): MeshBasicMaterial {
   const material = new MeshBasicMaterial({
     color: WALKER.coat,
     depthFunc: GreaterDepth,
@@ -52,7 +70,7 @@ export function createXrayMaterial(): MeshBasicMaterial {
   });
   // Not the soles either: mid-stride their corners dip into the street, which isn't hiding them.
   material.onBeforeCompile = (shader) =>
-    withDither(shader, `if (vDither > 0.5 || vHeight < 0.25 || !(${CHECKER})) discard;`);
-  material.customProgramCacheKey = () => 'walker-xray-v1';
+    withDither(shader, fade, `if (vDither > 0.5 || vHeight < 0.25 || !(${CHECKER})) discard;`);
+  material.customProgramCacheKey = () => 'walker-xray-v2';
   return material;
 }

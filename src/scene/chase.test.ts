@@ -7,11 +7,14 @@ import {
   MAP_FOV,
   PITCH,
   PITCH_RANGE,
+  SHORT_BOOM,
   boomDirection,
+  boomReach,
   chaseFov,
   clearPitch,
   createBoom,
   easeBoom,
+  figureOpacity,
   flight,
   freeLength,
   headLook,
@@ -19,7 +22,9 @@ import {
   reachGoal,
   recentre,
   recentreWeight,
+  settleFloor,
   settleReach,
+  shoulderPitch,
   spanAt,
   stretchBoom,
   turnBoom,
@@ -90,6 +95,9 @@ describe('the boom', () => {
   });
 });
 
+/** A wall from x = 0.5 on, past z = 2. */
+const corner = (x: number, z: number) => (x > 0.5 && z > 2 ? 10 : 0);
+
 /** A house 10 m tall from z = 5 to 8, open street elsewhere. */
 const house = (_x: number, z: number) => (z >= 5 && z <= 8 ? 10 : 0);
 
@@ -150,6 +158,78 @@ describe('walls and the ground', () => {
     expect(reachGoal(8, 8, 8)).toBe(8);
     expect(reachGoal(8, 4, 8)).toBe(6);
     expect(reachGoal(3, 4, 8)).toBe(3);
+  });
+
+  test('the reach along a boom feels with both whiskers', () => {
+    // Only the whisker turned toward +x meets the corner.
+    const look: Vec3 = [0, 2.6, 0];
+    expect(freeLength(corner, look, boomDirection(0, 0, [0, 0, 0]), 8)).toBe(8);
+    const reach = boomReach(corner, look, 0, 0, 8);
+    expect(reach).toBeLessThan(8);
+    expect(reach).toBeGreaterThan(4);
+    expect(boomReach(() => 0, look, 0, 0, 8)).toBe(8);
+  });
+});
+
+/** A street 3 m wide along x, between 12 m houses: a boom at yaw 0 points across it. */
+const lane = (_x: number, z: number) => (Math.abs(z) > 1.5 ? 12 : 0);
+
+describe('tight spots', () => {
+  const look: Vec3 = [0, 2.6, 0];
+  const dir: Vec3 = [0, 0, 0];
+  const freeAt = (map: typeof lane) => (pitch: number) =>
+    freeLength(map, look, boomDirection(0, pitch, dir), SHORT_BOOM);
+
+  test('across a narrow street, the boom rises over the shoulder instead of closing in', () => {
+    expect(freeAt(lane)(PITCH)).toBeLessThan(SHORT_BOOM);
+    const pitch = shoulderPitch(freeAt(lane), PITCH);
+    expect(pitch).toBeGreaterThan(PITCH + 0.2);
+    expect(pitch).toBeLessThanOrEqual(PITCH_RANGE[1]);
+    expect(freeAt(lane)(pitch)).toBeGreaterThanOrEqual(SHORT_BOOM);
+    // Only as high as it must: a little lower, it's short again.
+    expect(freeAt(lane)(pitch - 0.05)).toBeLessThan(SHORT_BOOM);
+  });
+
+  test('with room behind, or none above either, the pitch stays where it was', () => {
+    expect(
+      shoulderPitch(
+        freeAt(() => 0),
+        PITCH,
+      ),
+    ).toBe(PITCH);
+    expect(shoulderPitch(() => 0.5, PITCH)).toBe(PITCH);
+  });
+
+  test('with too little room at every pitch, it takes the roomiest', () => {
+    const roomiest = shoulderPitch((pitch) => 1.5 - Math.abs(pitch - 0.9), PITCH);
+    expect(roomiest).toBeGreaterThan(0.8);
+    expect(roomiest).toBeLessThan(1);
+  });
+
+  test('rises quickly and sinks back gently, the same at any frame rate', () => {
+    const rise = [30, 120].map((hz) => {
+      let floor = PITCH;
+      for (let i = 0; i < hz * 0.3; i++) floor = settleFloor(floor, 1, 1 / hz);
+      return floor;
+    });
+    expect(rise[0]).toBeGreaterThan(0.9);
+    expect(rise[0]).toBeCloseTo(rise[1]!, 5);
+    let floor = 1;
+    for (let i = 0; i < 12; i++) floor = settleFloor(floor, PITCH, 1 / 60);
+    expect(floor).toBeGreaterThan(0.7);
+  });
+
+  test('the figure fades only once the camera is within about a metre of it', () => {
+    expect(figureOpacity(0, 5, 3)).toBe(1);
+    expect(figureOpacity(1.5, 1.2, 0)).toBe(1);
+    // Beside the head, half a metre off it: mostly gone; touching it, gone.
+    const near = figureOpacity(0.4 + 0.6, 2, 0);
+    expect(near).toBeGreaterThan(0);
+    expect(near).toBeLessThan(0.5);
+    expect(figureOpacity(0.2, 2, 0)).toBe(0);
+    // Above the head counts from the top of it, below the feet from the soles.
+    expect(figureOpacity(0, 2.4 + 0.4 + 0.65, 0)).toBeCloseTo(0.5, 1);
+    expect(figureOpacity(0, -0.5, 0)).toBe(0);
   });
 });
 

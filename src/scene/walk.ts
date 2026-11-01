@@ -17,25 +17,30 @@ import type { City } from '../data/city.ts';
 import { Router } from '../data/route.ts';
 import { WalkGrid, pickWalkable } from '../data/walkable.ts';
 import { createCharacterMaterial, createXrayMaterial } from './character-material.ts';
+import type { Fade } from './character-material.ts';
 import { CHARACTER_SCALE, applyPose, createCharacter, poseAt, restPose } from './character.ts';
 import type { Character } from './character.ts';
 import {
   CHASE_FOV,
   LOOK_HEIGHT,
   MAP_FOV,
+  SHORT_BOOM,
   boomDirection,
+  boomReach,
   chaseFov,
   clearPitch,
   createBoom,
   easeBoom,
+  figureOpacity,
   flight,
   freeLength,
   headLook,
   mapYaw,
-  reachGoal,
   recentre,
   recentreWeight,
+  settleFloor,
   settleReach,
+  shoulderPitch,
   spanAt,
   stretchBoom,
   turnBoom,
@@ -99,8 +104,6 @@ const TURN_STEP = Math.PI / 4;
 const RECENTRE_WAIT_MS = 1500;
 const RECENTRE_RATE = 0.45;
 const ROUTE_RECENTRE_RATE = 1.1;
-/** Whiskers either side of the boom (radians) feel for corners before they cut the view. */
-const WHISKER = 0.15;
 /** The thumb stick: how far it reaches (px); pushed to the rim, it runs. */
 const STICK_RADIUS = 52;
 /** Touches that start in this share of the screen, from its left edge, steer. */
@@ -229,8 +232,9 @@ export function createWalk(host: WalkHost): Walk {
   scene.add(sky);
 
   let character: Character | undefined;
-  const body = createCharacterMaterial(host.gradientMap);
-  const xray = createXrayMaterial();
+  const fade: Fade = { value: 1 };
+  const body = createCharacterMaterial(host.gradientMap, fade);
+  const xray = createXrayMaterial(fade);
   // The route hint is drawn half see-through, so it reads as chalk on the street, not paint.
   const hint = new Mesh(
     undefined,
@@ -256,7 +260,8 @@ export function createWalk(host: WalkHost): Walk {
   const boom: Boom = createBoom(0);
   const lookAt: Vec3 = [0, 0, 0];
   const out: Vec3 = [0, 0, 0];
-  const whisker: Vec3 = [0, 0, 0];
+  /** How far the boom reaches at a pitch, as far as a tight spot needs to know. */
+  const freeAt = (pitch: number) => boomReach(heightAt, lookAt, boom.yaw, pitch, SHORT_BOOM);
   const followX = spring();
   const followZ = spring();
   /** How far into a run the walker is, for the lens: 0 walking, 1 flat out. */
@@ -670,25 +675,17 @@ export function createWalk(host: WalkHost): Walk {
       const easing = easeBoom(boom, sprint, dt);
       busy ||= easing;
 
-      // The boom shortens for walls: quickly, and before a corner cuts the view if it can.
-      boomDirection(boom.yaw, boom.pitch, out);
-      const free = freeLength(heightAt, lookAt, out, boom.length);
-      const left = freeLength(
-        heightAt,
-        lookAt,
-        boomDirection(boom.yaw - WHISKER, boom.pitch, whisker),
-        boom.length,
-      );
-      const right = freeLength(
-        heightAt,
-        lookAt,
-        boomDirection(boom.yaw + WHISKER, boom.pitch, whisker),
-        boom.length,
-      );
-      const want = reachGoal(free, left, right);
+      // In a tight spot the boom rises to look over the walker's shoulder rather than close in
+      // on its head; then it shortens for walls: quickly, and before a corner cuts the view.
+      const rise = shoulderPitch(freeAt, boom.pitch);
+      boom.floor = reducedMotion ? rise : settleFloor(boom.floor, rise, dt);
+      busy ||= Math.abs(boom.floor - rise) > 1e-3;
+      const pitch = Math.max(boom.pitch, boom.floor);
+      const want = boomReach(heightAt, lookAt, boom.yaw, pitch, boom.length);
+      boomDirection(boom.yaw, pitch, out);
       const r = boom.reach;
-      const inside =
-        lookAt[1] + out[1] * r < heightAt(lookAt[0] + out[0] * r, lookAt[2] + out[2] * r) + 0.2;
+      const [cx, cy, cz] = [lookAt[0] + out[0] * r, lookAt[1] + out[1] * r, lookAt[2] + out[2] * r];
+      const inside = cy < heightAt(cx, cz) + 0.2;
       boom.reach = reducedMotion ? want : settleReach(r, want, dt, inside);
       busy ||= Math.abs(boom.reach - want) > 0.01;
       controls.target.set(walker.x, 0, walker.z);
@@ -703,6 +700,9 @@ export function createWalk(host: WalkHost): Walk {
         }
       }
       placeView(dt);
+      // A camera squeezed up against the walker sees through it rather than into its head.
+      const eye = view.position;
+      fade.value = flying ? 1 : figureOpacity(eye.x - x, eye.y - GROUND_Y, eye.z - z);
       if (flying === -1 && flown === 0) land();
     }
 
@@ -715,7 +715,7 @@ export function createWalk(host: WalkHost): Walk {
   function placeView(dt = 0): void {
     const fov = chaseFov(canvas.clientWidth / Math.max(1, canvas.clientHeight), sprint);
     chaseShot.yaw = boom.yaw;
-    chaseShot.pitch = boom.pitch;
+    chaseShot.pitch = Math.max(boom.pitch, boom.floor);
     chaseShot.fov = fov;
     chaseShot.span = spanAt(boom.reach, fov);
     flight(mapShot, chaseShot, flown, lens);

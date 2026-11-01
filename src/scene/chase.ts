@@ -49,6 +49,11 @@ export interface Boom {
   distance: number;
   length: number;
   reach: number;
+  /**
+   * The lowest the boom may sit just now (pitch), raised where a short boom would bring the
+   * camera into the walker's head; the boom is drawn at whichever of this and `pitch` is higher.
+   */
+  floor: number;
 }
 
 export const createBoom = (yaw: number): Boom => ({
@@ -59,6 +64,7 @@ export const createBoom = (yaw: number): Boom => ({
   distance: DISTANCE,
   length: DISTANCE,
   reach: DISTANCE,
+  floor: PITCH,
 });
 
 const clamp = (v: number, [lo, hi]: readonly [number, number]) => Math.min(hi, Math.max(lo, v));
@@ -145,6 +151,26 @@ export function freeLength(
 export const reachGoal = (free: number, left: number, right: number) =>
   Math.min(free, (free + Math.min(left, right)) / 2);
 
+/** Whiskers either side of the boom (radians) feel for corners before they cut the view. */
+const WHISKER = 0.15;
+const ray: Vec3 = [0, 0, 0];
+
+/**
+ * The length to ease a boom at `yaw` and `pitch` to, up to `max`: the free length along it and
+ * along its whiskers (`reachGoal`).
+ */
+export function boomReach(
+  heightAt: (x: number, z: number) => number,
+  from: Vec3,
+  yaw: number,
+  pitch: number,
+  max: number,
+): number {
+  const along = (turn: number) =>
+    freeLength(heightAt, from, boomDirection(yaw + turn, pitch, ray), max);
+  return reachGoal(along(0), along(-WHISKER), along(WHISKER));
+}
+
 /**
  * Eases the boom toward a free length: in quickly, out gently. `inside` says the camera,
  * where it is now, would sit in a house or under ground: then it is in at once.
@@ -152,6 +178,69 @@ export const reachGoal = (free: number, left: number, right: number) =>
 export function settleReach(reach: number, goal: number, dt: number, inside = false): number {
   if (inside && goal < reach) return goal;
   return decay(reach, goal, goal < reach ? PULL_IN : LET_OUT, dt);
+}
+
+/** Below this free length (m) the boom rises to look down over the walker's shoulder. */
+export const SHORT_BOOM = 2;
+/** Half-lives (s) of the boom rising for a tight spot, and sinking back once out of it. */
+const RISE = 0.08;
+const SINK = 0.4;
+/** Pitches tried on the way up, before the one that frees the boom is narrowed down. */
+const RISE_TRIES = 6;
+
+/**
+ * The lowest pitch, from `pitch` up to the boom's limit, at which the boom reaches at least
+ * SHORT_BOOM (`freeAt` gives its reach at a pitch, up to that): in a narrow street, a
+ * camera that would back into a wall rises and looks down over the walker's shoulder instead
+ * of closing in on its head, as third-person cameras do. Where no pitch has that much room it
+ * takes the roomiest (the lowest of equals: under a low crown, where it was), and the figure
+ * fades if the camera still comes close.
+ */
+export function shoulderPitch(freeAt: (pitch: number) => number, pitch: number): number {
+  let [best, room] = [pitch, freeAt(pitch)];
+  if (room >= SHORT_BOOM) return pitch;
+  const top = PITCH_RANGE[1];
+  let low = pitch;
+  for (let i = 1; i <= RISE_TRIES; i++) {
+    const high = pitch + ((top - pitch) * i) / RISE_TRIES;
+    const free = freeAt(high);
+    if (free > room + 1e-6) [best, room] = [high, free];
+    if (free < SHORT_BOOM) {
+      low = high;
+      continue;
+    }
+    let [blocked, open] = [low, high];
+    for (let k = 0; k < 4; k++) {
+      const mid = (blocked + open) / 2;
+      if (freeAt(mid) >= SHORT_BOOM) open = mid;
+      else blocked = mid;
+    }
+    return open;
+  }
+  return best;
+}
+
+/** Eases the boom's floor toward the pitch a tight spot needs: up quickly, down gently. */
+export const settleFloor = (floor: number, goal: number, dt: number) =>
+  decay(floor, goal, goal > floor ? RISE : SINK, dt);
+
+/** The walker's height and half its width, drawn 1.3× life size (m). */
+const FIGURE_TOP = 2.4;
+const FIGURE_RADIUS = 0.4;
+/** The figure fades out as the camera comes from this far to this near it (m). */
+const FADE_FROM = 1;
+const FADE_TO = 0.3;
+
+/**
+ * How much of the figure to draw (0 to 1) with the camera at (dx, dy, dz) from its feet: all of
+ * it until the camera is about a metre away, then less and less, so a camera squeezed against
+ * it never shows the inside of a head. It follows the camera's own smooth motion.
+ */
+export function figureOpacity(dx: number, dy: number, dz: number): number {
+  const up = dy < 0 ? dy : Math.max(0, dy - FIGURE_TOP);
+  const gap = Math.hypot(dx, up, dz) - FIGURE_RADIUS;
+  const t = Math.min(1, Math.max(0, (gap - FADE_TO) / (FADE_FROM - FADE_TO)));
+  return t * t * (3 - 2 * t);
 }
 
 /**
