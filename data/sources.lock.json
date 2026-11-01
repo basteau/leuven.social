@@ -62,6 +62,13 @@
     "sha256": "74578ebcc7c4c7a42c1519f57dcf98328226543a3ce096d584fbbd3592dc0cb0",
     "fetched": "2026-10-31"
   },
+  "grb-wgo": {
+    "plan": "ae14be0b2c2f35d2",
+    "files": 1,
+    "bytes": 6918068,
+    "sha256": "ed44791392b31e87655752a3109594a90568bf964f2f6c9011156d461a95adae",
+    "fetched": "2026-11-01"
+  },
   "grb-wtz": {
     "plan": "63e6028b6bdadd43",
     "files": 1,
@@ -91,10 +98,10 @@
     "fetched": "2026-10-31"
   },
   "ortho": {
-    "plan": "160270a7e61ed99e",
-    "files": 1016,
-    "bytes": 83513598,
-    "sha256": "f302cd1d6672284be7277b3bb05c546c2d0e0c612049c66ecaf646464a0c9875",
-    "fetched": "2026-10-31"
+    "plan": "b3fceab02b694de4",
+    "files": 1068,
+    "bytes": 87989559,
+    "sha256": "dfef3f6ae72c2474161d66a398e5ca322abc630ddc57b54c0bbaf1053027309d",
+    "fetched": "2026-11-01"
   }
 }

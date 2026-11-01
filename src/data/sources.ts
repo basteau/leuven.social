@@ -133,7 +133,8 @@ export const SOURCES: readonly Source[] = [
     out: 'tags geom',
     tile: OVERPASS_TILE,
     output: 'osm/roads.json',
-    usedBy: 'bake: paths and pedestrian areas, labels',
+    usedBy:
+      'bake: paths and pedestrian areas, labels; tools/build_road_zones.py: road surfaces, lanes and crossings',
   },
   {
     id: 'osm-areas',
@@ -149,7 +150,7 @@ export const SOURCES: readonly Source[] = [
     out: 'tags geom',
     tile: OVERPASS_TILE,
     output: 'osm/areas.json',
-    usedBy: 'bake: green, water, plazas and labels',
+    usedBy: 'bake: green, water, plazas, labels, railway tracks and railway land',
   },
   {
     id: 'osm-points',
@@ -181,11 +182,20 @@ export const SOURCES: readonly Source[] = [
     out: 'geom',
     tile: OVERPASS_TILE,
     output: 'osm/rail_platforms.json',
-    usedBy: 'bake: station platforms (railways branch)',
+    usedBy: 'bake: station platforms',
   },
   grb('GBG', 'Building footprints, with courtyards', 'tools/build_leuven_data.py: every building'),
-  grb('GBA', 'Building annexes', 'tools/build_leuven_data.py: keeps LiDAR trees off sheds'),
-  grb('WBN', 'Road surfaces', 'bake: roads'),
+  grb(
+    'GBA',
+    'Building annexes',
+    'tools/build_leuven_data.py: keeps LiDAR trees off sheds; bake: platform roofs',
+  ),
+  grb('WBN', 'Road surfaces', 'bake: roads; tools/build_road_zones.py: carriageways'),
+  grb(
+    'WGO',
+    'Road subdivision lines: kerbs, cycle and pedestrian zones',
+    'tools/build_road_zones.py: carriageways, pavements and cycle tracks',
+  ),
   grb('WTZ', 'Watercourses', 'bake: water'),
   grb(
     'KNW',

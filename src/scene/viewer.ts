@@ -25,9 +25,10 @@ import type { City } from '../data/city.ts';
 import { clampToArea } from '../data/geometry.ts';
 import { partyWalls } from './buildings.ts';
 import { buildCell, partition } from './cells.ts';
-import type { Cell } from './cells.ts';
-import { createFacadeMaterial } from './facade-material.ts';
+import type { Cell, DetailMarks } from './cells.ts';
+import { createFacadeMaterial, setPixelSize } from './facade-material.ts';
 import { SLAB_DEPTH } from './ground.ts';
+import { LINE_LOD } from './paint.ts';
 import type { V3 } from './mesh-builder.ts';
 import { BOUNCE_LIGHT, OUTLINE, SKY_LIGHT, SUN } from './palette.ts';
 import {
@@ -100,6 +101,10 @@ interface CellEntry {
   box: Box3;
   /** Its mesh and outlines once built; empty until then. */
   objects: Object3D[];
+  /** Where the rails and the catenary masts end in its outlines, which only show zoomed in. */
+  detail: DetailMarks;
+  /** Where the fine road paint starts in its mesh (see buildCell). */
+  fineVertices: number;
 }
 
 /** Golden hour from the south-west, low enough for long shadows. */
@@ -118,6 +123,14 @@ const SHADOW_LAYER = 1 << 1;
 const PROP_ZOOM = 2;
 /** Time the idle builder may take per slice before handing the main thread back (ms). */
 const IDLE_SLICE_MS = 8;
+/**
+ * The largest screen pixel, in metres, at which rails and catenary masts show. Any bigger and
+ * a track's two rails come under two pixels apart, so a yard's tracks merge into one dark
+ * hatch; the sleeper band alone reads as the track there. In pixels rather than zoom levels,
+ * so a dense phone screen gets the detail sooner than a standard one.
+ */
+const RAIL_PIXEL = 0.5;
+const MAST_PIXEL = 0.9;
 
 /** requestIdleCallback where there is one (not in Safari), else the next frame or so. */
 const idle = (run: () => void) =>
@@ -150,7 +163,7 @@ export function createViewer(options: ViewerOptions): Viewer {
 
   const scene = new Scene();
   const gradientMap = toonGradient();
-  // One material for every cell: ground and trees carry no facade, so they get no windows.
+  // One material for every cell: walls get windows, roads their texture and paint (paint.ts).
   const material = createFacadeMaterial(gradientMap);
   const ink = new LineBasicMaterial({ color: OUTLINE });
 
@@ -166,10 +179,17 @@ export function createViewer(options: ViewerOptions): Viewer {
       new Vector3(cell.bounds.maxX + 60, MAX_HEIGHT, cell.bounds.maxZ + 60),
     ),
     objects: [],
+    detail: { rails: 0, masts: 0 },
+    fineVertices: 0,
   }));
 
   function build(entry: CellEntry): void {
-    const { mesh, lines, props } = buildCell(entry.cell, city.area, walls);
+    const { mesh, lines, props, groundVertices, fineVertices, detail } = buildCell(
+      entry.cell,
+      city.area,
+      walls,
+    );
+    entry.detail = detail;
     const surfaces = new Mesh(mesh.build({ facade: true }), material);
     // Street furniture shares the material and its program: one more draw call, only up close.
     const furniture = new Mesh(props.build({ facade: true }), material);
@@ -178,6 +198,15 @@ export function createViewer(options: ViewerOptions): Viewer {
       m.receiveShadow = true;
       m.geometry.computeBoundingBox();
     }
+    // The flat ground and its paint can't shade anything: the shadow pass draws what stands on it.
+    const { geometry } = surfaces;
+    let view = 0;
+    surfaces.onBeforeShadow = () => {
+      view = geometry.drawRange.count;
+      geometry.setDrawRange(groundVertices, fineVertices - groundVertices);
+    };
+    surfaces.onAfterShadow = () => geometry.setDrawRange(0, view);
+    entry.fineVertices = fineVertices;
     const outlines = new LineSegments(lines.build(), ink);
     // Cells are culled by their boxes below: three's bounding spheres are far looser.
     entry.objects = [surfaces, outlines, furniture];
@@ -369,9 +398,12 @@ export function createViewer(options: ViewerOptions): Viewer {
    */
   function cull(): void {
     const shadowPass = renderer.shadowMap.needsUpdate;
-    for (const { box, cell, objects } of cells) {
-      const [surfaces, outlines, furniture] = objects;
+    const pixel = viewSpan() / buffer.y;
+    for (const { box, cell, objects, detail } of cells) {
+      const [surfaces, outlines, furniture] = objects as [Mesh?, LineSegments?, Mesh?];
       if (!surfaces || !outlines || !furniture) continue;
+      const skip = pixel > MAST_PIXEL ? detail.masts : pixel > RAIL_PIXEL ? detail.rails : 0;
+      outlines.geometry.setDrawRange(skip * 2, Infinity);
       const inView = frustum.intersectsBox(box);
       const casts = shadowPass && shadowFrustum.intersectsBox(box);
       surfaces.layers.mask = (inView ? VIEW_LAYER : 0) | (casts ? SHADOW_LAYER : 0);
@@ -404,8 +436,19 @@ export function createViewer(options: ViewerOptions): Viewer {
       view.aspect = buffer.x / buffer.y;
       view.updateProjectionMatrix();
     }
+    // World metres per drawing-buffer pixel (where the walking camera looks, from the street):
+    // how much road paint and texture is worth drawing.
+    const unit = viewSpan() / renderer.getDrawingBufferSize(buffer).y;
+    setPixelSize(material, unit);
     view.updateMatrixWorld();
     prepare();
+    // Fine road paint is drawn last in each cell, so a view too far out to see it can stop short.
+    for (const { objects, fineVertices } of cells) {
+      (objects[0] as Mesh | undefined)?.geometry.setDrawRange(
+        0,
+        unit > LINE_LOD ? fineVertices : Infinity,
+      );
+    }
     cull();
     const shadowPass = renderer.shadowMap.needsUpdate;
     renderer.render(scene, view);

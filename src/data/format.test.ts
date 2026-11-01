@@ -43,10 +43,25 @@ const city: City = {
     },
   ],
   roads: [square(0, 0, 100)],
+  carriageways: [
+    { kind: 'main', ring: square(0, 0, 100) },
+    { kind: 'cycleway', ring: square(100, 0, 4) },
+  ],
+  markings: [
+    { kind: 'dashed', line: new Float32Array([0, 50, 100, 50]) },
+    { kind: 'zebra', line: new Float32Array([20, 0, 20, 10]) },
+  ],
   plazas: [],
   green: [square(-200, 100, 30)],
   water: [square(-300, -300, 12.5)],
   paths: [{ width: 2.5, paved: false, line: new Float32Array([0, 0, 10, 5, 20, 5]) }],
+  rails: [
+    { kind: 'main', bridge: true, electrified: true, line: new Float32Array([0, 0, 100, 40]) },
+    { kind: 'yard', bridge: false, electrified: false, line: new Float32Array([5, 5, 50, 5]) },
+  ],
+  platforms: [square(20, 20, 8)],
+  railLand: [square(-20, 20, 40)],
+  canopies: [square(15, 15, 18)],
   trees: new Float32Array([1.5, 2.5, -40, 60.1]),
   treeHeights: new Float32Array([8, 21.5]),
   props: [
@@ -55,6 +70,13 @@ const city: City = {
   ],
   tanks: [{ height: 14.5, ring: square(500, -1000, 6) }],
   parapets: [new Float32Array([-3, 0, -3, 10]), new Float32Array([3, 0, 3, 5, 3.5, 10])],
+};
+
+// A kind byte past the end of its list: find it where two cities differ only in that kind.
+const badKind = (a: City, b: City) => {
+  const [x, y] = [encodeCity(a), encodeCity(b)];
+  x[x.findIndex((v, i) => v !== y[i])] = 200;
+  return x;
 };
 
 describe('city format', () => {
@@ -72,8 +94,17 @@ describe('city format', () => {
       expect(b.holes.map((h) => Array.from(h))).toEqual(original.holes.map(exact));
     }
     expect(decoded.roads).toHaveLength(1);
+    expect(decoded.carriageways.map((r) => r.kind)).toEqual(['main', 'cycleway']);
+    expect(decoded.carriageways.map((r) => [...r.ring])).toEqual(
+      city.carriageways.map((r) => exact(r.ring)),
+    );
+    expect(decoded.markings).toEqual(city.markings);
     expect(decoded.plazas).toHaveLength(0);
     expect(decoded.paths).toEqual(city.paths);
+    expect(decoded.rails).toEqual(city.rails);
+    expect(decoded.platforms.map((p) => Array.from(p))).toEqual(city.platforms.map(exact));
+    expect(decoded.railLand.map((p) => Array.from(p))).toEqual(city.railLand.map(exact));
+    expect(decoded.canopies.map((p) => Array.from(p))).toEqual(city.canopies.map(exact));
     expect([...decoded.trees]).toEqual([1.5, 2.5, -40, 60.1].map((v) => Math.fround(v)));
     expect([...decoded.treeHeights]).toEqual([8, 21.5]);
     expect(decoded.props.map((p) => [p.kind, p.size])).toEqual([
@@ -100,15 +131,29 @@ describe('city format', () => {
   test('rejects foreign or truncated data', () => {
     expect(() => decodeCity(new TextEncoder().encode('nope'))).toThrow(CityFormatError);
     expect(() => decodeCity(encodeCity({ ...city, area: [] }))).toThrow(CityFormatError);
-    // A prop kind this version doesn't know: find its byte by changing only the kind.
-    const lamp = encodeCity({ ...city, props: [{ ...city.props[0]!, kind: 'lamp' }] });
-    const bench = encodeCity({ ...city, props: [{ ...city.props[0]!, kind: 'bench' }] });
-    lamp[lamp.findIndex((b, i) => b !== bench[i])] = 200;
-    expect(() => decodeCity(lamp)).toThrow('Bad prop kind');
+    const road = (kind: 'main' | 'street') => ({
+      ...city,
+      carriageways: [{ ...city.carriageways[0]!, kind }],
+    });
+    expect(() => decodeCity(badKind(road('main'), road('street')))).toThrow(CityFormatError);
+    const mark = (kind: 'solid' | 'zebra') => ({
+      ...city,
+      markings: [{ ...city.markings[0]!, kind }],
+    });
+    expect(() => decodeCity(badKind(mark('solid'), mark('zebra')))).toThrow(CityFormatError);
+    const prop = (kind: 'lamp' | 'bench') => ({ ...city, props: [{ ...city.props[0]!, kind }] });
+    expect(() => decodeCity(badKind(prop('lamp'), prop('bench')))).toThrow('Bad prop kind');
     const bytes = encodeCity(city);
     expect(() => decodeCity(bytes.subarray(0, bytes.length - 3))).toThrow();
     const trailing = new Uint8Array(bytes.length + 1);
     trailing.set(bytes);
     expect(() => decodeCity(trailing)).toThrow(CityFormatError);
+    // A rail kind this version doesn't know: find the flags byte where main and yard differ.
+    const rail = (kind: 'main' | 'yard') =>
+      encodeCity({ ...city, rails: [{ ...city.rails[1]!, kind }] });
+    const [main, yard] = [rail('main'), rail('yard')];
+    const flags = main.findIndex((b, i) => b !== yard[i]);
+    main[flags] = 2 << 2;
+    expect(() => decodeCity(main)).toThrow(CityFormatError);
   });
 });
