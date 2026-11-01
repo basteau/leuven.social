@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 
+import { clock, ticks } from './motion.ts';
 import {
   IDLE_SECONDS,
   RUN_SPEED,
+  STEP,
   WALK_SPEED,
   createWalker,
   followRoute,
@@ -13,6 +15,8 @@ import {
 const open = () => true;
 /** Open ground everywhere except x > 10. */
 const wall = (x: number) => x <= 10;
+/** Open ground below the line x + z = 10. */
+const slanted = (x: number, z: number) => x + z <= 10;
 
 /** Steps at 60 fps until it settles or `seconds` pass; returns the frames it took. */
 function run(
@@ -59,7 +63,7 @@ describe('steering', () => {
     run(runner, 2, [0, 1], open, true);
     expect(runner.speed).toBeCloseTo(RUN_SPEED);
     expect(runner.z).toBeGreaterThan(walker.z * 2);
-    expect(runBlend(runner.speed)).toBe(1);
+    expect(runBlend(runner.speed)).toBeCloseTo(1);
     expect(runBlend(walker.speed)).toBe(0);
     // Steps per metre: fewer at a run.
     const [a, b] = [createWalker(0, 0), createWalker(0, 0)];
@@ -80,6 +84,42 @@ describe('steering', () => {
     expect(w.speed).toBeGreaterThan(WALK_SPEED);
   });
 
+  test('turns without a snap: the turn rate builds over a few steps, then eases off', () => {
+    const w = createWalker(0, 0);
+    const rates: number[] = [];
+    for (let i = 0; i < 60; i++) {
+      stepWalker(w, STEP, 1, 0, open);
+      rates.push(w.turning);
+    }
+    const peak = Math.max(...rates);
+    expect(rates[0]).toBeLessThan(peak * 0.4);
+    for (let i = 1; i < rates.length; i++) {
+      expect(Math.abs(rates[i]! - rates[i - 1]!)).toBeLessThan(peak * 0.4);
+    }
+    expect(w.heading).toBeCloseTo(Math.PI / 2, 2);
+  });
+
+  test('walks the same path at any frame rate, stepped at the fixed rate', () => {
+    const ends = [30, 60, 144].map((hz) => {
+      const w = createWalker(0, 0);
+      const c = clock(STEP);
+      for (const [seconds, x, z] of [
+        [1, 0, 1],
+        [1.5, 1, 0],
+        [1, 0, 0],
+      ] as const) {
+        for (let frame = 0; frame < seconds * hz; frame++) {
+          for (let n = ticks(c, 1 / hz); n > 0; n--) stepWalker(w, STEP, x, z, open);
+        }
+      }
+      return [w.x, w.z];
+    });
+    for (const [x, z] of ends) {
+      expect(x).toBeCloseTo(ends[0]![0]!, 1);
+      expect(z).toBeCloseTo(ends[0]![1]!, 1);
+    }
+  });
+
   test('a half-pressed stick walks slower', () => {
     const w = createWalker(0, 0);
     run(w, 1, [0, 0.5]);
@@ -96,6 +136,16 @@ describe('steering', () => {
     run(head, 1, [1, 0], wall);
     expect(head.x).toBeLessThanOrEqual(10);
     expect(head.speed).toBe(0);
+  });
+
+  test('slides along a slanted wall it walks into', () => {
+    // Walking +x it turns aside along the wall, slower.
+    const w = createWalker(9, 0, Math.PI / 2);
+    run(w, 2, [1, 0], slanted);
+    expect(w.x + w.z).toBeLessThanOrEqual(10);
+    expect(w.z).toBeLessThan(-1);
+    expect(w.slide).toBeGreaterThan(0);
+    expect(w.slide).toBeLessThan(1);
   });
 
   test('slides the other way along a wall across its path', () => {
@@ -118,12 +168,14 @@ describe('steering', () => {
 });
 
 describe('routes', () => {
-  test('walks every leg and stops exactly on the last point', () => {
+  test('walks every leg and comes to a stop on the last point', () => {
     const w = createWalker(0, 0);
     followRoute(w, Float32Array.of(0, 0, 10, 0, 10, 10));
     run(w, 20);
-    expect(w.x).toBeCloseTo(10, 5);
-    expect(w.z).toBeCloseTo(10, 5);
+    expect(w.x).toBeCloseTo(10, 2);
+    // Coasting to a stop takes it a few centimetres on, no more.
+    expect(w.z).toBeGreaterThanOrEqual(10);
+    expect(w.z).toBeLessThan(10.15);
     expect(w.route).toBeNull();
     expect(w.travelled).toBeCloseTo(20, 1);
     expect(w.heading).toBeCloseTo(0, 2);

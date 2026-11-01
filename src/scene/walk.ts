@@ -25,23 +25,27 @@ import {
   boomDirection,
   chaseFov,
   createBoom,
+  easeBoom,
   flight,
   freeLength,
   headLook,
   mapYaw,
+  reachGoal,
+  recentre,
+  recentreWeight,
   settleReach,
   spanAt,
   stretchBoom,
-  swingBehind,
   turnBoom,
   wrap,
 } from './chase.ts';
 import type { Boom, Lens, Shot, Vec3 } from './chase.ts';
 import { linearVertexColors } from './mesh-builder.ts';
+import { clock, decay, spring, springTo, ticks } from './motion.ts';
 import { SKY } from './palette.ts';
 import { passedVertices, routeMarker } from './route-marker.ts';
 import type { RouteMarker } from './route-marker.ts';
-import { WALK_SPEED, createWalker, followRoute, runBlend, stepWalker } from './walker.ts';
+import { STEP, WALK_SPEED, createWalker, followRoute, runBlend, stepWalker } from './walker.ts';
 import type { Walker } from './walker.ts';
 
 /**
@@ -74,14 +78,26 @@ const GROUND_Y = 0.32;
 /** The city fades into the haze from FOG_NEAR to FOG_FAR beyond the walker (m). */
 const FOG_NEAR = 90;
 const FOG_FAR = 330;
-/** How quickly the camera's look point follows the walker (per second, exponential). */
-const FOLLOW_RATE = 14;
-/** Holding a turn key turns the view this fast (rad/s); a turn button turns it this far. */
+/**
+ * The camera's look point is a spring on the walker (half-life, s), aimed a little ahead of
+ * where it goes (s of travel), so it trails a hair setting off and leads a hair at a run.
+ */
+const FOLLOW_EASE = 0.09;
+const LOOK_AHEAD = 0.2;
+/** Holding a turn key turns the view up to this fast (rad/s), easing in and out (half-life, s). */
 const LOOK_KEY_RATE = 1.9;
+const LOOK_KEY_EASE = 0.08;
+/** A turn button turns the view this far. */
 const TURN_STEP = Math.PI / 4;
-/** After a drag, routes leave the camera alone this long before swinging it behind (ms). */
-const LOOK_HOLD_MS = 1800;
-const SWING_RATE = 1.4;
+/**
+ * After someone last looked around (ms), the camera drifts back behind the walker while it
+ * moves: this share of the way per second walking, more at a run or on a route.
+ */
+const RECENTRE_WAIT_MS = 1500;
+const RECENTRE_RATE = 0.45;
+const ROUTE_RECENTRE_RATE = 1.1;
+/** Whiskers either side of the boom (radians) feel for corners before they cut the view. */
+const WHISKER = 0.15;
 /** The thumb stick: how far it reaches (px); pushed to the rim, it runs. */
 const STICK_RADIUS = 52;
 /** Touches that start in this share of the screen, from its left edge, steer. */
@@ -202,7 +218,16 @@ export function createWalk(host: WalkHost): Walk {
   let character: Character | undefined;
   const body = createCharacterMaterial(host.gradientMap);
   const xray = createXrayMaterial();
-  const hint = new Mesh(undefined, new MeshBasicMaterial({ vertexColors: true }));
+  // The route hint is drawn half see-through, so it reads as chalk on the street, not paint.
+  const hint = new Mesh(
+    undefined,
+    new MeshBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.5,
+      depthWrite: false,
+    }),
+  );
   hint.material.onBeforeCompile = (shader) => {
     shader.vertexShader = linearVertexColors(shader.vertexShader);
   };
@@ -217,6 +242,15 @@ export function createWalk(host: WalkHost): Walk {
   const boom: Boom = createBoom(0);
   const lookAt: Vec3 = [0, 0, 0];
   const out: Vec3 = [0, 0, 0];
+  const whisker: Vec3 = [0, 0, 0];
+  const followX = spring();
+  const followZ = spring();
+  /** How far into a run the walker is, for the lens: 0 walking, 1 flat out. */
+  let sprint = 0;
+  // The walker steps at a fixed rate; frames draw it blended between its last two steps.
+  const sim = clock(STEP);
+  let moving = false;
+  let [prevX, prevZ, prevHeading, prevPhase] = [0, 0, 0, 0];
   /** Flight progress: 0 on the map, 1 behind the walker; and which way it's going. */
   let flown = 0;
   let flying: -1 | 0 | 1 = 0;
@@ -229,6 +263,7 @@ export function createWalk(host: WalkHost): Walk {
   let keyUp = 0;
   let running = false;
   let lookKeys = 0;
+  let lookRate = 0;
   let turnLeft = 0;
   let lastLook = -Infinity;
   let frame = 0;
@@ -258,7 +293,13 @@ export function createWalk(host: WalkHost): Walk {
     // Stepping into the picture: facing away from the camera, which stays behind.
     const yaw = host.yaw();
     walker = createWalker(x, z, wrap(yaw + Math.PI));
+    [prevX, prevZ, prevHeading, prevPhase] = [x, z, walker.heading, 0];
+    sim.left = 0;
+    moving = true;
+    sprint = 0;
     Object.assign(boom, createBoom(yaw));
+    Object.assign(followX, spring(x));
+    Object.assign(followZ, spring(z));
     if (!character) {
       character = createCharacter(body, xray);
       scene.add(character.mesh, hint);
@@ -313,6 +354,7 @@ export function createWalk(host: WalkHost): Walk {
     }
     [walker.x, walker.z] = [route[0]!, route[1]!];
     followRoute(walker, route);
+    moving = true;
     hint.geometry.dispose();
     marker = routeMarker(route);
     hint.geometry = marker.geometry;
@@ -514,64 +556,102 @@ export function createWalk(host: WalkHost): Walk {
         const fz = -Math.cos(boom.yaw);
         const sx = -fz * right + fx * up;
         const sz = fx * right + fz * up;
-        busy = stepWalker(walker, dt, sx, sz, walkable, running || stick.run);
-        busy ||= sx !== 0 || sz !== 0;
+        for (let n = ticks(sim, elapsed); n > 0; n--) {
+          [prevX, prevZ, prevHeading, prevPhase] = [
+            walker.x,
+            walker.z,
+            walker.heading,
+            walker.phase,
+          ];
+          moving = stepWalker(walker, STEP, sx, sz, walkable, running || stick.run);
+        }
+        busy = moving || sx !== 0 || sz !== 0;
         if (reducedMotion) walker.still = Math.max(walker.still, 1e3); // no idle fidgeting
 
-        if (lookKeys) turnBoom(boom, -lookKeys * LOOK_KEY_RATE * dt, 0);
+        lookRate = decay(lookRate, lookKeys * LOOK_KEY_RATE, reducedMotion ? 0 : LOOK_KEY_EASE, dt);
+        if (Math.abs(lookRate) < 1e-3) lookRate = 0;
+        if (lookRate) turnBoom(boom, -lookRate * dt, 0);
         if (turnLeft) {
           const step = reducedMotion ? turnLeft : turnLeft * (1 - Math.exp(-10 * dt));
           turnBoom(boom, step, 0);
           turnLeft = Math.abs(turnLeft - step) < 1e-3 ? 0 : turnLeft - step;
         }
-        if (lookKeys !== 0 || turnLeft !== 0) {
+        if (lookKeys !== 0 || lookRate !== 0 || turnLeft !== 0) {
           busy = true;
           lastLook = now;
         }
-        // Walking a route, the camera swings round behind unless someone is looking about.
-        if (walker.route && now - lastLook > LOOK_HOLD_MS && !reducedMotion) {
-          const rate = SWING_RATE * Math.min(1, walker.speed / WALK_SPEED);
-          swingBehind(boom, walker.heading, rate, dt);
+        // On the move, the camera drifts back round behind unless someone is looking about.
+        if (now - lastLook > RECENTRE_WAIT_MS && walker.speed > 0.1 && !reducedMotion) {
+          const pace = Math.min(1, walker.speed / WALK_SPEED) * (1 + runBlend(walker.speed));
+          const rate = walker.route
+            ? ROUTE_RECENTRE_RATE
+            : RECENTRE_RATE * recentreWeight(walker.heading, boom.aimYaw);
+          recentre(boom, walker.heading, rate * pace, dt);
         }
+      } else {
+        [prevX, prevZ, prevHeading, prevPhase] = [walker.x, walker.z, walker.heading, walker.phase];
       }
+      // Drawn between the last two steps, so motion is even whatever the frame rate.
+      const blend = sim.left / sim.step;
+      const x = prevX + (walker.x - prevX) * blend;
+      const z = prevZ + (walker.z - prevZ) * blend;
+      const heading = wrap(prevHeading + wrap(walker.heading - prevHeading) * blend);
+      const phase = prevPhase + wrap(walker.phase - prevPhase) * blend;
+      sprint = runBlend(walker.speed);
 
       // The head turns where the camera looks, less so at a run.
-      const goal = headLook(walker.heading, boom.yaw) * (1 - 0.6 * runBlend(walker.speed));
+      const goal = headLook(heading, boom.yaw) * (1 - 0.6 * sprint);
       head += (goal - head) * (reducedMotion ? 1 : 1 - Math.exp(-6 * dt));
       busy ||= Math.abs(goal - head) > 0.01;
       applyPose(
         character,
-        poseAt(
-          pose,
-          walker.speed,
-          walker.phase,
-          walker.still,
-          !reducedMotion,
-          walker.turning,
-          head,
-        ),
+        poseAt(pose, walker.speed, phase, walker.still, !reducedMotion, walker.turning, head),
       );
       if (flown > 0.5 || !flying) appear = Math.min(1, appear + dt / APPEAR);
       // Pops up with a little overshoot.
       const pop = appear < 1 ? 1 + 2.7 * (appear - 1) ** 3 + 1.7 * (appear - 1) ** 2 : 1;
       character.mesh.scale.setScalar(CHARACTER_SCALE * pop);
-      character.mesh.position.set(walker.x, GROUND_Y, walker.z);
-      character.mesh.rotation.y = walker.heading;
+      character.mesh.position.set(x, GROUND_Y, z);
+      character.mesh.rotation.y = heading;
       busy ||= appear < 1;
 
       if (marker && !walker.route) clearRoute();
       if (marker) hint.geometry.setDrawRange(passedVertices(marker, walker.travelled), Infinity);
 
-      // The camera's look point trails the walker by a hair, and the boom shortens for walls.
-      const follow = reducedMotion ? 1 : 1 - Math.exp(-FOLLOW_RATE * dt);
-      lookAt[0] += (walker.x - lookAt[0]) * follow;
-      lookAt[1] += (GROUND_Y + LOOK_HEIGHT - lookAt[1]) * follow;
-      lookAt[2] += (walker.z - lookAt[2]) * follow;
-      busy ||= Math.hypot(walker.x - lookAt[0], walker.z - lookAt[2]) > 0.002;
+      // The look point springs after the walker, a little ahead of where it's going.
+      const ease = reducedMotion ? 0 : FOLLOW_EASE;
+      const lead = reducedMotion ? 0 : walker.speed * LOOK_AHEAD;
+      springTo(followX, x + Math.sin(heading) * lead, ease, dt);
+      springTo(followZ, z + Math.cos(heading) * lead, ease, dt);
+      [lookAt[0], lookAt[1], lookAt[2]] = [followX.x, GROUND_Y + LOOK_HEIGHT, followZ.x];
+      busy ||= Math.abs(followX.v) + Math.abs(followZ.v) > 0.005;
+      if (reducedMotion) {
+        [boom.yaw, boom.pitch] = [boom.aimYaw, boom.aimPitch];
+        boom.length = boom.distance;
+      }
+      busy ||= easeBoom(boom, sprint, dt);
+
+      // The boom shortens for walls: quickly, and before a corner cuts the view if it can.
       boomDirection(boom.yaw, boom.pitch, out);
-      const free = freeLength(heightAt, lookAt, out, boom.distance);
-      boom.reach = reducedMotion ? free : settleReach(boom.reach, free, dt);
-      busy ||= Math.abs(boom.reach - free) > 0.01;
+      const free = freeLength(heightAt, lookAt, out, boom.length);
+      const left = freeLength(
+        heightAt,
+        lookAt,
+        boomDirection(boom.yaw - WHISKER, boom.pitch, whisker),
+        boom.length,
+      );
+      const right = freeLength(
+        heightAt,
+        lookAt,
+        boomDirection(boom.yaw + WHISKER, boom.pitch, whisker),
+        boom.length,
+      );
+      const want = reachGoal(free, left, right);
+      const r = boom.reach;
+      const inside =
+        lookAt[1] + out[1] * r < heightAt(lookAt[0] + out[0] * r, lookAt[2] + out[2] * r) + 0.2;
+      boom.reach = reducedMotion ? want : settleReach(r, want, dt, inside);
+      busy ||= Math.abs(boom.reach - want) > 0.01;
       controls.target.set(walker.x, 0, walker.z);
 
       if (flying) {
@@ -590,7 +670,7 @@ export function createWalk(host: WalkHost): Walk {
 
   /** Puts the walking camera where the boom (or the flight along it) says. */
   function placeView(): void {
-    const fov = chaseFov(canvas.clientWidth / Math.max(1, canvas.clientHeight));
+    const fov = chaseFov(canvas.clientWidth / Math.max(1, canvas.clientHeight), sprint);
     chaseShot.yaw = boom.yaw;
     chaseShot.pitch = boom.pitch;
     chaseShot.fov = fov;
@@ -679,7 +759,7 @@ export function createWalk(host: WalkHost): Walk {
     exit() {
       if (mode === 'map') return;
       const walked = mode === 'walk';
-      [keyRight, keyUp, lookKeys, turnLeft] = [0, 0, 0, 0];
+      [keyRight, keyUp, lookKeys, lookRate, turnLeft] = [0, 0, 0, 0, 0];
       releaseStick();
       presses.clear();
       setMode('map');
