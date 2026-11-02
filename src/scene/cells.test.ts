@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 
 import type { Building, City } from '../data/city.ts';
 import { footing, partyWalls } from './buildings.ts';
-import { CELL_SIZE, along, buildCell, buildFurniture, partition } from './cells.ts';
+import { CELL_SIZE, along, buildCell, buildFurniture, groundRange, partition } from './cells.ts';
 import { slabBottom } from './ground.ts';
 import { unindexed } from './mesh-builder.ts';
 import type { MeshBuilder } from './mesh-builder.ts';
@@ -225,4 +225,21 @@ test('on the terrain, the ground drapes, houses stand at their foot, props on th
   const props = buildFurniture(east!, slope).build();
   props.computeBoundingBox();
   expect(props.boundingBox!.min.y).toBeGreaterThan(slope.height(S, 0) - 1);
+});
+
+test('a cell guesses its height from its own ground, down to the slab at the edge', () => {
+  const slope = new Terrain({
+    step: S,
+    minX: 0,
+    minZ: 0,
+    cols: 3,
+    rows: 2,
+    heights: Float32Array.of(0, 10, 20, 0, 10, 20),
+  });
+  const wide = [{ minX: -S, minZ: -S, maxX: 3 * S, maxZ: 2 * S }];
+  const [west, east] = partition(city);
+  expect(groundRange(west!, wide, slope, 0)).toEqual([0, 10]);
+  expect(groundRange(east!, wide, slope, 10)).toEqual([0, 20]);
+  // The area's edge runs through: the slab hangs to its flat underside.
+  expect(groundRange(west!, city.area, slope, 0)).toEqual([slabBottom(slope), 10]);
 });

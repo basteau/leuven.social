@@ -97,11 +97,20 @@ export class Terrain {
 
   /** The lowest and highest ground anywhere within `bounds`. */
   range({ minX, minZ, maxX, maxZ }: Bounds): [number, number] {
-    const [i0, j0] = this.#locate(minX, minZ);
-    const [i1, j1] = this.#locate(maxX, maxZ);
+    // The nodes round the bounds: the ground between them is never outside theirs.
+    const node = (v: number, from: number, count: number, round: (v: number) => number) =>
+      Math.min(count - 1, Math.max(0, round((v - from) / this.step)));
+    const [i0, i1] = [
+      node(minX, this.minX, this.cols, Math.floor),
+      node(maxX, this.minX, this.cols, Math.ceil),
+    ];
+    const [j0, j1] = [
+      node(minZ, this.minZ, this.rows, Math.floor),
+      node(maxZ, this.minZ, this.rows, Math.ceil),
+    ];
     let [lowest, highest] = [Infinity, -Infinity];
-    for (let j = j0; j <= j1 + 1; j++) {
-      for (let i = i0; i <= i1 + 1; i++) {
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) {
         const h = this.heights[j * this.cols + i]!;
         [lowest, highest] = [Math.min(lowest, h), Math.max(highest, h)];
       }

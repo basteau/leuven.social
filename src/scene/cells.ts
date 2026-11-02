@@ -1,10 +1,10 @@
 import type { Bounds, Building, Carriageway, City, Path, Prop, Rail, Tank } from '../data/city.ts';
-import { clipLine, clipRing } from '../data/geometry.ts';
+import { areaOutline, clipLine, clipRing } from '../data/geometry.ts';
 import { FLAT } from '../data/terrain.ts';
 import type { Terrain } from '../data/terrain.ts';
 import { addBuilding, footing } from './buildings.ts';
 import type { PartyWalls } from './buildings.ts';
-import { addGround, addSlabInk } from './ground.ts';
+import { addGround, addSlabInk, slabBottom } from './ground.ts';
 import { GROUND_RINGS } from './ground.ts';
 import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
 import { addFinePaint } from './paint.ts';
@@ -195,6 +195,33 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
     }
   }
   return [...cells.values()];
+}
+
+/**
+ * How low and high the ground goes within `margin` of a cell, before anything is built on it: its
+ * own terrain's lowest and highest, or down to the slab's underside where the area's edge runs
+ * through. What the culling box guesses from: one sized for the whole map's hills would make
+ * cells far off look visible, and the first frame build them.
+ */
+export function groundRange(
+  cell: Cell,
+  area: readonly Bounds[],
+  terrain: Terrain,
+  margin: number,
+): [number, number] {
+  const b = cell.bounds;
+  const [minX, minZ, maxX, maxZ] = [
+    b.minX - margin,
+    b.minZ - margin,
+    b.maxX + margin,
+    b.maxZ + margin,
+  ];
+  const [low, high] = terrain.range({ minX, minZ, maxX, maxZ });
+  const edge = areaOutline(area).some(
+    (e) =>
+      Math.max(e.x0, minX) <= Math.min(e.x1, maxX) && Math.max(e.z0, minZ) <= Math.min(e.z1, maxZ),
+  );
+  return [edge ? slabBottom(terrain) : low, high];
 }
 
 /**

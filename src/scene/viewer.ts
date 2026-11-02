@@ -29,9 +29,10 @@ import { MapControls } from 'three/addons/controls/MapControls.js';
 import type { City } from '../data/city.ts';
 import { clampToArea } from '../data/geometry.ts';
 import type { StreetIndex } from '../data/streets.ts';
-import { partyWalls } from './buildings.ts';
+import { Terrain } from '../data/terrain.ts';
+import { footing, partyWalls } from './buildings.ts';
 import type { PartyWalls } from './buildings.ts';
-import { buildCell, buildFurniture, partition } from './cells.ts';
+import { buildCell, buildFurniture, groundRange, partition } from './cells.ts';
 import type { Cell, DetailMarks } from './cells.ts';
 import {
   createFacadeMaterial,
@@ -40,7 +41,7 @@ import {
   setPixelSize,
 } from './facade-material.ts';
 import { LIGHT } from './lighting.ts';
-import { SLAB_DEPTH } from './ground.ts';
+import { slabBottom } from './ground.ts';
 import { LINE_LOD } from './paint.ts';
 import { LineBuilder, MeshBuilder, corners, geometryBytes } from './mesh-builder.ts';
 import type { V3 } from './mesh-builder.ts';
@@ -244,9 +245,11 @@ export function createViewer(options: ViewerOptions): Viewer {
   // One material for every cell: walls get windows, roads their texture and paint (paint.ts).
   const material = createFacadeMaterial(gradientMap);
   // A mesh without a `facade` attribute (street furniture) reads 0: a plain surface.
-  Object.assign(material, { defaultAttributeValues: { facade: [0] } });
+  Object.assign(material, { defaultAttributeValues: { facade: [0], lift: [0] } });
   const ink = new LineBasicMaterial({ color: OUTLINE });
   fadeInkNearCamera(ink);
+
+  const terrain = new Terrain(city.terrain);
 
   // Cells are built when they first come into view, and the rest while the page is idle, so
   // the first frame costs what the visible part of the city costs. The city is cut into them
@@ -255,13 +258,14 @@ export function createViewer(options: ViewerOptions): Viewer {
   const cells: CellEntry[] = [];
   function cut(): void {
     for (const cell of partition(city, terraceParasols(city))) {
+      const [low, high] = groundRange(cell, city.area, terrain, 60);
       cells.push({
         cell,
         // Until it's built, a guess: buildings belong to the cell of their first corner and can
-        // overhang it a little.
+        // overhang it a little, standing on its own ground.
         box: new Box3(
-          new Vector3(cell.bounds.minX - 60, -SLAB_DEPTH, cell.bounds.minZ - 60),
-          new Vector3(cell.bounds.maxX + 60, MAX_HEIGHT, cell.bounds.maxZ + 60),
+          new Vector3(cell.bounds.minX - 60, low, cell.bounds.minZ - 60),
+          new Vector3(cell.bounds.maxX + 60, high + MAX_HEIGHT, cell.bounds.maxZ + 60),
         ),
         objects: [],
         furniture: undefined,
@@ -280,6 +284,7 @@ export function createViewer(options: ViewerOptions): Viewer {
       entry.cell,
       city.area,
       walls,
+      terrain,
     );
     Object.assign(entry, { detail, trunksFrom, shadowFrom, fineVertices });
     const surfaces = new Mesh(mesh.build({ facade: true }), material);
@@ -313,7 +318,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   function furnish(entry: CellEntry): void {
     // It shares the material and its program: one more draw call, only up close. It has no
     // windows, so it leaves out the facade attribute and the shader reads its default.
-    const furniture = new Mesh(buildFurniture(entry.cell).build(), material);
+    const furniture = new Mesh(buildFurniture(entry.cell, terrain).build(), material);
     furniture.castShadow = true;
     furniture.receiveShadow = true;
     furniture.frustumCulled = false;
@@ -344,7 +349,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   const [nearest, farthest] = depthRange(
     light,
     city.area.flatMap((a) =>
-      [-SLAB_DEPTH, MAX_HEIGHT].flatMap((y): V3[] => [
+      [slabBottom(terrain), terrain.highest + MAX_HEIGHT].flatMap((y): V3[] => [
         [a.minX, y, a.minZ],
         [a.maxX, y, a.minZ],
         [a.minX, y, a.maxZ],
@@ -456,7 +461,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     if (view === camera) {
       for (const [i, [x, y]] of SCREEN_CORNERS.entries()) {
         corner.set(x, y, -1).unproject(camera);
-        corner.addScaledVector(forward, -corner.y / forward.y);
+        corner.addScaledVector(forward, (t.y - corner.y) / forward.y);
         [ground[i]![0], ground[i]![2]] = [corner.x, corner.z];
       }
     }
@@ -822,13 +827,16 @@ export function createViewer(options: ViewerOptions): Viewer {
     });
   }
 
+  /** Keeps the target inside the area and on its ground, so the view turns about the street. */
   function clampTarget(): void {
     const t = controls.target;
     const [cx, cz] = clampToArea(city.area, t.x, t.z);
-    if (cx !== t.x || cz !== t.z) {
+    const cy = terrain.height(cx, cz);
+    if (cx !== t.x || cy !== t.y || cz !== t.z) {
       camera.position.x += cx - t.x;
+      camera.position.y += cy - t.y;
       camera.position.z += cz - t.z;
-      t.set(cx, t.y, cz);
+      t.set(cx, cy, cz);
     }
   }
   const onChange = () => {
@@ -986,7 +994,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   const ready = (async () => {
     await nextTask();
     if (disposed) return;
-    walls = partyWalls(city.buildings);
+    walls = partyWalls(city.buildings, (b) => footing(terrain, b.ring));
     await nextTask();
     if (disposed) return;
     let since = performance.now();
