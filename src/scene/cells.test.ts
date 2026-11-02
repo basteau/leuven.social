@@ -3,8 +3,9 @@ import { expect, test } from 'bun:test';
 import type { Building, City } from '../data/city.ts';
 import { footing, partyWalls } from './buildings.ts';
 import { CELL_SIZE, along, buildCell, groundRange, partition } from './cells.ts';
+import { drawnGround } from './drawn-ground.ts';
 import { buildFurniture, propBase } from './furniture.ts';
-import { slabBottom } from './ground.ts';
+import { LAYER_Y, slabBottom } from './ground.ts';
 import { MeshBuilder, unindexed } from './mesh-builder.ts';
 import { PARKED } from './props.ts';
 import { FLAT, FLAT_GRID, Terrain } from '../data/terrain.ts';
@@ -17,6 +18,7 @@ const kit = {
   footing: () => 0,
   wallTop: (b: Building) => b.eave,
   ground: () => 0,
+  layers: LAYER_Y,
 };
 const box = (x: number, z: number, w: number, d: number) =>
   new Float32Array([x, z, x + w, z, x + w, z + d, x, z + d]);
@@ -210,24 +212,87 @@ test('props are built apart from the cell: small ones up close, tall ones at eve
   expect(height(e.mesh)).toBeLessThan(20);
 });
 
-test('the furniture notes where each parked bike is drawn, on the ground it stands on', () => {
+test('each parked bike stands on the ground drawn under its wheels: a slope, a pavement, a square', () => {
   const [west] = partition(city);
   const rack = { kind: 'bikes' as const, x: 30, z: 40, angle: 0.3, size: 12, fill: 0.5 };
-  const cell = { ...west!, props: [...west!.props, rack, { ...rack, x: 60, fill: 0.25 }] };
+  // Rising 7 m over 100 m to the east; the first rack half on a pavement, half on a square
+  // whose edge runs between its bikes' middles and front wheels, the second on bare ground.
   const slope = new Terrain({ ...FLAT_GRID, step: 100, heights: Float32Array.of(0, 7, 0, 7) });
-  expect(propBase(slope, rack)).toBeGreaterThan(1);
+  const cell = {
+    ...west!,
+    props: [...west!.props, rack, { ...rack, x: 60, fill: 0.25 }],
+    ground: {
+      ...west!.ground,
+      roads: [box(20, 30, 20, 20)],
+      plazas: [Float32Array.of(30.6, 30, 40, 30, 40, 50, 30.6, 50)],
+    },
+  };
+  const drawn = drawnGround(slope, cell, LAYER_Y);
+  expect(drawn.layer(25, 40)).toBe(LAYER_Y.roads);
+  expect(drawn.layer(35, 40)).toBe(LAYER_Y.plazas);
+  expect(drawn.layer(60, 40)).toBe(0);
   const { near: mesh, bikes } = buildFurniture(cell, { ...kit, terrain: slope });
   expect(bikes).toHaveLength((6 + 3) * PARKED.stride);
-  const indices = mesh.build().index!.count;
+  const g = mesh.build();
+  const [index, position] = [g.index!, g.getAttribute('position')];
+  let [onSquare, onPavement] = [0, 0];
   for (let i = 0; i < bikes.length; i += PARKED.stride) {
     const [from, to] = [bikes[i + PARKED.from]!, bikes[i + PARKED.to]!];
     expect((to - from) / 3).toBeGreaterThanOrEqual(41);
-    expect(to).toBeLessThanOrEqual(indices);
-    // Each stands near its rack, on the ground under the rack.
-    const near = Math.hypot(bikes[i + PARKED.x]! - 30, bikes[i + PARKED.z]! - 40) < 6 ? rack : null;
-    const base = propBase(slope, near ?? { ...rack, x: 60, fill: 0.25 });
-    expect(bikes[i + PARKED.y]).toBeCloseTo(base, 4);
+    expect(to).toBeLessThanOrEqual(index.count);
+    const [x, z, heading] = [
+      bikes[i + PARKED.x]!,
+      bikes[i + PARKED.z]!,
+      bikes[i + PARKED.heading]!,
+    ];
+    // In each half of the bike, rear and front, the point near its middle plane nearest the drawn
+    // ground is on it: a tyre. Off that plane, the kickstand's foot may dip a few millimetres
+    // into a slope across it, as the bike stands level across.
+    const [lowest, nearest] = [
+      [Infinity, Infinity],
+      [Infinity, Infinity],
+    ];
+    const at: [number, number][] = [
+      [0, 0],
+      [0, 0],
+    ];
+    const [cos, sin] = [Math.cos(heading), Math.sin(heading)];
+    for (let k = from; k < to; k++) {
+      const v = index.getX(k);
+      const [px, py, pz] = [position.getX(v), position.getY(v), position.getZ(v)];
+      const half = (px - x) * cos + (pz - z) * sin > 0 ? 1 : 0;
+      const over = py - drawn.height(px, pz);
+      expect(over).toBeGreaterThan(-0.01);
+      if (Math.abs((pz - z) * cos - (px - x) * sin) > 0.1) continue;
+      if (over < nearest[half]!) [nearest[half], lowest[half], at[half]] = [over, py, [px, pz]];
+    }
+    for (const half of [0, 1]) {
+      expect(nearest[half]).toBeCloseTo(0, 3);
+      const [px, pz] = at[half]!;
+      if (drawn.layer(px, pz) === LAYER_Y.plazas) onSquare++;
+      if (drawn.layer(px, pz) === LAYER_Y.roads) onPavement++;
+    }
+    // Its note is where its middle stands, between its wheels.
+    const y = bikes[i + PARKED.y]!;
+    expect(y).toBeGreaterThanOrEqual(Math.min(...lowest) - 1e-3);
+    expect(y).toBeLessThanOrEqual(Math.max(...lowest) + 1e-3);
   }
+  expect(onSquare).toBeGreaterThan(0);
+  expect(onPavement).toBeGreaterThan(0);
+});
+
+test('the drawn ground is the highest layer at a point: a path, a pitch, a cell’s edge', () => {
+  const [west] = partition(city);
+  const drawn = drawnGround(FLAT, west!, LAYER_Y);
+  expect(drawn.layer(S - 10, 50)).toBe(LAYER_Y.paths);
+  // A path runs on by half its width past its end, as drawn; the cell's edge is looked up inside.
+  expect(drawn.layer(S - 20.9, 50)).toBe(LAYER_Y.paths);
+  expect(drawn.layer(S - 21.1, 50)).toBe(0);
+  expect(drawn.layer(S + 5, 50)).toBe(LAYER_Y.paths);
+  expect(drawn.layer(S - 5, 240)).toBe(LAYER_Y.pitch);
+  expect(drawn.layer(S - 10, 105)).toBe(LAYER_Y.carriageways);
+  expect(drawn.layer(20, 210)).toBe(LAYER_Y.green);
+  expect(drawn.height(20, 210)).toBeCloseTo(LAYER_Y.green);
 });
 
 test('along: how far a point on a line lies from its start', () => {

@@ -4,6 +4,7 @@ import type { Ground } from './collide.ts';
 import {
   BACK,
   BRAKE,
+  CORNER,
   CRUISE,
   GEAR,
   MAX_LEAN,
@@ -71,7 +72,8 @@ describe('pedalling', () => {
     expect(Math.abs(r.x)).toBeLessThan(1e-6);
   });
 
-  test('sprints to 13 m/s, and eases back to a cruise when the sprint ends', () => {
+  test('sprints to 17.5 m/s, and eases back to a cruise when the sprint ends', () => {
+    expect([CRUISE, SPRINT]).toEqual([11.5, 17.5]); // 35% up from 8.5 and 13
     const r = createRider(0, 0, 0);
     r.speed = CRUISE;
     const t = ride(r, 10, { throttle: 1, sprint: true }, open, (q) => q.speed >= SPRINT * 0.95);
@@ -89,18 +91,19 @@ describe('pedalling', () => {
     expect(r.speed).toBeLessThan(CRUISE * 0.6);
   });
 
-  test('coasts down at about 0.3 m/s² and brakes at 5', () => {
+  test('coasts down at about 0.4 m/s² from a cruise, and brakes to a stop within 11 m', () => {
     const coast = createRider(0, 0, 0);
     coast.speed = CRUISE;
     ride(coast, 1);
-    expect(CRUISE - coast.speed).toBeGreaterThan(0.25);
-    expect(CRUISE - coast.speed).toBeLessThan(0.4);
+    expect(CRUISE - coast.speed).toBeGreaterThan(0.3);
+    expect(CRUISE - coast.speed).toBeLessThan(0.5);
     expect(coast.pedalling).toBe(false);
     const brake = createRider(0, 0, 0);
     brake.speed = CRUISE;
     const t = ride(brake, 5, { throttle: -1 }, open, (q) => q.speed <= 0);
     expect(t).toBeCloseTo(CRUISE / BRAKE, 1);
     expect(brake.z).toBeCloseTo((CRUISE * CRUISE) / (2 * BRAKE), 0);
+    expect(brake.z).toBeLessThan(11);
   });
 
   test('held, S brakes to a stop and then backs up at a walking pace', () => {
@@ -134,6 +137,32 @@ describe('turning', () => {
     }
     expect(deg(MAX_LEAN)).toBeCloseTo(39, 0);
     expect(table).toHaveLength(4);
+  });
+
+  test('a street corner taken at a cruise fits: turning hard sheds speed until the turn does', () => {
+    // A right turn into a side street, keys or stick: round in under 10 m ahead and across, as
+    // two of Leuven's 8 to 12 m streets leave room for, slowing to about 6.5 m/s and leaning 39°.
+    for (const more of [
+      { throttle: 1, turn: 1 },
+      { turn: 1 },
+      { throttle: 1, toward: -Math.PI / 2 },
+    ]) {
+      const r = createRider(0, 0, 0);
+      r.speed = CRUISE;
+      const t = ride(r, 5, more, open, (q) => q.heading < -Math.PI / 2 + 0.05);
+      expect(t).toBeLessThan(2);
+      expect(r.z).toBeLessThan(10.5);
+      expect(-r.x).toBeLessThan(10.5);
+      expect(r.speed).toBeGreaterThan(CORNER - 0.5);
+      expect(Math.abs(r.lean)).toBeLessThanOrEqual(MAX_LEAN + 1e-6);
+    }
+    // Without easing off, the tightest turn at a cruise is 16.5 m round: past the corner.
+    expect((CRUISE * CRUISE) / 8).toBeGreaterThan(16);
+    // A gentle bend keeps the pace.
+    const bend = createRider(0, 0, 0);
+    bend.speed = CRUISE;
+    ride(bend, 1, { throttle: 1, toward: -0.3 });
+    expect(bend.speed).toBeGreaterThan(CRUISE - 0.1);
   });
 
   test('the bars ease round rather than snapping, and lean lags the turn', () => {

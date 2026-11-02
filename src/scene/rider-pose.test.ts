@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { MeshBasicMaterial, Vector3 } from 'three';
 
 import { BRACKET, CRANK, SADDLE } from './bike-rig.ts';
-import { FOREARM, applyPose, createCharacter, restPose } from './character.ts';
+import { ARM_SPREAD, FOREARM, applyPose, createCharacter, restPose } from './character.ts';
 import type { Pose } from './character.ts';
 import { createInput, createRider, stepRider } from './rider.ts';
 import {
@@ -64,23 +64,30 @@ describe('the rider on the figure’s own rig', () => {
     }
   });
 
-  test('its hands stay on the grips, the bars straight or turned', () => {
-    for (const steer of [-SHOWN_STEER, 0, SHOWN_STEER]) {
+  test('its hands stay on the grips, the bars straight or turned as far as half a radian', () => {
+    expect(SHOWN_STEER).toBeGreaterThanOrEqual(0.5);
+    for (const steer of [-SHOWN_STEER, -0.25, 0, 0.25, SHOWN_STEER]) {
       for (const stand of [0, 1]) {
-        applyPose(figure, rideAt(pose, state({ steer, stand, crank: 1 })));
-        for (const [bone, side] of [
-          ['foreL', 1],
-          ['foreR', -1],
-        ] as const) {
-          const [x, y, z] = where(bone, FOREARM);
-          const [gx, gy, gz] = gripAt(steer, side);
-          expect(Math.hypot(y - gy, z - gz)).toBeLessThan(0.02);
-          expect(Math.abs(x - gx)).toBeLessThan(0.07);
+        for (const crank of [0, 1, 2.5]) {
+          applyPose(figure, rideAt(pose, state({ steer, stand, crank })));
+          for (const [bone, side] of [
+            ['foreL', 1],
+            ['foreR', -1],
+          ] as const) {
+            const [x, y, z] = where(bone, FOREARM);
+            const [gx, gy, gz] = gripAt(steer, side);
+            expect(Math.hypot(x - gx, y - gy, z - gz)).toBeLessThan(0.005);
+          }
+          // Elbows a little bent, never locked straight; the hips square on the saddle.
+          expect(Math.max(pose.elbowL, pose.elbowR)).toBeLessThan(-0.05);
+          expect(pose.twist).toBe(0);
         }
-        // Elbows a little bent, never locked straight.
-        expect(pose.elbowL).toBeLessThan(-0.05);
       }
     }
+    // Bars straight, the arms hang out from the body as walking.
+    rideAt(pose, state());
+    expect(pose.spreadL).toBeCloseTo(ARM_SPREAD, 1);
+    expect(pose.spreadR).toBeCloseTo(ARM_SPREAD, 1);
   });
 
   test('standing, it rises off the saddle and rocks with the crank, the legs still reaching', () => {
@@ -116,7 +123,7 @@ describe('the rider on the figure’s own rig', () => {
     const out = {} as Pose;
     blendPose(out, stood, sat, 0);
     for (const key of Object.keys(stood) as (keyof Pose)[])
-      expect(out[key]).toBeCloseTo(stood[key]);
+      expect(out[key]).toBeCloseTo(stood[key]!);
     expect(blendPose(out, stood, sat, 1).hips).toBeCloseTo(sat.hips);
     blendPose(out, stood, sat, 0.5);
     expect(out.legR).toBeLessThan(Math.min(stood.legR, sat.legR) - 0.5);

@@ -16,8 +16,27 @@ import { CARRIAGEWAYS, GROUND, PITCH } from './palette.ts';
  */
 export const SLAB_DEPTH = 12;
 const UP = [0, 1, 0] as const;
-/** The slab's ink lip sits on top of the highest ground layer (squares, 0.2 m). */
-const LIP = 0.2;
+/**
+ * How high each ground layer is drawn over the terrain (m), stacked a few millimetres apart from
+ * the most generic land to the most specific (see `addGround`). Squares are the highest.
+ */
+export const LAYER_Y = {
+  railLand: 0.04,
+  green: 0.05,
+  woods: 0.06,
+  track: 0.062,
+  pitch: 0.066,
+  parking: 0.08,
+  water: 0.1,
+  paths: 0.12,
+  bridges: 0.13,
+  roads: 0.15,
+  carriageways: 0.155,
+  plazas: 0.2,
+} as const;
+export type LayerHeights = typeof LAYER_Y;
+/** The slab's ink lip sits on top of the highest ground layer (squares). */
+const LIP = LAYER_Y.plazas;
 
 /** The ground's polygon layers, which cells cut along their edges. */
 export const GROUND_RINGS = [
@@ -38,10 +57,10 @@ export interface Pitch {
 }
 
 /**
- * Pitches lie over woods (0.06) and under car parks (0.08): running tracks lowest, so the pitches
- * mapped on their infields (or a stadium's, drawn whole) lie on them. Their lines go on top (paint.ts).
+ * Pitches lie over woods and under car parks: running tracks lowest, so the pitches mapped on
+ * their infields (or a stadium's, drawn whole) lie on them. Their lines go on top (paint.ts).
  */
-export const PITCH_Y = { track: 0.062, pitch: 0.066 } as const;
+export const PITCH_Y = { track: LAYER_Y.track, pitch: LAYER_Y.pitch } as const;
 
 export interface GroundLayers {
   green: readonly Float32Array[];
@@ -190,24 +209,26 @@ export function addGround(
   // Layers stack a few millimetres apart, from the most generic land to the most specific, so
   // what is mapped inside something else shows: railway land is the land a railway owns, with
   // its grass verges and copses on it; a wood in a park, a pitch or car park in either.
-  addRings(mesh, layers.railLand, 0.04, GROUND.railway);
-  addRings(mesh, layers.green, 0.05, GROUND.green);
-  addRings(mesh, layers.woods, 0.06, GROUND.woods);
+  addRings(mesh, layers.railLand, LAYER_Y.railLand, GROUND.railway);
+  addRings(mesh, layers.green, LAYER_Y.green, GROUND.green);
+  addRings(mesh, layers.woods, LAYER_Y.woods, GROUND.woods);
   for (const { surface, ring } of layers.pitches) {
     addRing(mesh, ring, surface === 'tartan' ? PITCH_Y.track : PITCH_Y.pitch, PITCH[surface]);
   }
-  addRings(mesh, layers.parking, 0.08, GROUND.parking);
-  addRings(mesh, layers.water, 0.1, GROUND.water);
+  addRings(mesh, layers.parking, LAYER_Y.parking, GROUND.parking);
+  addRings(mesh, layers.water, LAYER_Y.water, GROUND.water);
   // Above the water (footbridges), under the road surfaces that already cover their crossings.
-  addPaths(mesh, layers.paths, 0.12);
+  addPaths(mesh, layers.paths, LAYER_Y.paths);
   // Bridge decks: stone slabs over the water, under any road surface that crosses them.
-  for (const ring of layers.bridges) addRing(mesh, ring, 0.13, GROUND.bridge, SURFACE.paving);
+  for (const ring of layers.bridges)
+    addRing(mesh, ring, LAYER_Y.bridges, GROUND.bridge, SURFACE.paving);
   // The road surface is pavement, with the carriageways and cycle tracks laid on it.
-  for (const ring of layers.roads) addRing(mesh, ring, 0.15, GROUND.pavement, SURFACE.paving);
+  for (const ring of layers.roads)
+    addRing(mesh, ring, LAYER_Y.roads, GROUND.pavement, SURFACE.paving);
   for (const { kind, ring } of layers.carriageways) {
-    addRing(mesh, ring, 0.155, CARRIAGEWAYS[kind], SURFACE_OF[kind]);
+    addRing(mesh, ring, LAYER_Y.carriageways, CARRIAGEWAYS[kind], SURFACE_OF[kind]);
   }
   addPaint(mesh, layers.markings);
   // Squares are paved in setts, like the old streets round them.
-  for (const ring of layers.plazas) addRing(mesh, ring, 0.2, GROUND.plaza, SURFACE.sett);
+  for (const ring of layers.plazas) addRing(mesh, ring, LAYER_Y.plazas, GROUND.plaza, SURFACE.sett);
 }

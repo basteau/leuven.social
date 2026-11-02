@@ -11,7 +11,7 @@
  */
 
 /** A parked bike's look, packed in a byte, as props.ts packs it. */
-export const LOOK = { step: 1, carrier: 2, crate: 4, colour: 8 } as const;
+export const LOOK = { step: 1, carrier: 2, crate: 4, basket: 8, colour: 16 } as const;
 /** The racks' bike colours and parts, as in palette.ts (`BIKES`, `PROPS`, `OUTLINE`). */
 export const BIKES = [
   0x2f3a4a, 0x2b2420, 0xd2553f, 0xf6eedc, 0x8db36f, 0x5b6170, 0xe8b94a,
@@ -23,6 +23,7 @@ export const PARTS = {
   crate: 0xb5402f,
   crateInside: 0x5a2a20,
   ink: 0x2b2420,
+  lantern: 0xf3dfa8,
   /** A tan saddle and grips: warm, like the walker's summer. */
   leather: 0x9a6a42,
 } as const;
@@ -197,30 +198,53 @@ export function bonePivot(bone: number): V3 {
 
 const bone = (name: BikeBone) => BIKE_BONES.indexOf(name);
 
+/** A point on the circle of radius `r` round (v, y) in the bike's side plane, `t` up from ahead. */
+const round = (v: number, y: number, r: number, t: number, x = 0): V3 =>
+  P(v + Math.cos(t) * r, y + Math.sin(t) * r, x);
+
+/** An arc of three beams round a wheel's axle at v, from angle t0 to t1, unlined: a mudguard. */
+function arc(f: Faces, v: number, r: number, [t0, t1]: readonly [number, number], on: number) {
+  const n = 3;
+  for (let i = 0; i < n; i++) {
+    const [a, b] = [t0 + ((t1 - t0) * i) / n, t0 + ((t1 - t0) * (i + 1)) / n];
+    f.beam(round(v, WHEEL, r, a), round(v, WHEEL, r, b), 0.08, 0.015, PARTS.iron, on, false, false);
+  }
+}
+
 /**
  * The rideable bike for a parked bike's `look`, in its rest pose: wheels and crank unturned (the
- * left pedal down), bars straight. About 430 triangles with its ink, and a blob shadow.
+ * left pedal down), bars straight. 650 to 700 triangles with its ink, and a blob shadow.
  */
 export function bikeArrays(look: number): BikeArrays {
   const f = new Faces();
   const colour = BIKES[Math.floor(look / LOOK.colour) % BIKES.length]!;
   const [frame, steer, crank] = [bone('frame'), bone('steer'), bone('crank')];
 
-  // The wheels: a hexagonal tyre of beams round each axle, and two crossed spokes that show it turn.
-  for (const [name, v] of [
-    ['rear', -AXLE],
-    ['front', AXLE],
+  // The wheels: an octagonal tyre of beams round each axle, a hub, and twelve spokes (six
+  // beams across) that show it turn; a mudguard over each, the front one turning with the bars.
+  for (const [name, v, guard] of [
+    ['rear', -AXLE, [0.75, 3.5]],
+    ['front', AXLE, [0.15, 2.8]],
   ] as const) {
     const b = bone(name);
-    const rim = (i: number): V3 => {
-      const t = (i * Math.PI) / 3 + Math.PI / 6;
-      return P(v + Math.cos(t) * (WHEEL - 0.03), WHEEL + Math.sin(t) * (WHEEL - 0.03));
-    };
-    for (let i = 0; i < 6; i++) f.beam(rim(i), rim(i + 1), 0.06, 0.06, PARTS.tyre, b, true, false);
-    for (const t of [0, Math.PI / 2]) {
-      const [c, s] = [Math.cos(t) * (WHEEL - 0.05), Math.sin(t) * (WHEEL - 0.05)];
-      f.beam(P(v - c, WHEEL - s), P(v + c, WHEEL + s), 0.02, 0.025, PARTS.spokes, b, false, false);
+    const rim = (i: number) => round(v, WHEEL, WHEEL - 0.02, ((i + 0.5) * Math.PI) / 4);
+    for (let i = 0; i < 8; i++) f.beam(rim(i), rim(i + 1), 0.06, 0.06, PARTS.tyre, b, true, false);
+    for (let i = 0; i < 6; i++) {
+      const t = (i * Math.PI) / 6;
+      const r = WHEEL - 0.05;
+      f.beam(
+        round(v, WHEEL, r, t),
+        round(v, WHEEL, -r, t),
+        0.012,
+        0.02,
+        PARTS.spokes,
+        b,
+        false,
+        false,
+      );
     }
+    f.beam(P(v, WHEEL, -0.05), P(v, WHEEL, 0.05), 0.05, 0.05, PARTS.spokes, b, false);
+    arc(f, v, WHEEL + 0.04, guard, name === 'rear' ? frame : steer);
   }
 
   // The frame: chain and seat stays to the rear axle, the seat tube, a diamond's top tube or a
@@ -259,8 +283,52 @@ export function bikeArrays(look: number): BikeArrays {
     PARTS.iron,
     steer,
   );
+  // Tan grips over the bars' ends, and a silver bell by the left one. Unlined: they're small.
+  for (const side of [1, -1]) {
+    const [a, b] = [side * (GRIPS.x - 0.06), side * (GRIPS.x + 0.05)];
+    f.beam(S(GRIPS.z, GRIPS.y, a), S(GRIPS.z, GRIPS.y, b), 0.06, 0.06, PARTS.leather, steer, false);
+  }
+  f.beam(
+    S(GRIPS.z + 0.02, GRIPS.y + 0.02, GRIPS.x - 0.12),
+    S(GRIPS.z + 0.02, GRIPS.y + 0.07, GRIPS.x - 0.12),
+    0.06,
+    0.06,
+    PARTS.spokes,
+    steer,
+    false,
+  );
 
-  if (look & LOOK.crate) {
+  // The lamp, its lens facing ahead: on the fork crown, or under a crate on its carrier.
+  const crate = look & LOOK.crate;
+  const lamp = crate ? 0.7 : 0.44;
+  f.beam(P(lamp, 0.73), P(lamp + 0.08, 0.73), 0.07, 0.06, PARTS.tyre, crate ? frame : steer, false);
+  f.polygon(
+    [
+      P(lamp + 0.081, 0.71, -0.025),
+      P(lamp + 0.081, 0.71, 0.025),
+      P(lamp + 0.081, 0.75, 0.025),
+      P(lamp + 0.081, 0.75, -0.025),
+    ],
+    [0, 0, 1],
+    PARTS.lantern,
+    crate ? frame : steer,
+  );
+  // A red reflector facing back: on the carrier's end, or the rear mudguard's.
+  const back = look & LOOK.carrier && !crate ? -AXLE - 0.125 : -AXLE - WHEEL - 0.03;
+  const high = look & LOOK.carrier && !crate ? WHEEL * 2 + 0.02 : WHEEL + 0.16;
+  f.polygon(
+    [
+      P(back, high, 0.04),
+      P(back, high, -0.04),
+      P(back, high - 0.06, -0.04),
+      P(back, high - 0.06, 0.04),
+    ],
+    [0, 0, -1],
+    PARTS.crate,
+    frame,
+  );
+
+  if (crate) {
     // A red crate on a carrier fixed to the frame over the front wheel, its inside dark.
     f.beam(P(0.5, 0.78), P(0.5, 1.0), 0.36, 0.32, PARTS.crate, frame, true, false);
     f.polygon(
@@ -269,15 +337,31 @@ export function bikeArrays(look: number): BikeArrays {
       PARTS.crateInside,
       frame,
     );
-  } else if (look & LOOK.carrier) {
-    f.beam(
-      P(-AXLE - 0.12, WHEEL * 2 + 0.06),
-      P(SADDLE[0] - 0.1, WHEEL * 2 + 0.06),
-      0.18,
-      0.03,
-      PARTS.iron,
-      frame,
+  } else if (look & LOOK.basket) {
+    // A wicker basket hung on the bars, turning with them, its inside dark.
+    f.beam(S(0.55, 0.8), S(0.55, 1.02), 0.32, 0.24, PARTS.leather, steer, true, false);
+    f.polygon(
+      [S(0.44, 1.025, -0.15), S(0.66, 1.025, -0.15), S(0.66, 1.025, 0.15), S(0.44, 1.025, 0.15)],
+      [0, 1, 0],
+      PARTS.crateInside,
+      steer,
     );
+  } else if (look & LOOK.carrier) {
+    // A carrier over the rear wheel, on a stay each side from the axle.
+    const top = WHEEL * 2 + 0.06;
+    f.beam(P(-AXLE - 0.12, top), P(SADDLE[0] - 0.1, top), 0.18, 0.03, PARTS.iron, frame);
+    for (const side of [1, -1]) {
+      f.beam(
+        P(-AXLE, WHEEL, side * 0.06),
+        P(-AXLE - 0.1, top, side * 0.07),
+        0.015,
+        0.015,
+        PARTS.iron,
+        frame,
+        false,
+        false,
+      );
+    }
   }
 
   // The crank: a chainring and two arms; the pedals stay level as it turns. No ink: they're small.
@@ -286,6 +370,35 @@ export function bikeArrays(look: number): BikeArrays {
     return P(BRACKET[0] + Math.cos(t) * 0.1, BRACKET[1] + Math.sin(t) * 0.1, -0.05);
   });
   f.polygon(ring, [-1, 0, 0], PARTS.iron, crank);
+  // The chain on the right, round the chainring and the rear sprocket, and a black guard over
+  // its top run and the ring, seen from the right only.
+  for (const [ry, cy] of [
+    [0.1, 0.045],
+    [-0.1, -0.045],
+  ] as const) {
+    f.beam(
+      P(BRACKET[0], BRACKET[1] + ry, -0.05),
+      P(-AXLE, WHEEL + cy, -0.05),
+      0.012,
+      0.02,
+      PARTS.iron,
+      frame,
+      false,
+      false,
+    );
+  }
+  f.polygon(
+    [
+      P(0.07, 0.34, -0.075),
+      P(0, 0.43, -0.075),
+      P(-0.5, 0.41, -0.075),
+      P(-0.52, 0.36, -0.075),
+      P(-0.05, 0.3, -0.075),
+    ],
+    [-1, 0, 0],
+    PARTS.tyre,
+    frame,
+  );
   for (const side of [1, -1]) {
     const x = side * (PEDAL_X - 0.03);
     f.beam(
@@ -387,6 +500,13 @@ export function bakeBike(
 
 /** The largest bike's vertex and index counts, for sizing baked arrays. */
 export const BIKE_MOST = (() => {
-  const most = bikeArrays(LOOK.crate);
-  return { vertices: most.bone.length, indices: most.index.length };
+  let [vertices, indices] = [0, 0];
+  for (const look of [LOOK.crate, LOOK.basket, LOOK.carrier]) {
+    const bike = bikeArrays(look);
+    [vertices, indices] = [
+      Math.max(vertices, bike.bone.length),
+      Math.max(indices, bike.index.length),
+    ];
+  }
+  return { vertices, indices };
 })();

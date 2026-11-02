@@ -54,11 +54,13 @@ const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[
   // Riding loads near a rack (or on F): the bike's physics, rig and model, the rider's pose, the
   // glue that takes and leaves bikes, and its sounds. The plan said 7 KB; riding along a route,
   // swinging a racked bike round to the open street and baking the bikes left about the city
-  // into one mesh took it to about 8.8.
+  // into one mesh took it to about 8.8. 10: the richer bike asked for (round spoked wheels,
+  // mudguards, a chain and its guard, a lamp, a bell, grips, carrier stays, a basket) and the
+  // rider's arms reaching bars turned twice as far took it to about 9.6.
   {
     label: 'Riding JS (near a rack)',
     pattern: 'assets/ride-*.js',
-    limit: 9 * KB,
+    limit: 10 * KB,
     gzip: true,
   },
   // The plates on the facades load after walk mode, in a chunk and a data file of their own.
@@ -74,10 +76,13 @@ const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[
   // Street furniture, monuments and the shop fronts' awnings, signs and terraces load once the
   // first frame is drawn, with the prop and terrace footprints they share with walk mode.
   // 6: the storefronts' shapes and the fronts' places on their walls added 1.6 KB.
+  // 7: standing each parked bike on the ground as drawn (the layers' outlines) and the bikes'
+  // detail asked for (round spoked wheels, cranks, chain guard, kickstand, lamp, basket) took it
+  // from 5.4 to 6.7 KB.
   {
     label: 'Furniture JS (after first frame)',
     pattern: 'assets/{furniture,props,shops}-*.js',
-    limit: 6 * KB,
+    limit: 7 * KB,
     gzip: true,
   },
   // About 11.6k house numbers and 1.8k street plates are 67 KB, and 1.1k shop name boards 17 KB

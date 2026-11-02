@@ -43,7 +43,7 @@ import {
   setPixelSize,
 } from './facade-material.ts';
 import { LIGHT } from './lighting.ts';
-import { slabBottom } from './ground.ts';
+import { LAYER_Y, slabBottom } from './ground.ts';
 import { LINE_LOD } from './paint.ts';
 import { LineBuilder, MeshBuilder, corners, geometryBytes } from './mesh-builder.ts';
 import type { V3 } from './mesh-builder.ts';
@@ -391,6 +391,7 @@ export function createViewer(options: ViewerOptions): Viewer {
       footing: (b) => footing(terrain, b.ring),
       wallTop,
       ground: (x, z) => terrain.height(x, z),
+      layers: LAYER_Y,
     });
     entry.furniture = furnitureMesh(near);
     // Where each parked bike is drawn in it (`PARKED`), and its index kept, so riding can draw
