@@ -1,6 +1,6 @@
 # leuven.social
 
-A tiny isometric 3D Leuven in the browser, built from open geodata: a React HUD over a plain three.js scene.
+A tiny isometric 3D Leuven in the browser, built from open geodata: a React command menu and a few on-screen essentials over a plain three.js scene.
 
 This project uses Bun for everything: installs, scripts, tests, type checking and formatting. Don't use npm, npx or tsc.
 
@@ -28,4 +28,4 @@ Commit in small, well-scoped steps: one logical change per commit, with its test
 
 ## UI work
 
-Load the `better-interface`, `good-css` and `mobile-native` skills before changing the HUD. Check the result in a browser with `bunx agent-browser` (the pinned version; start with `bunx agent-browser skills get core`), at phone and desktop sizes, rather than from the code alone.
+Load the `better-interface`, `good-css` and `mobile-native` skills before changing the UI (the command menu, loading screen and on-screen essentials). Check the result in a browser with `bunx agent-browser` (the pinned version; start with `bunx agent-browser skills get core`), at phone and desktop sizes, rather than from the code alone.

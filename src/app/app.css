@@ -208,9 +208,11 @@ kbd {
   opacity: 0.75;
 }
 
+/* No keyboard on a touch screen: commands show no keycaps (the controls page still lists them). */
 @media (hover: none), (pointer: coarse) {
   .action kbd,
-  .menu-trigger kbd {
+  .menu-trigger kbd,
+  .menu-option .keycaps {
     display: none;
   }
 }
