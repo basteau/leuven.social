@@ -25,7 +25,14 @@ import { walkSolids } from './solids.ts';
 import { TAP_MS, TAP_SLOP } from './tap.ts';
 import { createCharacterMaterial, createXrayMaterial } from './character-material.ts';
 import type { Fade } from './character-material.ts';
-import { CHARACTER_SCALE, applyPose, createCharacter, poseAt, restPose } from './character.ts';
+import {
+  ARM_SPREAD,
+  CHARACTER_SCALE,
+  applyPose,
+  createCharacter,
+  poseAt,
+  restPose,
+} from './character.ts';
 import type { Character } from './character.ts';
 import {
   CHASE_FOV,
@@ -375,6 +382,8 @@ export function createWalk(host: WalkHost): Walk {
           host,
           grid: ensureGrid(),
           character: character!,
+          poseAt,
+          armSpread: ARM_SPREAD,
           body,
           xray,
           boom,
@@ -748,8 +757,7 @@ export function createWalk(host: WalkHost): Walk {
   document.addEventListener('visibilitychange', onVisibility);
 
   function wake(): void {
-    // Whatever woke the loop gets a step, even when the first frame comes sooner than one: a
-    // stopped bike told to stop and let its rider off would otherwise end the loop untouched.
+    // Woken, keep going until a step says all is still: the first frame may be too soon for one.
     moving = true;
     if (frame) return;
     last = performance.now();

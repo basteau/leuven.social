@@ -690,6 +690,9 @@ export interface Pose {
    */
   spreadL?: number;
   spreadR?: number;
+  /** How far out from the hip each thigh swings (radians), if not straight down: a rider's foot. */
+  splayL?: number;
+  splayR?: number;
   /** Head nod and turn. */
   nod: number;
   look: number;
@@ -983,8 +986,8 @@ export function applyPose({ bones }: Character, pose: Pose): void {
   bones.head.rotation.set(pose.nod, pose.look - pose.twist, 0);
   // The legs undo the hips' roll and turn first (they turn Z, then Y, then X), so they swing in
   // the root's plane.
-  bones.legL.rotation.set(pose.legL, -pelvis, -pose.roll);
-  bones.legR.rotation.set(pose.legR, -pelvis, -pose.roll);
+  bones.legL.rotation.set(pose.legL, -pelvis, (pose.splayL ?? 0) - pose.roll);
+  bones.legR.rotation.set(pose.legR, -pelvis, -(pose.splayR ?? 0) - pose.roll);
   bones.shinL.rotation.x = pose.kneeL;
   bones.shinR.rotation.x = pose.kneeR;
   bones.footL.rotation.x = pose.footL;

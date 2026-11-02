@@ -13,15 +13,17 @@ import { createRideSounds } from '../audio/riding.ts';
 import type { WalkGrid } from '../data/walkable.ts';
 import { BIKE_BONES, BIKE_JOINTS, BIKE_MOST, bakeBike, bikeArrays } from './bike-rig.ts';
 import type { BikeArrays, Stand } from './bike-rig.ts';
-import type { Character, Pose } from './character.ts';
+import type { Character, Pose, poseAt } from './character.ts';
 import type { Boom, Follow } from './chase.ts';
 import { loose, overlap } from './collide.ts';
-import { decayAngle } from './motion.ts';
+import { decay, decayAngle } from './motion.ts';
 import { DROPPED_KEY, PARKED, nearestParked, parkedHeading } from './parked.ts';
 import type { Furniture } from './parked.ts';
 import {
   CRUISE,
+  FOOT_LEAN,
   SPRINT,
+  WHEEL,
   WHEELBASE,
   createInput,
   createRider,
@@ -29,10 +31,24 @@ import {
   stepRider,
 } from './rider.ts';
 import type { Rider } from './rider.ts';
-import { ROCK, SHOWN_STEER, blendPose, rideAt } from './rider-pose.ts';
-import type { RideState as PoseState } from './rider-pose.ts';
+import {
+  DISMOUNT_TIME,
+  KICK_AT,
+  MOUNT_TIME,
+  OVER_AT,
+  ROCK,
+  SHOWN_STEER,
+  STANCE,
+  blendPose,
+  hold,
+  rideAt,
+  smooth,
+  swingAt,
+  swingPlace,
+} from './rider-pose.ts';
+import type { Place, RideState as PoseState } from './rider-pose.ts';
 import type { WalkHost } from './walk.ts';
-import { STEP } from './walker.ts';
+import { STEP, STRIDE_WALK, followRoute, stepWalker } from './walker.ts';
 import type { Walker } from './walker.ts';
 
 /**
@@ -61,6 +77,12 @@ export interface RideKit {
   host: WalkHost;
   grid: WalkGrid;
   character: Character;
+  /**
+   * The walker's gait, and how far its arms hang out, for walking a bike: handed over, as three
+   * is, so this chunk doesn't import the figure's module and split the engine off the first load.
+   */
+  poseAt: typeof poseAt;
+  armSpread: number;
   body: Material;
   xray: Material;
   boom: Boom;
@@ -103,18 +125,37 @@ export interface Ride {
 /** Within this of a bike (m) the Ride pill shows; within FETCH, F walks there first. */
 const NEAR = 1.6;
 const FETCH = 30;
-/** Walked to a bike, the route may end this far from it (m): the rider steps the rest. */
-const ARRIVED = 3.5;
-/** Getting on and off (s). */
-const MOUNT = 0.45;
+/**
+ * Getting on, the rider walks to the bike's left side (`STANCE`), the last metre along the bike
+ * so as to arrive facing its way. Already within this of the spot (m) and facing about its way,
+ * it steps the rest in place.
+ */
+const LAST_LEG = 0.8;
+const CLOSE = 0.35;
+/** Walked there, the route may end this far from the spot (m) and still get on. */
+const ARRIVED = 0.6;
+/** The rider's arrival off the spot eases out over this long (s). */
+const SETTLE = 0.3;
+/** A rack bike is rolled back out of its rack (or on through it) at most this far (m). */
+const ROLL_OUT = 2;
+/** Rolling a bike out takes (s) this and this more a metre; turning it round, this a half turn. */
+const ROLL_TIME = [0.25, 0.3] as const;
+const TURN_TIME = 0.75;
 /** A bike on its kickstand leans this far onto it, its left (radians). */
 const KICKSTAND = (6 * Math.PI) / 180;
-/** Getting off, the rider stands this far to the bike's side (m). */
-const ASIDE = 0.8;
+/** Getting off, the walker then steps this far out from the bike's middle (m), a little back. */
+const STEP_AWAY = 1.05;
+/** The walker's own pose takes over from getting off over this long (s). */
+const RELEASE = 0.3;
+/** With reduced motion, getting on or off is over this quickly (s), with no bike to walk round. */
+const QUICK = 0.35;
+/** A direction held while getting on or off hurries it this much. */
+const HURRY = 2.5;
 /** Getting on, the bike is turned to have this much clear street ahead (m), if it can. */
 const CLEAR = 6;
-/** A dropped bike is met as a circle this round (m). */
+/** A dropped bike is met as a circle this round (m), and a ridden one this. */
 const DROPPED_RADIUS = 0.55;
+const RIDDEN_RADIUS = 0.5;
 /** Bikes left about the city at once, before the oldest goes back to its rack. */
 const MOST_DROPPED = 6;
 /** The bike's scale, the figure's. */
@@ -123,13 +164,15 @@ const SCALE = 1.3;
 const CHORES = 0.5;
 /** A hit harder than this (m/s) thuds. */
 const THUD = 1.2;
-/** Riding, the camera: the boom 1.2× longer, the look point 0.35 s ahead with a 150 ms lag,
- * coming round at about 3 a second 0.7 s after a look by hand, 8° wider flat out, rolled with
- * the lean. */
+/**
+ * Riding, the camera: the boom 1.2× longer, the look point 0.35 s ahead with a 150 ms lag,
+ * coming round at about 3 a second 0.7 s after a look by hand, 8° wider flat out. It eases from
+ * the walk's settings to these as the rider gets on, and back as they get off. It doesn't roll
+ * with the lean: the street stays level.
+ */
 const BOOM = 1.2;
 const RIDE_FOLLOW = { ahead: 0.35, ease: 0.15, rate: 1.8, early: 0.3 } as const;
 const SPRINT_FOV = 3;
-const CAMERA_ROLL = 0.15;
 
 /** A bike left standing somewhere, and the rack bike it was (to put back). */
 interface Dropped extends Stand {
@@ -140,11 +183,14 @@ interface Dropped extends Stand {
   returning?: boolean;
 }
 
-type Phase = 'walk' | 'fetch' | 'mount' | 'ride' | 'stop' | 'dismount';
+type Phase = 'walk' | 'fetch' | 'pull' | 'mount' | 'ride' | 'stop' | 'dismount' | 'release';
+interface XZ {
+  x: number;
+  z: number;
+}
 
 const key = (x: number, z: number) => `${x.toFixed(2)} ${z.toFixed(2)}`;
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
-const smooth = (t: number) => t * t * (3 - 2 * t);
 
 export function createRide(kit: RideKit): Ride {
   const { three, host, grid, character, boom, follow, view } = kit;
@@ -251,19 +297,35 @@ export function createRide(kit: RideKit): Ride {
   let phase: Phase = 'walk';
   let rider: Rider = createRider(0, 0, 0);
   let current: Dropped | undefined;
-  let blend = 0;
-  const from = { x: 0, z: 0, heading: 0 };
-  const to = { x: 0, z: 0 };
+  /** Seconds into taking a bike, getting on or off, or letting go of it. */
+  let t = 0;
+  /** Seconds since the bike was taken, which the rider's arrival off the spot eases out over. */
+  let since = 0;
   let posed = false;
-  // Poses getting on and off: the one before, the walker standing as it got on, and seated.
+  /** The pose a scripted moment starts from, and where the figure stands in it. */
   const before = {} as Pose;
-  const standing = {} as Pose;
-  const seated = {} as Pose;
+  const where: Place = { x: 0, z: 0, tilt: 0, bike: 0, grip: 0 };
   const input = createInput();
-  const poseState: PoseState = { crank: 0, steer: 0, stand: 0, foot: 0, look: 0 };
-  let fetching: { x: number; z: number } | undefined;
-  /** The way the bike faced as it was taken, if the rider swings it round getting on. */
-  let turnFrom = 0;
+  const poseState: PoseState = { crank: 0, steer: 0, stand: 0, foot: 0, look: 0, lean: 0 };
+  /** The bike while it stands on its own: taken, got on or off, its bars, wheels and crank. */
+  const stood = { x: 0, z: 0, heading: 0, lean: 0, steer: 0, wheel: 0, crank: Math.PI / 2 };
+  /**
+   * Taking a bike: where it stood and leant, how far it rolls out of a rack (along its way,
+   * negative back), the turn to the open street, and the bike nearest the spot, to take on arrival.
+   */
+  const plan = { x: 0, z: 0, heading: 0, lean: 0, out: 0, turn: 0, rolling: 0, turning: 0 };
+  let target: ReturnType<typeof nearest> = null;
+  /** Where the rider walks to get on, and how far off it (and its way) they were. */
+  const spot = { x: 0, z: 0 };
+  const miss = { x: 0, z: 0, heading: 0 };
+  /** The input held while getting on or off: a direction hurries it, or walks off. */
+  const held = { x: 0, z: 0, run: false, any: false };
+  let walker0: Walker | undefined;
+  /** How far the camera is into riding's settings (0 to 1), and the boom's share of that. */
+  let riding = 0;
+  let boomed = 1;
+  /** Getting off, whether the kickstand has gone down. */
+  let kicked = false;
 
   // Bikes left about the city, oldest first.
   let dropped: Dropped[] = [];
@@ -347,17 +409,85 @@ export function createRide(kit: RideKit): Ride {
     return parked ? { parked, d: parked.distance } : best;
   }
 
-  function mount(walker: Walker, target: NonNullable<ReturnType<typeof nearest>>): void {
-    let d = target.dropped;
-    if (target.parked) {
-      const { mesh, at } = target.parked;
+  /** The ground under a bike's wheels, where it stands. */
+  const ground = (x: number, z: number) => kit.floor(x, z);
+
+  /** Where a point of a bike's frame is on the street (model metres across to its left, along). */
+  function onBike(x: number, z: number, h: number, across: number, along: number, out: XZ): XZ {
+    out.x = x + (Math.cos(h) * across + Math.sin(h) * along) * SCALE;
+    out.z = z + (Math.cos(h) * along - Math.sin(h) * across) * SCALE;
+    return out;
+  }
+
+  /**
+   * The bike standing on its own (`stood`), nose up or down the slope, leaning, its bars, wheels
+   * and crank as they are.
+   */
+  function drawStood(): void {
+    const { x, z, heading } = stood;
+    const half = WHEELBASE / 2;
+    const fx = Math.sin(heading) * half;
+    const fz = Math.cos(heading) * half;
+    const rise = ground(x + fx, z + fz) - ground(x - fx, z - fz);
+    bike.position.set(x, ground(x, z), z);
+    bike.rotation.set(-Math.atan2(rise, 2 * half), heading, -stood.lean);
+    bike.scale.setScalar(SCALE);
+    bones[0]!.rotation.z = 0;
+    bones[1]!.rotation.y = Math.max(-SHOWN_STEER, Math.min(SHOWN_STEER, stood.steer));
+    bones[2]!.rotation.x = bones[3]!.rotation.x = stood.wheel;
+    bones[4]!.rotation.x = -stood.crank;
+    bones[5]!.rotation.x = bones[6]!.rotation.x = stood.crank;
+  }
+
+  /**
+   * Plans taking a bike: out of a rack, how far it rolls back (or on) to be clear of it; the way
+   * to ride, the open street nearest the way it rolled out or stood; and the spot beside it, on
+   * its left, to get on from.
+   */
+  function aim(found: NonNullable<ReturnType<typeof nearest>>): void {
+    target = found;
+    let { x, z, heading } = found.dropped ?? { x: 0, z: 0, heading: 0 };
+    plan.out = 0;
+    if (found.parked) {
+      const b = found.parked.mesh.userData.bikes!;
+      const at = found.parked.at;
+      [x, z, heading] = [
+        b[at + PARKED.x]!,
+        b[at + PARKED.z]!,
+        parkedHeading(b[at + PARKED.heading]!),
+      ];
+      const clear = (k: number) =>
+        !overlap(
+          x + Math.sin(heading) * k,
+          z + Math.cos(heading) * k,
+          grid,
+          RIDDEN_RADIUS,
+          0,
+          spare,
+        );
+      for (let k = 0.25; k <= ROLL_OUT && !plan.out; k += 0.25)
+        plan.out = clear(-k) ? -k : clear(k) ? k : 0;
+    }
+    const ox = x + Math.sin(heading) * plan.out;
+    const oz = z + Math.cos(heading) * plan.out;
+    plan.turn = wrap(clearWay(ox, oz, heading + (plan.out < 0 ? Math.PI : 0)) - heading);
+    Object.assign(plan, { x, z, heading });
+    onBike(ox, oz, heading, STANCE[0], STANCE[1], spot);
+  }
+
+  /** Takes the planned bike: off its rack or the street, into the rider's hands. */
+  function take(walker: Walker): void {
+    const found = target!;
+    let d = found.dropped;
+    if (found.parked) {
+      const { mesh, at } = found.parked;
       const b = mesh.userData.bikes!;
       const [x, z] = [b[at + PARKED.x]!, b[at + PARKED.z]!];
       d = {
         x,
         y: b[at + PARKED.y]!,
         z,
-        heading: parkedHeading(b[at + PARKED.heading]!),
+        heading: plan.heading,
         lean: 0,
         steer: 0,
         look: b[at + PARKED.look]!,
@@ -365,43 +495,85 @@ export function createRide(kit: RideKit): Ride {
         rackZ: z,
       };
       hide(x, z);
-    } else dropped = dropped.filter((other) => other !== d);
+    } else {
+      dropped = dropped.filter((other) => other !== d);
+      sounds.kickstand(false);
+    }
     current = d!;
-    d!.y = kit.floor(d!.x, d!.z);
-    rider = createRider(d!.x, d!.z, d!.heading);
-    [rider.lean, rider.steer] = [d!.lean, d!.steer];
-    // A bike parked nose to a wall, or across a lane, is swung round as the rider gets on: to
-    // ride the way the camera looks, or as near it as the street lets it go.
-    turnFrom = d!.heading;
-    rider.heading = clearWay(d!.x, d!.z, wrap(boom.yaw + Math.PI));
-    [from.x, from.z, from.heading] = [walker.x, walker.z, walker.heading];
+    Object.assign(stood, { x: d!.x, z: d!.z, heading: d!.heading, lean: d!.lean, steer: d!.steer });
+    stood.wheel = 0;
+    stood.crank = Math.PI / 2;
+    miss.x = walker.x - spot.x;
+    miss.z = walker.z - spot.z;
+    miss.heading = wrap(walker.heading - plan.heading);
     walker.route = null;
-    fetching = undefined;
-    phase = 'mount';
-    blend = 0;
+    target = null;
+    phase = 'pull';
+    t = since = 0;
     posed = false;
+    // Seconds the bike takes to roll out of its rack, and to turn round to the street.
+    const quick = reducedMotion ? 0 : 1;
+    plan.rolling = plan.out && quick * (ROLL_TIME[0] + ROLL_TIME[1] * Math.abs(plan.out));
+    plan.turning =
+      Math.abs(plan.turn) > 0.05 ? (quick * TURN_TIME * Math.abs(plan.turn)) / Math.PI : 0;
     remember();
     place(d!);
     twin.visible = true;
-    sounds.kickstand(false);
-    boom.distance *= BOOM;
-    Object.assign(follow, RIDE_FOLLOW);
     publish('riding');
     kit.wake();
   }
 
-  /** Off the bike: it stays where it is on its kickstand, and the rider beside it. */
+  const mountTime = reducedMotion ? QUICK : MOUNT_TIME;
+  const dismountTime = reducedMotion ? QUICK : DISMOUNT_TIME;
+
+  /** The rider's arrival off the spot, easing out: the walker placed at `at`, plus what's left. */
+  function arrive(walker: Walker, at: XZ, heading: number): void {
+    const left = 1 - smooth(since / SETTLE);
+    walker.x = at.x + miss.x * left;
+    walker.z = at.z + miss.z * left;
+    walker.heading = wrap(heading + miss.heading * left);
+  }
+  const by: XZ = { x: 0, z: 0 };
+
+  /** Seated with a foot down: riding takes over, and the bike rides with the figure. */
+  function seat(): void {
+    phase = 'ride';
+    rider = createRider(stood.x, stood.z, stood.heading);
+    Object.assign(rider, { lean: FOOT_LEAN, foot: 1, crank: stood.crank, steer: stood.steer });
+    character.mesh.add(bike);
+    bike.position.set(0, 0, 0);
+    bike.rotation.set(0, 0, 0);
+    bike.scale.setScalar(1);
+    rebake();
+  }
+
+  /** Off and standing beside it: the walker's own pose takes over, walking a step away. */
+  function letGo(walker: Walker): void {
+    phase = 'release';
+    t = 0;
+    posed = false;
+    if (!kicked) sounds.kickstand(true);
+    kicked = true;
+    walker.speed = walker.accel = walker.surge = walker.turning = walker.still = 0;
+    walker.route = null;
+    onBike(stood.x, stood.z, stood.heading, STEP_AWAY / SCALE, -0.12, by);
+    if (!held.any && grid.walkable(by.x, by.z) && !overlap(by.x, by.z, grid, 0.45, 0, spare))
+      followRoute(walker, Float32Array.of(walker.x, walker.z, by.x, by.z));
+    publish('');
+    checkedAt.x = Number.NaN;
+  }
+
+  /** Leaves the bike where it stands, on its kickstand. */
   function drop(): void {
     if (!current) return;
-    const ground = kit.floor(rider.x, rider.z);
     const d: Dropped = {
       ...current,
-      x: rider.x,
-      y: ground,
-      z: rider.z,
-      heading: rider.heading,
+      x: stood.x,
+      y: ground(stood.x, stood.z),
+      z: stood.z,
+      heading: stood.heading,
       lean: KICKSTAND,
-      steer: rider.steer,
+      steer: stood.steer,
     };
     current = undefined;
     dropped.push(d);
@@ -410,11 +582,19 @@ export function createRide(kit: RideKit): Ride {
     if (staying.length > MOST_DROPPED) staying[0]!.returning = true;
     phase = 'walk';
     character.mesh.rotation.z = 0;
-    boom.distance /= BOOM;
-    Object.assign(follow, walking);
     remember();
     place(d);
-    sounds.kickstand(true);
+  }
+
+  /** The camera's walking and riding settings, `riding` of the way to riding's. */
+  function retune(): void {
+    for (const k in RIDE_FOLLOW) {
+      const name = k as keyof typeof RIDE_FOLLOW;
+      follow[name] = walking[name] + (RIDE_FOLLOW[name] - walking[name]) * riding;
+    }
+    const want = 1 + (BOOM - 1) * riding;
+    boom.distance *= want / boomed;
+    boomed = want;
   }
 
   /** The way from (x, z) nearest `toward` that's clear for a few metres, or the clearest. */
@@ -434,15 +614,6 @@ export function createRide(kit: RideKit): Ride {
     return wrap(best);
   }
 
-  /** Where the rider stands getting off: beside the bike, on whichever side is clear. */
-  function aside(): void {
-    for (const side of [1, -1]) {
-      const [lx, lz] = [Math.cos(rider.heading) * side, -Math.sin(rider.heading) * side];
-      [to.x, to.z] = [rider.x + lx * ASIDE, rider.z + lz * ASIDE];
-      if (overlap(to.x, to.z, grid, 0.45, 0, spare) < 0.1 && grid.walkable(to.x, to.z)) return;
-    }
-    [to.x, to.z] = [rider.x, rider.z];
-  }
   const spare: [number, number] = [0, 0];
 
   let chores = 0;
@@ -495,19 +666,32 @@ export function createRide(kit: RideKit): Ride {
 
   return {
     frame(walker, steerX, steerZ, right, up, stick, sprint, dt) {
+      walker0 = walker;
       if (away) {
         // Back on the street: the bikes left here stand where they were.
         away = false;
         rebake();
       }
       doChores(walker, dt);
+      // The camera eases from walking's settings to riding's as the rider gets on, and back.
+      const goal =
+        phase === 'ride' || phase === 'stop'
+          ? 1
+          : phase === 'mount'
+            ? smooth(t / mountTime)
+            : phase === 'dismount'
+              ? 1 - smooth(t / dismountTime)
+              : 0;
+      if (goal !== riding) {
+        riding = goal;
+        retune();
+      }
       if (phase === 'walk' || phase === 'fetch') {
         if (phase === 'fetch' && !walker.route) {
-          // Walked to the bike (or stopped short): get on if it's in reach.
-          const target = fetching && nearest(fetching.x, fetching.z, 0.3);
-          const there =
-            target && Math.hypot(walker.x - fetching!.x, walker.z - fetching!.z) < ARRIVED;
-          if (target && there) mount(walker, target);
+          // Walked to the bike (or stopped short): get on if it's still there and in reach.
+          const there = Math.hypot(walker.x - spot.x, walker.z - spot.z) < ARRIVED;
+          target = there ? nearest(plan.x, plan.z, 0.3) : null;
+          if (target) take(walker);
           else phase = 'walk';
         }
         if (
@@ -517,15 +701,21 @@ export function createRide(kit: RideKit): Ride {
           [checkedAt.x, checkedAt.z] = [walker.x, walker.z];
           publish(nearest(walker.x, walker.z, NEAR) ? 'near' : '');
         }
-        // Getting on just now takes the body this very frame.
-        return (phase as Phase) === 'mount';
+        // Taking a bike just now takes the body this very frame.
+        return (phase as Phase) === 'pull';
       }
+      // Getting on or off, a direction held hurries it along (or, off, walks away).
+      held.x = steerX;
+      held.z = steerZ;
+      held.run = sprint;
+      held.any = !!(right || up || steerX || steerZ);
+      if (phase !== 'ride' && phase !== 'stop') return true;
       // A click on a street while riding snapped the walker to the route's start: the bike is
       // where it is.
-      if (phase === 'ride' || phase === 'stop') [walker.x, walker.z] = [rider.x, rider.z];
+      [walker.x, walker.z] = [rider.x, rider.z];
       Object.assign(input, createInput());
       if (phase === 'stop') input.throttle = rider.speed > 0.3 ? -1 : 0;
-      else if (right || up || steerX || steerZ) {
+      else if (held.any) {
         walker.route = null;
         if (stick) {
           input.toward = Math.atan2(steerX, steerZ);
@@ -534,44 +724,106 @@ export function createRide(kit: RideKit): Ride {
         } else [input.throttle, input.turn] = [up, right];
         input.sprint = sprint;
       } else routeInput(rider, walker, input);
-      // Flat out, the lens widens a little more than a run's; the view rolls a little with the lean.
+      // Flat out, the lens widens a little more than a run's.
       const fast = Math.max(0, Math.min(1, (rider.speed - CRUISE) / (SPRINT - CRUISE)));
       follow.fov = reducedMotion ? 0 : SPRINT_FOV * fast;
-      follow.roll = reducedMotion ? 0 : CAMERA_ROLL * rider.lean;
       return true;
     },
 
     step(walker) {
-      if (phase === 'mount' || phase === 'dismount') {
-        blend = Math.min(1, Math.max(0, blend + (phase === 'mount' ? STEP : -STEP) / MOUNT));
-        const k = smooth(blend);
-        const [fx, fz] = phase === 'mount' ? [from.x, from.z] : [to.x, to.z];
-        walker.x = fx + (rider.x - fx) * k;
-        walker.z = fz + (rider.z - fz) * k;
-        walker.heading = wrap(from.heading + wrap(rider.heading - from.heading) * k);
-        walker.speed = 0;
-        if (phase === 'mount') {
-          bike.rotation.y = wrap(turnFrom + wrap(rider.heading - turnFrom) * k);
-          // The camera comes round behind the bike as the rider gets on, so up on the stick
-          // (or W) is the way it faces.
-          if (!reducedMotion)
-            boom.aimYaw = decayAngle(boom.aimYaw, rider.heading + Math.PI, 0.12, STEP);
-        }
-        if (phase === 'mount' && blend === 1) {
-          phase = 'ride';
-          // Seated: the bike rides with the figure, leaning and turning with it.
-          character.mesh.add(bike);
-          bike.position.set(0, 0, 0);
-          bike.rotation.set(0, 0, 0);
-          bike.scale.setScalar(1);
-          rebake();
-        } else if (phase === 'dismount' && blend === 0) {
-          [walker.heading, walker.still, walker.accel, walker.turning] = [rider.heading, 0, 0, 0];
-          drop();
-          publish('');
-          checkedAt.x = Number.NaN;
+      const pace = held.any ? HURRY : 1;
+      if (phase === 'pull' || phase === 'mount') {
+        t += STEP * pace;
+        since += STEP * pace;
+        // The camera comes round behind the bike as the rider gets on, so up on the stick (or
+        // W) is the way it faces.
+        if (!reducedMotion)
+          boom.aimYaw = decayAngle(boom.aimYaw, stood.heading + Math.PI, 0.12, STEP);
+      }
+      if (phase === 'pull') {
+        // Rolled back out of its rack, then turned round to the street with the rider walking
+        // round beside it, hands on the bars; off its kickstand and its bars straightened.
+        const roll = plan.rolling;
+        const turn = plan.turning;
+        const along = plan.out * (roll ? smooth(t / roll) : 1);
+        const sin = Math.sin(plan.heading);
+        const cos = Math.cos(plan.heading);
+        const was = Math.hypot(stood.x - plan.x, stood.z - plan.z) * Math.sign(plan.out);
+        stood.x = plan.x + sin * along;
+        stood.z = plan.z + cos * along;
+        stood.wheel += (along - was) / WHEEL;
+        stood.heading = wrap(plan.heading + plan.turn * (turn ? smooth((t - roll) / turn) : 1));
+        stood.lean = decay(stood.lean, 0, 0.08, STEP);
+        stood.steer = decay(stood.steer, 0, 0.1, STEP);
+        const px = walker.x;
+        const pz = walker.z;
+        const ph = walker.heading;
+        const ox = plan.x + sin * plan.out;
+        const oz = plan.z + cos * plan.out;
+        arrive(walker, onBike(ox, oz, stood.heading, STANCE[0], STANCE[1], by), stood.heading);
+        // Walking it round, the walker steps forward or back with it.
+        const mx = walker.x - px;
+        const mz = walker.z - pz;
+        walker.speed = Math.hypot(mx, mz) / STEP;
+        walker.turning = wrap(walker.heading - ph) / STEP;
+        const ahead = mx * Math.sin(walker.heading) + mz * Math.cos(walker.heading) < 0 ? -1 : 1;
+        walker.phase =
+          (walker.phase + (ahead * walker.speed * Math.PI * 2 * STEP) / STRIDE_WALK + Math.PI * 2) %
+          (Math.PI * 2);
+        walker.still = 0;
+        drawStood();
+        if (t >= roll + turn) {
+          phase = 'mount';
+          t = 0;
+          posed = false;
+          plan.lean = stood.lean;
         }
         return true;
+      }
+      if (phase === 'mount') {
+        const u = Math.min(1, t / mountTime);
+        // Seated, the right foot is on the forward pedal, ready to push: the crank turned back
+        // half a turn as the leg comes over.
+        stood.crank = Math.PI / 2 - Math.PI * smooth((u - 0.3) / 0.4);
+        Object.assign(poseState, { crank: (3 * Math.PI) / 2, steer: stood.steer, stand: 0 });
+        poseState.foot = 1;
+        poseState.lean = FOOT_LEAN;
+        swingPlace(true, u, poseState, plan.lean, where);
+        stood.lean = where.bike;
+        arrive(
+          walker,
+          onBike(stood.x, stood.z, stood.heading, where.x, where.z, by),
+          stood.heading,
+        );
+        walker.speed = walker.turning = 0;
+        drawStood();
+        if (u === 1) seat();
+        return true;
+      }
+      if (phase === 'dismount') {
+        t += STEP * pace;
+        const u = Math.min(1, t / dismountTime);
+        swingPlace(false, u, poseState, KICKSTAND, where);
+        stood.lean = where.bike;
+        onBike(stood.x, stood.z, stood.heading, where.x, where.z, walker);
+        walker.heading = stood.heading;
+        walker.speed = walker.turning = 0;
+        if (!kicked && u >= KICK_AT) {
+          kicked = true;
+          sounds.kickstand(true);
+        }
+        drawStood();
+        // A direction held once the leg is over walks off there and then.
+        if (u === 1 || (held.any && u >= OVER_AT)) letGo(walker);
+        return true;
+      }
+      if (phase === 'release') {
+        t += STEP;
+        const moving = stepWalker(walker, STEP, held.x, held.z, grid, held.run);
+        stood.lean = decay(stood.lean, KICKSTAND, 0.05, STEP);
+        drawStood();
+        if (t >= (reducedMotion ? 0 : RELEASE)) drop();
+        return moving || phase === 'release';
       }
       const moving = stepRider(rider, STEP, input, grid);
       sounds.freewheel(rider.wheel, rider.speed, !rider.pedalling);
@@ -581,34 +833,45 @@ export function createRide(kit: RideKit): Ride {
       [walker.speed, walker.turning, walker.still] = [Math.abs(rider.speed), rider.turning, 0];
       const speed = String(Math.round(Math.abs(rider.speed)));
       if (canvas.dataset.speed !== speed) canvas.dataset.speed = speed;
-      if (phase === 'stop' && Math.abs(rider.speed) < 0.3 && rider.foot > 0.6) {
+      if (phase === 'stop' && Math.abs(rider.speed) < 0.3 && rider.foot > 0.9) {
+        // Stopped with a foot down: off the figure, the bike stays standing where it is while
+        // the rider swings a leg over and steps off.
         phase = 'dismount';
-        blend = 1;
-        posed = false;
-        from.heading = rider.heading;
-        aside();
-        // Off the figure: the bike stays standing where it is while the rider steps away.
+        t = 0;
+        posed = kicked = false;
+        Object.assign(stood, {
+          x: rider.x,
+          z: rider.z,
+          heading: rider.heading,
+          lean: rider.lean,
+          steer: rider.steer,
+          wheel: rider.wheel,
+          crank: rider.crank,
+        });
+        Object.assign(poseState, { crank: rider.crank, steer: rider.steer, stand: 0 });
+        poseState.foot = 1;
+        poseState.lean = rider.lean;
         scene.add(bike);
-        bike.position.set(rider.x, kit.floor(rider.x, rider.z), rider.z);
-        bike.rotation.set(0, rider.heading, -rider.lean);
-        bike.scale.setScalar(SCALE);
         twin.visible = false;
+        drawStood();
       }
       return moving || phase === 'stop';
     },
 
     pose(out, head) {
-      // The bike's moving parts: wheels, crank, pedals kept level, bars within the hands' reach.
-      const steer = Math.max(-SHOWN_STEER, Math.min(SHOWN_STEER, rider.steer));
-      bones[1]!.rotation.y = steer;
-      bones[2]!.rotation.x = bones[3]!.rotation.x = rider.wheel;
-      bones[4]!.rotation.x = -rider.crank;
-      bones[5]!.rotation.x = bones[6]!.rotation.x = rider.crank;
-      // Standing on the pedals, the bike rocks under the rider.
-      bones[0]!.rotation.z = ROCK * 0.8 * rider.stand * Math.sin(rider.crank);
-      Object.assign(poseState, { crank: rider.crank, steer, stand: rider.stand, look: head });
-      poseState.foot = rider.foot;
+      poseState.look = head;
       if (phase === 'ride' || phase === 'stop') {
+        // The bike's moving parts: wheels, crank, pedals kept level, bars within the hands' reach.
+        const steer = Math.max(-SHOWN_STEER, Math.min(SHOWN_STEER, rider.steer));
+        bones[1]!.rotation.y = steer;
+        bones[2]!.rotation.x = bones[3]!.rotation.x = rider.wheel;
+        bones[4]!.rotation.x = -rider.crank;
+        bones[5]!.rotation.x = bones[6]!.rotation.x = rider.crank;
+        // Standing on the pedals, the bike rocks under the rider.
+        bones[0]!.rotation.z = ROCK * 0.8 * rider.stand * Math.sin(rider.crank);
+        Object.assign(poseState, { crank: rider.crank, steer, stand: rider.stand });
+        poseState.foot = rider.foot;
+        poseState.lean = rider.lean;
         // Nose up or down a slope, as its wheels find the ground.
         const half = WHEELBASE / 2;
         const [fx, fz] = [Math.sin(rider.heading) * half, Math.cos(rider.heading) * half];
@@ -618,18 +881,50 @@ export function createRide(kit: RideKit): Ride {
         character.mesh.rotation.z = -rider.lean;
         return rideAt(out, poseState);
       }
-      // Getting on or off: from the pose before into the one after, the rider leaning with the
-      // bike as they come onto it.
       if (!posed) {
         Object.assign(before, out);
-        if (phase === 'mount') Object.assign(standing, out);
         posed = true;
       }
-      character.mesh.rotation.z = -rider.lean * smooth(blend);
-      rideAt(seated, poseState);
-      return phase === 'mount'
-        ? blendPose(out, before, seated, blend)
-        : blendPose(out, standing, before, blend);
+      if (phase === 'mount' || phase === 'dismount') {
+        character.mesh.rotation.z = -where.tilt;
+        const on = phase === 'mount';
+        const u = t / (on ? mountTime : dismountTime);
+        return swingAt(out, on, u, poseState, before, on ? plan.lean : KICKSTAND, where);
+      }
+      // On foot: taking the bike, letting go of it, or walking off.
+      const w = walker0!;
+      character.mesh.rotation.z = 0;
+      kit.poseAt(
+        out,
+        w.speed,
+        w.phase,
+        w.still,
+        !reducedMotion,
+        w.turning,
+        head,
+        w.surge,
+        w.heading,
+      );
+      out.splayL = out.splayR = 0;
+      out.spreadL = out.spreadR = kit.armSpread;
+      if (phase === 'release') return blendPose(out, before, out, smooth(t / RELEASE));
+      if (phase !== 'pull') return out;
+      // Hands on the bars, wherever the bike is from the walker.
+      const dx = stood.x - w.x;
+      const dz = stood.z - w.z;
+      const c = Math.cos(w.heading);
+      const s = Math.sin(w.heading);
+      return hold(
+        out,
+        (dx * c - dz * s) / SCALE,
+        (dx * s + dz * c) / SCALE,
+        wrap(stood.heading - w.heading),
+        stood.lean,
+        0,
+        stood.steer,
+        // Out of a rack, the hands take the bars as the bike comes to them.
+        smooth(Math.min(since / SETTLE, plan.rolling ? t / plan.rolling : 1)),
+      );
     },
 
     act(action, walker) {
@@ -643,34 +938,45 @@ export function createRide(kit: RideKit): Ride {
         return;
       }
       if (phase !== 'walk' && phase !== 'fetch') return;
-      const target = nearest(walker.x, walker.z, FETCH);
-      if (!target) return;
-      if (target.d <= NEAR) {
-        mount(walker, target);
+      const found = nearest(walker.x, walker.z, FETCH);
+      if (!found) return;
+      aim(found);
+      const dx = spot.x - walker.x;
+      const dz = spot.z - walker.z;
+      if (Math.hypot(dx, dz) < CLOSE && Math.abs(wrap(walker.heading - plan.heading)) < 0.8) {
+        take(walker);
         return;
       }
-      // Further off: walk there first, to its side.
-      const b = target.dropped ?? {
-        x: target.parked!.mesh.userData.bikes![target.parked!.at + PARKED.x]!,
-        z: target.parked!.mesh.userData.bikes![target.parked!.at + PARKED.z]!,
-      };
-      const spot = grid.nearest(b.x, b.z, 3);
-      if (!spot) return;
-      kit.walkTo(spot[0], spot[1]);
+      // Walk there, the last metre along the bike so as to face its way.
+      kit.walkTo(
+        spot.x - Math.sin(plan.heading) * LAST_LEG,
+        spot.z - Math.cos(plan.heading) * LAST_LEG,
+      );
       if (!walker.route) return;
-      fetching = { x: b.x, z: b.z };
+      walker.route = Float32Array.of(...walker.route, spot.x, spot.z);
       phase = 'fetch';
     },
 
     leave() {
-      if (phase !== 'walk' && phase !== 'fetch') {
+      if (phase === 'ride' || phase === 'stop') {
+        Object.assign(stood, {
+          x: rider.x,
+          z: rider.z,
+          heading: rider.heading,
+          steer: rider.steer,
+        });
+      }
+      if (current) {
         rider.speed = 0;
         scene.add(bike);
         drop();
       }
       phase = 'walk';
+      target = null;
       publish('');
       checkedAt.x = Number.NaN;
+      riding = 0;
+      retune();
       // Bikes are street things: the map shows none of them.
       away = true;
       bike.visible = parkedAll.visible = false;

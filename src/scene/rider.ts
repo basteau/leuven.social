@@ -5,7 +5,7 @@ import type { Spring } from './motion.ts';
 
 /**
  * How a bike rides: a kinematic bicycle (the front wheel steers, the rear follows, no tyre slip)
- * that leans into its turns as much as the turn asks and never tips over, pedalled up to a
+ * that leans a little into its turns and never tips over, pedalled up to a
  * cruise or a sprint, braked, coasted, and at a crawl walked round on the spot or backed up.
  * Pure state and maths, stepped at the walker's fixed rate (`STEP`) and allocating nothing, so
  * the same keys ride the same line on any screen. It meets the city through the walker's collide
@@ -45,18 +45,23 @@ const DAWDLE = 3.4;
 const EASE_BACK = 2;
 /**
  * Turning as hard as it can (the keys held, or a heading well round) faster than this (m/s), the
- * rider eases off at SCRUB (m/s²): the tightest turn grows with v², 16.5 m round at a cruise, so
- * a street corner taken at speed slows to where it fits (5.3 m round at 6.5 m/s).
+ * rider eases off at SCRUB (m/s²): the tightest turn grows with v², 11 m round at a cruise, so
+ * a street corner taken at speed slows a little to where it fits (5.3 m round at 8 m/s).
  */
-export const CORNER = 6.5;
-const SCRUB = 5;
-/** The tightest turn at a crawl (m), and the most sideways grip (m/s²): a lean of at most 39°. */
-const MIN_RADIUS = 1.7;
-const GRIP = 8;
-export const MAX_LEAN = Math.atan(GRIP / 9.81);
+export const CORNER = 8;
+const SCRUB = 3;
+/** The tightest turn at a crawl (m), and the most sideways grip (m/s²), a cartoon's. */
+const MIN_RADIUS = 1.5;
+const GRIP = 12;
+/**
+ * The bike is drawn leaning a share of what the turn would ask of a real one (atan v ω / g),
+ * never past SHOWN_LEAN: a gentle tilt that says "turning" without the street tipping about.
+ */
+const LEAN_GAIN = 0.45;
+export const MAX_LEAN = (16 * Math.PI) / 180;
 /** Half-lives (s): the bars turning, and the lean catching up with the turn. */
-const STEER_EASE = 0.06;
-const LEAN_EASE = 0.1;
+const STEER_EASE = 0.035;
+const LEAN_EASE = 0.09;
 /** Below this speed (m/s) the rider walks the bike round on the spot, up to PIVOT (rad/s). */
 export const CRAWL = 1.2;
 const PIVOT = 2.2;
@@ -66,7 +71,7 @@ const BACK_ACCEL = 2;
 /** A target more than this far behind (radians, 135°) brakes rather than turning at speed. */
 export const BEHIND = (3 * Math.PI) / 4;
 /** Steering toward a heading closes the gap in about this long (s). */
-const AIM = 0.35;
+const AIM = 0.25;
 /**
  * Crank turns per wheel turn: 3.2 wheel turns a crank turn (a 51/16), so the crank keeps a city
  * cadence, 78 rpm at a cruise and 118 flat out, rather than spinning 35% faster with the wheel.
@@ -84,7 +89,7 @@ const BOUNCE = 0.12;
 /** Sliding along a wall, the heading turns along it with this half-life (s). */
 const ALONG_EASE = 0.06;
 /** Stopped with a foot down, the bike leans onto that side (radians). */
-const FOOT_LEAN = 0.12;
+export const FOOT_LEAN = 0.12;
 /** Half-lives (s) of standing up on the pedals, and of putting a foot down. */
 const STAND_EASE = 0.15;
 const FOOT_EASE = 0.12;
@@ -272,12 +277,13 @@ export function stepRider(r: Rider, dt: number, input: RideInput, ground: Ground
   r.speed = v;
   r.scraping = scraping;
 
-  // Lean into the turn as much as the turn asks (atan v ω / g), lagging a little; stopped with
-  // a foot down, onto that foot.
+  // Lean into the turn by a share of what it asks (atan v ω / g), lagging a little; stopped
+  // with a foot down, onto that foot.
   const still = !r.pedalling && Math.abs(v) < 0.3 ? 1 : 0;
   r.foot = decay(r.foot, still, FOOT_EASE, dt);
   r.stand = decay(r.stand, input.sprint && r.pedalling ? 1 : 0, STAND_EASE, dt);
-  const lean = clamp(Math.atan((v * kinematic) / G), -MAX_LEAN, MAX_LEAN) + FOOT_LEAN * r.foot;
+  const lean =
+    clamp(LEAN_GAIN * Math.atan((v * kinematic) / G), -MAX_LEAN, MAX_LEAN) + FOOT_LEAN * r.foot;
   [leaning.x, leaning.v] = [r.lean, r.leanRate];
   springTo(leaning, lean, LEAN_EASE, dt);
   [r.lean, r.leanRate] = [leaning.x, leaning.v];

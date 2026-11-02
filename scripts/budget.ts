@@ -8,7 +8,16 @@
 import * as Compress from '@portable/compress';
 
 const KB = 1024;
-const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[] = [
+// A budget counts the files its pattern matches, or with `closure`, those files and every chunk
+// they import statically: what the browser fetches before the first frame, however the bundler
+// happens to split it.
+const BUDGETS: {
+  label: string;
+  pattern: string;
+  limit: number;
+  gzip: boolean;
+  closure?: boolean;
+}[] = [
   {
     label: 'App shell JS (React + the shell)',
     pattern: 'assets/index-*.js',
@@ -67,11 +76,14 @@ const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[
   // swinging a racked bike round to the open street and baking the bikes left about the city
   // into one mesh took it to about 8.8. 10: the richer bike asked for (round spoked wheels,
   // mudguards, a chain and its guard, a lamp, a bell, grips, carrier stays, a basket) and the
-  // rider's arms reaching bars turned twice as far took it to about 9.6. 9.8: just above that.
+  // rider's arms reaching bars turned twice as far took it to about 9.6. 12: getting on and off
+  // asked for (about 2.4 KB): rolling a bike out of its rack and walking it round, the keyed
+  // swing of a leg over the carrier with legs that splay to planted feet, the kickstand, stepping
+  // away and handing the camera and the walk back smoothly.
   {
     label: 'Riding JS (near a rack)',
     pattern: 'assets/ride-*.js',
-    limit: 9.8 * KB,
+    limit: 12 * KB,
     gzip: true,
   },
   // The plates on the facades load after walk mode, in a chunk and a data file of their own.
@@ -99,25 +111,48 @@ const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[
   // About 11.6k house numbers and 1.8k street plates are 67 KB, and 1.1k shop name boards 17 KB
   // more; room for the map to grow.
   { label: 'Plates data (already gzipped)', pattern: 'data/walk.bin', limit: 96 * KB, gzip: false },
-  // What the first visit downloads: the shell and the engine, not the chunks loaded later.
+  // What the first visit downloads: the page's scripts and every chunk they import statically
+  // (the shell, the engine, the palette and whatever the bundler splits off them), not the
+  // chunks loaded later.
   // 252: land use from relations, data-chosen monuments and hold-to-turn together passed 250.
   // 253: the parked bikes' looks, rails and notes (+0.7 KB). Furniture and monument drawing then
   // moved to a chunk of their own, taking what they share with the engine as a kit, as plates.ts
   // does; only the palette, which scene/props.ts imports, loads as a chunk of its own beside it.
   {
     label: 'First-load JS',
-    pattern: 'assets/{index,viewer,palette}-*.js',
+    pattern: 'assets/{index,viewer}-*.js',
     limit: 253 * KB,
     gzip: true,
+    closure: true,
   },
 ];
 
 const dist = new URL('../dist/', import.meta.url);
 const distPath = Bun.fileURLToPath(dist);
 
+/** The chunks `files` import statically (`import … from"./x.js"`, `import"./x.js"`), and theirs. */
+async function staticClosure(files: string[], read: (file: string) => Promise<string>) {
+  const seen = new Set(files);
+  const queue = [...files];
+  for (let file = queue.pop(); file !== undefined; file = queue.pop()) {
+    const dir = file.slice(0, file.lastIndexOf('/') + 1);
+    for (const [, name] of (await read(file)).matchAll(/(?:from|import)\s*"\.\/([^"]+\.js)"/g)) {
+      const next = dir + name;
+      if (!seen.has(next)) {
+        seen.add(next);
+        queue.push(next);
+      }
+    }
+  }
+  return [...seen].toSorted();
+}
+
 const rows = await Promise.all(
-  BUDGETS.map(async ({ label, pattern, limit, gzip }) => {
-    const files = await Array.fromAsync(new Bun.Glob(pattern).scan({ cwd: distPath }));
+  BUDGETS.map(async ({ label, pattern, limit, gzip, closure }) => {
+    const matched = await Array.fromAsync(new Bun.Glob(pattern).scan({ cwd: distPath }));
+    const files = closure
+      ? await staticClosure(matched, (file) => Bun.file(new URL(file, dist)).text())
+      : matched;
     const sizes = await Promise.all(
       files.map(async (file) => {
         const bytes = await Bun.file(new URL(file, dist)).bytes();
