@@ -1,6 +1,7 @@
 import { GreaterDepth, MeshBasicMaterial, MeshToonMaterial } from 'three';
 import type { Texture, WebGLProgramParametersWithUniforms } from 'three';
 
+import { BAYER as DITHER } from './facade-material.ts';
 import { linearVertexColors } from './mesh-builder.ts';
 import { WALKER } from './palette.ts';
 
@@ -11,9 +12,7 @@ const CHECKER = 'mod(floor(gl_FragCoord.x) + floor(gl_FragCoord.y), 2.0) < 1.0';
  * A 4×4 ordered dither (0 to 15/16 across each block of pixels): dropping the pixels whose value
  * is at least `fade` draws the figure at that opacity in 16 even steps, still without blending.
  */
-const BAYER = `uniform float fade;
-float bayer2(vec2 a) { a = mod(floor(a), 2.0); return fract(a.x / 2.0 + a.y * a.y * 0.75); }
-float bayer4(vec2 a) { return bayer2(0.5 * a) * 0.25 + bayer2(a); }`;
+const BAYER = `uniform float fade;\n${DITHER}`;
 const FADED = 'bayer4(gl_FragCoord.xy) >= fade';
 
 /** How much of the walker to draw, 0 to 1: shared by its materials, set by the walk loop. */
