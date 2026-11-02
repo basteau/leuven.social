@@ -173,7 +173,9 @@ const FRAME_CALLS = 100;
 const FRAME_TRIANGLES = 600_000;
 /**
  * Zoom from which street furniture shows. Further out a lamp post is a stray pixel, and the
- * frames that show the most city are the ones that can least afford it.
+ * frames that show the most city are the ones that can least afford it. It casts shadows only
+ * from the street: on the map a bench's shadow is a texel or two under the shadow lookup's lift,
+ * and redrawing the map's square with the city's bikes and lamps took half a million triangles.
  */
 const PROP_ZOOM = 2;
 /** Time the idle builder may take per slice before handing the main thread back (ms). */
@@ -467,12 +469,10 @@ export function createViewer(options: ViewerOptions): Viewer {
     }
     const need = shadowNeeds(light, view === camera ? ground : around(t.x, t.z, reach));
     need.half += view === camera ? SHADOW_REACH : WALK_SHADOW_REACH;
-    // Furniture appearing or hiding changes what casts shadows: refit the square to the view,
-    // which is close up when it appears, so the redraw stays small.
-    const near = span <= VIEW_HEIGHT / PROP_ZOOM;
-    if (near !== propsShown) shadow = undefined;
-    propsShown = near;
-    const refit = !shadow || !shadowCovers(shadow, need, view === camera ? 4 : WALK_SHADOW_COARSER);
+    propsShown = span <= VIEW_HEIGHT / PROP_ZOOM;
+    const fromStreet = view !== camera && walk?.flightSpan === undefined;
+    const coarser = view === camera ? 4 : WALK_SHADOW_COARSER;
+    const refit = !shadow || !shadowCovers(shadow, need, coarser);
     if (refit) fitShadowTo(need);
     // What casts into the view has to exist before the shadow pass draws: build it now, and
     // redraw if that adds to a square already drawn. The rest of the square, its room to pan,
@@ -497,15 +497,16 @@ export function createViewer(options: ViewerOptions): Viewer {
         build(entry);
         added = true;
       }
-      // Up close, no cell shows or casts without its furniture.
+      // Up close, no cell shows without its furniture, nor casts without it from the street.
+      const casts = fromStreet && shadowFrustum.intersectsBox(entry.box);
       if (
         propsShown &&
         entry.objects.length &&
         !entry.furniture &&
-        (frustum.intersectsBox(entry.box) || shadowFrustum.intersectsBox(entry.box))
+        (frustum.intersectsBox(entry.box) || casts)
       ) {
         furnish(entry);
-        added ||= shadowFrustum.intersectsBox(entry.box);
+        added ||= casts;
       }
     }
     if (refit || added) renderer.shadowMap.needsUpdate = true;
@@ -575,7 +576,7 @@ export function createViewer(options: ViewerOptions): Viewer {
       // Up close, `prepare` has built it for every cell in view or casting.
       const { furniture } = entry;
       if (!furniture) continue;
-      const furnitureCasts = casts && !flying;
+      const furnitureCasts = casts && fromStreet;
       furniture.layers.mask = (inView ? VIEW_LAYER : 0) | (furnitureCasts ? SHADOW_LAYER : 0);
       furniture.visible = (inView || furnitureCasts) && propsShown && cell.props.length > 0;
       if (furniture.visible && inView) draw(furniture);
