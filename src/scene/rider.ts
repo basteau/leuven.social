@@ -339,7 +339,6 @@ export function routeInput(r: Rider, path: Path, input: RideInput): void {
     along = clamp(((r.x - ax) * dx + (r.z - az) * dz) / length, 0, length);
     const close = Math.hypot(point(i, 0) - r.x, point(i, 1) - r.z) < 1;
     if (i < last && (along >= length - 1e-6 || close)) {
-      path.travelled += length - along;
       path.next++;
       along = 0;
     } else break;
