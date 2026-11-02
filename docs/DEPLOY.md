@@ -22,11 +22,11 @@ Each step is safe to repeat, so a rerun is also how you repair a VM.
 
 ## Caching
 
-| Path                                                               | `Cache-Control`                       | Why                                                    |
-| ------------------------------------------------------------------ | ------------------------------------- | ------------------------------------------------------ |
-| `/assets/*`                                                        | `public, max-age=31536000, immutable` | File names carry a content hash                        |
-| `/icons/*`                                                         | `public, max-age=86400`               | Stable names, rarely change                            |
-| everything else (`index.html`, `sw.js`, manifest, `data/city.bin`) | `no-cache`                            | Revalidated by ETag, so a deploy shows up on next load |
+| Path                                                                                | `Cache-Control`                       | Why                                                    |
+| ----------------------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------ |
+| `/assets/*`                                                                         | `public, max-age=31536000, immutable` | File names carry a content hash                        |
+| `/icons/*`                                                                          | `public, max-age=86400`               | Stable names, rarely change                            |
+| everything else (`index.html`, `sw.js`, manifest, `data/city.bin`, `data/walk.bin`) | `no-cache`                            | Revalidated by ETag, so a deploy shows up on next load |
 
 TLS is terminated by exe.dev's proxy; nginx only speaks HTTP on the VM.
 

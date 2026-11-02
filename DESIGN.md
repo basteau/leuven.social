@@ -175,7 +175,7 @@ Tokens are oklch, inline in `index.html`, so the loading screen paints with them
 
 - One or two lines, in a paper panel centred under the top corners, clear of both thumbs, always in the page (empty when there's nothing to say) so screen readers hear it change. It lets taps through to the map.
 - **The first walk** is coached: keycaps (W A S D, Shift, drag, Esc) where there's a fine pointer; "Left thumb walks, right thumb looks" and a dashed ghost of the stick where the left thumb goes on touch. It stays until four seconds after the first step, and isn't shown again on that device (`localStorage`; if storage is blocked, it shows each walk). Everything it teaches is also in the menu's Controls and in the map's description.
-- **A menu command whose effect isn't on screen** says what it did for two seconds: "Sound off", "Sound on", "Running", "Walking".
+- **A menu command whose effect isn't on screen** says what it did for two seconds: "Sound off", "Sound on", "Running", "Walking" (on a bike, "Sprinting" and "Riding").
 
 ### Loading
 
@@ -241,7 +241,7 @@ A tiny city sounds like a toy: felt and soft wood, never game-show beeps. Sounds
 | Walk starts and ends | The flight's air (a noise band sweeping up or down) and two soft notes, rising going down to the street and falling coming back up                                                                                                                                         |
 | Landing              | The walker dropping in: a low thud, a triangle gliding from 120 to 60 Hz, under a puff of grit                                                                                                                                                                             |
 | Can't walk there     | Two quiet low notes, falling                                                                                                                                                                                                                                               |
-| Freewheel            | Coasting, a tiny bright click as each of six pawls passes, about 18 a second at a cruise, quieter slowly                                                                                                                                                                   |
+| Freewheel            | Coasting, a tiny bright click as each of six pawls passes, about 25 a second at a cruise, quieter slowly                                                                                                                                                                   |
 | Bell (B)             | A "tring": two inharmonic sine partials struck twice, ringing on for half a second                                                                                                                                                                                         |
 | Kickstand            | A hard little clack over a low knock, getting on and off                                                                                                                                                                                                                   |
 | Hitting a wall       | A soft thud, deeper and louder the harder                                                                                                                                                                                                                                  |
