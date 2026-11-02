@@ -23,7 +23,8 @@ jobs:
           bun-version-file: package.json
       - uses: astral-sh/setup-uv@v6
       - run: bun install --frozen-lockfile
-      - run: bun run data
+      # --update: drift upstream is what this job reports, so the fetch records it instead of failing.
+      - run: bun scripts/fetch.ts --update && bun run data:build && bun run bake
       - name: Compare with the committed city
         run: |
           {

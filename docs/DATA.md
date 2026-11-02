@@ -11,12 +11,12 @@ You need [Bun](https://bun.sh) and [uv](https://docs.astral.sh/uv/). uv fetches 
 | Command              | What it does                                                                                                               |
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | `bun run data`       | All three steps below: fetch, build, bake. About 230 MB of downloads the first time, then seconds.                         |
-| `bun run data:fetch` | Downloads every source into `data/` and records it in `data/sources.lock.json`. Skips what it already has.                 |
+| `bun run data:fetch` | Downloads every source into `data/` and checks it against `data/sources.lock.json`. Skips what it already has.             |
 | `bun run data:build` | `tools/build_leuven_data.py`: joins footprints, LiDAR, orthophotos and OSM into `data/derived/`.                           |
 | `bun run bake`       | `scripts/bake.ts`: keeps what lies in `AREA`, projects, simplifies and writes `public/data/city.bin` and `walk.bin`.       |
 | `bun run data:check` | Rebuilds from the downloads in `data/` and fails unless the result is byte for byte the `city.bin` and `walk.bin` you had. |
 
-None of them takes options. To fetch a source again, delete its files and rerun `bun run data:fetch`; to see what changed upstream, `git diff data/sources.lock.json` after a fetch.
+The lock is the truth: a file that doesn't hash to what the lock says for the same requests is fetched again, and if the fresh download still doesn't match, the fetch fails rather than rewrite the lock. `bun scripts/fetch.ts --update` accepts the new data, for when a source really changed upstream (the monthly workflow uses it, then reports `git diff data/sources.lock.json`). A changed request (a new query, a moved `OSM_DATE`) records its new download without `--update`.
 
 ## Pipeline
 
