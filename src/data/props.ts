@@ -341,7 +341,7 @@ export function discInFootprint(f: Footprint, x: number, z: number, radius: numb
   return du * du + dv * dv < radius * radius || (du === 0 && dv === 0);
 }
 
-/** Bucket keys for a grid cell; coordinates within ±2 million cells. */
+/** Bucket keys for a grid cell; coordinates within ±32,768 cells. */
 const key = (i: number, j: number) => (i + 32768) * 65536 + (j + 32768);
 
 function* cellsAround(size: number, x: number, z: number, reach: number): Generator<number> {
@@ -468,8 +468,6 @@ export class RingIndex {
 export class Shapes {
   readonly edges = new EdgeIndex();
   readonly #rings = new RingIndex();
-  /** The longest edge added: how far around a footprint to look for one crossing it. */
-  #longest = 0;
 
   ring(points: ArrayLike<number>): void {
     this.#rings.add(points);
@@ -482,14 +480,6 @@ export class Shapes {
 
   #add(points: ArrayLike<number>, closed: boolean): void {
     this.edges.add(points, closed);
-    const n = points.length;
-    for (let i = 0; i < (closed ? n : n - 2); i += 2) {
-      const j = (i + 2) % n;
-      this.#longest = Math.max(
-        this.#longest,
-        Math.hypot(points[j]! - points[i]!, points[j + 1]! - points[i + 1]!),
-      );
-    }
   }
 
   contains(x: number, z: number): boolean {
@@ -632,7 +622,8 @@ export function placeProps(points: readonly PropPoint[], around: Surroundings): 
     const body = { kind: c.kind, f: propFootprint(prop) };
     // Monuments are twins whatever their kind: one sculpture mapped twice, at a pump and as it.
     const monument = isMonument(c.kind);
-    const twin = [...near(placed, PROP_CELL, body.f, widest)].some(
+    // A twin's footprint, grown by the clearance, reaches its corner that much further out.
+    const twin = [...near(placed, PROP_CELL, body.f, widest + CLEARANCE * Math.SQRT2)].some(
       (other) =>
         (other.kind === c.kind || (monument && isMonument(other.kind))) &&
         discInFootprint(grow(other.f, CLEARANCE), c.x, c.z, 0),
