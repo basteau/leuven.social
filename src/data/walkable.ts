@@ -30,6 +30,8 @@ const SOLID = 3;
 /** A parapet's height (m), and the half width it closes so a diagonal one leaves no gap. */
 const PARAPET_HEIGHT = 1.1;
 const PARAPET_HALF = 0.75;
+/** Half a parapet's thickness as drawn, capstone included (m). */
+const PARAPET_FACE = 0.25;
 
 export type WalkLayers = Pick<
   City,
@@ -47,6 +49,27 @@ interface Ribbon {
   half: number;
   /** As for a shape: open for a path, a height code for a parapet. */
   value: number;
+}
+/** A wall as drawn, for bodies to keep clear of: a footprint's outline, or a parapet's line. */
+interface Wall {
+  line: ArrayLike<number>;
+  /** Whether `line` is a closed ring (a footprint) rather than a parapet's line. */
+  ring: boolean;
+  /** Half its thickness: none for a footprint's face. */
+  half: number;
+  box: Bounds;
+  /** The last query that met it, so one in two tiles counts once. */
+  seen: number;
+}
+
+/** Whether (x, z) is inside a ring, by even-odd crossings. */
+function inRing(ring: ArrayLike<number>, x: number, z: number): boolean {
+  let inside = false;
+  for (let i = 0, n = ring.length / 2, j = n - 1; i < n; j = i++) {
+    const [xi, zi, xj, zj] = [ring[i * 2]!, ring[i * 2 + 1]!, ring[j * 2]!, ring[j * 2 + 1]!];
+    if (zi > z !== zj > z && x < xi + ((z - zi) * (xj - xi)) / (zj - zi)) inside = !inside;
+  }
+  return inside;
 }
 
 const heightCode = (height: number) => Math.min(255 - SOLID, Math.ceil(height)) + SOLID;
@@ -70,7 +93,9 @@ export class WalkGrid {
   /** What touches each tile, in drawing order: surfaces and paths first, buildings on top. */
   readonly #shapes: Shape[][];
   readonly #ribbons: Ribbon[][];
+  readonly #walls: Wall[][];
   #crossings = new Float64Array(64);
+  #query = 0;
 
   constructor(city: WalkLayers) {
     const { minX, minZ, maxX, maxZ } = city.bounds;
@@ -83,6 +108,7 @@ export class WalkGrid {
     this.#tiles = Array.from({ length: tiles });
     this.#shapes = Array.from({ length: tiles }, () => []);
     this.#ribbons = Array.from({ length: tiles }, () => []);
+    this.#walls = Array.from({ length: tiles }, () => []);
 
     const each = (box: Bounds, visit: (tile: number) => void) => {
       const [c0, r0] = this.#tileOf(box.minX, box.minZ);
@@ -103,11 +129,23 @@ export class WalkGrid {
     // Tanks and silos are as solid as buildings, and as tall.
     for (const { ring, height } of [...city.buildings, ...city.tanks]) {
       const value = heightCode(height);
-      each(ringBox(ring), (t) => this.#shapes[t]!.push({ ring, value }));
+      const wall = { line: ring, ring: true, half: 0, box: ringBox(ring), seen: 0 };
+      each(wall.box, (t) => {
+        this.#shapes[t]!.push({ ring, value });
+        this.#walls[t]!.push(wall);
+      });
     }
     for (const line of city.parapets ?? []) {
       const ribbon = { line, half: PARAPET_HALF, value: heightCode(PARAPET_HEIGHT) };
       each(ringBox(line, PARAPET_HALF), (t) => this.#ribbons[t]!.push(ribbon));
+      const wall = {
+        line,
+        ring: false,
+        half: PARAPET_FACE,
+        box: ringBox(line, PARAPET_FACE),
+        seen: 0,
+      };
+      each(wall.box, (t) => this.#walls[t]!.push(wall));
     }
     // Within each tile: what closes the ground, then what opens it again, then what stands on
     // it, so a bridge crosses the river and a building cuts through the road under it.
@@ -158,25 +196,84 @@ export class WalkGrid {
     return this.value(cell) === STREET;
   }
 
-  /**
-   * Whether (x, z) is walkable, with no building within `clearance` metres along either axis.
-   * Narrow paths stay walkable: only walls keep a body at a distance, not kerbs or hedges.
-   * Given the move (dx, dz) that got there, only the sides it moves toward count, so a body
-   * that stands by a wall can still walk along it or away from it.
-   */
-  walkable(x: number, z: number, clearance = 0, dx = 0, dz = 0): boolean {
-    if (!this.open(this.cellAt(x, z))) return false;
-    if (clearance <= 0) return true;
-    const moving = dx !== 0 || dz !== 0;
-    const blocked = (sx: number, sz: number) => this.buildingHeight(x + sx, z + sz) > 0;
-    return !(
-      ((!moving || dx > 0) && blocked(clearance, 0)) ||
-      ((!moving || dx < 0) && blocked(-clearance, 0)) ||
-      ((!moving || dz > 0) && blocked(0, clearance)) ||
-      ((!moving || dz < 0) && blocked(0, -clearance))
-    );
+  /** Whether (x, z) is in an open cell. */
+  walkable(x: number, z: number): boolean {
+    return this.open(this.cellAt(x, z));
   }
 
+  /**
+   * How closed the ground is at (x, z), from 0 to 1: whether the cells round it are water,
+   * railway or off the map, blended bilinearly between their centres. The edge runs where it
+   * crosses a half, as a nearly straight line even along a staircase of cells. Walls are not
+   * in it: bodies meet those as drawn (`wallOverlap`).
+   */
+  closed(x: number, z: number): number {
+    const u = (x - this.#origin[0]) / WALK_CELL - 0.5;
+    const v = (z - this.#origin[1]) / WALK_CELL - 0.5;
+    const [col, row] = [Math.floor(u), Math.floor(v)];
+    const [fu, fv] = [u - col, v - row];
+    const at = (c: number, r: number) => {
+      const inside = c >= 0 && r >= 0 && c < this.cols && r < this.rows;
+      return !inside || this.value(r * this.cols + c) === CLOSED ? 1 : 0;
+    };
+    const top = at(col, row) * (1 - fu) + at(col + 1, row) * fu;
+    const bottom = at(col, row + 1) * (1 - fu) + at(col + 1, row + 1) * fu;
+    return top * (1 - fv) + bottom * fv;
+  }
+
+  /**
+   * How far a circle of `radius` at (x, z) reaches into walls (m), 0 where it's clear: the
+   * outlines of buildings, tanks and parapets as drawn, not their cells, so a facade at any
+   * angle is a straight line and a corner a point to slide round. Writes the way out into
+   * `out`, summed over every face it touches, so in a corner it points out of the corner and in
+   * a lane between two walls it balances. A centre inside a footprint is pushed out through
+   * the nearest face.
+   */
+  wallOverlap(x: number, z: number, radius: number, out: [number, number]): number {
+    let [sx, sz, deep] = [0, 0, 0];
+    const query = ++this.#query;
+    const [c0, r0] = this.#tileOf(x - radius, z - radius);
+    const [c1, r1] = this.#tileOf(x + radius, z + radius);
+    for (let r = r0; r <= r1; r++) {
+      for (let c = c0; c <= c1; c++) {
+        for (const wall of this.#walls[r * this.#tilesX + c]!) {
+          const { line, half, box } = wall;
+          if (wall.seen === query || x + radius < box.minX || x - radius > box.maxX) continue;
+          if (z + radius < box.minZ || z - radius > box.maxZ) continue;
+          wall.seen = query;
+          const inside = wall.ring && inRing(line, x, z);
+          const n = line.length / 2;
+          let [nearest, nx, nz] = [Infinity, 0, 0];
+          for (let i = wall.ring ? 0 : 1, j = wall.ring ? n - 1 : 0; i < n; j = i++) {
+            const [ax, az] = [line[j * 2]!, line[j * 2 + 1]!];
+            const [dx, dz] = [line[i * 2]! - ax, line[i * 2 + 1]! - az];
+            const s = Math.min(
+              1,
+              Math.max(0, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz || 1)),
+            );
+            const [px, pz] = [x - ax - s * dx, z - az - s * dz];
+            const d = Math.hypot(px, pz);
+            if (d < 1e-9) continue;
+            if (inside) {
+              if (d < nearest) [nearest, nx, nz] = [d, -px / d, -pz / d];
+              continue;
+            }
+            const into = radius + half - d;
+            if (into <= 0) continue;
+            [sx, sz, deep] = [sx + (px / d) * into, sz + (pz / d) * into, Math.max(deep, into)];
+          }
+          if (inside && nearest < Infinity) {
+            const into = radius + nearest;
+            [sx, sz, deep] = [sx + nx * into, sz + nz * into, Math.max(deep, into)];
+          }
+        }
+      }
+    }
+    const length = Math.hypot(sx, sz);
+    if (length < 1e-9) return 0;
+    [out[0], out[1]] = [sx / length, sz / length];
+    return deep;
+  }
   /** Roof height of the building over (x, z), or 0 where there is none. */
   buildingHeight(x: number, z: number): number {
     const v = this.value(this.cellAt(x, z));

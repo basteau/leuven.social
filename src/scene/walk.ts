@@ -81,8 +81,6 @@ const TAP_MS = 600;
 const FLIGHT = 1.4;
 /** The figure pops up over this long once the camera is close (s). */
 const APPEAR = 0.3;
-/** Half the figure's width (m): how close steering may bring its middle to a wall. */
-const BODY_RADIUS = 0.5;
 /**
  * Feet just above the squares, the highest ground layer, so the outline under the soles never
  * dips below the street (where the x-ray would show it).
@@ -233,9 +231,6 @@ export function createWalk(host: WalkHost): Walk {
   // The walk grid is built the first time someone wants to walk, not with the map.
   let grid: WalkGrid | undefined;
   let router: Router | undefined;
-  /** Keys steer the figure's body clear of facades; routes keep their own distance. */
-  const walkable = (x: number, z: number, dx: number, dz: number) =>
-    grid!.walkable(x, z, BODY_RADIUS, dx, dz);
   const heightAt = (x: number, z: number) => grid!.buildingHeight(x, z);
   // The camera keeps out of trees too: their trunks and crowns, filed once with the grid.
   let trees: TreeObstacles | undefined;
@@ -637,7 +632,8 @@ export function createWalk(host: WalkHost): Walk {
             walker.phase,
           ];
           const routed = walker.route !== null;
-          moving = stepWalker(walker, STEP, sx, sz, walkable, running || stick.run);
+          // Keys steer the body clear of facades; routes keep their own distance.
+          moving = stepWalker(walker, STEP, sx, sz, grid!, running || stick.run);
           sounds.stride(walker.phase, walker.speed, runBlend(walker.speed));
           // A route let go of without steering is a route walked to its end.
           if (routed && !walker.route && !sx && !sz) sounds.routeEnd();
