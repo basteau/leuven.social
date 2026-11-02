@@ -197,6 +197,13 @@ test('arrays are let go once the GPU has them', () => {
   const points = lines.build().getAttribute('position') as BufferAttribute;
   points.onUploadCallback();
   expect(points.array).toBeNull();
+  // Kept, for a mesh a lost GPU context would need to upload again.
+  const kept = mesh.build({ facade: true, keep: true });
+  for (const a of [kept.index!, ...Object.values(kept.attributes)]) {
+    const buffer = 'data' in a ? a.data : a;
+    buffer.onUploadCallback();
+    expect(buffer.array).not.toBeNull();
+  }
 });
 
 test('carries a facade value per vertex, and keeps it with its vertex when a triangle flips', () => {

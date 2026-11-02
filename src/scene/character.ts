@@ -593,7 +593,9 @@ export function characterGeometry(outfit: Outfit = WALKER): BufferGeometry {
     else mesh.triangle(a, b, c, color, normal, BONES.indexOf(bone));
   }
   addBlob(mesh);
-  const geometry = mesh.build({ facade: true });
+  // The figure keeps its arrays once on the GPU, unlike the city: a skinned mesh reads them for
+  // its bounds, and a lost context needs them again.
+  const geometry = mesh.build({ facade: true, keep: true });
   const bones = geometry.getAttribute('facade');
   const n = bones.count;
   const skinIndex = new Uint16Array(n * 4);
@@ -606,11 +608,6 @@ export function characterGeometry(outfit: Outfit = WALKER): BufferGeometry {
     dither[i] = bone < 0 ? 1 : 0;
   }
   geometry.deleteAttribute('facade');
-  // The figure keeps its arrays once on the GPU, unlike the city: a skinned mesh reads them for
-  // its bounds, and a lost context needs them again.
-  for (const a of [geometry.index!, ...Object.values(geometry.attributes)]) {
-    ('data' in a ? a.data : a).onUploadCallback = () => {};
-  }
   geometry.setAttribute('skinIndex', new Uint16BufferAttribute(skinIndex, 4));
   geometry.setAttribute('skinWeight', new BufferAttribute(skinWeight, 4));
   geometry.setAttribute('dither', new BufferAttribute(dither, 1));

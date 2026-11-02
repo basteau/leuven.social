@@ -143,5 +143,5 @@ export function spawnMarker(): BufferGeometry {
     const a = ((i + 0.5) * Math.PI * 2) / PUFFS;
     disc(mesh, Math.cos(a), Math.sin(a), PUFF_SIZE * (i % 2 ? 0.75 : 1), 6, PLATE.paper);
   }
-  return mesh.build();
+  return mesh.build({ keep: true });
 }
