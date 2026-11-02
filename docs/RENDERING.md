@@ -65,7 +65,20 @@ Movement and the camera follow the rules third-person games have settled on, so 
 - **A run feels faster without moving faster.** The lens widens by 5° and the boom lengthens by 12%, both following the speed spring, so the change comes on and wears off with the stride. There is no camera bob.
 - **A brisk pace.** Walking is 4 m/s and running 10.6 m/s, a cartoon figure a little larger than life. Pitch stays between looking slightly up and straight down.
 - **Feet stay where they land.** The pose is placed feet first (`poseAt` in `character.ts`): the gait cycle puts each ankle where it should be, and the legs reach it by two-bone IK. A foot that is down slides back under the hips exactly as fast as the walker moves on, so in the world it stays put: flat, then rolling over the ball of the foot as the heel lifts. Its swing is a Hermite curve that leaves and lands at most of that speed, so it neither scuffs off nor skids in. The hips ride as high as both legs reach (a soft minimum), which bobs a walk; a run, down under a third of each cycle, sinks onto each step and springs into half a step with both feet in the air. A stride is what the leg can sweep: 2.1 m walking (229 steps a minute) and 4.8 m running (265). With the old swinging legs the planted foot slid about 1.2 m a step walking and 2.2 m running; now under a centimetre, which a test holds below 0.1 m against the real walker. Below 1.5 m/s the steps shrink to standing, the walker's acceleration leans the body and moves the hips ahead of the feet or behind them, and turning on the spot lifts the feet in turn, a step for every 45° of heading.
-- **One rig for walking and riding.** `Pose` swings and bends each arm on its own, moves the hips forward (`hipsZ`) and rolls the body about its forward axis (`roll`) with the legs kept plumb, and `limbIK` solves any two-bone limb in its plane, so the coming bike rider can put feet on pedals and hands on bars with the same figure.
+- **One rig for walking and riding.** `Pose` swings and bends each arm on its own, moves the hips forward (`hipsZ`) and rolls the body about its forward axis (`roll`) with the legs kept plumb, and `limbIK` (`limb.ts`) solves any two-bone limb in its plane, so the rider puts feet on pedals and hands on bars with the same figure (`rideAt` in `rider-pose.ts`). The arms swing only in their own plane, so the bars are drawn turned at most 0.25 rad, which keeps each hand on its grip; the bike steers as far as it likes underneath.
+
+### Riding
+
+Riding is a chunk of its own (`ride.ts`, with `rider.ts`, `rider-pose.ts`, `bike-rig.ts` and `audio/riding.ts`), fetched when the walker comes within 25 m of a parked bike, or on F. It imports only what walk mode already carries (collide and slide, `limb.ts`, `parked.ts`, the walker's step) and takes three.js classes, the figure's materials and the camera as a kit from `walk.ts`, so no module moves into a new first-load chunk.
+
+- **A kinematic bicycle at 120 Hz** (`stepRider`): the front wheel steers and the rear follows, turning at v·tanδ/L with the tightest radius max(1.7 m, v²/8), and the bike leans atan(v·ω/g), at most 39°, on a 0.1 s spring. It never tips over. Pedalling reaches 95% of a 8.5 m/s cruise in 3.1 s and 13 m/s flat out; braking is 5 m/s², coasting about 0.3; below 1.2 m/s the rider walks it round on the spot (up to 2.2 rad/s) or backs it up at 1.1 m/s, and let go below a walking pace it drags a foot and stops. A step allocates nothing and costs about 0.4 µs, the rider's IK about 0.3 µs more (well under the 20 µs a frame allows them).
+- **Collide and slide, a bike's size** (`collide.ts`, shared with the walker): a 0.5 m body circle and a 0.25 m probe at the front wheel. Meeting a wall at a glance costs the speed into it once and turns the heading along it; scraping on costs nothing more. Head on (past 60°) it stops with a small bounce and a thud. It is never stuck: at a crawl it pivots, and S backs it out.
+- **The bike is one skinned mesh on seven bones** (frame, steer, both wheels, crank, two pedals) of chunky beams with inverted-hull ink, cranks and pedals unlined: 426 triangles, 444 with a crate, 450 with a carrier, a blob shadow included, at most 450 by test. It shares the figure's materials, so it dithers and shows in x-ray like the figure: two draw calls with its twin. The crank turns with the wheel at 2.4 wheel turns a crank turn (76 rpm at a cruise) and freewheels, pedals level, while coasting.
+- **Taking a bike from its rack draws the rack copy as nothing**: its index range in the cell's furniture is zeroed (degenerate triangles) and only that range uploaded, with what was there kept to put back; the shadow map redraws once. For this the viewer keeps the index arrays of the furniture meshes that hold bikes, where it lets every other array go after upload.
+- **Bikes left about the city** are remembered for the visit in `sessionStorage` and met as 0.55 m circles by walker and rider alike. The newest keeps its rig, standing on its kickstand at 6° with its bars turned; the rest are baked into one mesh on one bone, one draw call. Past six, the oldest goes back to its rack once neither it nor its rack is in view. On the map none of them draw.
+- **The camera riding:** the boom 1.2× longer, the look point 0.35 s ahead with a 150 ms lag, coming round behind at about 3 a second 0.7 s after a look by hand, 8° wider flat out (3° on top of a run's 5) and rolled 0.15× the lean. Getting on, it comes round behind the bike. With reduced motion there is no roll and no lens kick, and the follow is as walking's.
+- **Walk-grid tiles ahead** are filled while the page is idle, 32 and 64 m ahead of the bike every half second, rather than on the frame a 64 m tile is reached (every 5 s at a sprint).
+- **Sounds are events:** a freewheel pawl as the wheel passes one (six a turn), the bell, the kickstand, a thud. Nothing per frame.
 
 ### What other apps do, and what we took
 
@@ -83,23 +96,24 @@ How third-person games and map apps handle the camera and movement, and the simp
 
 The size and render budgets are enforced by `bun run verify`; if one is exceeded, the run fails:
 
-| What                                            | Limit  | Checked by          |
-| ----------------------------------------------- | ------ | ------------------- |
-| App shell JS (React + HUD), gzipped             | 90 KB  | `scripts/budget.ts` |
-| 3D engine JS (three.js chunk, palette), gzipped | 171 KB | `scripts/budget.ts` |
-| Furniture JS (after the first frame)            | 6 KB   | `scripts/budget.ts` |
-| Walk mode JS (loaded on first walk)             | 16 KB  | `scripts/budget.ts` |
-| Facade plates JS (after walk mode)              | 5 KB   | `scripts/budget.ts` |
-| Plates data (`walk.bin`), gzipped               | 96 KB  | `scripts/budget.ts` |
-| First-load JS (shell + engine)                  | 253 KB | `scripts/budget.ts` |
-| CSS, gzipped                                    | 6 KB   | `scripts/budget.ts` |
-| City data                                       | 1 MB   | `scripts/budget.ts` |
-| Draw calls per frame                            | 100    | `scripts/smoke.ts`  |
-| Triangles per frame                             | 600k   | `scripts/smoke.ts`  |
-| Vertices, every cell built                      | 2.45M  | `scripts/smoke.ts`  |
-| Geometry on the GPU, every cell built           | 59 MB  | `scripts/smoke.ts`  |
-| Longest main-thread task while loading          | 750 ms | `scripts/smoke.ts`  |
-| Console errors and warnings                     | 0      | `scripts/smoke.ts`  |
+| What                                            | Limit   | Checked by          |
+| ----------------------------------------------- | ------- | ------------------- |
+| App shell JS (React + HUD), gzipped             | 90 KB   | `scripts/budget.ts` |
+| 3D engine JS (three.js chunk, palette), gzipped | 171 KB  | `scripts/budget.ts` |
+| Furniture JS (after the first frame)            | 6 KB    | `scripts/budget.ts` |
+| Walk mode JS (loaded on first walk)             | 16.5 KB | `scripts/budget.ts` |
+| Riding JS (loaded near a rack)                  | 9 KB    | `scripts/budget.ts` |
+| Facade plates JS (after walk mode)              | 5 KB    | `scripts/budget.ts` |
+| Plates data (`walk.bin`), gzipped               | 96 KB   | `scripts/budget.ts` |
+| First-load JS (shell + engine)                  | 253 KB  | `scripts/budget.ts` |
+| CSS, gzipped                                    | 6 KB    | `scripts/budget.ts` |
+| City data                                       | 1 MB    | `scripts/budget.ts` |
+| Draw calls per frame                            | 100     | `scripts/smoke.ts`  |
+| Triangles per frame                             | 600k    | `scripts/smoke.ts`  |
+| Vertices, every cell built                      | 2.45M   | `scripts/smoke.ts`  |
+| Geometry on the GPU, every cell built           | 59 MB   | `scripts/smoke.ts`  |
+| Longest main-thread task while loading          | 750 ms  | `scripts/smoke.ts`  |
+| Console errors and warnings                     | 0       | `scripts/smoke.ts`  |
 
 Every frame keeps the same cap, shadow redraws included. A redraw draws the casting cells a second time, so when the view and the redraw together would pass the cap, the redraw gets a frame of its own: it draws only the shadow map, the screen keeps showing the last frame, and the view follows on the next one (`FRAME_CALLS`, `FRAME_TRIANGLES` in `viewer.ts`). Smaller redraws, such as those while walking, share their frame with the view as before.
 
