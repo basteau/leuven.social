@@ -21,11 +21,11 @@
     "fetched": "2026-10-31"
   },
   "osm-areas": {
-    "plan": "94e9e6d238c52762",
+    "plan": "0354500cf9e88c1a",
     "files": 1,
-    "bytes": 5924342,
-    "sha256": "501984ae193a61595e871c4ba139b27624d00aaa61d7adb966dbf42ab8206eaa",
-    "fetched": "2026-10-31"
+    "bytes": 8060550,
+    "sha256": "ab36f186b476afc416595a69edf7ef0b2b0707f6cc588d6a39cb25ca03ef5728",
+    "fetched": "2026-11-02"
   },
   "osm-points": {
     "plan": "75562a3487eda90e",

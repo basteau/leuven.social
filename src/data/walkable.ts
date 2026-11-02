@@ -26,12 +26,29 @@ const MIN_HALF_WIDTH = 0.75;
 const CLOSED = 0;
 const OPEN = 1;
 const STREET = 2;
+/** A solid of no height: a trunk or a bench, which closes its cell but nothing over it. */
 const SOLID = 3;
 /** A parapet's height (m), and the half width it closes so a diagonal one leaves no gap. */
 const PARAPET_HEIGHT = 1.1;
 const PARAPET_HALF = 0.75;
 /** Half a parapet's thickness as drawn, capstone included (m). */
 const PARAPET_FACE = 0.25;
+
+/**
+ * What stands on the ground at about knee to head height and is drawn too small for the city
+ * file to hold as a wall: tree trunks, lamp posts, benches, racks, statues, parasols. Posts are
+ * flat [x, z, radius, …] triples, footprints closed rings, each as the scene draws it.
+ */
+export interface Solids {
+  posts: ArrayLike<number>;
+  rings: readonly ArrayLike<number>[];
+}
+/**
+ * A post at least this round (m) also closes the walk cell its centre covers, so routes go
+ * round it (a trunk); a thinner one (a lamp post) is only met as drawn, so a narrow pavement
+ * with a lamp on it keeps its cells and a route along it.
+ */
+const GRID_POST = 0.25;
 
 export type WalkLayers = Pick<
   City,
@@ -97,7 +114,7 @@ export class WalkGrid {
   #crossings = new Float64Array(64);
   #query = 0;
 
-  constructor(city: WalkLayers) {
+  constructor(city: WalkLayers, solids: Solids = { posts: [], rings: [] }) {
     const { minX, minZ, maxX, maxZ } = city.bounds;
     this.#origin = [minX, minZ];
     this.#area = city.area;
@@ -146,6 +163,26 @@ export class WalkGrid {
         seen: 0,
       };
       each(wall.box, (t) => this.#walls[t]!.push(wall));
+    }
+    // Low solids: met as drawn, and closing the cells they cover, at no height (`SOLID`), so
+    // the camera and a click's ray pass over them.
+    const { posts } = solids;
+    for (let i = 0; i + 2 < posts.length; i += 3) {
+      const [x, z, half] = [posts[i]!, posts[i + 1]!, posts[i + 2]!];
+      const line = [x, z, x, z];
+      const wall = { line, ring: false, half, box: ringBox(line, half), seen: 0 };
+      const ribbon = { line, half, value: SOLID };
+      each(wall.box, (t) => {
+        this.#walls[t]!.push(wall);
+        if (half >= GRID_POST) this.#ribbons[t]!.push(ribbon);
+      });
+    }
+    for (const ring of solids.rings) {
+      const wall = { line: ring, ring: true, half: 0, box: ringBox(ring), seen: 0 };
+      each(wall.box, (t) => {
+        this.#shapes[t]!.push({ ring, value: SOLID });
+        this.#walls[t]!.push(wall);
+      });
     }
     // Within each tile: what closes the ground, then what opens it again, then what stands on
     // it, so a bridge crosses the river and a building cuts through the road under it.
@@ -373,7 +410,9 @@ export class WalkGrid {
         for (let c = c0; c <= c1; c++) {
           const px = x0 + (c + 0.5) * WALK_CELL;
           const s = Math.min(1, Math.max(0, ((px - ax) * dx + (pz - az) * dz) / length2));
-          if (Math.hypot(px - ax - s * dx, pz - az - s * dz) <= half) tile[r * TILE + c] = value;
+          if (Math.hypot(px - ax - s * dx, pz - az - s * dz) > half) continue;
+          // A trunk against a facade keeps the building's height in its cells.
+          if (value !== SOLID || tile[r * TILE + c]! <= SOLID) tile[r * TILE + c] = value;
         }
       }
     }

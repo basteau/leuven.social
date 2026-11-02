@@ -112,6 +112,35 @@ describe('WalkGrid', () => {
     expect(grid.walkable(65, 68)).toBe(true);
   });
 
+  test('trunks, benches and posts stand in the way, as drawn, at no height', () => {
+    const solids = {
+      // A trunk on a cell centre, a lamp post on another, a trunk against the house's front.
+      posts: [100.5, 45.5, 0.35, 120.5, 45.5, 0.16, 50.5, 45.2, 0.35],
+      rings: [rect(140, 44, 141.8, 45)], // a bench
+    };
+    const street = new WalkGrid(town, solids);
+    expect(street.walkable(100.5, 45.5)).toBe(false);
+    expect(street.walkable(101.5, 45.5)).toBe(true);
+    expect(street.buildingHeight(100.5, 45.5)).toBe(0);
+    // A lamp post is thinner than the walker: it keeps its cell, so a route can pass it.
+    expect(street.walkable(120.5, 45.5)).toBe(true);
+    expect(street.walkable(140.5, 44.5)).toBe(false);
+    expect(street.walkable(140.5, 46.5)).toBe(true);
+    // The house keeps its height where the trunk beside it reaches into its cells.
+    expect(street.buildingHeight(50.5, 44.5)).toBe(16);
+    expect(street.walkable(50.5, 45.5)).toBe(false);
+    const out: [number, number] = [0, 0];
+    expect(street.wallOverlap(100.5, 46.3, 0.45, out)).toBe(0);
+    expect(street.wallOverlap(100.5, 46.2, 0.45, out)).toBeCloseTo(0.1);
+    expect(out[1]).toBeCloseTo(1);
+    expect(street.wallOverlap(120.5, 45, 0.45, out)).toBeCloseTo(0.16 + 0.45 - 0.5);
+    expect(street.wallOverlap(141, 45.3, 0.45, out)).toBeCloseTo(0.15);
+    // Beside a lamp post, half a pavement of 1.5 m leaves the body room.
+    expect(street.wallOverlap(120.5, 46.25, 0.45, out)).toBe(0);
+    // Without solids, nothing is in the way.
+    expect(grid.walkable(100.5, 45.5)).toBe(true);
+  });
+
   test('a body meets walls as drawn: how far it reaches in, and the way out', () => {
     const out: [number, number] = [0, 0];
     // Half a metre from the house's west wall (x = 40), clear; nearer, in by the difference.

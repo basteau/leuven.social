@@ -140,18 +140,22 @@ export const SOURCES: readonly Source[] = [
     id: 'osm-areas',
     provider: 'osm',
     kind: 'overpass',
-    title: 'Water, parks, landuse, railways, parking, squares and street areas',
+    title: 'Land use and cover, water, railways, car parks, pitches, squares and street areas',
+    // Ways and multipolygon relations alike: a car park, pitch or square drawn as a relation
+    // is as much one as a way. Regexes rather than exact values, as in osm-points.
     statements: [
-      'way["waterway"]; way["natural"="water"]; relation["natural"="water"];',
-      'way["leisure"~"park|garden|pitch|playground"]; relation["leisure"~"park|garden"];',
-      'way["landuse"]; relation["landuse"];',
-      'way["railway"]; way["amenity"="parking"]; way["place"="square"]; way["area:highway"];',
+      'way["waterway"]; wr["natural"~"^(water|wood|scrub|heath|grassland|wetland)$"];',
+      'wr["landcover"~"^(grass|trees|scrub)$"];',
+      'wr["leisure"~"^(park|garden|pitch|playground|sports_centre|schoolyard|track|dog_park)$"];',
+      'wr["landuse"]; way["railway"]; wr["place"~"^square$"]; wr["area:highway"];',
+      'wr["amenity"~"^(parking|school|university|college|kindergarten|hospital|grave_yard)$"];',
     ].join(' '),
-    out: 'tags geom',
+    // `geom`, not `tags geom`: that leaves out a relation's members, and so all its rings.
+    out: 'geom',
     tile: OVERPASS_TILE,
     output: 'osm/areas.json',
     usedBy:
-      'bake: green, woods, pitches, car parks, water, plazas and their names, railway tracks and railway land',
+      'bake: green, woods, pitches, car parks, water, plazas and their names, railway tracks and railway land; scripts/audit-areas.ts',
   },
   {
     id: 'osm-points',
