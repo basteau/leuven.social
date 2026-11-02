@@ -892,7 +892,13 @@ export function createWalk(host: WalkHost): Walk {
       posed.armL += (ARMS_UP - posed.armL) * thrown;
       posed.armR += (ARMS_UP - posed.armR) * thrown;
       const waving = wave(leaving);
-      if (waving) [posed.armR, posed.elbowR] = waving;
+      if (waving) {
+        // The body leans away from the waving arm and the head tips up to the camera.
+        const raised = waving[0] / -2.7;
+        [posed.armR, posed.elbowR] = waving;
+        posed.bank -= 0.14 * raised;
+        posed.nod -= 0.2 * raised;
+      }
       applyPose(character, posed);
       // Out of sight until its fall, then stretched by it; the landing itself is in the pose.
       const height = fallHeight(-landed);
