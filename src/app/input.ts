@@ -72,8 +72,8 @@ export function modKey(platform: string): string {
 }
 
 /**
- * A button that appears where another was just pressed (Walk, then Cancel and Start here under
- * it) would take the rest of a double-click or double-tap. Ignore the second click of a
+ * A button that appears where something was just pressed (the Ride pill, under a tap on the map
+ * by a bike) would take the rest of a double-click or double-tap. Ignore the second click of a
  * multi-click and any pointer press in its first moments; keyboard presses (detail 0) always go.
  */
 export const SETTLE_MS = 300;
