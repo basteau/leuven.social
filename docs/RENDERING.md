@@ -105,12 +105,12 @@ The size and render budgets are enforced by `bun run verify`; if one is exceeded
 | What                                            | Limit  | Checked by          |
 | ----------------------------------------------- | ------ | ------------------- |
 | App shell JS (React + the shell), gzipped       | 90 KB  | `scripts/budget.ts` |
-| 3D engine JS (three.js chunk, palette), gzipped | 171 KB | `scripts/budget.ts` |
+| 3D engine JS (three.js chunk, palette), gzipped | 166 KB | `scripts/budget.ts` |
 | Furniture JS (after the first frame)            | 7 KB   | `scripts/budget.ts` |
-| Walk mode JS (loaded on first walk)             | 18 KB  | `scripts/budget.ts` |
+| Walk mode JS (loaded on first walk)             | 20 KB  | `scripts/budget.ts` |
 | Street names JS (loaded with walk mode)         | 1.5 KB | `scripts/budget.ts` |
-| Riding JS (loaded near a rack)                  | 10 KB  | `scripts/budget.ts` |
-| Facade plates JS (after walk mode)              | 5 KB   | `scripts/budget.ts` |
+| Riding JS (loaded near a rack)                  | 9.8 KB | `scripts/budget.ts` |
+| Facade plates JS (after walk mode)              | 5.8 KB | `scripts/budget.ts` |
 | Plates data (`walk.bin`), gzipped               | 96 KB  | `scripts/budget.ts` |
 | First-load JS (shell + engine)                  | 253 KB | `scripts/budget.ts` |
 | CSS, gzipped                                    | 6 KB   | `scripts/budget.ts` |
@@ -119,9 +119,9 @@ The size and render budgets are enforced by `bun run verify`; if one is exceeded
 | City data                                       | 1 MB   | `scripts/budget.ts` |
 | Draw calls per frame                            | 100    | `scripts/smoke.ts`  |
 | Triangles per frame                             | 600k   | `scripts/smoke.ts`  |
-| Vertices, every cell built                      | 2.75M  | `scripts/smoke.ts`  |
-| Geometry on the GPU, every cell built           | 66 MB  | `scripts/smoke.ts`  |
-| Longest main-thread task while loading          | 750 ms | `scripts/smoke.ts`  |
+| Vertices, every cell built                      | 2.73M  | `scripts/smoke.ts`  |
+| Geometry on the GPU, every cell built           | 65 MB  | `scripts/smoke.ts`  |
+| Longest main-thread task while loading          | 150 ms | `scripts/smoke.ts`  |
 | Console errors and warnings                     | 0      | `scripts/smoke.ts`  |
 
 Every frame keeps the same cap, shadow redraws included. A redraw draws the casting cells a second time, so when the view and the redraw together would pass the cap, the redraw gets a frame of its own: it draws only the shadow map, the screen keeps showing the last frame, and the view follows on the next one (`FRAME_CALLS`, `FRAME_TRIANGLES` in `viewer.ts`). Smaller redraws, such as those while walking, share their frame with the view as before.

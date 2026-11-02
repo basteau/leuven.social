@@ -16,10 +16,12 @@ const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[
     gzip: true,
   },
   // The engine, and the palette it shares with the chunks it loads later (vite.config.ts).
+  // 166: panning and zooming the map with our own controls (map-controls.ts) instead of three's
+  // MapControls took it from 170.1 to 165.9 KB.
   {
     label: '3D engine JS (three.js)',
     pattern: 'assets/{viewer,palette}-*.js',
-    limit: 171 * KB,
+    limit: 166 * KB,
     gzip: true,
   },
   { label: 'CSS', pattern: 'assets/*.css', limit: 6 * KB, gzip: true },
@@ -45,6 +47,8 @@ const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[
   // leaving, the dive, the cross-fade for reduced motion and flights that turn round midway.
   // 20: the figure's polish (about 1.5 KB): its collar, placket, pocket, belt, hands, face and
   // hair as data, and the gait's counter-rotation, idle weight shift, stop and landing.
+  // Still 20 at 19.9: standing on the drawn ground, routing round dropped bikes and starting a
+  // walk from the side when a house is behind the walker added 0.4 KB.
   {
     label: 'Walk mode JS (on first walk)',
     pattern: 'assets/walk-*.js',
@@ -63,21 +67,21 @@ const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[
   // swinging a racked bike round to the open street and baking the bikes left about the city
   // into one mesh took it to about 8.8. 10: the richer bike asked for (round spoked wheels,
   // mudguards, a chain and its guard, a lamp, a bell, grips, carrier stays, a basket) and the
-  // rider's arms reaching bars turned twice as far took it to about 9.6.
+  // rider's arms reaching bars turned twice as far took it to about 9.6. 9.8: just above that.
   {
     label: 'Riding JS (near a rack)',
     pattern: 'assets/ride-*.js',
-    limit: 10 * KB,
+    limit: 9.8 * KB,
     gzip: true,
   },
   // The plates on the facades load after walk mode, in a chunk and a data file of their own.
   // 6: the shops' name boards (fitting a name to its front, its paint at 4.5:1, hanging it on
   // the awning's valance or the fascia, and the shader that paints under the letters) took the
-  // chunk from 4.6 to 5.6 KB.
+  // chunk from 4.6 to 5.6 KB. 5.8: just above that.
   {
     label: 'Facade plates JS (on first walk)',
     pattern: 'assets/plates-*.js',
-    limit: 6 * KB,
+    limit: 5.8 * KB,
     gzip: true,
   },
   // Street furniture, monuments and the shop fronts' awnings, signs and terraces load once the
