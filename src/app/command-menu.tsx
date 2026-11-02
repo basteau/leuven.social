@@ -95,24 +95,18 @@ interface Row {
 const PLACE_QUERY = 2;
 const PLACES_SHOWN = 6;
 
-const MODE_NAMES = { map: 'On the map', pick: 'Picking a start', walk: 'On foot' } as const;
+const MODE_NAMES = { map: 'On the map', walk: 'On foot' } as const;
 
-/** Keycaps side by side; alternatives apart, `then` between keys pressed in turn. */
+/** Keycaps side by side, alternatives apart. */
 export function KeyCaps({ keys }: { keys: Keys }) {
   return (
     <span className="keycaps">
       {keys.map((combo, i) => (
         <Fragment key={combo.join()}>
           {i > 0 && <span className="keycaps-or">or</span>}
-          {combo.map((cap) =>
-            cap === 'then' ? (
-              <span key={cap} className="keycaps-or">
-                then
-              </span>
-            ) : (
-              <kbd key={cap}>{cap}</kbd>
-            ),
-          )}
+          {combo.map((cap) => (
+            <kbd key={cap}>{cap}</kbd>
+          ))}
         </Fragment>
       ))}
     </span>

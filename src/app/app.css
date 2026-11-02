@@ -467,24 +467,6 @@ kbd {
   }
 }
 
-/* Marks where Enter starts the walk: ink on a paper halo, readable over any street. */
-.reticle {
-  position: absolute;
-  inset-block-start: 50%;
-  inset-inline-start: 50%;
-  translate: -50% -50%;
-  fill: none;
-  stroke: var(--ink);
-  stroke-width: 2;
-  stroke-linecap: square;
-  pointer-events: none;
-}
-
-.reticle-halo {
-  stroke: var(--paper);
-  stroke-width: 6;
-}
-
 /*
  * The menu: one big inked sheet of paper over the city. A dialog, centred with a fixed height
  * so the list doesn't jump while typing; a sheet from the bottom edge on a narrow screen.

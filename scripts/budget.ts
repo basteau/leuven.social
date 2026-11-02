@@ -35,10 +35,13 @@ const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[
   // and walking on the terrain about 0.6 KB more: 16 KB. Riding gets a chunk of its own.
   // 16.5: riding's hooks (fetching its chunk near a rack, handing it the body, the camera's
   // retuning) and the collide and slide, pose IK and parked-bike lookup it shares from here.
+  // 18: starting a walk where someone clicks, GTA style (about 1.5 KB): the marker that drops
+  // on the spot and the dust of the landing, the walker dropping in and settling, its wave
+  // leaving, the dive, the cross-fade for reduced motion and flights that turn round midway.
   {
     label: 'Walk mode JS (on first walk)',
     pattern: 'assets/walk-*.js',
-    limit: 16.5 * KB,
+    limit: 18 * KB,
     gzip: true,
   },
   // Riding loads near a rack (or on F): the bike's physics, rig and model, the rider's pose, the

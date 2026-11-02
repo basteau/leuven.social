@@ -30,8 +30,7 @@ const CommandMenu = lazy(() => loadMenu().then((m) => ({ default: m.CommandMenu 
 
 /** The map's description, naming the keys as this keyboard types them. */
 const mapLabels = (k: Keycaps, mod: string): Record<WalkMode, string> => ({
-  map: `Map of Leuven’s centre around Grote Markt, Oude Markt and Ladeuzeplein. Drag or use the arrow keys to pan; scroll, pinch or press plus and minus to zoom; ${k.KeyQ} and ${k.KeyE} turn the view; ${k.KeyW} starts a walk. ${mod} K or slash opens the menu, with every command and key.`,
-  pick: 'Map of Leuven. Click or tap a street to start walking there, or press Enter to start in the middle of the view. Escape cancels.',
+  map: `Map of Leuven’s centre around Grote Markt, Oude Markt and Ladeuzeplein. Drag or use the arrow keys to pan; scroll, pinch or press plus and minus to zoom; ${k.KeyQ} and ${k.KeyE} turn the view; click or tap a street to start walking there, or press ${k.KeyW} to start in the middle of the view. ${mod} K or slash opens the menu, with every command and key.`,
   walk: `Walking in Leuven. ${k.KeyW}, ${k.KeyA}, ${k.KeyS} and ${k.KeyD} or the arrow keys walk, and hold Shift to run; drag to look around; click or tap a street to walk there; hold ${k.KeyQ} or ${k.KeyE} to turn the view; F rides the nearest bike; Escape returns to the map.`,
 });
 /** Riding, the map says how. */
@@ -54,9 +53,6 @@ const RIDE_COACH_MS = 7_000;
 const SAID_MS = 2_000;
 
 type WalkLoad = 'idle' | 'loading' | 'failed';
-
-/** A viewer that can put the walker at a spot by name (the entry flow's API, once it lands). */
-type Walker = Viewer & { walkAt?: (x: number, z: number) => void };
 
 const reducedMotion = () => globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
@@ -111,7 +107,7 @@ export function App() {
   const mapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
-  const viewerRef = useRef<Walker | null>(null);
+  const viewerRef = useRef<Viewer | null>(null);
   // Q and E on the map: a tap is a step; held, they keep turning.
   const [turnHold] = useState(createTurnHold);
   const [status, setStatus] = useState<Status>({ state: 'loading' });
@@ -144,7 +140,7 @@ export function App() {
   const [coach, setCoach] = useState(() => !coached());
   const [ride, setRide] = useState<RideState>('');
   const rideRef = useRef(ride);
-  /** The city, for finding places by name, once the viewer can walk to one. */
+  /** The city, for finding places by name, once it's on screen. */
   const [placeCity, setPlaceCity] = useState<City | null>(null);
   const [rideCoach, setRideCoach] = useState(() => !coached(RIDE_COACHED_KEY));
   const riding = ride === 'riding';
@@ -200,7 +196,7 @@ export function App() {
     clearTimeout(walkLoadTimer.current);
     setWalkLoad('idle');
     walkLoadTimer.current = setTimeout(() => setWalkLoad('loading'), WALK_LOADING_MS);
-    viewerRef.current?.pickWalkStart();
+    viewerRef.current?.walkFromCentre();
   });
   /** Someone took a first step: the coach has done its job, and goes after a moment. */
   const steppedRef = useRef(() => {
@@ -252,7 +248,7 @@ export function App() {
     Promise.all([city, engine])
       .then(([loaded, { createViewer }]) => {
         if (abort.signal.aborted) return;
-        const viewer: Walker = createViewer({
+        const viewer = createViewer({
           canvas,
           keyTarget: map,
           overlay,
@@ -287,7 +283,7 @@ export function App() {
           // Keyboard users can pan and use shortcuts at once, without a focus ring flashing up.
           map.focus({ focusVisible: false } as FocusOptions);
           setStatus({ state: 'ready' });
-          if (typeof viewer.walkAt === 'function') setPlaceCity(loaded);
+          setPlaceCity(loaded);
           publish({ state: 'ready' }, viewer);
           cacheForOffline();
         });
@@ -361,8 +357,7 @@ export function App() {
   const viewer = () => viewerRef.current;
   /** What each of the menu's commands does: thin calls into the viewer and the shell's state. */
   const [actions] = useState((): Record<Exclude<ActionId, 'help' | 'about'>, () => void> => ({
-    pick: () => startWalkRef.current(),
-    centre: () => viewerRef.current?.walkFromCentre(),
+    centre: () => startWalkRef.current(),
     map: () => viewerRef.current?.stopWalking(),
     'zoom-in': () => viewerRef.current?.zoomBy(1.25),
     'zoom-out': () => viewerRef.current?.zoomBy(0.8),
@@ -390,7 +385,7 @@ export function App() {
     () => ({ mode: walkMode, ride, running, soundOn, keys, mod }),
     [walkMode, ride, running, soundOn, keys, mod],
   );
-  // Places by name, once the viewer can put the walker at one (the entry flow's `walkAt`).
+  // Places by name: choosing one starts a walk there, as a click on the map would.
   const places = useMemo(
     () =>
       placeCity
@@ -399,7 +394,7 @@ export function App() {
             go: (place: Place) => {
               closeMenu();
               sound.tap();
-              viewerRef.current?.walkAt?.(place.x, place.z);
+              viewerRef.current?.walkAt(place.x, place.z);
             },
           }
         : undefined,
@@ -444,7 +439,6 @@ export function App() {
           </div>
         )}
       </div>
-      {walkMode === 'pick' && <Reticle />}
 
       <header className="hud hud-top">
         {/* Where you are, on foot: the only plate on screen. */}
@@ -463,13 +457,6 @@ export function App() {
             'Walking couldn’t load. Check your connection and try again.'
           ) : said ? (
             <span key={said.at}>{said.text}</span>
-          ) : walkMode === 'pick' ? (
-            <>
-              <span className="hint-keys">
-                Click a street to start there, or press <kbd>Enter</kbd> for the middle.
-              </span>
-              <span className="hint-touch">Tap a street to start there.</span>
-            </>
           ) : walkMode === 'walk' && riding && rideCoach ? (
             <>
               <span className="hint-keys">
@@ -546,15 +533,5 @@ export function App() {
         </Suspense>
       )}
     </main>
-  );
-}
-
-/** Marks the middle of the view, where Enter starts the walk. Decorative. */
-function Reticle() {
-  return (
-    <svg className="reticle" width="32" height="32" viewBox="0 0 32 32" aria-hidden="true">
-      <path className="reticle-halo" d="M16 3v9M16 20v9M3 16h9M20 16h9" />
-      <path d="M16 3v9M16 20v9M3 16h9M20 16h9" />
-    </svg>
   );
 }

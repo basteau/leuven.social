@@ -8,7 +8,6 @@ import type { Keycaps } from './input.ts';
 
 /** What the app does when a command runs; the shell maps each to the viewer or its own state. */
 export type ActionId =
-  | 'pick'
   | 'centre'
   | 'map'
   | 'zoom-in'
@@ -23,10 +22,9 @@ export type ActionId =
   | 'help'
   | 'about';
 
-export type GroupId = 'start' | 'walk' | 'map' | 'view' | 'general' | 'places' | 'keys';
+export type GroupId = 'walk' | 'map' | 'view' | 'general' | 'places' | 'keys';
 
 export const GROUPS: Record<GroupId, string> = {
-  start: 'Starting a walk',
   walk: 'On foot',
   map: 'Map',
   view: 'View',
@@ -54,8 +52,8 @@ export type IconName =
   | 'place';
 
 /**
- * Keys, as keycaps: each inner list is pressed together or in turn (`then` between them), and
- * the outer list holds alternatives.
+ * Keys, as keycaps: each inner list is a chord or a set of keys shown side by side, and the
+ * outer list holds alternatives.
  */
 export type Keys = readonly (readonly string[])[];
 
@@ -150,46 +148,12 @@ const modeCommands = (s: CommandState): Command[] => {
       {
         id: 'walk',
         group: 'map',
-        label: 'Walk here…',
-        detail: 'Pick a street on the map to start from',
-        keywords: 'walk start street ground person',
-        keys: [[s.keys.KeyW]],
+        label: 'Walk here',
+        detail: 'From the street in the middle of the view, or click any street',
+        keywords: 'walk start street ground person centre center middle spawn',
+        keys: [[s.keys.KeyW], ['↵']],
         icon: 'walk',
-        action: 'pick',
-      },
-      {
-        id: 'walk-centre',
-        group: 'map',
-        label: 'Walk from the middle',
-        detail: 'Start on the street at the centre of the view',
-        keywords: 'walk start centre center middle here',
-        keys: [[s.keys.KeyW, 'then', '↵']],
-        icon: 'pin',
         action: 'centre',
-      },
-    ];
-  }
-  if (s.mode === 'pick') {
-    return [
-      {
-        id: 'start-here',
-        group: 'start',
-        label: 'Start here',
-        detail: 'Start on the street in the middle of the view',
-        keywords: 'walk start centre center middle',
-        keys: [['↵']],
-        icon: 'pin',
-        action: 'centre',
-      },
-      {
-        id: 'cancel',
-        group: 'start',
-        label: 'Cancel',
-        detail: 'Back to the map',
-        keywords: 'back map stop',
-        keys: [['Esc']],
-        icon: 'back',
-        action: 'map',
       },
     ];
   }
@@ -307,7 +271,8 @@ export function keySheet(k: Keycaps, mod: string): KeySection[] {
         { what: 'Zoom', keys: [['+', '−']], touch: 'Pinch, or scroll with a mouse' },
         { what: 'Turn the map', keys: [[k.KeyQ, k.KeyE]], touch: 'From this menu' },
         { what: 'Reset the view', keys: [['R']] },
-        { what: 'Start a walk', keys: [[k.KeyW]], touch: 'Then tap a street' },
+        { what: 'Walk from any street', keys: [['Click']], touch: 'Tap it' },
+        { what: 'Walk from the middle', keys: [[k.KeyW], ['↵']] },
       ],
     },
     {

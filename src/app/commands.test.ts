@@ -20,7 +20,6 @@ describe('commandsFor', () => {
   test('the map offers walking, the view and the general commands, in that order', () => {
     expect(ids(state())).toEqual([
       'walk',
-      'walk-centre',
       'zoom-in',
       'zoom-out',
       'turn-left',
@@ -32,11 +31,8 @@ describe('commandsFor', () => {
     ]);
   });
 
-  test('picking a start offers Start here and Cancel, and keeps the view', () => {
-    const pick = ids(state({ mode: 'pick' }));
-    expect(pick.slice(0, 2)).toEqual(['start-here', 'cancel']);
-    expect(pick).toContain('reset');
-    expect(byId(state({ mode: 'pick' }), 'cancel')?.keys).toEqual([['Esc']]);
+  test('Walk here starts in the middle of the view, as W and Enter do', () => {
+    expect(byId(state(), 'walk')).toMatchObject({ action: 'centre', keys: [['W'], ['↵']] });
   });
 
   test('on foot: back to the map, run, closer and further, and no reset', () => {
@@ -77,12 +73,12 @@ describe('commandsFor', () => {
 
   test('positional keys show what they type on this keyboard', () => {
     const azerty = { ...KEYCAPS, KeyW: 'Z', KeyQ: 'A' };
-    expect(byId(state({ keys: azerty }), 'walk')?.keys).toEqual([['Z']]);
+    expect(byId(state({ keys: azerty }), 'walk')?.keys).toEqual([['Z'], ['↵']]);
     expect(byId(state({ keys: azerty }), 'turn-left')?.keys).toEqual([['A']]);
   });
 
   test('every command has a group the menu can name, and a unique id', () => {
-    for (const s of [state(), state({ mode: 'pick' }), state({ mode: 'walk', ride: 'riding' })]) {
+    for (const s of [state(), state({ mode: 'walk', ride: 'riding' })]) {
       const list = commandsFor(s);
       expect(new Set(list.map((c) => c.id)).size).toBe(list.length);
       for (const c of list) expect(GROUPS[c.group]).toBeTruthy();
