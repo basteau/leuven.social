@@ -4,7 +4,7 @@ import type { LineBasicMaterial, Material, Texture } from 'three';
 import { SHOP_FRONT } from './buildings.ts';
 import { LANCETS } from './landmarks.ts';
 import { LUMA, SHADE_CHROMA, SHADE_HUE, SHADE_RANGE } from './lighting.ts';
-import { linearVertexColors } from './mesh-builder.ts';
+import { LIFT_UNIT, linearVertexColors } from './mesh-builder.ts';
 import { ANGLES, LINE_LOD, PAINT_HALF, PAINT_KIND, STRIPE_LOD, SURFACE } from './paint.ts';
 import { AWNINGS, WINDOW } from './palette.ts';
 import { SLEEPER_CODE } from './rails.ts';
@@ -25,8 +25,16 @@ float bayer4(vec2 a) { return bayer2(0.5 * a) * 0.25 + bayer2(a); }`;
  * uniform for the city's materials, set by walk mode.
  */
 export const nearFade = { value: 0 };
+/**
+ * The ground round the walking camera, as y = a + b · x + c · z (`Terrain.plane`), for the street
+ * the dither spares. Set by walk mode with `nearFade`.
+ */
+export const nearGround = { value: [0, 0, 0] };
 
-const NEAR_FADE = `uniform float uNearFade;\n${BAYER}`;
+const NEAR_FADE = `uniform float uNearFade;
+uniform vec3 uNearGround;
+float overGround(vec3 w) { return w.y - dot(uNearGround, vec3(1.0, w.xz)); }
+${BAYER}`;
 
 /**
  * Drops the fragment at `world` in a dither the nearer it is to the camera, from `nearFade` in
@@ -46,6 +54,7 @@ const nearDiscard = (world: string, keep: string) =>
 export function fadeNearCamera(material: Material, key: string, keep = 'false'): void {
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uNearFade = nearFade;
+    shader.uniforms.uNearGround = nearGround;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vNearWorld;')
       .replace(
@@ -64,7 +73,7 @@ export function fadeNearCamera(material: Material, key: string, keep = 'false'):
 
 /** The city's ink lines dither away near the walking camera too, all but those on the ground. */
 export function fadeInkNearCamera(ink: LineBasicMaterial): void {
-  fadeNearCamera(ink, 'ink-v1', 'vNearWorld.y < 0.45');
+  fadeNearCamera(ink, 'ink-v2', 'overGround(vNearWorld) < 0.45');
 }
 
 /**
@@ -102,13 +111,16 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
     shader.uniforms.uLit = { value: lit };
     shader.uniforms.uPixel = pixel;
     shader.uniforms.uNearFade = nearFade;
+    shader.uniforms.uNearGround = nearGround;
     shader.vertexShader = linearVertexColors(shader.vertexShader)
       .replace(
         '#include <common>',
         `#include <common>
         attribute float facade;
+        attribute float lift;
         uniform float uPixel;
         varying float vFacade;
+        varying float vLift;
         varying vec3 vWorld;
         varying vec2 vWallNormal;
         varying float vUp;`,
@@ -145,6 +157,7 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
         '#include <worldpos_vertex>',
         `#include <worldpos_vertex>
         vFacade = facade;
+        vLift = lift * ${f(LIFT_UNIT)};
         vWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;
         vWallNormal = normalize((modelMatrix * vec4(objectNormal, 0.0)).xz + 1e-5);
         vUp = (modelMatrix * vec4(objectNormal, 0.0)).y;`,
@@ -156,6 +169,7 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
         uniform vec3 uGlass;
         uniform vec3 uLit;
         varying float vFacade;
+        varying float vLift;
         varying vec3 vWorld;
         varying vec2 vWallNormal;
         varying float vUp;
@@ -175,7 +189,7 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
       .replace(
         '#include <clipping_planes_fragment>',
         `#include <clipping_planes_fragment>
-        ${nearDiscard('vWorld', 'vUp > 0.5 && vWorld.y < 0.45')}`,
+        ${nearDiscard('vWorld', 'vUp > 0.5 && overGround(vWorld) < 0.45')}`,
       )
       .replace(
         '#include <color_fragment>',
@@ -194,7 +208,8 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
           // A church: a lancet 1.5 m wide every 5.5 m.
           vec2 size = vec2(mix(mix(2.2, 3.4, seed), 5.5, church), storey);
           float halfWidth = mix(mix(0.17, 0.25, seed2), 0.75 / 5.5, church);
-          vec2 p = vec2(dot(vWorld.xz, vec2(-vWallNormal.y, vWallNormal.x)), vWorld.y);
+          // Storeys count from the foot of the house, wherever the ground lifted it.
+          vec2 p = vec2(dot(vWorld.xz, vec2(-vWallNormal.y, vWallNormal.x)), vWorld.y - vLift);
           vec2 cell = floor(p / size);
           vec2 g = fract(p / size);
           float window = step(0.5 - halfWidth, g.x) * step(g.x, 0.5 + halfWidth) * step(0.32, g.y) * step(g.y, 0.8);
@@ -275,7 +290,7 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
         #include <opaque_fragment>`,
       );
   };
-  material.customProgramCacheKey = () => 'facade-v5';
+  material.customProgramCacheKey = () => 'facade-v6';
   return material;
 }
 

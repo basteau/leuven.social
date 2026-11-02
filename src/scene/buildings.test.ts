@@ -6,12 +6,14 @@ import {
   addBuilding,
   buildingsGeometry as indexed,
   cutAt,
+  footing,
   partyWalls,
   planRoof,
 } from './buildings.ts';
 import { LANDMARK_MODELS } from './landmark-models.ts';
 import { LANCETS } from './landmarks.ts';
-import { LineBuilder, MeshBuilder, unindexed } from './mesh-builder.ts';
+import { Terrain } from '../data/terrain.ts';
+import { LIFT_UNIT, LineBuilder, MeshBuilder, unindexed } from './mesh-builder.ts';
 import { pick } from './palette.ts';
 
 /** The geometry as the tests read it, triangle by triangle and segment by segment. */
@@ -319,6 +321,24 @@ describe('party walls', () => {
     expect(Math.min(...seam.map((i) => p.getY(i)))).toBe(6);
   });
 
+  test('neighbours on different ground compare their wall tops above Grote Markt', () => {
+    // The lower house stands 3 m higher: its eaves are at 9, under the left one's 10.
+    const walls = partyWalls([left, right], (b) => (b.id === 2 ? 3 : 0));
+    const mesh = new MeshBuilder();
+    addBuilding(mesh, new LineBuilder(), left, walls, 0);
+    const p = unindexed(mesh.build()).getAttribute('position');
+    const seam = Array.from({ length: p.count / 3 }, (_, t) => [t * 3, t * 3 + 1, t * 3 + 2])
+      .filter((tri) => tri.every((i) => p.getX(i) === 6))
+      .flat();
+    expect(Math.min(...seam.map((i) => p.getY(i)))).toBe(9);
+    // Seen from the right, standing at 3 m, the left house's 10 m eaves are 7 m up: over its 6.
+    const other = new MeshBuilder();
+    addBuilding(other, new LineBuilder(), right, walls, 3);
+    expect(unindexed(other.build()).getAttribute('position').count).toBeLessThan(
+      buildingsGeometry([right]).surfaces.getAttribute('position').count,
+    );
+  });
+
   test('a wall shared with a taller neighbour is not drawn at all', () => {
     const together = buildingsGeometry([left, right]).surfaces.getAttribute('position').count;
     const apart =
@@ -371,4 +391,20 @@ describe('hipped roofs', () => {
     const flatTop = Array.from({ length: y.count }, (_, i) => y.getY(i)).filter((v) => v === 20);
     expect(flatTop.length).toBeGreaterThan(3);
   });
+});
+
+test('a house stands on the lowest ground under its corners, down to a whole lift unit', () => {
+  const slope = new Terrain({
+    step: 10,
+    minX: -60,
+    minZ: -60,
+    cols: 13,
+    rows: 17,
+    // Rising 0.1 m a metre to the east.
+    heights: Float32Array.from({ length: 13 * 17 }, (_, k) => (k % 13) - 6),
+  });
+  // Its west corners are on 0.3 m of ground, its east ones higher.
+  expect(footing(slope, [3, 0, 8, 0, 8, 5, 3, 5])).toBe(0);
+  expect(footing(slope, [7, 0, 9, 0, 9, 5])).toBe(0.5);
+  expect(footing(slope, [-3, 0, 0, 0, 0, 5])).toBe(-LIFT_UNIT);
 });

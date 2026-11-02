@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 
-import { SLAB_DEPTH, addGround, addSlabInk } from './ground.ts';
+import { Terrain } from '../data/terrain.ts';
+import { SLAB_DEPTH, addGround, addSlabInk, slabBottom } from './ground.ts';
 import { LineBuilder, MeshBuilder, unindexed } from './mesh-builder.ts';
 
 const square = new Float32Array([0, 0, 10, 0, 10, 10, 0, 10]);
@@ -89,4 +90,50 @@ test('the slab gets an ink lip along its top and bottom edges and down its corne
   // 7 outline edges, a top and a bottom line each, and one vertical down each of the L's 6
   // corners (not where the west side runs on from one rectangle into the next).
   expect(unindexed(lines.build()).getAttribute('position').count / 2).toBe(7 * 2 + 6);
+});
+
+const slope = new Terrain({
+  step: 10,
+  minX: -60,
+  minZ: -60,
+  cols: 13,
+  rows: 17,
+  // Rising 0.1 m a metre to the east.
+  heights: Float32Array.from({ length: 13 * 17 }, (_, k) => (k % 13) - 6),
+});
+
+test('on the terrain, layers drape over it and the sides hang to a flat underside', () => {
+  const mesh = new MeshBuilder();
+  mesh.drape = slope;
+  addGround(mesh, area, { minX: -100, minZ: -100, maxX: 100, maxZ: 100 }, layers);
+  const p = mesh.build().getAttribute('position');
+  const bottom = slabBottom(slope);
+  expect(bottom).toBe(-6 - SLAB_DEPTH);
+  for (let i = 0; i < p.count; i++) {
+    const over = p.getY(i) - slope.height(p.getX(i), p.getZ(i));
+    // On the ground, a layer's few centimetres over it, or the underside.
+    if (Math.abs(p.getY(i) - bottom) > 1e-4) expect(over).toBeGreaterThan(-1e-4);
+    if (Math.abs(p.getY(i) - bottom) > 1e-4) expect(over).toBeLessThan(0.2 + 1e-4);
+  }
+  expect(mesh.drape).toBe(slope);
+  expect(slabBottom(null)).toBe(-SLAB_DEPTH);
+});
+
+test('on the terrain, the slab ink lies on it, its bottom line flat', () => {
+  const lines = new LineBuilder();
+  lines.drape = slope;
+  addSlabInk(lines, area, { minX: -100, minZ: -100, maxX: 100, maxZ: 100 });
+  const p = lines.build().getAttribute('position');
+  const ys = Array.from(
+    { length: p.count },
+    (_, i) => p.getY(i) - slope.height(p.getX(i), p.getZ(i)),
+  );
+  const lip = ys.filter((y) => Math.abs(y - 0.2) < 1e-4).length;
+  const flat = Array.from({ length: p.count }, (_, i) => p.getY(i)).filter(
+    (y) => y === slabBottom(slope),
+  );
+  expect(lip + flat.length).toBe(p.count);
+  // The north and south edges cross the terrain's lines: more points along the lip.
+  expect(lip).toBeGreaterThan(flat.length);
+  expect(lines.drape).toBe(slope);
 });
