@@ -200,18 +200,17 @@ export const TREE = {
 export const AWNINGS = [0xd2553f, 0x2f6b4f, 0x4a77a8, 0xe8b94a, 0x7a3e31, 0xf6eedc] as const;
 
 /**
- * The walker: a Leuven student in a coat of the HUD's accent blue, with a mustard scarf and a
- * brick-red backpack, so they read against grey streets, sandy squares and green parks.
+ * The walker: a Leuven student dressed for a sunny day, in a coral short-sleeved shirt and
+ * cream shorts and sneakers, so they read against grey streets, sandy squares and green parks.
+ * Hidden behind a building, their silhouette is the HUD's accent blue (`xray`).
  */
 export const WALKER = {
   skin: 0xf0c49c,
   hair: 0x7a4a2c,
-  coat: 0x2f62a8,
-  scarf: 0xe8b94a,
-  trousers: 0x3d4250,
-  shoes: 0x2b2420,
-  sole: 0xf3ead8,
-  bag: 0xb84c36,
+  shirt: 0xf0705a,
+  shorts: 0xe9dcbf,
+  sneakers: 0xf6f1e6,
+  xray: 0x2f62a8,
 } as const;
 
 /** The route hint: pale dots and a target, ringed in ink like the HUD. */
