@@ -748,6 +748,9 @@ export function createWalk(host: WalkHost): Walk {
   document.addEventListener('visibilitychange', onVisibility);
 
   function wake(): void {
+    // Whatever woke the loop gets a step, even when the first frame comes sooner than one: a
+    // stopped bike told to stop and let its rider off would otherwise end the loop untouched.
+    moving = true;
     if (frame) return;
     last = performance.now();
     frame = requestAnimationFrame(tick);
