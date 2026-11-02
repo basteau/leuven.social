@@ -105,7 +105,7 @@ The size and render budgets are enforced by `bun run verify`; if one is exceeded
 
 | What                                            | Limit  | Checked by          |
 | ----------------------------------------------- | ------ | ------------------- |
-| App shell JS (React + the shell), gzipped       | 90 KB  | `scripts/budget.ts` |
+| App shell JS (React + the shell), gzipped       | 84 KB  | `scripts/budget.ts` |
 | 3D engine JS (three.js chunk, palette), gzipped | 166 KB | `scripts/budget.ts` |
 | Furniture JS (after the first frame)            | 7 KB   | `scripts/budget.ts` |
 | Walk mode JS (loaded on first walk)             | 20 KB  | `scripts/budget.ts` |
@@ -113,10 +113,10 @@ The size and render budgets are enforced by `bun run verify`; if one is exceeded
 | Riding JS (loaded near a rack)                  | 12 KB  | `scripts/budget.ts` |
 | Facade plates JS (after walk mode)              | 5.8 KB | `scripts/budget.ts` |
 | Plates data (`walk.bin`), gzipped               | 96 KB  | `scripts/budget.ts` |
-| First-load JS (shell + engine)                  | 253 KB | `scripts/budget.ts` |
-| CSS, gzipped                                    | 6 KB   | `scripts/budget.ts` |
-| HTML, with the loading screen inline, gzipped   | 7.5 KB | `scripts/budget.ts` |
-| Menu JS (loaded while the city is built)        | 6.5 KB | `scripts/budget.ts` |
+| First-load JS (shell + engine)                  | 250 KB | `scripts/budget.ts` |
+| CSS, gzipped                                    | 3.5 KB | `scripts/budget.ts` |
+| HTML, with the loading screen inline, gzipped   | 7 KB   | `scripts/budget.ts` |
+| Menu JS (loaded while the city is built)        | 6 KB   | `scripts/budget.ts` |
 | City data                                       | 1 MB   | `scripts/budget.ts` |
 | Draw calls per frame                            | 100    | `scripts/smoke.ts`  |
 | Triangles per frame                             | 600k   | `scripts/smoke.ts`  |

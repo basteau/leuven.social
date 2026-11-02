@@ -21,7 +21,9 @@ const BUDGETS: {
   {
     label: 'App shell JS (React + the shell)',
     pattern: 'assets/index-*.js',
-    limit: 90 * KB,
+    // 84: just above 83.2 KB, with a stall-watching load, a menu that fails without blanking the
+    // map, and one press for a held key. It had 7 KB of slack nothing asked for.
+    limit: 84 * KB,
     gzip: true,
   },
   // The engine, and the palette it shares with the chunks it loads later (vite.config.ts).
@@ -33,15 +35,18 @@ const BUDGETS: {
     limit: 166 * KB,
     gzip: true,
   },
-  { label: 'CSS', pattern: 'assets/*.css', limit: 6 * KB, gzip: true },
+  // 3.5: just above 3.1 KB.
+  { label: 'CSS', pattern: 'assets/*.css', limit: 3.5 * KB, gzip: true },
   // The page itself paints the loading screen before any script or stylesheet: the tokens, its
   // styles and the diorama's SVG are inline (about 3 KB of it the little town).
-  { label: 'HTML (the loading screen)', pattern: 'index.html', limit: 7.5 * KB, gzip: true },
+  // 7: just above 6.7 KB.
+  { label: 'HTML (the loading screen)', pattern: 'index.html', limit: 7 * KB, gzip: true },
   // The menu loads while the city is built: its list, search, pages, icons and places.
   {
     label: 'Menu JS (while building)',
     pattern: 'assets/command-menu-*.js',
-    limit: 6.5 * KB,
+    // 6: just above 5.8 KB.
+    limit: 6 * KB,
     gzip: true,
   },
   // The whole R23 ring plus Heverlee; the ceiling agreed for the city data is 1 MB.
@@ -118,10 +123,12 @@ const BUDGETS: {
   // 253: the parked bikes' looks, rails and notes (+0.7 KB). Furniture and monument drawing then
   // moved to a chunk of their own, taking what they share with the engine as a kit, as plates.ts
   // does; only the palette, which scene/props.ts imports, loads as a chunk of its own beside it.
+  // 250: panning and zooming with our own map controls (map-controls.ts) took 4.4 KB off; the
+  // load, menu and key fixes put 0.4 back: 249.2 KB.
   {
     label: 'First-load JS',
     pattern: 'assets/{index,viewer}-*.js',
-    limit: 253 * KB,
+    limit: 250 * KB,
     gzip: true,
     closure: true,
   },
