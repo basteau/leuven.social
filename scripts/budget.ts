@@ -43,10 +43,12 @@ const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[
   // 18: starting a walk where someone clicks, GTA style (about 1.5 KB): the marker that drops
   // on the spot and the dust of the landing, the walker dropping in and settling, its wave
   // leaving, the dive, the cross-fade for reduced motion and flights that turn round midway.
+  // 20: the figure's polish (about 1.5 KB): its collar, placket, pocket, belt, hands, face and
+  // hair as data, and the gait's counter-rotation, idle weight shift, stop and landing.
   {
     label: 'Walk mode JS (on first walk)',
     pattern: 'assets/walk-*.js',
-    limit: 18 * KB,
+    limit: 20 * KB,
     gzip: true,
   },
   // Riding loads near a rack (or on F): the bike's physics, rig and model, the rider's pose, the

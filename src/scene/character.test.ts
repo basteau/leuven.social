@@ -4,6 +4,7 @@ import { MeshBasicMaterial, Vector3 } from 'three';
 import {
   BONES,
   OUTLINE_WIDTH,
+  details,
   figure,
   grown,
   applyPose,
@@ -14,12 +15,14 @@ import {
   THIGH,
   UPPER_ARM,
   CHARACTER_SCALE,
+  SOLE_COLOR,
+  landing as dip,
   limbIK,
   poseAt,
   restPose,
 } from './character.ts';
 import { unindexed } from './mesh-builder.ts';
-import { WALKER } from './palette.ts';
+import { OUTLINE, PLATE, WALKER } from './palette.ts';
 import { IDLE_SECONDS, RUN_SPEED, STEP, WALK_SPEED, createWalker, stepWalker } from './walker.ts';
 
 /** The sole's heel, ball and toe tip, from the ankle (z forward, y up; model metres). */
@@ -36,8 +39,8 @@ describe('characterGeometry', () => {
   const g = unindexed(characterGeometry());
   const position = g.getAttribute('position');
 
-  test('stays within 480 triangles, one bone to a vertex', () => {
-    expect(position.count / 3).toBeLessThanOrEqual(480);
+  test('stays within 900 triangles, one bone to a vertex', () => {
+    expect(position.count / 3).toBeLessThanOrEqual(900);
     const index = g.getAttribute('skinIndex');
     const weight = g.getAttribute('skinWeight');
     for (let i = 0; i < position.count; i++) {
@@ -80,26 +83,32 @@ describe('characterGeometry', () => {
 
   test('a hull moves every side of a part out by the outline width', () => {
     const thigh = figure(WALKER)[0]!;
-    const [bottom, top] = grown(thigh.rings, OUTLINE_WIDTH);
+    const rings = grown(thigh.rings, OUTLINE_WIDTH);
+    const [bottom, top] = [rings[0], rings.at(-1)];
     const xs = bottom!.map((p) => p[0]);
-    expect(Math.min(...xs)).toBeCloseTo(0.012 - OUTLINE_WIDTH);
-    expect(Math.max(...xs)).toBeCloseTo(0.188 + OUTLINE_WIDTH);
+    expect(Math.min(...xs)).toBeCloseTo(0.008 - OUTLINE_WIDTH);
+    expect(Math.max(...xs)).toBeCloseTo(0.192 + OUTLINE_WIDTH);
     expect(bottom![0]![1]).toBeCloseTo(0.5 - OUTLINE_WIDTH);
     expect(top![0]![1]).toBeCloseTo(0.86 + OUTLINE_WIDTH);
   });
 
-  test('every part but the smallest sits well inside its hull', () => {
+  test('every part but the smallest sits well inside its hull, where it shows', () => {
     const solids = figure(WALKER);
     const outlined = solids.filter((s) => s.hull !== false);
-    expect(outlined.length).toBeGreaterThan(solids.length / 2);
+    expect(outlined.length).toBeGreaterThan(solids.length / 3);
     for (const solid of outlined) {
+      // A ring at an open end is hidden in another part, as the shirt's is in the belt.
+      const last = solid.rings.length - 1;
+      const shown = solid.rings.filter(
+        (_, r) => !(solid.open?.[0] && r === 0) && !(solid.open?.[1] && r === last),
+      );
       const hull = grown(solid.hull || solid.rings, OUTLINE_WIDTH).flat();
       for (const axis of [0, 1, 2]) {
         const [lo, hi] = [
           Math.min(...hull.map((p) => p[axis]!)),
           Math.max(...hull.map((p) => p[axis]!)),
         ];
-        for (const p of solid.rings.flat()) {
+        for (const p of shown.flat()) {
           expect(p[axis]! - lo).toBeGreaterThan(0.015);
           expect(hi - p[axis]!).toBeGreaterThan(0.015);
         }
@@ -114,10 +123,28 @@ describe('characterGeometry', () => {
       Array.from({ length: colours.count }, (_, i) => i).some((i) =>
         bytes(hex).every((c, k) => Math.abs(colours.getComponent(i, k) - c) < 1e-6),
       );
-    for (const hex of [outfit.shirt, outfit.shorts, outfit.hair, WALKER.skin, WALKER.sneakers]) {
+    for (const hex of [
+      outfit.shirt,
+      outfit.shorts,
+      outfit.hair,
+      WALKER.skin,
+      WALKER.sneakers,
+      SOLE_COLOR,
+    ]) {
       expect(has(hex)).toBe(true);
     }
   });
+});
+
+test('the face has eyes with a glint, brows, a nose and a mouth, all on the head', () => {
+  const face = details(WALKER).filter((d) => d.bone === 'head');
+  const colours = face.map((d) => d.color);
+  expect(colours.filter((c) => c === OUTLINE)).toHaveLength(2); // eyes
+  expect(colours.filter((c) => c === PLATE.paper)).toHaveLength(2); // glints
+  expect(colours.filter((c) => c === WALKER.hair)).toHaveLength(5); // brows and the fringe
+  expect(face.filter((d) => d.color === WALKER.skin)).toHaveLength(3); // the nose's faces
+  // Every detail faces out of the front of the face, toward the camera in front.
+  for (const d of face) expect(d.normal[2]).toBeGreaterThan(0);
 });
 
 test('the blob shadow is a dithered flat octagon on the root, just above the feet', () => {
@@ -171,14 +198,14 @@ describe('createCharacter and poses', () => {
     expect(poseAt(restPose(), 0, 0, IDLE_SECONDS / 4, false).look).toBe(0);
   });
 
-  test('walking swings each thigh about 0.6 rad, against the arm on its side', () => {
+  test('walking swings each thigh about 0.7 rad, against the arm on its side', () => {
     let [forward, back] = [0, 0];
     for (let phase = 0; phase < Math.PI * 2; phase += 0.05) {
       const pose = poseAt(restPose(), WALK_SPEED, phase, 0, true);
       [forward, back] = [Math.min(forward, pose.legL), Math.max(back, pose.legL)];
     }
     expect(-forward).toBeGreaterThan(0.5);
-    expect(-forward).toBeLessThan(0.95);
+    expect(-forward).toBeLessThan(1.05);
     expect(back).toBeGreaterThan(0.4);
     // The left foot lands at a quarter cycle, ahead, with the left arm back.
     const landing = poseAt(restPose(), WALK_SPEED, Math.PI / 2, 0, true);
@@ -286,10 +313,104 @@ describe('createCharacter and poses', () => {
     expect(stopping.hipsZ).toBeLessThan(-0.03);
     // Without the idle motion (reduced motion), none of it.
     expect(poseAt(restPose(), 2, 1, 0, false, 0, 0, 15).lean).toBeCloseTo(cruising.lean);
-    // Stopped, the walker stands straight.
-    const stopped = poseAt(restPose(), 0, 1, 0, true, 0, 0, -30);
+    // Just stopped, it still leans back as the walker's eased surge wears off; then straight.
+    expect(poseAt(restPose(), 0, 1, 0, true, 0, 0, -30).lean).toBeLessThan(-0.1);
+    const stopped = poseAt(restPose(), 0, 1, 0, true, 0, 0, 0);
     expect(stopped.lean).toBe(0);
     expect(stopped.hipsZ).toBe(0);
+  });
+
+  test('letting go, the lean eases off over a few steps rather than in one', () => {
+    const walker = createWalker(0, 0, 0);
+    const open = { wallOverlap: () => 0, closed: () => 0 };
+    for (let t = 0; t < 1.5; t += STEP) stepWalker(walker, STEP, 0, 1, open, true);
+    let [before, worst] = [Number.NaN, 0];
+    for (let t = 0; t < 1.5; t += STEP) {
+      stepWalker(walker, STEP, 0, 0, open);
+      const { lean } = poseAt(
+        restPose(),
+        walker.speed,
+        walker.phase,
+        walker.still,
+        true,
+        0,
+        0,
+        walker.surge,
+      );
+      if (!Number.isNaN(before)) worst = Math.max(worst, Math.abs(lean - before));
+      before = lean;
+    }
+    expect(worst).toBeLessThan(0.1);
+    expect(walker.surge).toBe(0);
+  });
+
+  test('walking, the hips turn against the shoulders, and the forward arm bends more', () => {
+    const pose = poseAt(restPose(), WALK_SPEED, Math.PI / 2, 0, true);
+    applyPose(character, pose);
+    character.mesh.updateMatrixWorld(true);
+    const yaw = (bone: 'hips' | 'torso') =>
+      new Vector3(0, 0, 1).transformDirection(character.bones[bone].matrixWorld).x;
+    // The left leg is ahead, so the left hip turns forward and the left shoulder back.
+    expect(yaw('hips')).toBeLessThan(-0.05);
+    expect(yaw('torso')).toBeGreaterThan(0.1);
+    expect(pose.elbowR).toBeLessThan(pose.elbowL - 0.2); // the right arm swings forward
+    // The rider's pose has no twist, so its hips stay square to the bike.
+    applyPose(character, { ...pose, twist: 0 });
+    expect(character.bones.hips.rotation.y).toBeCloseTo(0, 9);
+  });
+
+  test('idling, it breathes, glances aside and shifts its weight, feet flat, then stands', () => {
+    const shifted = poseAt(restPose(), 0, 0, 4.3, true);
+    expect(Math.abs(shifted.roll)).toBeGreaterThan(0.08);
+    // The hip that drops bends its knee; the other leg stays straight; the shoulders level.
+    const [low, high] = shifted.roll > 0 ? ['R', 'L'] : ['L', 'R'];
+    expect(shifted[`knee${low}` as 'kneeL']).toBeGreaterThan(
+      shifted[`knee${high}` as 'kneeL'] + 0.1,
+    );
+    expect(Math.abs(shifted.roll + shifted.bank)).toBeLessThan(Math.abs(shifted.roll));
+    applyPose(character, shifted);
+    for (const side of ['L', 'R'] as const) {
+      const [heel, ball] = sole(side);
+      expect(heel!.y).toBeCloseTo(0, 3);
+      expect(ball!.y).toBeCloseTo(0, 3);
+    }
+    // Breathing moves the chest between breaths, and it all fades out by the end.
+    const breaths = [0.8, 1.6, 2.4].map((t) => poseAt(restPose(), 0, 0, t, true).lean);
+    expect(Math.max(...breaths) - Math.min(...breaths)).toBeGreaterThan(0.01);
+    const late = poseAt(restPose(), 0, 0, IDLE_SECONDS - 0.01, true);
+    for (const [key, value] of Object.entries(restPose())) {
+      expect(late[key as keyof typeof late]).toBeCloseTo(value, 2);
+    }
+  });
+
+  test('stopping, the body rocks on and the head nods after it, then they settle', () => {
+    const rocking = poseAt(restPose(), 0, 0, 0.14, true);
+    expect(rocking.lean).toBeGreaterThan(0.02);
+    expect(rocking.nod).toBeGreaterThan(0.03);
+    // Between breaths, a second and a bit on, only the head's level against the lean is left.
+    expect(Math.abs(poseAt(restPose(), 0, 0, IDLE_SECONDS / 3, true).nod)).toBeLessThan(0.01);
+  });
+
+  test('landing, the knees give and the arms come forward, feet planted, then it stands', () => {
+    expect(dip(0)).toBe(0);
+    expect(dip(1)).toBeCloseTo(0, 6);
+    const depths = Array.from({ length: 101 }, (_, i) => dip(i / 100));
+    expect(Math.max(...depths)).toBeCloseTo(1, 1);
+    expect(Math.min(...depths)).toBeLessThan(-0.05); // a small rebound
+    const deepest = depths.indexOf(Math.max(...depths)) / 100;
+    expect(deepest).toBeLessThan(0.3);
+    const rest = poseAt(restPose(), 0, 0, IDLE_SECONDS + 1, true);
+    const landed = poseAt(restPose(), 0, 0, IDLE_SECONDS + 1, true, 0, 0, 0, 0, deepest);
+    expect(landed.hips).toBeLessThan(rest.hips - 0.1);
+    expect(landed.kneeL).toBeGreaterThan(0.6);
+    expect(landed.lean).toBeGreaterThan(rest.lean + 0.2);
+    expect(landed.armL).toBeLessThan(-0.2);
+    applyPose(character, landed);
+    for (const side of ['L', 'R'] as const) expect(lowest(side)).toBeCloseTo(0, 3);
+    const settled = poseAt(restPose(), 0, 0, IDLE_SECONDS + 1, true, 0, 0, 0, 0, 1);
+    for (const [key, value] of Object.entries(rest)) {
+      expect(settled[key as keyof typeof settled]).toBeCloseTo(value, 6);
+    }
   });
 
   test('turning on the spot, it steps from foot to foot as it comes round', () => {
