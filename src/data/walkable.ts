@@ -11,6 +11,8 @@
 
 import type { Bounds, City } from './city.ts';
 import { areaIndex } from './geometry.ts';
+import { FLAT } from './terrain.ts';
+import type { Terrain } from './terrain.ts';
 
 /** Cell size in metres: narrower than any footpath, so every path stays connected. */
 export const WALK_CELL = 1;
@@ -380,16 +382,16 @@ export class WalkGrid {
   }
 }
 
-/** Highest roof the picking ray needs to start above (m). */
+/** Highest roof the picking ray needs to start above, over the highest ground (m). */
 const PICK_TOP = 100;
 const PICK_STEP = 0.5;
 
 /**
  * Where a click lands, for walking there: follows the view ray from above the rooftops down
- * to the first building it meets or the ground. A click on a building means the street in
- * front of it, on the side the camera sees. Returns the nearest walkable spot within `radius`
- * metres (with `street`, the nearest street), or null. `origin` is any point on the ray and
- * `dir` points into the scene.
+ * to the first building it meets or the ground (`terrain`'s). A click on a building means the
+ * street in front of it, on the side the camera sees. Returns the nearest walkable spot within
+ * `radius` metres (with `street`, the nearest street), or null. `origin` is any point on the ray
+ * and `dir` points into the scene.
  */
 export function pickWalkable(
   grid: WalkGrid,
@@ -397,20 +399,21 @@ export function pickWalkable(
   dir: readonly [number, number, number],
   radius: number,
   street = false,
+  terrain: Terrain = FLAT,
 ): [number, number] | null {
   const [ox, oy, oz] = origin;
   const [dx, dy, dz] = dir;
   if (dy >= 0) return null;
   const flat = Math.hypot(dx, dz);
   // From where the ray is above every roof (or from the eye, for one already below them), in
-  // steps of half a metre across the ground.
-  const t0 = Math.max(0, (oy - PICK_TOP) / -dy);
+  // steps of half a metre across the ground, to where it's under the lowest ground.
+  const t0 = Math.max(0, (oy - terrain.highest - PICK_TOP) / -dy);
   const step = flat > 1e-6 ? PICK_STEP / flat : 1;
-  const tGround = oy / -dy;
-  let [x, z] = [ox + dx * tGround, oz + dz * tGround];
-  for (let t = t0; t < tGround; t += step) {
+  const end = (oy - terrain.lowest) / -dy;
+  let [x, z] = [ox + dx * end, oz + dz * end];
+  for (let t = t0; t < end; t += step) {
     const [px, py, pz] = [ox + dx * t, oy + dy * t, oz + dz * t];
-    if (grid.buildingHeight(px, pz) < py) continue;
+    if (terrain.height(px, pz) + grid.buildingHeight(px, pz) < py) continue;
     // Back out toward the camera to the foot of the wall it hit.
     [x, z] = [px, pz];
     const back = flat > 1e-6 ? 400 : 0;

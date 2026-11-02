@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 
+import { Terrain } from '../data/terrain.ts';
 import {
+  Footings,
   PLATE_DEPTH,
   PlateBuffers,
   addPlate,
@@ -153,5 +155,35 @@ describe('packCells', () => {
   test('a cell wider than the atlas still gets a row of its own', () => {
     expect(packCells([{ width: 500, height: 10 }], 100, 2).at).toEqual([[2, 2]]);
     expect(packCells([], 100, 2).height).toBe(4);
+  });
+});
+
+describe('Footings', () => {
+  // Rising 0.1 m a metre to the east.
+  const slope = new Terrain({
+    step: 100,
+    minX: -100,
+    minZ: -100,
+    cols: 3,
+    rows: 3,
+    heights: Float32Array.of(-10, 0, 10, -10, 0, 10, -10, 0, 10),
+  });
+  // A house from x = 23 to 60, its lowest corner at 2.3 m (it stands at 2), and one further west.
+  const footings = new Footings(
+    [Float32Array.of(23, 0, 60, 0, 60, 10, 23, 10), Float32Array.of(-43, 30, -30, 30, -30, 40)],
+    slope,
+  );
+
+  test('a plate hangs from the foot of its house, wherever along the wall it is', () => {
+    // On the front wall (z = 0, facing -z), at either end.
+    expect(footings.at(25, -0.05, -Math.PI / 2)).toBeCloseTo(2);
+    expect(footings.at(58, -0.05, -Math.PI / 2)).toBeCloseTo(2);
+    // On the east wall, facing +x.
+    expect(footings.at(60.05, 5, 0)).toBeCloseTo(2);
+    expect(footings.at(-35, 29.95, -Math.PI / 2)).toBeCloseTo(-4.5);
+  });
+
+  test('a plate on no house hangs over the ground at its point', () => {
+    expect(footings.at(80, 50, 0)).toBeCloseTo(8);
   });
 });

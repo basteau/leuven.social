@@ -12,7 +12,8 @@ import {
   unpackWalk,
 } from '../data/plates.ts';
 import type { WalkData } from '../data/plates.ts';
-import { PlateBuffers, addPlate, packCells } from './plate-mesh.ts';
+import type { Terrain } from '../data/terrain.ts';
+import { Footings, PlateBuffers, addPlate, packCells } from './plate-mesh.ts';
 import type { PlateStyle, Slice } from './plate-mesh.ts';
 import type { PLATE } from './palette.ts';
 
@@ -228,6 +229,8 @@ export interface PlatesHost {
   kit: PlateKit;
   scene: Scene;
   city: City;
+  /** The ground the houses stand on: a plate hangs at its height over its house's foot. */
+  terrain: Terrain;
   gradientMap: Texture;
   /** The most anisotropic filtering the GPU offers, so letters stay sharp at a slant. */
   anisotropy: number;
@@ -286,6 +289,7 @@ export function createPlates(host: PlatesHost, data: WalkData): Plates {
   const houses = new PlateIndex(data.houses);
   const streets = new PlateIndex(data.streets);
   const buffers = new PlateBuffers();
+  let footings: Footings | undefined;
   let built = Number.NaN;
   let shown = 0;
 
@@ -295,13 +299,19 @@ export function createPlates(host: PlatesHost, data: WalkData): Plates {
     buffers.reset();
     const nearHouses = houses.near(cx, cz, HOUSE_REACH + SLACK, MAX_HOUSES);
     const nearStreets = streets.near(cx, cz, STREET_REACH + SLACK, MAX_STREETS);
+    footings ??= new Footings(
+      host.city.buildings.map((b) => b.ring),
+      host.terrain,
+    );
     for (const i of nearHouses) {
       const h = data.houses[i]!;
-      addPlate(buffers, { ...h, y: HOUSE_PLATE_Y, style: atlas.house }, atlas.ink);
+      const y = footings.at(h.x, h.z, h.angle) + HOUSE_PLATE_Y;
+      addPlate(buffers, { ...h, y, style: atlas.house }, atlas.ink);
     }
     for (const i of nearStreets) {
       const s = data.streets[i]!;
-      addPlate(buffers, { ...s, text: names[s.name] ?? '', style: atlas.street }, atlas.ink);
+      const y = footings.at(s.x, s.z, s.angle) + s.y;
+      addPlate(buffers, { ...s, y, text: names[s.name] ?? '', style: atlas.street }, atlas.ink);
     }
     shown = nearHouses.length + nearStreets.length;
     const fill = (name: string, array: Float32Array, size: number) => {

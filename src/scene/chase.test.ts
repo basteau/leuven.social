@@ -165,6 +165,15 @@ describe('zoom', () => {
     // Shorter than the drop to the floor, any pitch is fine.
     expect(boomPitch(PITCH_RANGE[0], 1)).toBeLessThan(PITCH_RANGE[0]);
   });
+
+  test('over rising ground behind the walker, the camera keeps a metre over that', () => {
+    for (const rise of [2, 5]) {
+      const pitch = boomPitch(PITCH_RANGE[0], 20, rise);
+      expect(LOOK_HEIGHT + Math.sin(pitch) * 20).toBeGreaterThanOrEqual(1 + rise - 1e-9);
+    }
+    // Ground higher than the boom reaches: straight up is as high as it goes.
+    expect(boomPitch(PITCH, 2.5, 10)).toBeCloseTo(Math.PI / 2);
+  });
 });
 
 /** A house 10 m tall from z = 5 to 8, open street elsewhere. */
