@@ -874,7 +874,13 @@ export function createViewer(options: ViewerOptions): Viewer {
   const standIn = new Mesh(sample.build({ facade: true }), material);
   standIn.receiveShadow = true;
   standIns.add(standIn, new LineSegments(ruler.build(), ink));
-  renderer.compileAsync(standIns, camera, scene).catch(() => {}); // the first frame compiles anyway
+  renderer
+    .compileAsync(standIns, camera, scene)
+    .catch(() => {}) // the first frame compiles anyway
+    .finally(() => {
+      // Their programs stay with the shared materials; the two stand-in shapes can go.
+      for (const child of standIns.children) (child as Mesh | LineSegments).geometry.dispose();
+    });
 
   /**
    * The first frame, with the main thread handed back between its steps (cutting the city into

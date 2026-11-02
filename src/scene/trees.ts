@@ -20,7 +20,7 @@ function triangles(geometry: BufferGeometry): V3[] {
 const TRUNK_BASE = 0.4;
 const CROWN_RADIUS = 2.6;
 const CROWN_Y = 4.6;
-/** Between the crown's inner radius (0.79) and its corners (0.85): what a passing camera meets. */
+/** Between the crown's inner radius (0.79) and its edges' midpoints (0.85): what a passing camera meets. */
 const CROWN_INNER = CROWN_RADIUS * 0.82;
 const TRUNK = triangles(new CylinderGeometry(0.3, TRUNK_BASE, 3, 4, 1, true).translate(0, 1.5, 0));
 const CROWN = triangles(new IcosahedronGeometry(CROWN_RADIUS, 0).translate(0, CROWN_Y, 0));
