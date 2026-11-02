@@ -1,6 +1,8 @@
 import {
   Box3,
+  BufferAttribute,
   BufferGeometry,
+  CanvasTexture,
   DataTexture,
   DirectionalLight,
   Fog,
@@ -10,10 +12,12 @@ import {
   LineSegments,
   Matrix4,
   Mesh,
+  MeshToonMaterial,
   NearestFilter,
   OrthographicCamera,
   PCFShadowMap,
   RedFormat,
+  SRGBColorSpace,
   Scene,
   Vector2,
   Vector3,
@@ -35,7 +39,7 @@ import { SLAB_DEPTH } from './ground.ts';
 import { LINE_LOD } from './paint.ts';
 import { LineBuilder, MeshBuilder, corners, geometryBytes } from './mesh-builder.ts';
 import type { V3 } from './mesh-builder.ts';
-import { BOUNCE_LIGHT, OUTLINE, SKY, SKY_LIGHT, SUN } from './palette.ts';
+import { BOUNCE_LIGHT, OUTLINE, PLATE, SKY, SKY_LIGHT, SUN } from './palette.ts';
 import {
   depthRange,
   fitShadow,
@@ -48,6 +52,7 @@ import {
 import type { ShadowSquare } from './shadow-fit.ts';
 import { applyShadowChunks } from './shadow-filter.ts';
 import { terraceParasols } from './terraces.ts';
+import type { Plates } from './plates.ts';
 import type { Walk, WalkMode } from './walk.ts';
 
 export type { WalkMode } from './walk.ts';
@@ -622,6 +627,9 @@ export function createViewer(options: ViewerOptions): Viewer {
     setPixelSize(material, unit);
     view.updateMatrixWorld();
     prepare();
+    // The plates on the facades show on foot, not in the flight down or back up.
+    const t = controls.target;
+    plates?.update(t.x, t.z, walk?.mode === 'walk' && walk.flightSpan === undefined);
     // Fine road paint is drawn last in each cell, so a view too far out to see it can stop short.
     for (const { objects, fineVertices } of cells) {
       (objects[0] as Mesh | undefined)?.geometry.setDrawRange(
@@ -652,6 +660,7 @@ export function createViewer(options: ViewerOptions): Viewer {
       peakTriangles: peak.triangles,
       vertices: held.vertices,
       geometryBytes: held.bytes,
+      plates: plates?.shown ?? 0,
     });
     if (alone) {
       invalidate();
@@ -693,6 +702,7 @@ export function createViewer(options: ViewerOptions): Viewer {
 
   // Walking is its own chunk, downloaded the first time someone walks (or is about to).
   let walk: Walk | undefined;
+  let plates: Plates | undefined;
   let loadingWalk: Promise<Walk> | undefined;
   let disposed = false;
   function loadWalk(): Promise<Walk> {
@@ -726,6 +736,7 @@ export function createViewer(options: ViewerOptions): Viewer {
           },
           ...(options.onWalkBlocked && { onBlocked: options.onWalkBlocked }),
         });
+        loadFacadePlates();
         return walk;
       },
     );
@@ -734,6 +745,39 @@ export function createViewer(options: ViewerOptions): Viewer {
       loadingWalk = undefined;
     });
     return loadingWalk;
+  }
+  // The house numbers and street plates on the facades: their own chunk and data, after walk
+  // mode's, and only decoration, so a failure leaves the walk as it was.
+  function loadFacadePlates(): void {
+    import('./plates.ts')
+      .then(({ loadPlates }) =>
+        loadPlates({
+          kit: {
+            three: {
+              BufferAttribute,
+              BufferGeometry,
+              CanvasTexture,
+              Mesh,
+              MeshToonMaterial,
+              SRGBColorSpace,
+            },
+            colours: PLATE,
+          },
+          scene,
+          city,
+          gradientMap,
+          anisotropy: Math.min(8, renderer.capabilities.getMaxAnisotropy()),
+          compile: (object) => renderer.compileAsync(object, view, scene),
+          changed: invalidate,
+        }),
+      )
+      .then(
+        (loaded) => {
+          if (disposed) loaded.dispose();
+          else plates = loaded;
+        },
+        (error: unknown) => console.warn('The plates on the facades could not load.', error),
+      );
   }
   function withWalk(act: (loaded: Walk) => void): void {
     if (walk) {
@@ -937,6 +981,7 @@ export function createViewer(options: ViewerOptions): Viewer {
       cancelIdle(idleHandle);
       disposed = true;
       walk?.dispose();
+      plates?.dispose();
       observer.disconnect();
       densityQuery?.removeEventListener('change', onDensity);
       canvas.removeEventListener('webglcontextrestored', onRestored);

@@ -33,6 +33,10 @@ Walk mode puts a figure on the streets (`character.ts`) and follows it with a pe
 
 - **Its own chunk.** Everything only walking needs (`walk.ts`, the figure, its steering, the camera boom, the route hint, the walk grid and A*, and the street-name lookup in a small chunk beside it) is a dynamic `import()` in the viewer, downloaded the first time someone starts a walk, or hovers or focuses **Walk** just before. The map's first load never pays for it. Three.js classes only walking uses still ship with the engine, since three.js is one module to the bundler. The fog lives in the viewer, so starting a walk compiles no shader.
 
+- **Plates on the facades, one draw call.** House numbers and street plates are real geometry in the scene (`plates.ts`, `plate-mesh.ts`), so walls hide them and the sun and shadows light them like the rest. They come with their own chunk (4 KB) and `walk.bin` (64 KB), which the viewer fetches once walk mode has loaded.
+  - Every plate within 40 m (numbers) or 60 m (street names) of the walker's 16 m square is one mesh with one toon material, built again only when the walker steps into another square: 0.2–0.5 ms on a laptop (3 ms the first time). The busiest square in the city holds 86 numbers and 21 street plates, about 6k triangles; a plate is a face of slices plus thin ink sides, 50–80 triangles.
+  - The letters come from one 1024 × 512 atlas the browser draws once (about 2 ms) from the characters the plates use: each is a slice of enamel plate with the rim top and bottom, so a row of them is a plate and no texture is drawn per plate. Mipmaps and anisotropic filtering keep them clean at a slant.
+  - Per frame, nothing but the draw: the walk loop hands the viewer the walker's square, and nothing changes until it's a new one. They show only on foot, not on the map or in the flight, and the shader compiles off the main thread before they first show.
 - **Walkability is built on demand.** `WalkGrid` (`src/data/walkable.ts`) rasterises the ground at 1 m in 64 m tiles the first time something asks about them: open, minus water and railway, plus roads, squares, paths and bridge decks, minus buildings, tanks and parapets. A click costs one A* search (`route.ts`) inside a window around both ends, a few milliseconds, then string-pulling into a handful of straight legs.
 - **The haze is the far clip.** Fog fades the city into the horizon colour from 90 m to 330 m beyond the walker, and the camera's far plane sits just past it, so the cells further out are culled. The fog is always in the scene (far off on the map) so walking never recompiles a shader. A sky dome (one call) fills the sky behind it.
 - **Shadows don't follow the view.** From the street the shadow map covers a square around the walker (45 m, plus 30 m for roofs) whichever way the camera looks, at about 12 cm a texel, and is redrawn as soon as it is 1.6× coarser than that (the map tolerates 4×), so the flight in never leaves map-sized texels on the street, so looking around never redraws it; it redraws only after walking out of it, every few dozen metres.
@@ -65,6 +69,8 @@ The size and render budgets are enforced by `bun run verify`; if one is exceeded
 | App shell JS (React + HUD), gzipped    | 90 KB  | `scripts/budget.ts` |
 | 3D engine JS (three.js chunk), gzipped | 170 KB | `scripts/budget.ts` |
 | Walk mode JS (loaded on first walk)    | 14 KB  | `scripts/budget.ts` |
+| Facade plates JS (after walk mode)     | 5 KB   | `scripts/budget.ts` |
+| Plates data (`walk.bin`), gzipped      | 96 KB  | `scripts/budget.ts` |
 | First-load JS (shell + engine)         | 250 KB | `scripts/budget.ts` |
 | CSS, gzipped                           | 6 KB   | `scripts/budget.ts` |
 | City data                              | 1 MB   | `scripts/budget.ts` |

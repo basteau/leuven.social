@@ -205,6 +205,12 @@ export const ROUTE = 0x4a3c33;
 export const WINDOW = { glass: 0x2f3a4a, lit: 0xf3c873 } as const;
 
 export const OUTLINE = 0x2b2420;
+/**
+ * The enamel plates on the facades (house numbers, street names): the HUD street plate's
+ * `--sign` blue and `--paper` rim and letters (app.css), edged in the outlines' ink. Paper on
+ * enamel is 7.6:1.
+ */
+export const PLATE = { enamel: 0x14518c, paper: 0xfbf6ec, ink: OUTLINE } as const;
 export const SUN = 0xffe2b8;
 export const SKY_LIGHT = 0xcfe3ff;
 export const BOUNCE_LIGHT = 0x9a8a70;

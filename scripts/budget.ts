@@ -21,6 +21,15 @@ const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[
     limit: 14 * KB,
     gzip: true,
   },
+  // The plates on the facades load after walk mode, in a chunk and a data file of their own.
+  {
+    label: 'Facade plates JS (on first walk)',
+    pattern: 'assets/plates-*.js',
+    limit: 5 * KB,
+    gzip: true,
+  },
+  // About 11k house numbers and 1.3k street plates are 64 KB; room for the map to grow by half.
+  { label: 'Plates data (already gzipped)', pattern: 'data/walk.bin', limit: 96 * KB, gzip: false },
   // What the first visit downloads: the shell and the engine, not the chunks loaded later.
   {
     label: 'First-load JS',

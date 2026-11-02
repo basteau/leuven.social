@@ -1,8 +1,9 @@
 import { expect, test } from 'bun:test';
 
 import { AREA, VIEW_AREA } from './area.ts';
-import { ringInArea } from './geometry.ts';
+import { areaIndex, ringInArea } from './geometry.ts';
 import { unpackCity } from './format.ts';
+import { unpackWalk } from './plates.ts';
 import { StreetIndex } from './streets.ts';
 
 // Guards the committed city file: it must decode, match the area and stay plausible.
@@ -31,4 +32,27 @@ test('public/data/city.bin decodes into a plausible Leuven', async () => {
   const streets = new StreetIndex(city);
   expect(streets.nameAt(0, 0)).toBe('Grote Markt');
   expect(city.plazaNames.some((n) => city.streetNames[n] === 'Oude Markt')).toBe(true);
+});
+
+const load = async (name: string) =>
+  new Uint8Array(
+    await (await fetch(new URL(`../../public/data/${name}`, import.meta.url))).arrayBuffer(),
+  );
+const inArea = (p: { x: number; z: number }) => areaIndex(AREA, p.x, p.z) >= 0;
+
+// Guards the committed walk file: its plates hang in the area and name the city's streets.
+test('public/data/walk.bin decodes into plates that belong to city.bin', async () => {
+  const [city, walk] = await Promise.all([
+    load('city.bin').then(unpackCity),
+    load('walk.bin').then(unpackWalk),
+  ]);
+  expect(walk.houses.length).toBeGreaterThan(5000);
+  expect(walk.streets.length).toBeGreaterThan(500);
+  expect(walk.houses.every(inArea)).toBe(true);
+  expect(walk.streets.every(inArea)).toBe(true);
+  expect(walk.streets.every((s) => s.name < city.streetNames.length && s.y >= 2)).toBe(true);
+  const named = new Set(walk.streets.map((s) => city.streetNames[s.name]));
+  expect(named).toContain('Naamsestraat');
+  expect(named).toContain('Tiensestraat');
+  expect(walk.houses.some((h) => h.text === '1')).toBe(true);
 });

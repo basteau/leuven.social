@@ -1,6 +1,6 @@
 /**
  * Rebuilds the city from the downloads already in data/ and checks the result is byte for
- * byte the committed public/data/city.bin: data + code = map.
+ * byte the committed public/data/city.bin and walk.bin: data + code = map.
  *
  *   bun run data:check
  *
@@ -10,6 +10,7 @@
 
 import { outputFiles } from '../src/data/fetch-plan.ts';
 import { unpackCity } from '../src/data/format.ts';
+import { unpackWalk } from '../src/data/plates.ts';
 import { SOURCES } from '../src/data/sources.ts';
 import { DATA, hashSource, readLock } from './data-files.ts';
 
@@ -44,11 +45,26 @@ async function run(cmd: string[]) {
 }
 
 const city = `${root}public/data/city.bin`;
+const walk = `${root}public/data/walk.bin`;
 const before = await Bun.file(city).bytes();
+const walkBefore = await Bun.file(walk).bytes();
 await run(['bun', 'run', 'data:build']);
 await run(['bun', 'run', 'bake']);
 const after = await Bun.file(city).bytes();
+const walkAfter = await Bun.file(walk).bytes();
 
+let failed = false;
+if (Bun.deepEquals(walkAfter, walkBefore)) {
+  console.log('public/data/walk.bin is reproduced byte for byte.');
+} else {
+  const [a, b] = await Promise.all([unpackWalk(walkAfter), unpackWalk(walkBefore)]);
+  const counts = (w: typeof a) => `${w.houses.length} house numbers, ${w.streets.length} plates`;
+  console.error(
+    `The rebuilt plates differ from the ones you had.\n  rebuilt: ${counts(a)}\n  before:  ${counts(b)}\n` +
+      'They are in public/data/walk.bin now: commit them if the change is intended, or restore the file.',
+  );
+  failed = true;
+}
 if (Bun.deepEquals(after, before)) {
   console.log('public/data/city.bin is reproduced byte for byte.');
 } else {
@@ -62,5 +78,6 @@ if (Bun.deepEquals(after, before)) {
     `The rebuilt city differs from the one you had.\n  rebuilt: ${counts(a)}\n  before:  ${counts(b)}\n` +
       'It is in public/data/city.bin now: commit it if the change is intended, or git restore it.',
   );
-  process.exit(1);
+  failed = true;
 }
+if (failed) process.exit(1);
