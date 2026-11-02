@@ -5,7 +5,6 @@ import type {
   City,
   Path,
   Prop,
-  Rail,
   ShopFront,
   Tank,
 } from '../data/city.ts';
@@ -31,7 +30,7 @@ import {
   canopyBays,
   planRailway,
 } from './rails.ts';
-import type { CanopyBay, Mast, RailParapet } from './rails.ts';
+import type { CanopyBay, Mast, RailParapet, Track } from './rails.ts';
 import { addParapet, addTank } from './structures.ts';
 import { addParasol } from './terraces.ts';
 import type { Parasol } from './terraces.ts';
@@ -65,7 +64,7 @@ export interface Cell {
   tanks: Tank[];
   parapets: Float32Array[];
   /** Track pieces clipped to the cell, and what stands along them. */
-  rails: Rail[];
+  rails: Track[];
   masts: Mast[];
   railParapets: RailParapet[];
   platforms: Float32Array[];
@@ -208,7 +207,9 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
     cutLine(line, (cell, piece) => cell.ground.paths.push({ width, paved, line: piece }));
   }
   for (const rail of city.rails) {
-    cutLine(rail.line, (cell, piece) => cell.rails.push({ ...rail, line: piece }));
+    cutLine(rail.line, (cell, piece) =>
+      cell.rails.push({ ...rail, line: piece, from: along(rail.line, piece[0]!, piece[1]!) }),
+    );
   }
   for (const { kind, line } of city.markings) {
     // A crossing stays whole, in the cell of its start, so its bars keep their rhythm; a lane
@@ -271,7 +272,7 @@ export interface DetailMarks {
  *
  * On the terrain, what lies on the ground is draped over it: the ground layers, paths, paint, track
  * beds and the rails' and slab's ink, platforms and parapets. Houses and tanks stand on the
- * lowest ground under their corners, trees, parasols and platform roofs on the ground at their
+ * lowest ground under their corners (a house counting its storeys from a half metre under it), trees, parasols and platform roofs on the ground at their
  * point.
  */
 export function buildCell(
@@ -322,8 +323,10 @@ export function buildCell(
     addCanopyBay(mesh, lines, bay);
   }
   for (const b of cell.buildings) {
-    const base = footing(terrain, b.ring);
+    // At its exact lowest ground, its storeys counted from a whole LIFT_UNIT below.
+    const base = terrain.base(b.ring);
     mesh.lift = lines.lift = base;
+    mesh.foot = footing(terrain, b.ring);
     addBuilding(mesh, lines, b, walls, base);
   }
   for (let i = 0; i < trees.length; i += 4) tree(i, ['crown']);

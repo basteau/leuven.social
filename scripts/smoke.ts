@@ -31,12 +31,16 @@ const MAX_TRIANGLES = 600_000;
  * racks park fewer bikes (it was 2.69M and 64.1 MB), 2.45M and 58.7 MB with what came since.
  * Rounder, spoked wheels, cranks, a chain guard, a kickstand, a lamp and a basket on the 3,632
  * parked bikes (83 triangles each where they were 43, asked for so they read up close) took it
- * to 2.72M and 64.9 MB. Just above, so nothing grows unnoticed.
+ * to 2.72M and 64.9 MB (2,723,825 vertices). Just above, so nothing grows unnoticed.
  */
-const MAX_VERTICES = 2_750_000;
-const MAX_GEOMETRY_MB = 66;
-/** The longest the main thread may be busy at once while the page loads (ms). */
-const MAX_LONG_TASK_MS = 750;
+const MAX_VERTICES = 2_730_000;
+const MAX_GEOMETRY_MB = 65;
+/**
+ * The longest the main thread may be busy at once while the page loads (ms). About 60 on a
+ * laptop since the roofs are planned lazily and the cells casting into the first frame are built
+ * in slices (it was 130, finding the party walls); the rest is room for slower machines.
+ */
+const MAX_LONG_TASK_MS = 150;
 
 async function run(cmd: string[]): Promise<string> {
   const proc = Bun.spawn(cmd, { stdout: 'pipe', stderr: 'pipe' });
@@ -223,7 +227,16 @@ async function expectMenu(): Promise<void> {
   );
   await browser('press', 'Control+k');
   await browser('wait', '--fn', menu.closed);
-  console.log(`ok  menu: ${rows.length} rows; searched, ran Mute and Unmute, opened the controls`);
+  // Opened with its button, a command still gives focus to the map, not back to the button.
+  await browser('click', 'button.menu-trigger');
+  await browser('wait', '--fn', `${menu.open} && document.activeElement?.matches('.menu-search')`);
+  await browser('keyboard', 'type', 'zoom in');
+  await browser('wait', '--fn', `${menu.first} === 'Zoom in'`);
+  await browser('press', 'Enter');
+  await browser('wait', '--fn', menu.closed);
+  console.log(
+    `ok  menu: ${rows.length} rows; searched, ran Mute and Unmute, opened the controls, closed to the map`,
+  );
 }
 
 /** Where the keys the smoke test holds sit on the keyboard: walking reads `code`, not `key`. */
@@ -323,11 +336,11 @@ const canvasNumber = async (name: string) =>
 async function expectRiding(): Promise<void> {
   const [x, z] = await nearestRack();
   await browser('press', 'r');
-  // The map turned a quarter from north, at zoom 1: 800 px show 560 m. A drag moves the ground
-  // under the pointer, across by its screen width and along by its depth.
+  // The map turned a quarter from north, at zoom 1: 800 px show 560 m. A drag keeps the ground
+  // under the pointer: across by its screen width, along foreshortened by the isometric pitch.
   const k = 800 / 560;
   const s = Math.SQRT1_2;
-  const [dx, dy] = [-(x * s - z * s) * k, ((-x * s - z * s) * k) / 2.82];
+  const [dx, dy] = [-(x * s - z * s) * k, (-x * s - z * s) * k * Math.sqrt(1 / 3)];
   await browser('mouse', 'move', '640', '400');
   await browser('mouse', 'down');
   for (let i = 1; i <= 4; i++) {
@@ -341,9 +354,15 @@ async function expectRiding(): Promise<void> {
   await browser('mouse', 'up');
   await browser('wait', '400');
   await expectOnMap('dragging the map');
-  // W walks from the street nearest the middle of the view.
+  // W walks from the street nearest the middle of the view, which the drag brought the rack to.
   await browser('press', 'w');
   await browser('wait', '--fn', landed);
+  const [wx, wz] = (await evalJson<string>(`JSON.stringify(${canvasData('walker')})`))
+    .split(' ')
+    .map(Number);
+  if (!(Math.hypot(wx! - x, wz! - z) < 30)) {
+    throw new Error(`riding: dragged to the rack at ${x}, ${z} but landed at ${wx}, ${wz}`);
+  }
   await browser('eval', key('keydown', 'KeyF'));
   await browser('eval', key('keyup', 'KeyF'));
   await browser('wait', '--timeout', '20000', '--fn', `${canvasData('ride')} === 'riding'`);
@@ -456,8 +475,8 @@ try {
   await browser('wait', '500');
   await browser('screenshot', `${ARTIFACTS}smoke-phone-menu.png`);
   await browser('click', 'button.menu-close');
-  await browser('wait', '--fn', `!document.querySelector('dialog.menu')?.open`);
-  console.log('ok  phone: the menu button opens the menu, and its close button shuts it');
+  await browser('wait', '--fn', menu.closed);
+  console.log('ok  phone: the menu button opens the menu; its close button shuts it, to the map');
   console.log(`screenshots in .artifacts/`);
 } catch (error) {
   console.error(`\nSMOKE FAILED  ${error instanceof Error ? error.message : String(error)}`);

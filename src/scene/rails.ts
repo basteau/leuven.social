@@ -55,6 +55,9 @@ export const SLEEPER_CODE = 8192;
 const VAULT = [-1, -0.5, 0, 0.5, 1] as const;
 
 /** A catenary mast and the arm that holds the wire over its track. */
+/** A track, or a cell's piece of one, `from` metres along the whole track where it starts. */
+export type Track = Rail & { from?: number };
+
 export interface Mast {
   x: number;
   z: number;
@@ -138,13 +141,15 @@ function frame(ax: number, az: number, bx: number, bz: number) {
  * whichever side of its track is clear of the others: in a yard, only the outer tracks get
  * them. Parapets line the sides of a bridge that no other bridge track runs beside.
  */
-export function planRailway(rails: readonly Rail[]): Railway {
+export function planRailway(rails: readonly Track[]): Railway {
   const distance = trackDistance(rails);
   const masts: Mast[] = [];
   const parapets: RailParapet[] = [];
-  for (const [r, { line, kind, bridge, electrified }] of rails.entries()) {
-    let travelled = 0;
-    let next = MAST_SPACING / 2;
+  for (const [r, { line, kind, bridge, electrified, from = 0 }] of rails.entries()) {
+    // On from where the track's piece in the last cell left off.
+    let travelled = from;
+    let next =
+      MAST_SPACING / 2 + Math.ceil((from - MAST_SPACING / 2) / MAST_SPACING) * MAST_SPACING;
     for (let k = 0; k + 3 < line.length; k += 2) {
       const [ax, az, bx, bz] = [line[k]!, line[k + 1]!, line[k + 2]!, line[k + 3]!];
       const f = frame(ax, az, bx, bz);
@@ -184,14 +189,15 @@ export function planRailway(rails: readonly Rail[]): Railway {
 /**
  * Tracks on the ground: a ballast bed under a band of sleepers, both flat ribbons in the cell's
  * mesh. The sleepers are no geometry: the band's `facade` attribute holds the distance along
- * the track (as a code past `SLEEPER_CODE`), and the facade shader draws them from it. Ballast runs on by half its width
- * at both ends, so bends need no join geometry; the sleeper band doesn't, so its pattern never
- * overlaps itself.
+ * the track (as a code past `SLEEPER_CODE`), counted from the whole track's start so the pattern
+ * runs on across cell borders, and the facade shader draws them from it. Ballast runs on by half
+ * its width at both ends, so bends need no join geometry; the sleeper band doesn't, so its
+ * pattern never overlaps itself.
  */
-export function addTracks(mesh: MeshBuilder, rails: readonly Rail[]): void {
-  for (const { line, kind } of rails) {
+export function addTracks(mesh: MeshBuilder, rails: readonly Track[]): void {
+  for (const { line, kind, from = 0 } of rails) {
     const colors = RAIL[kind];
-    let travelled = 0;
+    let travelled = from;
     for (let k = 0; k + 3 < line.length; k += 2) {
       const [ax, az, bx, bz] = [line[k]!, line[k + 1]!, line[k + 2]!, line[k + 3]!];
       const f = frame(ax, az, bx, bz);

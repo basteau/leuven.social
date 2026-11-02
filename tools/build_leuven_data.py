@@ -19,6 +19,7 @@ before they are written, and the map projection is pinned below rather than left
 Inputs (src/data/sources.ts lists each one's source and licence):
   grb/grb_GBG.geojson, grb/grb_GBA.geojson   GRB buildings and annexes (EPSG:4326)
   grb/grb_WBN.geojson, grb/grb_WGO.geojson   GRB road surfaces and their subdivision lines, for the road zones
+  grb/grb_KNW.geojson                       GRB structures: bridges, tanks and silos, and the plinths under buildings
   elevation/{DTM,DSM}/*.tif                 DHMV II 1 m rasters (EPSG:31370), tiled
   osm/{buildings,ring_r23,roads,areas,points,furniture_ways}.json   Overpass answers (out geom / center)
   ortho/z18/{x}_{y}.png                     optional: orthophoto tiles for roof colours
@@ -30,7 +31,7 @@ Outputs (data/derived/):
   grb_structures.json        GRB structures (bridges, tanks and silos) in local metres, with tank heights from the LiDAR
   road_zones.json            carriageways, cycle tracks, lane lines and crossings (tools/build_road_zones.py)
   terrain.json               the landform: the DTM smoothed (sigma ~37 m), every 60 m on a grid anchored at the origin
-  osm_roads.geojson, osm_areas.geojson, osm_points.geojson
+  osm_roads.geojson, osm_points.geojson
   preview_heights.png
 """
 import json
@@ -551,6 +552,7 @@ for t in ('hero', 'core', 'fringe'):
 roads = [{'type': 'Feature', 'properties': e['tags'], 'geometry': mapping(LineString([(p['lon'], p['lat']) for p in e['geometry']]))}
          for e in osm_elements('roads') + osm_elements('ring_r23') if e['type'] == 'way' and len(e.get('geometry', [])) >= 2]
 json.dump({'type': 'FeatureCollection', 'features': roads}, open(OUT / 'osm_roads.geojson', 'w'), separators=(',', ':'))
+# The parks and water under the preview; the bake reads land use from osm/areas.json itself.
 areas = []
 for e in osm_elements('areas'):
     if e['type'] == 'way':
@@ -563,7 +565,6 @@ for e in osm_elements('areas'):
                 g = way_geom(m)
                 if g is not None:
                     areas.append({'type': 'Feature', 'properties': {**e.get('tags', {}), '_relation': e['id']}, 'geometry': mapping(g)})
-json.dump({'type': 'FeatureCollection', 'features': areas}, open(OUT / 'osm_areas.geojson', 'w'), separators=(',', ':'))
 
 
 def furniture_shape(e):

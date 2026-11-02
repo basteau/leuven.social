@@ -5,7 +5,15 @@ import { SHOP_KINDS } from '../data/shop-kinds.ts';
 import { AWNING, LANCETS, SHOP_FRONT } from './facade-codes.ts';
 import { LUMA, SHADE_CHROMA, SHADE_HUE, SHADE_RANGE } from './lighting.ts';
 import { LIFT_UNIT, linearVertexColors } from './mesh-builder.ts';
-import { ANGLES, LINE_LOD, PAINT_HALF, PAINT_KIND, STRIPE_LOD, SURFACE } from './paint.ts';
+import {
+  ANGLES,
+  LINE_LOD,
+  PAINT_GRADE,
+  PAINT_HALF,
+  PAINT_KIND,
+  STRIPE_LOD,
+  SURFACE,
+} from './paint.ts';
 import { FRONTS, WINDOW } from './palette.ts';
 import { SLEEPER_CODE } from './rails.ts';
 
@@ -155,6 +163,7 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
             want = uPixel > ${f(STRIPE_LOD)} ? 0.0 : reach;
           }
           transformed.xz += across * side * (want - reach);
+          transformed.y += max(want - reach, 0.0) * ${f(PAINT_GRADE)};
         }`,
       )
       .replace(

@@ -88,8 +88,8 @@ export interface RideKit {
   boom: Boom;
   follow: Follow;
   view: PerspectiveCamera;
-  /** How high over the terrain the walker's feet are (m). */
-  lift: number;
+  /** Where the wheels stand at a spot: the ground as drawn, and a hair for the tyres' ink. */
+  floor(x: number, z: number): number;
   /** Walks to a spot along a route (or says it can't). */
   walkTo(x: number, z: number): void;
   wake(): void;
@@ -410,7 +410,7 @@ export function createRide(kit: RideKit): Ride {
   }
 
   /** The ground under a bike's wheels, where it stands. */
-  const ground = (x: number, z: number) => terrain.height(x, z) + kit.lift;
+  const ground = (x: number, z: number) => kit.floor(x, z);
 
   /** Where a point of a bike's frame is on the street (model metres across to its left, along). */
   function onBike(x: number, z: number, h: number, across: number, along: number, out: XZ): XZ {

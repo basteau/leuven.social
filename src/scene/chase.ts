@@ -354,6 +354,39 @@ export function clearPitch(
   return hi;
 }
 
+/** How many headings round the walker `openYaw` tries, and how much climb still counts as open. */
+const YAW_STEPS = 16;
+const OPEN_CLIMB = 0.05;
+
+/**
+ * The heading nearest `yaw` from which a boom `distance` long at `pitch` sees `look` without
+ * climbing over a roof (`clearPitch`): `yaw` itself if it does, else the nearest that does where
+ * `ahead` says the walker, facing away from it, has somewhere to go, else the nearest that does;
+ * failing all, the one that climbs least. A walk that starts
+ * with a house behind the walker lands with the camera beside it instead of straight overhead.
+ */
+export function openYaw(
+  heightAt: (x: number, z: number) => number,
+  look: Vec3,
+  yaw: number,
+  distance: number,
+  pitch: number,
+  ahead: (yaw: number) => boolean = () => true,
+): number {
+  let [best, least, open] = [yaw, Infinity, Number.NaN];
+  for (let k = 0; k <= YAW_STEPS / 2; k++) {
+    for (const side of k === 0 || k === YAW_STEPS / 2 ? [1] : [1, -1]) {
+      const at = wrap(yaw + (side * k * 2 * Math.PI) / YAW_STEPS);
+      const climb = clearPitch(heightAt, look, at, distance, pitch) - pitch;
+      // Open from behind already: the walker steps in facing away from the map, as ever.
+      if (climb <= OPEN_CLIMB && (k === 0 || ahead(at))) return at;
+      if (climb <= OPEN_CLIMB && Number.isNaN(open)) open = at;
+      if (climb < least) [best, least] = [at, climb];
+    }
+  }
+  return Number.isNaN(open) ? best : open;
+}
+
 /** The parts of a wheel event that tell a trackpad from a mouse. */
 export interface Wheel {
   deltaMode: number;

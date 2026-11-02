@@ -98,7 +98,7 @@ export function routeMarker(route: Float32Array, ground: Ground = () => 0): Rout
   const [x, z] = [route.at(-2)!, route.at(-1)!];
   ring(mesh, ground, x, z);
   disc(mesh, ground, x, z, CENTRE, DOT_SIDES);
-  return { geometry: mesh.build(), dots: Float32Array.from(dots) };
+  return { geometry: mesh.build({ keep: true }), dots: Float32Array.from(dots) };
 }
 
 /** How many leading indices to skip once the walker has covered `travelled` metres. */

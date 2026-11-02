@@ -35,6 +35,12 @@ export const PAINT_HALF: Record<PaintKind, number> = {
   block: 0.25,
   patch: 2,
 };
+/**
+ * The steepest the drawn terrain gets (rise per metre; baked.test.ts holds the city to it). A
+ * line widened to a pixel reaches off the triangle it was draped on, so its edges are lifted by
+ * this much per metre of widening and never dip into the carriageway uphill.
+ */
+export const PAINT_GRADE = 0.26;
 /** Metres per screen pixel above which lines go, and below which stripes replace their patch. */
 export const LINE_LOD = 1.2;
 export const STRIPE_LOD = 0.22;

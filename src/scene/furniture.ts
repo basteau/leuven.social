@@ -70,6 +70,10 @@ export function buildFurniture(cell: Cell, kit: FurnitureKit): Furniture {
     addProp(mesh, p, mesh === near ? bikes : undefined, drawn.height);
   }
   const awnings = cell.fronts.length > 0 ? new MeshBuilder() : null;
-  if (awnings) addStorefronts(near, awnings, cell.fronts, kit);
+  if (awnings) addStorefronts(near, awnings, cell.fronts, kit, drawn.height);
   return { near, bikes: new Float32Array(bikes), awnings, tall };
 }
+
+// Walk mode and riding stand the walker and the bikes on the ground as drawn too, through the
+// viewer, which has this chunk loaded by the time anyone walks.
+export { drawnGround };

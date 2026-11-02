@@ -70,6 +70,18 @@ export class Terrain {
     return [h[k]!, h[k + 1]!, h[k + this.cols]!, h[k + this.cols + 1]!];
   }
 
+  /** The steepest grade of any triangle (rise per metre), for what's drawn off its own one. */
+  get steepest(): number {
+    let steepest = 0;
+    for (let j = 0; j + 1 < this.rows; j++) {
+      for (let i = 0; i + 1 < this.cols; i++) {
+        const [a, b, c, d] = this.#square(i, j);
+        steepest = Math.max(steepest, Math.hypot(b - a, d - b), Math.hypot(d - c, c - a));
+      }
+    }
+    return steepest / this.step;
+  }
+
   /** The lowest ground under a ring's corners (flat [x0, z0, x1, z1, …]): where a rigid thing stands. */
   base(ring: ArrayLike<number>): number {
     let lowest = Infinity;

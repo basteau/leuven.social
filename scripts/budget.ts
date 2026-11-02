@@ -21,25 +21,32 @@ const BUDGETS: {
   {
     label: 'App shell JS (React + the shell)',
     pattern: 'assets/index-*.js',
-    limit: 90 * KB,
+    // 84: just above 83.2 KB, with a stall-watching load, a menu that fails without blanking the
+    // map, and one press for a held key. It had 7 KB of slack nothing asked for.
+    limit: 84 * KB,
     gzip: true,
   },
   // The engine, and the palette it shares with the chunks it loads later (vite.config.ts).
+  // 166: panning and zooming the map with our own controls (map-controls.ts) instead of three's
+  // MapControls took it from 170.1 to 165.9 KB.
   {
     label: '3D engine JS (three.js)',
     pattern: 'assets/{viewer,palette}-*.js',
-    limit: 171 * KB,
+    limit: 166 * KB,
     gzip: true,
   },
-  { label: 'CSS', pattern: 'assets/*.css', limit: 6 * KB, gzip: true },
+  // 3.5: just above 3.1 KB.
+  { label: 'CSS', pattern: 'assets/*.css', limit: 3.5 * KB, gzip: true },
   // The page itself paints the loading screen before any script or stylesheet: the tokens, its
   // styles and the diorama's SVG are inline (about 3 KB of it the little town).
-  { label: 'HTML (the loading screen)', pattern: 'index.html', limit: 7.5 * KB, gzip: true },
+  // 7: just above 6.7 KB.
+  { label: 'HTML (the loading screen)', pattern: 'index.html', limit: 7 * KB, gzip: true },
   // The menu loads while the city is built: its list, search, pages, icons and places.
   {
     label: 'Menu JS (while building)',
     pattern: 'assets/command-menu-*.js',
-    limit: 6.5 * KB,
+    // 6: just above 5.8 KB.
+    limit: 6 * KB,
     gzip: true,
   },
   // The whole R23 ring plus Heverlee; the ceiling agreed for the city data is 1 MB.
@@ -54,10 +61,19 @@ const BUDGETS: {
   // leaving, the dive, the cross-fade for reduced motion and flights that turn round midway.
   // 20: the figure's polish (about 1.5 KB): its collar, placket, pocket, belt, hands, face and
   // hair as data, and the gait's counter-rotation, idle weight shift, stop and landing.
+  // Still 20 at 19.9: standing on the drawn ground, routing round dropped bikes and starting a
+  // walk from the side when a house is behind the walker added 0.4 KB.
   {
     label: 'Walk mode JS (on first walk)',
     pattern: 'assets/walk-*.js',
     limit: 20 * KB,
+    gzip: true,
+  },
+  // The street-name lookup for the sign, a chunk beside walk mode's that loads with it.
+  {
+    label: 'Street names JS (with walk mode)',
+    pattern: 'assets/streets-*.js',
+    limit: 1.5 * KB,
     gzip: true,
   },
   // Riding loads near a rack (or on F): the bike's physics, rig and model, the rider's pose, the
@@ -78,11 +94,11 @@ const BUDGETS: {
   // The plates on the facades load after walk mode, in a chunk and a data file of their own.
   // 6: the shops' name boards (fitting a name to its front, its paint at 4.5:1, hanging it on
   // the awning's valance or the fascia, and the shader that paints under the letters) took the
-  // chunk from 4.6 to 5.6 KB.
+  // chunk from 4.6 to 5.6 KB. 5.8: just above that.
   {
     label: 'Facade plates JS (on first walk)',
     pattern: 'assets/plates-*.js',
-    limit: 6 * KB,
+    limit: 5.8 * KB,
     gzip: true,
   },
   // Street furniture, monuments and the shop fronts' awnings, signs and terraces load once the
@@ -107,10 +123,12 @@ const BUDGETS: {
   // 253: the parked bikes' looks, rails and notes (+0.7 KB). Furniture and monument drawing then
   // moved to a chunk of their own, taking what they share with the engine as a kit, as plates.ts
   // does; only the palette, which scene/props.ts imports, loads as a chunk of its own beside it.
+  // 250: panning and zooming with our own map controls (map-controls.ts) took 4.4 KB off; the
+  // load, menu and key fixes put 0.4 back: 249.2 KB.
   {
     label: 'First-load JS',
     pattern: 'assets/{index,viewer}-*.js',
-    limit: 253 * KB,
+    limit: 250 * KB,
     gzip: true,
     closure: true,
   },

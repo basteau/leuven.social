@@ -14,6 +14,7 @@ import {
   chaseFov,
   DIVE_LIMIT,
   clearPitch,
+  openYaw,
   createBoom,
   createSteerFrame,
   easeBoom,
@@ -395,6 +396,26 @@ describe('the flight between map and street', () => {
     expect(flight({ ...map, pitch: 1.5 }, { ...street, pitch: 1.5 }, 0.5, lens, 0.7).pitch).toBe(
       1.5,
     );
+  });
+
+  test('starts from a heading that sees the walker without climbing over a roof', () => {
+    const look: Vec3 = [0, 2.6, 0];
+    // From the south (yaw 0) the house in the way; turned a sixteenth either way it still is,
+    // so the nearest open heading is further round, and the same whichever way it was asked.
+    const yaw = openYaw(block, look, 0, 200, 0.3);
+    expect(Math.abs(yaw)).toBeGreaterThan(0);
+    expect(clearPitch(block, look, yaw, 200, 0.3)).toBeLessThanOrEqual(0.35);
+    // Open already: kept.
+    expect(openYaw(block, look, Math.PI, 200, 0.3)).toBe(Math.PI);
+    // Walled in all round: the heading that climbs least, the one asked for when all are equal.
+    expect(openYaw(() => 1e3, look, 0.5, 50, 0.3)).toBe(0.5);
+    // Open as asked: kept, whatever lies ahead.
+    expect(openYaw(block, look, Math.PI, 200, 0.3, () => false)).toBe(Math.PI);
+    // Turned, the nearest open heading that leaves somewhere to walk, else the nearest open one.
+    expect(
+      openYaw(block, look, 0, 200, 0.3, (at) => Math.abs(Math.abs(at) - Math.PI) < 0.01),
+    ).toBeCloseTo(Math.PI);
+    expect(openYaw(block, look, 0, 200, 0.3, () => false)).toBeCloseTo(yaw);
   });
 
   test('turns the short way round', () => {

@@ -200,6 +200,16 @@ export class MeshBuilder {
 
   set lift(y: number) {
     this.#lift = y;
+    this.foot = y;
+  }
+
+  /**
+   * Where the facade shader counts storeys from (m), to the nearest LIFT_UNIT: `lift` sets it
+   * too. A house stands at its exact ground but counts its storeys from that ground floored to
+   * a LIFT_UNIT (`footing` in buildings.ts), so neighbours of nearly the same base keep the
+   * same rows of windows. Set it after `lift`.
+   */
+  set foot(y: number) {
     this.#liftCode = Math.max(-128, Math.min(127, Math.round(y / LIFT_UNIT)));
   }
 
@@ -415,10 +425,11 @@ export class MeshBuilder {
 
   /**
    * `facade` adds the wall-top attribute the window shader reads, and the lift its storeys
-   * count from; only buildings need them. The arrays are let go once uploaded: after that only
-   * the GPU needs them.
+   * count from; only buildings need them. The arrays are let go once uploaded, as only the GPU
+   * needs them, unless `keep`: a mesh nothing rebuilds after a lost GPU context (the figure,
+   * the spawn marker, the route hint) has to upload them again.
    */
-  build({ facade = false } = {}): BufferGeometry {
+  build({ facade = false, keep = false } = {}): BufferGeometry {
     const n = this.#count;
     const geometry = new BufferGeometry();
     const position = new BufferAttribute(this.#positions.slice(0, n * 3), 3);
@@ -437,6 +448,11 @@ export class MeshBuilder {
     }
     geometry.setIndex(indexAttribute(this.#indices.array, this.#indices.count, n));
     this.#bounds.applyTo(geometry);
+    if (keep) {
+      for (const a of [geometry.index!, ...Object.values(geometry.attributes)]) {
+        ('data' in a ? a.data : a).onUploadCallback = () => {};
+      }
+    }
     return geometry;
   }
 }

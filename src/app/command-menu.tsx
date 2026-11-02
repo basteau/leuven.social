@@ -161,7 +161,8 @@ export function CommandMenu(props: MenuProps) {
   const current = flat[Math.min(active, flat.length - 1)];
   const optionId = (row: Row) => `${uid}-${row.id}`;
 
-  // Open and close the native dialog, which traps focus, closes on Escape and gives focus back.
+  // Open and close the native dialog, which traps focus and closes on Escape. It would give focus
+  // back to what opened it; the shell gives it to the map instead.
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
@@ -176,9 +177,10 @@ export function CommandMenu(props: MenuProps) {
 
   // The dialog's own events, heard natively (React doesn't pass on every `close`): the chord
   // that opened it closes it, so does a click on the backdrop, which lands on the dialog itself
-  // (the panel fills the rest of it); Escape steps back from a page to the list first; and the
-  // shell hears of every close at once, however it came (Chrome holds the `close` event for the
-  // next rendering, which a hidden page never reaches).
+  // (the panel fills the rest of it), if it began there too (one that only ends there may be a
+  // drag out of the search, selecting what was typed); Escape steps back from a page to the list
+  // first; and the shell hears of every close at once, however it came (Chrome holds the `close`
+  // event for the next rendering, which a hidden page never reaches).
   const latest = useRef({ page, onPage: props.onPage, onClose: props.onClose });
   useEffect(() => {
     latest.current = { page, onPage: props.onPage, onClose: props.onClose };
@@ -193,10 +195,14 @@ export function CommandMenu(props: MenuProps) {
     const onKey = (event: KeyboardEvent) => {
       if (menuKey(event) !== 'chord') return;
       event.preventDefault();
-      shut();
+      if (!event.repeat) shut(); // held, the chord that opened it mustn't close it
+    };
+    let pressedBackdrop = false;
+    const onPointerDown = (event: PointerEvent) => {
+      pressedBackdrop = event.target === dialog;
     };
     const onClick = (event: MouseEvent) => {
-      if (event.target === dialog) shut();
+      if (event.target === dialog && pressedBackdrop) shut();
     };
     const onCancel = (event: Event) => {
       if (latest.current.page === 'list') return latest.current.onClose(); // it closes itself
@@ -205,11 +211,13 @@ export function CommandMenu(props: MenuProps) {
     };
     const onClose = () => latest.current.onClose();
     dialog.addEventListener('keydown', onKey);
+    dialog.addEventListener('pointerdown', onPointerDown);
     dialog.addEventListener('click', onClick);
     dialog.addEventListener('cancel', onCancel);
     dialog.addEventListener('close', onClose);
     return () => {
       dialog.removeEventListener('keydown', onKey);
+      dialog.removeEventListener('pointerdown', onPointerDown);
       dialog.removeEventListener('click', onClick);
       dialog.removeEventListener('cancel', onCancel);
       dialog.removeEventListener('close', onClose);

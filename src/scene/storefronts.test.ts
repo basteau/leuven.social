@@ -29,7 +29,8 @@ const front = (kind: ShopKind, along = 6, terrace = false): ShopFront => ({
   terrace,
 });
 const point = frontPoint(ring, front('cafe'));
-const kit = { awning: AWNING, footing: () => 2, wallTop: () => 12, ground: () => 2.5 };
+const kit = { awning: AWNING, footing: () => 2, wallTop: () => 12 };
+const ground = () => 2.5;
 
 const built = (draw: (mesh: MeshBuilder) => void) => {
   const mesh = new MeshBuilder();
@@ -89,15 +90,24 @@ test("a cell's fronts: awnings stop short of each other and the corners, signs h
     { building, front: front('service', 11.6) },
   ];
   const awnings = new MeshBuilder();
-  const { count, points } = built((m) => addStorefronts(m, awnings, fronts, kit));
+  const { count, points } = built((m) => addStorefronts(m, awnings, fronts, kit, ground));
   // Bakery and café awnings; their signs and the café's terrace; the service front has no room.
   expect(awnings.build().getAttribute('position').count).toBe(14 * 2);
   expect(count).toBe(60 + 60 + 148);
   const ys = points.map(([, y]) => y!);
-  // Awnings and signs stand on the building's footing, the terrace on the ground.
+  // The terrace stands on the ground as drawn, the signs over it where it's above the footing.
   expect(Math.min(...ys)).toBeCloseTo(2.5);
+  const signAt = (y: number) =>
+    Math.min(
+      ...built((m) =>
+        addStorefronts(m, new MeshBuilder(), fronts.slice(0, 1), kit, () => y),
+      ).points.map(([, py]) => py!),
+    );
+  // On the footing (2) downhill of it; 0.5 m higher over a street 2.5 m up.
+  expect(signAt(2.5) - signAt(0)).toBeCloseTo(0.5);
+  expect(signAt(1) - signAt(0)).toBeCloseTo(0);
   const mesh = new MeshBuilder();
   mesh.lift = 7;
-  addStorefronts(mesh, awnings, fronts, kit);
+  addStorefronts(mesh, awnings, fronts, kit, ground);
   expect([mesh.lift, awnings.lift]).toEqual([7, 0]);
 });

@@ -18,7 +18,13 @@ import type { Parasol } from './terraces.ts';
 import { LANDMARK, pick, roofColor, wallColor } from './palette.ts';
 
 export type RoofPlan =
-  | { type: 'flat'; eave: number }
+  | {
+      type: 'flat';
+      eave: number;
+      /** A footprint simplified for a hipped roof the skeleton couldn't raise; the walls follow it. */
+      ring?: number[];
+      holes?: number[][];
+    }
   | {
       type: 'gable';
       eave: number;
@@ -77,6 +83,24 @@ const MIN_PITCHED_AREA = 12;
  * roof from its straight skeleton, which follows L, T and U wings and courtyards.
  */
 export function planRoof(b: Building): RoofPlan {
+  const shape = roofShape(b);
+  return shape.type === 'hipped' ? raiseHip(b, shape) : shape;
+}
+
+/** A footprint that gets a hipped roof, simplified for it, before its skeleton is raised. */
+interface HipFootprint {
+  type: 'hipped';
+  ring: number[];
+  holes: number[][];
+  /** The LiDAR's rise from eave to ridge (m), 0 where it saw none. */
+  surveyed: number;
+}
+
+/**
+ * All of `planRoof` but the straight skeleton, the costly part: a flat or gabled roof, or the
+ * simplified rings a hipped roof will stand on. Party walls need only these rings.
+ */
+function roofShape(b: Building): Exclude<RoofPlan, { type: 'hip' }> | HipFootprint {
   const flat = { type: 'flat', eave: b.height } as const;
   if (b.roof === 'flat') return flat;
   const explicit = b.roof !== 'auto';
@@ -113,8 +137,13 @@ export function planRoof(b: Building): RoofPlan {
   }
   const ring = simplifyRing(b.ring, ROOF_TOLERANCE);
   const holes = b.holes.map((h) => simplifyRing(h, ROOF_TOLERANCE)).filter((h) => h.length >= 6);
+  return { type: 'hipped', ring, holes, surveyed };
+}
+
+/** Raises the skeleton over a hipped footprint; flat on the same rings where it can't. */
+function raiseHip(b: Building, { ring, holes, surveyed }: HipFootprint): RoofPlan {
   const skeleton = straightSkeleton(ring, holes);
-  if (!skeleton || skeleton.height < 0.75) return flat;
+  if (!skeleton || skeleton.height < 0.75) return { type: 'flat', eave: b.height, ring, holes };
   const guess = Math.max(skeleton.height * 0.9, 1.5);
   const rise = Math.min(
     surveyed || guess,
@@ -281,20 +310,36 @@ function inkOf(lines: LineBuilder): Ink {
  * neighbour: no line along the top, none up the shared corner.
  */
 const PARTY_SLACK = 1.5;
+/**
+ * A neighbour's wall top within this of a wall's (m) hides it all: houses stand at their exact
+ * ground, so the tops of a row of equal houses on a slope differ by a few centimetres, a strip
+ * too thin to see that would cost a quad each.
+ */
+const PARTY_TOLERANCE = 0.05;
 
 /** Wall corners sharper than this get a vertical outline; gentler bends in curved walls don't. */
 const CREASE = Math.cos((35 * Math.PI) / 180);
 /** A corner between two walls both shorter than this (m) is a jog in a facade: no line up it. */
 const MIN_CREASE_WALL = 2;
 
+const shapes = new WeakMap<Building, ReturnType<typeof roofShape>>();
+/** A building's roof short of its skeleton; a landmark's footprint is a flat base under its parts. */
+function shapeOf(b: Building): ReturnType<typeof roofShape> {
+  let shape = shapes.get(b);
+  if (!shape) {
+    const landmark = LANDMARK_MODELS.get(b.id);
+    shapes.set(b, (shape = landmark ? { type: 'flat', eave: landmark.base } : roofShape(b)));
+  }
+  return shape;
+}
+
 const plans = new WeakMap<Building, RoofPlan>();
-/** The roof a building gets; a landmark's footprint is a flat base under its parts. */
+/** The roof a building gets, planned the first time something asks. */
 function planOf(b: Building): RoofPlan {
   let plan = plans.get(b);
   if (!plan) {
-    const landmark = LANDMARK_MODELS.get(b.id);
-    plan = landmark ? { type: 'flat', eave: landmark.base } : planRoof(b);
-    plans.set(b, plan);
+    const shape = shapeOf(b);
+    plans.set(b, (plan = shape.type === 'hipped' ? raiseHip(b, shape) : shape));
   }
   return plan;
 }
@@ -302,9 +347,15 @@ function planOf(b: Building): RoofPlan {
 /** How high a building's walls stand (m), up to its eaves. */
 export const wallTop = (b: Building): number => planOf(b).eave;
 
-/** The rings a building's walls stand on: a hipped roof was fitted to a simplified footprint. */
-function wallRings(b: Building, plan: RoofPlan): readonly ArrayLike<number>[] {
-  return plan.type === 'hip' ? [plan.ring, ...plan.holes] : [b.ring, ...b.holes];
+/**
+ * The rings a building's walls stand on: a hipped roof's footprint is simplified for it. Known
+ * before the roof is planned, so party walls don't raise every skeleton in the city at load.
+ */
+function wallRings(
+  b: Building,
+  shape: RoofPlan | HipFootprint = shapeOf(b),
+): readonly ArrayLike<number>[] {
+  return 'ring' in shape && shape.ring ? [shape.ring, ...shape.holes!] : [b.ring, ...b.holes];
 }
 
 /**
@@ -334,15 +385,17 @@ const pointKey = (x: number, z: number) =>
   (Math.round(x * 10) + 2 ** 20) * 2 ** 21 + (Math.round(z * 10) + 2 ** 20);
 
 /**
- * Where a house stands: the lowest ground under its corners, down to a whole LIFT_UNIT, so the
- * shader's windows start at its foot (mesh-builder.ts). Its walls run on into the ground uphill.
+ * Where a house's storeys count from: the lowest ground under its corners, where it stands
+ * (`terrain.base`), down to a whole LIFT_UNIT, which the shader reads its windows from
+ * (mesh-builder.ts). Neighbours of nearly the same base share it, so their windows line up;
+ * plates and awnings hang from it too.
  */
 export const footing = (terrain: Terrain, ring: ArrayLike<number>) =>
   Math.floor(terrain.base(ring) / LIFT_UNIT) * LIFT_UNIT;
 
 /**
- * Party walls: for every footprint edge, the wall-top height of the building on its other side,
- * above the ground at Grote Markt (its `base`, where it stands, plus its eaves).
+ * Party walls: for every footprint edge, the building on its other side and its wall-top height
+ * above the ground at Grote Markt (its `base`, the exact ground it stands on, plus its eaves).
  * Row houses share most of their walls, and a wall between two houses is never seen below the
  * lower of the two, so `addBuilding` only draws what rises above its neighbour. Edges are keyed
  * by numbers rather than strings, which keeps the lookups out of the startup profile: each corner
@@ -350,7 +403,9 @@ export const footing = (terrain: Terrain, ring: ArrayLike<number>) =>
  */
 export interface PartyWalls {
   corners: ReadonlyMap<number, number>;
-  edges: ReadonlyMap<number, number>;
+  /** The building along each edge; its wall top is asked for only when a neighbour is drawn. */
+  edges: ReadonlyMap<number, Building>;
+  top: (b: Building) => number;
 }
 
 /** Room for 2^22 corners: an edge key is two corner ids, under 2^44. */
@@ -368,10 +423,9 @@ export function partyWalls(
   base: (b: Building) => number = () => 0,
 ): PartyWalls {
   const corners = new Map<number, number>();
-  const edges = new Map<number, number>();
+  const edges = new Map<number, Building>();
   for (const b of buildings) {
-    const plan = planOf(b);
-    for (const ring of wallRings(b, plan)) {
+    for (const ring of wallRings(b)) {
       const n = ring.length / 2;
       const ids: number[] = [];
       for (let i = 0; i < n; i++) {
@@ -380,14 +434,13 @@ export function partyWalls(
         if (id === undefined) corners.set(key, (id = corners.size));
         ids.push(id);
       }
-      const top = base(b) + plan.eave;
-      for (let i = 0; i < n; i++) edges.set(edgeKey(ids[i]!, ids[(i + 1) % n]!), top);
+      for (let i = 0; i < n; i++) edges.set(edgeKey(ids[i]!, ids[(i + 1) % n]!), b);
     }
   }
-  return { corners, edges };
+  return { corners, edges, top: (b) => base(b) + planOf(b).eave };
 }
 
-const NO_WALLS: PartyWalls = { corners: new Map(), edges: new Map() };
+const NO_WALLS: PartyWalls = { corners: new Map(), edges: new Map(), top: () => 0 };
 
 /**
  * Walls along one ring: outer rings counter-clockwise, courtyards clockwise, so both face out.
@@ -406,8 +459,8 @@ function addWalls(
   const n = ring.length / 2;
   const ids = cornerIds(ring, walls.corners);
   const against = (a: number | undefined, b: number | undefined) => {
-    const height = a === undefined || b === undefined ? undefined : walls.edges.get(edgeKey(a, b));
-    return height === undefined ? undefined : height - base;
+    const other = a === undefined || b === undefined ? undefined : walls.edges.get(edgeKey(a, b));
+    return other && walls.top(other) - base;
   };
   for (let i = 0; i < n; i++) {
     const ax = ring[i * 2]!;
@@ -419,7 +472,8 @@ function addWalls(
     // The neighbour across this edge walks it the other way round.
     const [a, b] = [ids[i], ids[(i + 1) % n]];
     const neighbour = against(b, a);
-    const bottom = Math.max(0, Math.min(neighbour ?? 0, top));
+    const covered = neighbour !== undefined && neighbour > top - PARTY_TOLERANCE;
+    const bottom = covered ? top : Math.max(0, Math.min(neighbour ?? 0, top));
     if (bottom < top) {
       mesh.quad(
         [ax, bottom, az],

@@ -12,7 +12,7 @@
  * (3 bits) and roof (3 bits) packed into one byte, then its height, roof rise and roof colour
  * (0 = none, else 0xRRGGBB + 1), outer ring and courtyards.
  * Carriageways and markings are a kind byte each, then a ring (markings: a line).
- * Pitch surfaces (v16) follow the polygon layers, a byte per pitch ring in the order of the
+ * Pitch surfaces (v18) follow the polygon layers, a byte per pitch ring in the order of the
  * pitches, then the fields painted on them: a sport byte, centre (zigzag decimetres), the long
  * side's direction (4096ths of half a turn), length and width (decimetres) and a count byte.
  * Paths are a width in decimetres shifted left one bit over a paved flag, then a centre line.

@@ -24,7 +24,6 @@ import {
   WebGLRenderer,
 } from 'three';
 import type { Material, Object3D, PerspectiveCamera } from 'three';
-import { MapControls } from 'three/addons/controls/MapControls.js';
 
 import type { City } from '../data/city.ts';
 import { clampToArea } from '../data/geometry.ts';
@@ -35,7 +34,8 @@ import { AWNING } from './facade-codes.ts';
 import type { PartyWalls } from './buildings.ts';
 import { buildCell, groundRange, partition } from './cells.ts';
 import type { Cell, DetailMarks } from './cells.ts';
-import type { buildFurniture } from './furniture.ts';
+import type { DrawnGround } from './drawn-ground.ts';
+import type { buildFurniture, drawnGround } from './furniture.ts';
 import {
   createFacadeMaterial,
   fadeInkNearCamera,
@@ -43,6 +43,7 @@ import {
   setPixelSize,
 } from './facade-material.ts';
 import { LIGHT } from './lighting.ts';
+import { MapControls } from './map-controls.ts';
 import { LAYER_Y, slabBottom } from './ground.ts';
 import { LINE_LOD } from './paint.ts';
 import { LineBuilder, MeshBuilder, corners, geometryBytes } from './mesh-builder.ts';
@@ -165,6 +166,8 @@ interface CellEntry {
   awnings: Mesh | null;
   /** Where the rails and the catenary masts end in its outlines, which only show zoomed in. */
   detail: DetailMarks;
+  /** Its ground as drawn, read the first time something stands on it there. */
+  drawn?: DrawnGround;
   /** Where the trunks, what else casts shadows and the fine road paint start in its mesh. */
   trunksFrom: number;
   shadowFrom: number;
@@ -349,7 +352,8 @@ export function createViewer(options: ViewerOptions): Viewer {
    * once the first frame is drawn, or as soon as the view gets close. If it fails to load, the
    * map goes on without them.
    */
-  let furnishing: { buildFurniture: typeof buildFurniture } | undefined;
+  let furnishing:
+    { buildFurniture: typeof buildFurniture; drawnGround: typeof drawnGround } | undefined;
   let loadingFurniture: Promise<void> | undefined;
   function loadFurniture(): void {
     loadingFurniture ??= import('./furniture.ts').then(
@@ -362,6 +366,28 @@ export function createViewer(options: ViewerOptions): Viewer {
       },
       () => {},
     );
+  }
+
+  /**
+   * The ground as its cell draws it under a spot (drawn-ground.ts), for the walker and the bikes
+   * to stand on. Read by the furniture chunk; till that loads, the pavement's height.
+   */
+  let lastCell: CellEntry | undefined;
+  function drawnAt(x: number, z: number): number {
+    if (!furnishing) {
+      loadFurniture();
+      return terrain.height(x, z) + LAYER_Y.roads;
+    }
+    const inside = (e: CellEntry | undefined) =>
+      e &&
+      x >= e.cell.bounds.minX &&
+      x < e.cell.bounds.maxX &&
+      z >= e.cell.bounds.minZ &&
+      z < e.cell.bounds.maxZ;
+    if (!inside(lastCell)) lastCell = cells.find(inside);
+    if (!lastCell) return terrain.height(x, z);
+    lastCell.drawn ??= furnishing.drawnGround(terrain, lastCell.cell, LAYER_Y);
+    return lastCell.drawn.height(x, z);
   }
 
   /** Makes a mesh of furniture, sharing the city's material, culled by `cull`. */
@@ -390,7 +416,6 @@ export function createViewer(options: ViewerOptions): Viewer {
       awning: AWNING,
       footing: (b) => footing(terrain, b.ring),
       wallTop,
-      ground: (x, z) => terrain.height(x, z),
       layers: LAYER_Y,
     });
     entry.furniture = furnitureMesh(near);
@@ -445,14 +470,8 @@ export function createViewer(options: ViewerOptions): Viewer {
   const needProjection = new Matrix4();
 
   const camera = new OrthographicCamera(-1, 1, 1, -1, 1, CAMERA_DISTANCE * 2);
-  const controls = new MapControls(camera, canvas);
-  controls.enableRotate = false;
-  controls.enableDamping = false;
-  controls.zoomToCursor = true;
-  controls.minZoom = 0.5;
-  controls.maxZoom = 4;
-  controls.cursorStyle = 'grab';
-  controls.listenToKeyEvents(keyTarget); // arrow keys pan while the map has focus
+  // Arrow keys pan while the map has focus.
+  const controls = new MapControls(camera, canvas, keyTarget, () => onChange());
 
   // The camera that draws: the map's, or the walking one while walking.
   let view: OrthographicCamera | PerspectiveCamera = camera;
@@ -529,45 +548,12 @@ export function createViewer(options: ViewerOptions): Viewer {
     for (const entry of cells) {
       if (!entry.objects.length && frustum.intersectsBox(entry.box)) build(entry);
     }
-
-    // The ground under the screen's corners, as far as shadows can reach into the view. From
-    // the street that's the haze, all round the walker, so looking about never redraws them.
-    camera.getWorldDirection(forward);
-    const span = viewSpan();
-    const t = controls.target;
-    const reach = Math.max(WALK_SHADOW, walk?.flightSpan ?? span);
-    if (view === camera) {
-      for (const [i, [x, y]] of SCREEN_CORNERS.entries()) {
-        corner.set(x, y, -1).unproject(camera);
-        corner.addScaledVector(forward, (t.y - corner.y) / forward.y);
-        [ground[i]![0], ground[i]![2]] = [corner.x, corner.z];
-      }
-    }
-    const need = shadowNeeds(light, view === camera ? ground : around(t.x, t.z, reach));
-    need.half += view === camera ? Math.min(SHADOW_REACH, span / 4) : WALK_SHADOW_REACH;
-    propsShown = span <= VIEW_HEIGHT / PROP_ZOOM;
-    const fromStreet = view !== camera && walk?.flightSpan === undefined;
-    const coarser = view === camera ? SHADOW_COARSER : WALK_SHADOW_COARSER;
-    const refit = !shadow || !shadowCovers(shadow, need, coarser);
-    if (refit) fitShadowTo(need);
+    const refit = fitShadowToView();
     // What casts into the view has to exist before the shadow pass draws: build it now, and
     // redraw if that adds to a square already drawn. The rest of the square, its room to pan,
     // waits for the idle builder (see `buildInBackground`).
-    const [dx, dy] = [need.x - shadow!.x, need.y - shadow!.y];
-    const { near: front, far: back, matrixWorldInverse } = sun.shadow.camera;
-    needFrustum.setFromProjectionMatrix(
-      needProjection
-        .makeOrthographic(
-          dx - need.half,
-          dx + need.half,
-          dy + need.half,
-          dy - need.half,
-          front,
-          back,
-        )
-        .multiply(matrixWorldInverse),
-    );
     let added = false;
+    const fromStreet = view !== camera && walk?.flightSpan === undefined;
     for (const entry of cells) {
       if (!entry.objects.length && needFrustum.intersectsBox(entry.box)) {
         build(entry);
@@ -586,6 +572,47 @@ export function createViewer(options: ViewerOptions): Viewer {
       }
     }
     if (refit || added) renderer.shadowMap.needsUpdate = true;
+  }
+
+  /**
+   * Fits the shadow map to what the view needs, if it doesn't cover it yet (returns whether it
+   * moved), and aims `needFrustum` at the part of it that casts into the view.
+   */
+  function fitShadowToView(): boolean {
+    // The ground under the screen's corners, as far as shadows can reach into the view. From
+    // the street that's the haze, all round the walker, so looking about never redraws them.
+    camera.getWorldDirection(forward);
+    const span = viewSpan();
+    const t = controls.target;
+    const reach = Math.max(WALK_SHADOW, walk?.flightSpan ?? span);
+    if (view === camera) {
+      for (const [i, [x, y]] of SCREEN_CORNERS.entries()) {
+        corner.set(x, y, -1).unproject(camera);
+        corner.addScaledVector(forward, (t.y - corner.y) / forward.y);
+        [ground[i]![0], ground[i]![2]] = [corner.x, corner.z];
+      }
+    }
+    const need = shadowNeeds(light, view === camera ? ground : around(t.x, t.z, reach));
+    need.half += view === camera ? Math.min(SHADOW_REACH, span / 4) : WALK_SHADOW_REACH;
+    propsShown = span <= VIEW_HEIGHT / PROP_ZOOM;
+    const coarser = view === camera ? SHADOW_COARSER : WALK_SHADOW_COARSER;
+    const refit = !shadow || !shadowCovers(shadow, need, coarser);
+    if (refit) fitShadowTo(need);
+    const [dx, dy] = [need.x - shadow!.x, need.y - shadow!.y];
+    const { near: front, far: back, matrixWorldInverse } = sun.shadow.camera;
+    needFrustum.setFromProjectionMatrix(
+      needProjection
+        .makeOrthographic(
+          dx - need.half,
+          dx + need.half,
+          dy + need.half,
+          dy - need.half,
+          front,
+          back,
+        )
+        .multiply(matrixWorldInverse),
+    );
+    return refit;
   }
 
   /** Moves the shadow map to a square fitted to what the view needs. */
@@ -828,6 +855,7 @@ export function createViewer(options: ViewerOptions): Viewer {
           overlay,
           city,
           terrain,
+          groundAt: drawnAt,
           gradientMap,
           fog,
           reducedMotion,
@@ -882,6 +910,7 @@ export function createViewer(options: ViewerOptions): Viewer {
           city,
           facade: (b) => ({ ...facadeOf(b), foot: footing(terrain, b.ring) }),
           height: (x, z) => terrain.height(x, z),
+          ground: drawnAt,
           gradientMap,
           anisotropy: Math.min(8, renderer.capabilities.getMaxAnisotropy()),
           compile: (object) => renderer.compileAsync(object, view, scene),
@@ -936,11 +965,10 @@ export function createViewer(options: ViewerOptions): Viewer {
       t.set(cx, cy, cz);
     }
   }
-  const onChange = () => {
+  function onChange(): void {
     clampTarget();
     invalidate();
-  };
-  controls.addEventListener('change', onChange);
+  }
 
   let spin = 0;
   function rotate(direction: 1 | -1): void {
@@ -1123,21 +1151,28 @@ export function createViewer(options: ViewerOptions): Viewer {
   const ready = (async () => {
     await nextTask();
     if (disposed) return;
-    walls = partyWalls(city.buildings, (b) => footing(terrain, b.ring));
+    walls = partyWalls(city.buildings, (b) => terrain.base(b.ring));
     await nextTask();
     if (disposed) return;
     let since = performance.now();
     cut();
     aim();
-    for (const entry of cells) {
-      if (performance.now() - since > STEP_MS) {
-        // eslint-disable-next-line no-await-in-loop -- taking turns with the page is the point
-        await nextTask();
-        if (disposed) return;
-        since = performance.now();
-        aim(); // the view may have moved meanwhile
+    // The cells in view, then those casting into it, which the first frame would otherwise build
+    // in one long task.
+    for (const casting of [false, true]) {
+      if (casting) fitShadowToView();
+      for (const entry of cells) {
+        if (performance.now() - since > STEP_MS) {
+          // eslint-disable-next-line no-await-in-loop -- taking turns with the page is the point
+          await nextTask();
+          if (disposed) return;
+          since = performance.now();
+          aim(); // the view may have moved meanwhile
+          if (casting) fitShadowToView();
+        }
+        const needed = casting ? needFrustum : frustum;
+        if (!entry.objects.length && needed.intersectsBox(entry.box)) build(entry);
       }
-      if (!entry.objects.length && frustum.intersectsBox(entry.box)) build(entry);
     }
     await nextTask();
     if (disposed) return;
@@ -1178,7 +1213,6 @@ export function createViewer(options: ViewerOptions): Viewer {
       listening.abort();
       densityQuery?.removeEventListener('change', onDensity);
       canvas.removeEventListener('webglcontextrestored', onRestored);
-      controls.removeEventListener('change', onChange);
       controls.dispose();
       scene.traverse((object: Object3D) => {
         const { geometry, material: m } = object as Partial<{

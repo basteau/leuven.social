@@ -14,7 +14,7 @@ import {
   Vector2,
 } from 'three';
 import type { Fog, OrthographicCamera, Scene, Texture, WebGLRenderer } from 'three';
-import type { MapControls } from 'three/addons/controls/MapControls.js';
+import type { MapControls } from './map-controls.ts';
 
 import { createWalkSounds } from '../audio/walking.ts';
 import type { City } from '../data/city.ts';
@@ -36,8 +36,10 @@ import {
 import type { Character } from './character.ts';
 import {
   CHASE_FOV,
+  DISTANCE,
   LOOK_HEIGHT,
   MAP_FOV,
+  PITCH,
   boomDirection,
   boomPitch,
   chaseFov,
@@ -51,6 +53,7 @@ import {
   freeLength,
   headLook,
   mapYaw,
+  openYaw,
   recentre,
   recentreWeight,
   spanAt,
@@ -80,6 +83,7 @@ import {
   spawnMarker,
   wave,
 } from './spawn.ts';
+import { loose } from './collide.ts';
 import { clock, decay, spring, springTo, ticks } from './motion.ts';
 import { SKY } from './palette.ts';
 import { DROPPED_KEY, nearestParked } from './parked.ts';
@@ -117,10 +121,12 @@ const FLIGHT = SPAWN_FLIGHT;
  */
 const NEAR_FADE = 2.4;
 /**
- * Feet just above the squares, the highest ground layer, so the outline under the soles never
- * dips below the street (where the x-ray would show it). Over the terrain's height there.
+ * Feet and tyres this far over the ground as drawn (the terrain and the layer on it), so their
+ * ink never dips into the street, where the x-ray would show it.
  */
-const GROUND_Y = 0.32;
+const FEET_Y = 0.04;
+/** A kerb's step up or down is eased over this half-life (s), not taken in one frame. */
+const KERB_EASE = 0.04;
 /** The city fades into the haze from FOG_NEAR to FOG_FAR beyond the walker (m). */
 const FOG_NEAR = 90;
 const FOG_FAR = 330;
@@ -170,8 +176,10 @@ export interface WalkHost {
   /** A layer over the canvas that takes no pointer events, for the thumb stick. */
   overlay: HTMLElement;
   city: City;
-  /** The ground the walker walks on: `city.terrain`, read as triangles. */
+  /** The landform: `city.terrain`, read as triangles. */
   terrain: Terrain;
+  /** The ground as drawn where the walker stands: the terrain and the layer on it. */
+  groundAt(x: number, z: number): number;
   gradientMap: Texture;
   /** The scene's fog, kept far off on the map: walking draws it in to the haze. */
   fog: Fog;
@@ -316,6 +324,10 @@ export function createWalk(host: WalkHost): Walk {
   let walker: Walker | undefined;
   const pose = restPose();
   let head = 0;
+  /** How high the layer under the walker is drawn over the terrain, eased (`KERB_EASE`). */
+  let kerb = 0;
+  /** Whether `kerb` has been read since the walker appeared, so a new one isn't eased in. */
+  let onFeet = false;
   /**
    * The spawn, in seconds: the beat before the camera sets off, since the marker dropped, and
    * since the walker landed (negative while it's yet to: how long until it does). Leaving, how
@@ -377,10 +389,12 @@ export function createWalk(host: WalkHost): Walk {
           boom,
           follow,
           view,
-          lift: GROUND_Y,
+          floor: (x, z) => host.groundAt(x, z) + FEET_Y,
           walkTo,
           wake,
         });
+        // Back on the map before it arrived: the bikes left about the city stay off the map.
+        if (mode !== 'walk') riding.leave();
       },
       () => {
         rideLoad = undefined; // tried again near the next rack
@@ -445,9 +459,16 @@ export function createWalk(host: WalkHost): Walk {
     if (cut) crossFade();
     // From wherever the camera is: the map, or part way along a flight.
     const midway = !cut && flying !== 0;
-    const yaw = midway ? lens.yaw : host.yaw();
+    const from = midway ? lens.yaw : host.yaw();
+    // Behind the walker, unless a house is in the way there: then from the nearest side that
+    // sees it, rather than landing straight overhead, with the street ahead of the walker.
+    [lookAt[0], lookAt[1], lookAt[2]] = [x, host.groundAt(x, z) + FEET_Y + LOOK_HEIGHT, z];
+    const ahead = (at: number) =>
+      [1.5, 3, 4.5].every((d) => ensureGrid().walkable(x - Math.sin(at) * d, z - Math.cos(at) * d));
+    const yaw = openYaw(heightAt, lookAt, from, DISTANCE, boomPitch(PITCH, DISTANCE), ahead);
     // Stepping into the picture: facing away from the camera, which stays behind.
     walker = createWalker(x, z, wrap(yaw + Math.PI));
+    onFeet = false;
     [prevX, prevZ, prevHeading, prevPhase] = [x, z, walker.heading, 0];
     sim.left = 0;
     moving = true;
@@ -466,7 +487,6 @@ export function createWalk(host: WalkHost): Walk {
     } catch {}
     head = 0;
     clearRoute();
-    [lookAt[0], lookAt[1], lookAt[2]] = [x, ground(x, z) + GROUND_Y + LOOK_HEIGHT, z];
     if (midway) {
       Object.assign(mapShot, {
         yaw: lens.yaw,
@@ -477,7 +497,12 @@ export function createWalk(host: WalkHost): Walk {
       [mapShot.look[0], mapShot.look[1], mapShot.look[2]] = lens.look;
     } else {
       const t = controls.target;
-      Object.assign(mapShot, { yaw, pitch: ISO_PITCH, fov: MAP_FOV, span: mapSpan(camera.zoom) });
+      Object.assign(mapShot, {
+        yaw: from,
+        pitch: ISO_PITCH,
+        fov: MAP_FOV,
+        span: mapSpan(camera.zoom),
+      });
       [mapShot.look[0], mapShot.look[1], mapShot.look[2]] = [t.x, t.y, t.z];
     }
     flown = cut ? 1 : 0;
@@ -540,7 +565,8 @@ export function createWalk(host: WalkHost): Walk {
     const from = grid.walkable(walker.x, walker.z)
       ? [walker.x, walker.z]
       : grid.nearest(walker.x, walker.z, 2);
-    const route = from && router.route(from[0]!, from[1]!, x, z);
+    // Round the bikes left about the city, which the walker meets as it meets a trunk.
+    const route = from && router.route(from[0]!, from[1]!, x, z, loose);
     if (!route) {
       host.onBlocked?.();
       return;
@@ -917,8 +943,12 @@ export function createWalk(host: WalkHost): Walk {
       const wide = CHARACTER_SCALE / Math.sqrt(stretch);
       character.mesh.visible = height < Infinity;
       character.mesh.scale.set(wide, CHARACTER_SCALE * stretch, wide);
-      const floor = ground(x, z);
-      character.mesh.position.set(x, floor + GROUND_Y + Math.min(height, 1e3), z);
+      // On the ground as drawn: a pavement 0.15 m over the terrain, a square 0.2 m.
+      const step = host.groundAt(x, z) - ground(x, z);
+      kerb = reducedMotion || !onFeet ? step : decay(kerb, step, KERB_EASE, dt);
+      onFeet = true;
+      const floor = ground(x, z) + kerb;
+      character.mesh.position.set(x, floor + FEET_Y + Math.min(height, 1e3), z);
       character.mesh.rotation.y = heading;
       busy ||= landed < SETTLE || waving !== null;
 
@@ -930,7 +960,7 @@ export function createWalk(host: WalkHost): Walk {
       const lead = reducedMotion ? 0 : walker.speed * follow.ahead;
       springTo(followX, x + Math.sin(heading) * lead, ease, dt);
       springTo(followZ, z + Math.cos(heading) * lead, ease, dt);
-      const look = ground(followX.x, followZ.x) + GROUND_Y + LOOK_HEIGHT;
+      const look = ground(followX.x, followZ.x) + kerb + FEET_Y + LOOK_HEIGHT;
       [lookAt[0], lookAt[1], lookAt[2]] = [followX.x, look, followZ.x];
       busy ||= Math.abs(followX.v) + Math.abs(followZ.v) > 0.005;
       if (reducedMotion) {
@@ -944,7 +974,7 @@ export function createWalk(host: WalkHost): Walk {
       placeView(dt);
       // A camera squeezed up against the walker sees through it rather than into its head.
       const eye = view.position;
-      fade.value = flying ? 1 : figureOpacity(eye.x - x, eye.y - floor - GROUND_Y, eye.z - z);
+      fade.value = flying ? 1 : figureOpacity(eye.x - x, eye.y - floor - FEET_Y, eye.z - z);
       if (flying === -1 && flown === 0) land();
     }
     nope += elapsed;
@@ -979,7 +1009,7 @@ export function createWalk(host: WalkHost): Walk {
       dust = true;
     }
     const eye = walker ? view : camera;
-    const y = ground(x, z) + GROUND_Y + 0.02;
+    const y = host.groundAt(x, z) + 0.02;
     const span = walker
       ? spanAt(Math.hypot(eye.position.x - x, eye.position.y - y, eye.position.z - z), view.fov)
       : mapSpan(camera.zoom);
@@ -1007,7 +1037,7 @@ export function createWalk(host: WalkHost): Walk {
     const pitch = boomPitch(boom.pitch, boom.length);
     boomDirection(boom.yaw, pitch, out);
     const under = ground(lookAt[0] + out[0] * boom.length, lookAt[2] + out[2] * boom.length);
-    const rise = under - (lookAt[1] - GROUND_Y - LOOK_HEIGHT);
+    const rise = under - (lookAt[1] - FEET_Y - LOOK_HEIGHT);
     chaseShot.pitch = boomPitch(boom.pitch, boom.length, rise);
     chaseShot.fov = fov;
     chaseShot.span = spanAt(boom.length, fov);

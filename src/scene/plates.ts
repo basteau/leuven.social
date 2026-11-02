@@ -284,6 +284,8 @@ export interface PlatesHost {
   /** How a building's walls are drawn: a plate hangs on them, over its house's foot. */
   facade(building: City['buildings'][number]): Facade;
   height(x: number, z: number): number;
+  /** The ground as drawn, which an awning stands over where it's above its house's foot. */
+  ground(x: number, z: number): number;
   gradientMap: Texture;
   /** The most anisotropic filtering the GPU offers, so letters stay sharp at a slant. */
   anisotropy: number;
@@ -416,7 +418,15 @@ export function createPlates(host: PlatesHost, data: WalkData): Plates {
         ? { x: b.x + Math.cos(b.angle) * out, z: b.z + Math.sin(b.angle) * out, angle: b.angle }
         : at;
       buffers.tint = paint[b.kind]!;
-      const y = at.foot + (valance ? heights.valance : heights.fascia);
+      // An awning stands over the street in front where that's higher (storefronts.ts).
+      const reach = AWNING_REACH - PROUD;
+      const foot = valance
+        ? Math.max(
+            at.foot,
+            host.ground(b.x + Math.cos(b.angle) * reach, b.z + Math.sin(b.angle) * reach),
+          )
+        : at.foot;
+      const y = foot + (valance ? heights.valance : heights.fascia);
       addPlate(buffers, { ...place, y, text: fit.text, style }, atlas.ink);
     }
     shown = nearHouses.length + nearStreets.length + nearBoards.length;

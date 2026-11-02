@@ -50,7 +50,7 @@ const RAIL_BAR = 0.03;
  * How a parked bike looks, packed in a byte: a step-through frame, a carrier, a crate, a basket,
  * then its colour (times `colour`). Shares: 45% step-throughs (with a brown saddle; a diamond's
  * is black); a red crate on the front of one in ten, as Leuven's are, a wicker basket on the bars
- * of one in ten, and a carrier on 55% of the rest.
+ * of one in ten, and a carrier on as many of the rest as make 55% of all bikes.
  */
 const [STEP, CARRIER, CRATE, BASKET, COLOUR] = [1, 2, 4, 8, 16];
 export const LOOK = {
