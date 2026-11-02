@@ -107,6 +107,7 @@ The size and render budgets are enforced by `bun run verify`; if one is exceeded
 | 3D engine JS (three.js chunk, palette), gzipped | 171 KB | `scripts/budget.ts` |
 | Furniture JS (after the first frame)            | 7 KB   | `scripts/budget.ts` |
 | Walk mode JS (loaded on first walk)             | 18 KB  | `scripts/budget.ts` |
+| Street names JS (loaded with walk mode)         | 1.5 KB | `scripts/budget.ts` |
 | Riding JS (loaded near a rack)                  | 10 KB  | `scripts/budget.ts` |
 | Facade plates JS (after walk mode)              | 5 KB   | `scripts/budget.ts` |
 | Plates data (`walk.bin`), gzipped               | 96 KB  | `scripts/budget.ts` |

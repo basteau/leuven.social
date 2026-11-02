@@ -51,6 +51,13 @@ const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[
     limit: 20 * KB,
     gzip: true,
   },
+  // The street-name lookup for the sign, a chunk beside walk mode's that loads with it.
+  {
+    label: 'Street names JS (with walk mode)',
+    pattern: 'assets/streets-*.js',
+    limit: 1.5 * KB,
+    gzip: true,
+  },
   // Riding loads near a rack (or on F): the bike's physics, rig and model, the rider's pose, the
   // glue that takes and leaves bikes, and its sounds. The plan said 7 KB; riding along a route,
   // swinging a racked bike round to the open street and baking the bikes left about the city
