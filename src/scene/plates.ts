@@ -55,8 +55,8 @@ const MAX_BOARDS = 96;
  * A name board's height (m), least and most: on a fascia, the band the facade paints over a shop
  * window; on an awning, a little deeper than its 0.2 m valance. A long name makes it shorter.
  */
-const FASCIA: [number, number] = [0.3, 0.45];
-const VALANCE: [number, number] = [0.24, 0.34];
+const FASCIA: [number, number] = [0.32, 0.5];
+const VALANCE: [number, number] = [0.26, 0.4];
 /** A board stops this far (m) short of its front's ends, so two side by side don't touch. */
 const BOARD_INSET = 0.1;
 

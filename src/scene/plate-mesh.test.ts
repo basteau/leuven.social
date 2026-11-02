@@ -371,10 +371,10 @@ describe('plateHeights', () => {
     for (const top of [5.6, 6, 8, 9.6, 13, 20]) {
       const storey = Math.min(4, Math.max(2.8, top / Math.max(1, Math.round(top / 3.2))));
       const { fascia, house: h } = plateHeights(top, true);
-      // The highest fascia board is 0.45 m: clear of the panes, of the first floor and the number.
-      expect(fascia - 0.225).toBeGreaterThan(0.72 * storey);
-      expect(fascia + 0.225).toBeLessThan(storey);
-      expect(fascia + 0.225).toBeLessThan(h - house);
+      // The highest fascia board is 0.5 m: clear of the panes, of the first floor and the number.
+      expect(fascia - 0.25).toBeGreaterThan(0.72 * storey);
+      expect(fascia + 0.25).toBeLessThan(storey);
+      expect(fascia + 0.25).toBeLessThan(h - house);
     }
   });
 
