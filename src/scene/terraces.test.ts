@@ -70,12 +70,12 @@ describe('terraceParasols', () => {
   });
 });
 
-test('a parasol is a canopy facing up and out with an underside, on a pole and a foot', () => {
+test('a parasol is a canopy facing up and out with an underside and a valance, on a pole and a foot', () => {
   const mesh = new MeshBuilder();
   const lines = new LineBuilder();
   addParasol(mesh, lines, { x: 0, z: 0, ux: 1, uz: 0, color: PARASOLS[0] });
   const g = unindexed(mesh.build());
-  expect(g.getAttribute('position').count).toBe(26 * 3);
+  expect(g.getAttribute('position').count).toBe(34 * 3);
   const normals = g.getAttribute('normal');
   // The canopy's top faces up, its underside down.
   for (let i = 0; i < 12; i++) expect(normals.getY(i)).toBeGreaterThan(0);
@@ -88,5 +88,6 @@ test('a parasol is a canopy facing up and out with an underside, on a pole and a
   expect([...heights].toSorted()).toEqual([PARASOL_RIM, 3]);
   // The figure's hair tops out at 1.85 model metres.
   expect(PARASOL_RIM).toBeGreaterThan(1.85 * CHARACTER_SCALE + 0.05);
-  expect(unindexed(lines.build()).getAttribute('position').count / 2).toBe(4);
+  // The rim, and the valance's hem under it.
+  expect(unindexed(lines.build()).getAttribute('position').count / 2).toBe(8);
 });

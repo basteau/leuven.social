@@ -51,6 +51,11 @@ export function frontPoint(
  * towards and away from the wall (m).
  */
 export const TERRACE = { u: 1.15, v: 0.45, out: 0.75 } as const;
+/**
+ * A café table on a square, under its parasol (src/scene/storefronts.ts): its chairs stand
+ * `chair` metres from its middle, their backs reaching `reach`, which the walk grid keeps clear.
+ */
+export const CAFE_TABLE = { chair: 0.85, reach: 1.15 } as const;
 /** A terrace leaves this much pavement (m) clear between it and the carriageway. */
 export const WALKWAY = 1.5;
 

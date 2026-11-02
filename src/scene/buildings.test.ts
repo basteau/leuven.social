@@ -391,7 +391,7 @@ test('café parasols ride along in the buildings geometry', () => {
   const parasol = { x: 0, z: 0, ux: 1, uz: 0, color: 0xffffff };
   const without = buildingsGeometry([]).surfaces.getAttribute('position').count;
   expect(buildingsGeometry([], [parasol]).surfaces.getAttribute('position').count).toBe(
-    without + 26 * 3,
+    without + 34 * 3,
   );
 });
 

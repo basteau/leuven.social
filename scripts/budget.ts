@@ -69,7 +69,8 @@ const BUDGETS: {
   {
     label: 'Walk mode JS (on first walk)',
     pattern: 'assets/walk-*.js',
-    limit: 20 * KB,
+    // 20.5: walk mode meets the café tables and the bay trees by café doors (0.1 KB).
+    limit: 20.5 * KB,
     gzip: true,
   },
   // The street-name lookup for the sign, a chunk beside walk mode's that loads with it.
@@ -113,7 +114,9 @@ const BUDGETS: {
   {
     label: 'Furniture JS (after first frame)',
     pattern: 'assets/{furniture,props,shops}-*.js',
-    limit: 7 * KB,
+    // 8: a table under each of Oude Markt's parasols, chairs round it and people at them with
+    // their drinks, and bay trees by café doors, asked for to liven the square (0.9 KB).
+    limit: 8 * KB,
     gzip: true,
   },
   // About 11.6k house numbers and 1.8k street plates are 67 KB, and 1.1k shop name boards 17 KB

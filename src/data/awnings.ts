@@ -26,3 +26,27 @@ export function awningRoom(along: number, length: number, others: readonly numbe
     ...others.map((o) => Math.abs(o - along) / 2),
   );
 }
+
+/**
+ * Potted bay trees either side of a café's, bar's or restaurant's door (src/scene/storefronts.ts
+ * draws them; walk mode meets each as a post): `along` each side of the front's middle, `out`
+ * from its wall, pots `radius` round. A front needs room for them, and none where its terrace is.
+ */
+export const DOOR_PLANT = { along: 0.95, out: 0.4, radius: 0.24 } as const;
+const PLANTED = new Set(['cafe', 'bar', 'restaurant']);
+
+/** Where a front's door plants stand (x, z pairs), given its point on the wall and its room. */
+export function doorPlants(
+  p: { x: number; z: number; ux: number; uz: number; nx: number; nz: number },
+  front: { kind: string; terrace: boolean },
+  room: number,
+): number[] {
+  if (!PLANTED.has(front.kind) || front.terrace || room < DOOR_PLANT.along + DOOR_PLANT.radius) {
+    return [];
+  }
+  const { along, out } = DOOR_PLANT;
+  return [-1, 1].flatMap((s) => [
+    p.x + p.ux * s * along + p.nx * out,
+    p.z + p.uz * s * along + p.nz * out,
+  ]);
+}

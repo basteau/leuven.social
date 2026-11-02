@@ -73,6 +73,8 @@ export function terraceParasols(city: City): Parasol[] {
  * life, so walking under a terrace never cuts through it.
  */
 export const PARASOL_RIM = 2.5;
+/** How deep the valance hangs from the canopy's rim (m), still over the walker's head. */
+const VALANCE = 0.16;
 /** The pole's half width, and the weighted foot's half width and height (m). */
 const POLE = 0.05;
 export const PARASOL_FOOT = 0.28;
@@ -112,8 +114,8 @@ function post(
 
 /**
  * A square canopy on a pole a little over head height, on a weighted foot: the canopy's four
- * triangles above and below (seen from the terrace, it has an underside) and its rim, the pole
- * and the foot. 26 triangles.
+ * triangles above and below (seen from the terrace, it has an underside) and its rim, a valance
+ * hanging round it, the pole and the foot. 34 triangles.
  */
 export function addParasol(mesh: MeshBuilder, lines: LineBuilder, p: Parasol): void {
   const rim = PARASOL_RIM;
@@ -137,6 +139,17 @@ export function addParasol(mesh: MeshBuilder, lines: LineBuilder, p: Parasol): v
   }
   for (let k = 0; k < 4; k++) {
     mesh.triangle(corners[k]!, corners[(k + 1) % 4]!, apex, p.color, [0, -1, 0]);
+  }
+  // The valance hanging round the rim, in the café's second colour. Only its outside: the
+  // table and chairs under it keep anyone from standing where its inside would show.
+  const trim = p.color === PARASOLS[0] ? PARASOLS[1] : PARASOLS[0];
+  for (let k = 0; k < 4; k++) {
+    const [a, b] = [corners[k]!, corners[(k + 1) % 4]!];
+    const a1: V3 = [a[0], rim - VALANCE, a[2]];
+    const b1: V3 = [b[0], rim - VALANCE, b[2]];
+    const out: V3 = [(a[0] + b[0]) / 2 - p.x, 0, (a[2] + b[2]) / 2 - p.z];
+    mesh.quad(a1, b1, b, a, trim, out);
+    lines.segment(a1, b1);
   }
   post(mesh, p, POLE, [FOOT_HEIGHT, 2.95], PROPS.iron, false);
   post(mesh, p, PARASOL_FOOT, [0, FOOT_HEIGHT], PROPS.iron, true);

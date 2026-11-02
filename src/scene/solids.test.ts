@@ -6,8 +6,8 @@ import { FLAT_GRID } from '../data/terrain.ts';
 import { WalkGrid } from '../data/walkable.ts';
 import { MeshBuilder, unindexed } from './mesh-builder.ts';
 import { walkSolids } from './solids.ts';
-import { PARASOL_FOOT, addParasol, terraceParasols } from './terraces.ts';
-import { LineBuilder } from './mesh-builder.ts';
+import { CAFE_TABLE } from '../data/shops.ts';
+import { terraceParasols } from './terraces.ts';
 import { addTree } from './trees.ts';
 
 const SQUARE = new Float32Array([-50, -20, 50, -20, 50, 20, -50, 20]);
@@ -70,7 +70,7 @@ test('every trunk is a post as wide as it is drawn at its foot', () => {
   expect(posts[2]!).toBeLessThanOrEqual(0.35);
 });
 
-test('lamps are posts; benches (their seat), statues and parasol feet are footprints', () => {
+test('lamps are posts; benches (their seat), statues and café tables are footprints', () => {
   const { posts, rings } = walkSolids(city);
   // Two trunks and the lamp's post.
   expect(posts).toHaveLength(9);
@@ -83,27 +83,27 @@ test('lamps are posts; benches (their seat), statues and parasol feet are footpr
   expect(Math.abs(signedArea(statue!))).toBeCloseTo(1.2 * 1.2, 4);
   expect(feet.length).toBeGreaterThan(10);
   for (const foot of feet)
-    expect(Math.abs(signedArea(foot))).toBeCloseTo((2 * PARASOL_FOOT) ** 2, 4);
+    expect(Math.abs(signedArea(foot))).toBeCloseTo((2 * CAFE_TABLE.reach) ** 2, 4);
 });
 
-test('a parasol foot is where it is drawn, turned with its row', () => {
+test("a parasol's table and chairs close a square round it, turned with its row", () => {
   // The square turned by 30°, so its rows are too.
   const [c, s] = [Math.cos(Math.PI / 6), Math.sin(Math.PI / 6)];
   const turned = SQUARE.map((v, i) =>
     i % 2 ? SQUARE[i - 1]! * s + v * c : v * c - SQUARE[i + 1]! * s,
   );
   const square = { ...city, props: [], trees: new Float32Array(), plazas: [turned] };
-  const [parasol] = terraceParasols(square);
-  const mesh = new MeshBuilder();
-  addParasol(mesh, new LineBuilder(), parasol!);
-  const p = unindexed(mesh.build()).getAttribute('position');
-  const drawn = Array.from({ length: p.count }, (_, i) => [p.getX(i), p.getY(i), p.getZ(i)])
-    .filter(([, y]) => y === 0)
-    .map(([x, , z]) => [x!, z!]);
+  const [p] = terraceParasols(square);
   const foot = walkSolids(square).rings[0]!;
+  const r = CAFE_TABLE.reach;
   for (let k = 0; k < 8; k += 2) {
-    const near = drawn.some(([x, z]) => Math.hypot(x! - foot[k]!, z! - foot[k + 1]!) < 1e-4);
-    expect(near).toBe(true);
+    // Each corner is the reach along and across the row from the parasol.
+    const [du, dv] = [
+      (foot[k]! - p!.x) * p!.ux + (foot[k + 1]! - p!.z) * p!.uz,
+      -(foot[k]! - p!.x) * p!.uz + (foot[k + 1]! - p!.z) * p!.ux,
+    ];
+    expect(Math.abs(du)).toBeCloseTo(r, 5);
+    expect(Math.abs(dv)).toBeCloseTo(r, 5);
   }
 });
 
@@ -128,6 +128,18 @@ test("a café's terrace closes the pavement it stands on", () => {
   expect(Math.abs(signedArea(terrace))).toBeCloseTo(2.3 * 0.9, 4);
   expect(Math.max(...Array.from(terrace).filter((_, i) => i % 2 === 1))).toBeLessThan(60);
   expect(solids(false).rings.length).toBe(solids(true).rings.length - 1);
+  // Without its terrace, two bay trees by its door, met as posts; a second front on the wall
+  // leaves the first less room, but enough.
+  const posts = (fronts: (typeof front)[]) =>
+    walkSolids({ ...city, plazas: [], buildings: [cafe], fronts }).posts.length / 3;
+  const base = posts([]);
+  expect(posts([{ ...front, terrace: false }]) - base).toBe(2);
+  expect(
+    posts([
+      { ...front, terrace: false },
+      { ...front, along: 10, kind: 'shop' as never },
+    ]) - base,
+  ).toBe(2);
 });
 
 test('a walker meets them in the walk grid', () => {
