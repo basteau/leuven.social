@@ -5,7 +5,7 @@ import { FOREARM, SHIN, THIGH, UPPER_ARM, limbIK } from './limb.ts';
 import type { Limb } from './limb.ts';
 import { MeshBuilder } from './mesh-builder.ts';
 import type { V3 } from './mesh-builder.ts';
-import { OUTLINE, WALKER } from './palette.ts';
+import { OUTLINE, PLATE, PROPS, WALKER } from './palette.ts';
 import { IDLE_SECONDS, STRIDE_RUN, STRIDE_WALK, WALK_SPEED, runBlend } from './walker.ts';
 
 /**
@@ -236,6 +236,12 @@ const NO_HULL = { hull: false } as const;
 /** A colour darkened by `k` (0 to 1): seams, hems and the shadowed side of folds. */
 const shade = (hex: number, k: number) =>
   [16, 8, 0].reduce((sum, at) => sum + (Math.round(((hex >> at) & 255) * k) << at), 0);
+/**
+ * The sneakers' sole, a few shades lighter than the upper. The figure's details take their
+ * colours from the palette's own (the belt from wood, the buckle from the signs' brass, the
+ * buttons from the plates' paper), so walking adds nothing to the palette the map loads.
+ */
+export const SOLE_COLOR = shade(WALKER.sneakers, 2.4);
 
 /**
  * The forearm and hand, from the fingertips up to the elbow inside the sleeve: a mitten, thin
@@ -366,15 +372,15 @@ export function details(outfit: Outfit): Flat[] {
     onShirt(placket, -0.016, 0.016, 0.93, 1.08),
     onShirt(placket, -0.016, 0.016, 1.08, 1.27),
     ...[1.0, 1.12, 1.22].map((y) =>
-      onShirt(WALKER.buttons, -0.012, 0.012, y - 0.012, y + 0.012, 0.007),
+      onShirt(PLATE.paper, -0.012, 0.012, y - 0.012, y + 0.012, 0.007),
     ),
     onShirt(shade(outfit.shirt, 0.9), 0.06, 0.16, 1.08, 1.19),
     onShirt(placket, 0.06, 0.16, 1.19, 1.205),
-    front('hips', WALKER.buckle, [-0.026, 0.026, 0.874, 0.921], 0.142),
+    front('hips', PROPS.sign, [-0.026, 0.026, 0.874, 0.921], 0.142),
     // The face: eyes with a glint, brows, a nose and a small mouth.
     ...[0.055, -0.11].flatMap((x) => [
       front('head', OUTLINE, [x, x + 0.055, 1.6, 1.67], 0.186, 0.192),
-      front('head', WALKER.buttons, [x + 0.03, x + 0.046, 1.645, 1.661], 0.193),
+      front('head', PLATE.paper, [x + 0.03, x + 0.046, 1.645, 1.661], 0.193),
       front('head', outfit.hair, [x - 0.008, x + 0.063, 1.692, 1.712], 0.196),
     ]),
     ...nose,
@@ -416,7 +422,7 @@ export function figure(outfit: Outfit): Solid[] {
     // shows on dark cobbles. One ink hull goes round both.
     part(
       'footL',
-      WALKER.sole,
+      SOLE_COLOR,
       profile(
         [
           [-0.1, 0],
@@ -499,7 +505,7 @@ export function figure(outfit: Outfit): Solid[] {
     ),
     part(
       'hips',
-      WALKER.belt,
+      shade(PROPS.wood, 0.6),
       [0.87, 0.925].map((y) => across(y, 0.212, -0.137, 0.137, 0.03)),
       { ...NO_HULL, open: [true, true] },
     ),
