@@ -52,9 +52,18 @@ describe('terraceParasols', () => {
     expect(parasols.length).toBeGreaterThan(20);
     for (const p of parasols) {
       expect(pointInRing(SQUARE, p.x, p.z)).toBe(true);
-      expect(Math.abs(p.z)).toBeGreaterThan(5); // the middle of the square stays open
+      expect(Math.abs(p.z)).toBeGreaterThan(10); // two rows deep: the middle stays open
       expect(PARASOLS).toContain(p.color as (typeof PARASOLS)[number]);
     }
+  });
+
+  test('leaves a gap after each café, so a row reads as cafés side by side', () => {
+    const row = terraceParasols(city())
+      .filter((p) => Math.abs(p.z - 16) < 0.01)
+      .map((p) => p.x)
+      .toSorted((a, b) => a - b);
+    const steps = row.slice(1).map((x, i) => Math.round(x - row[i]!));
+    expect(steps.slice(0, 6)).toEqual([5, 5, 9, 5, 5, 9]);
   });
 
   test('leaves room around trees', () => {

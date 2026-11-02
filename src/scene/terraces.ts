@@ -5,14 +5,17 @@ import { PARASOLS, PROPS, pick } from './palette.ts';
 
 /** Squares that get café terraces, by name. Oude Markt is known as the longest bar in Europe. */
 const TERRACE_SQUARES = new Set(['Oude Markt']);
-/** Rows run along the square's long sides, this far in from its edge (m). */
-const ROWS = [4, 8, 12];
-const SPACING = 4.2;
+/**
+ * Rows run along the square's long sides, this far in from its edge (m): two deep, in front of
+ * the cafés, so the middle of the square stays open to walk.
+ */
+const ROWS = [4, 8];
+const SPACING = 4.6;
 /** Half the width of a parasol canopy. */
 const CANOPY = 1.5;
 /** Parasols this close to a tree trunk are left out. */
 const TREE_CLEARANCE = 2.2;
-/** Neighbouring parasols in a row belong to one café and share its colour. */
+/** Neighbouring parasols in a row belong to one café and share its colour; a gap follows each. */
 const PER_CAFE = 3;
 
 export interface Parasol {
@@ -52,6 +55,7 @@ export function terraceParasols(city: City): Parasol[] {
     for (const [row, inset] of ROWS.flatMap((d) => [d, -d]).entries()) {
       const v = Math.sign(inset) * (halfWidth - Math.abs(inset));
       for (let i = 0, u = -halfLength + SPACING; u <= halfLength - SPACING; u += SPACING, i++) {
+        if (i % (PER_CAFE + 1) === PER_CAFE) continue;
         const x = cx + ux * u - uz * v;
         const z = cz + uz * u + ux * v;
         if (!fits(x, z) || !clearOfTrees(x, z)) continue;
@@ -60,7 +64,7 @@ export function terraceParasols(city: City): Parasol[] {
           z,
           ux,
           uz,
-          color: pick(PARASOLS, row * 101 + Math.floor(i / PER_CAFE)),
+          color: pick(PARASOLS, row * 101 + Math.floor(i / (PER_CAFE + 1))),
         });
       }
     }
