@@ -1,4 +1,14 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Component,
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 import { sound } from '../audio/sound.ts';
@@ -26,7 +36,25 @@ const LOAD_TIMEOUT_MS = 20_000;
 
 /** The menu is its own chunk: fetched once the map is up, or as someone reaches for it. */
 const loadMenu = () => import('./command-menu.tsx');
-const CommandMenu = lazy(() => loadMenu().then((m) => ({ default: m.CommandMenu })));
+/** React keeps a failed lazy component failed: each try after a failure gets a fresh one. */
+const lazyMenu = () => lazy(() => loadMenu().then((m) => ({ default: m.CommandMenu })));
+
+/**
+ * The menu's chunk can fail to download (a flaky link). Without this, React would take the whole
+ * app down with it, map and all; instead the menu stays shut and the shell says so.
+ */
+class MenuGuard extends Component<{ onError: (error: unknown) => void; children: ReactNode }> {
+  override state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  override componentDidCatch(error: unknown) {
+    this.props.onError(error);
+  }
+  override render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
 
 /** The map's description, naming the keys as this keyboard types them. */
 const mapLabels = (k: Keycaps, mod: string): Record<WalkMode, string> => ({
@@ -176,10 +204,21 @@ export function App() {
   const menuOpenRef = useRef(false);
   /** What was typed while the menu was on its way, for its search. */
   const typedRef = useRef('');
+  const [CommandMenu, setCommandMenu] = useState(lazyMenu);
+  const [menuFailed, setMenuFailed] = useState(false);
   const openMenu = useCallback((page: MenuPage = 'list') => {
     menuOpenRef.current = true;
     typedRef.current = '';
+    setMenuFailed(false);
     setMenu({ open: true, page, used: true });
+  }, []);
+  /** Its chunk didn't come: shut, out of the page, and a fresh download on the next try. */
+  const onMenuError = useCallback((error: unknown) => {
+    console.error(error);
+    menuOpenRef.current = false;
+    setMenu({ open: false, page: 'list', used: false });
+    setCommandMenu(() => lazyMenu());
+    setMenuFailed(true);
   }, []);
   const closeMenu = useCallback(() => {
     menuOpenRef.current = false;
@@ -481,6 +520,8 @@ export function App() {
             'Getting ready to walk…'
           ) : walkLoad === 'failed' ? (
             'Walking couldn’t load. Check your connection and try again.'
+          ) : menuFailed ? (
+            'The menu couldn’t load. Check your connection and try again.'
           ) : said ? (
             <span key={said.at}>{said.text}</span>
           ) : walkMode === 'walk' && riding && rideCoach ? (
@@ -545,18 +586,20 @@ export function App() {
       {errorSlot ? createPortal(errorNotice, errorSlot) : errorNotice}
 
       {menu.used && (
-        <Suspense fallback={null}>
-          <CommandMenu
-            open={menu.open}
-            page={menu.page}
-            onPage={onPage}
-            onClose={closeMenu}
-            takeTyped={takeTyped}
-            state={commandState}
-            run={run}
-            places={places}
-          />
-        </Suspense>
+        <MenuGuard onError={onMenuError}>
+          <Suspense fallback={null}>
+            <CommandMenu
+              open={menu.open}
+              page={menu.page}
+              onPage={onPage}
+              onClose={closeMenu}
+              takeTyped={takeTyped}
+              state={commandState}
+              run={run}
+              places={places}
+            />
+          </Suspense>
+        </MenuGuard>
       )}
     </main>
   );
