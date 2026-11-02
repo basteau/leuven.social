@@ -9,7 +9,8 @@
 import type { Building, ShopFront } from '../data/city.ts';
 import { SHOP_KINDS } from '../data/shop-kinds.ts';
 import type { ShopKind } from '../data/shop-kinds.ts';
-import { END_GAP, MIN_ROOM, TERRACE, awningRoom, frontPoint } from '../data/shops.ts';
+import { END_GAP, MIN_ROOM, awningRoom } from '../data/awnings.ts';
+import { TERRACE, frontPoint } from '../data/shops.ts';
 import type { FrontPoint } from '../data/shops.ts';
 import type { MeshBuilder, V3 } from './mesh-builder.ts';
 import { FRONTS, PROPS } from './palette.ts';

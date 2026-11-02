@@ -3,15 +3,7 @@ import { expect, test } from 'bun:test';
 import type { Building, ShopFront } from './city.ts';
 import { Facades } from './plate-placement.ts';
 import { Shapes, propFootprint } from './props.ts';
-import {
-  AWNING_HALF,
-  awningRoom,
-  fitTerraces,
-  frontPoint,
-  markShopFronts,
-  placeFronts,
-  terraceFootprint,
-} from './shops.ts';
+import { fitTerraces, frontPoint, markShopFronts, placeFronts, terraceFootprint } from './shops.ts';
 import type { TerraceSurroundings } from './shops.ts';
 
 const rect = (x: number, z: number, w: number, d: number) =>
@@ -38,13 +30,6 @@ const house = (i: number, kind: Building['kind'] = 'house'): Building => ({
   roofColor: null,
   ring: rings[i]!,
   holes: [],
-});
-
-test('an awning reaches its most, short of the wall ends and halfway to the next front', () => {
-  expect(awningRoom(6, 12, [])).toBe(AWNING_HALF);
-  expect(awningRoom(1, 12, [])).toBeCloseTo(0.7, 9);
-  expect(awningRoom(11, 12, [])).toBeCloseTo(0.7, 9);
-  expect(awningRoom(6, 12, [8, 1])).toBe(1);
 });
 
 test('a front stands on its wall, facing out of the building', () => {

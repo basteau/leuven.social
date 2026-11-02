@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import { ELLIPSIS, MAX_NAME, boardName, cutName, latinOnly, placeBoards } from './boards.ts';
 import type { ShopFront } from './city.ts';
-import { AWNING_HALF, END_GAP } from './shops.ts';
+import { AWNING_HALF, END_GAP } from './awnings.ts';
 
 describe('the name on a board', () => {
   test('is the brand first, then the name', () => {

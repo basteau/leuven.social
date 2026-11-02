@@ -4,9 +4,10 @@
  * name and places the board on its front (`placeBoards`); walk.bin stores them (src/data/plates.ts).
  */
 
-import type { ShopFront } from './city.ts';
 import type { ShopKind } from './shop-kinds.ts';
-import { AWNING_HALF, END_GAP, MIN_ROOM, awningRoom, frontPoint } from './shops.ts';
+import { AWNING_HALF, END_GAP, MIN_ROOM, awningRoom } from './awnings.ts';
+import type { ShopFront } from './city.ts';
+import { frontPoint } from './shops.ts';
 
 type Tags = Record<string, string | undefined>;
 
