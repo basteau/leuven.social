@@ -3,7 +3,9 @@ import { MeshBasicMaterial, Vector3 } from 'three';
 
 import {
   BONES,
-  PARTS,
+  OUTLINE_WIDTH,
+  figure,
+  grown,
   applyPose,
   characterGeometry,
   createCharacter,
@@ -18,15 +20,18 @@ import {
   restPose,
 } from './character.ts';
 import { unindexed } from './mesh-builder.ts';
+import { WALKER } from './palette.ts';
 import { IDLE_SECONDS, RUN_SPEED, STEP, WALK_SPEED, createWalker, stepWalker } from './walker.ts';
+
+/** A palette colour as the normalised bytes the geometry stores. */
+const bytes = (hex: number) => [hex >> 16, (hex >> 8) & 255, hex & 255].map((c) => c / 255);
 
 describe('characterGeometry', () => {
   const g = unindexed(characterGeometry());
   const position = g.getAttribute('position');
-  const outlined = PARTS.filter((p) => p.outline !== false).length;
 
-  test('is a box per part plus an outline hull per outlined part, one bone per vertex', () => {
-    expect(position.count).toBe((PARTS.length + outlined) * 36 + 18);
+  test('stays within 750 triangles, one bone to a vertex', () => {
+    expect(position.count / 3).toBeLessThanOrEqual(750);
     const index = g.getAttribute('skinIndex');
     const weight = g.getAttribute('skinWeight');
     for (let i = 0; i < position.count; i++) {
@@ -39,7 +44,7 @@ describe('characterGeometry', () => {
   test('stands on the origin, under two metres tall in model units, facing +z', () => {
     g.computeBoundingBox();
     const box = g.boundingBox!;
-    expect(box.min.y).toBeCloseTo(-0.035);
+    expect(box.min.y).toBeCloseTo(-OUTLINE_WIDTH);
     expect(box.max.y).toBeLessThan(2);
     expect(box.max.z).toBeGreaterThan(-box.min.z - 0.15); // nose ahead, backpack behind
   });
@@ -55,7 +60,48 @@ describe('characterGeometry', () => {
       top++;
       expect(normal.getY(i)).toBeCloseTo(-1);
     }
-    expect(top).toBe(2);
+    expect(top).toBe(6); // an octagon
+  });
+
+  test('a hull moves every side of a part out by the outline width', () => {
+    const thigh = figure(WALKER).solids[0]!;
+    const [bottom, top] = grown(thigh.rings, OUTLINE_WIDTH);
+    const xs = bottom!.map((p) => p[0]);
+    expect(Math.min(...xs)).toBeCloseTo(0.035 - OUTLINE_WIDTH);
+    expect(Math.max(...xs)).toBeCloseTo(0.165 + OUTLINE_WIDTH);
+    expect(bottom![0]![1]).toBeCloseTo(0.47 - OUTLINE_WIDTH);
+    expect(top![0]![1]).toBeCloseTo(0.84 + OUTLINE_WIDTH);
+  });
+
+  test('every part but the smallest sits well inside its hull', () => {
+    const { solids } = figure(WALKER);
+    const outlined = solids.filter((s) => s.hull !== false);
+    expect(outlined.length).toBeGreaterThan(solids.length / 2);
+    for (const solid of outlined) {
+      const hull = grown(solid.hull || solid.rings, OUTLINE_WIDTH).flat();
+      for (const axis of [0, 1, 2]) {
+        const [lo, hi] = [
+          Math.min(...hull.map((p) => p[axis]!)),
+          Math.max(...hull.map((p) => p[axis]!)),
+        ];
+        for (const p of solid.rings.flat()) {
+          expect(p[axis]! - lo).toBeGreaterThan(0.015);
+          expect(hi - p[axis]!).toBeGreaterThan(0.015);
+        }
+      }
+    }
+  });
+
+  test('dresses the walker in its outfit, the coat always the accent blue', () => {
+    const outfit = { scarf: 0xc4553c, bag: 0x6e7a3c, hair: 0xd8b060, trousers: 0x48597a };
+    const colours = unindexed(characterGeometry(outfit)).getAttribute('color');
+    const has = (hex: number) =>
+      Array.from({ length: colours.count }, (_, i) => i).some((i) =>
+        bytes(hex).every((c, k) => Math.abs(colours.getComponent(i, k) - c) < 1e-6),
+      );
+    for (const hex of [outfit.scarf, outfit.bag, outfit.hair, outfit.trousers, WALKER.coat]) {
+      expect(has(hex)).toBe(true);
+    }
   });
 });
 

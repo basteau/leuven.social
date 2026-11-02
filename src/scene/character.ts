@@ -14,16 +14,17 @@ import { OUTLINE, WALKER } from './palette.ts';
 import { IDLE_SECONDS, STRIDE_RUN, STRIDE_WALK, runBlend } from './walker.ts';
 
 /**
- * The walker: a few boxes on a twelve-bone skeleton (knees and elbows included, so it can run),
- * chunky enough to read from the chase camera. Its ink outline is an inverted hull in the same geometry (slightly larger
- * boxes facing inward, so only their far sides show around the silhouette), which keeps the
- * whole figure, shadow included, to one draw call.
+ * The walker: a Leuven student of chunky, bevelled blocks on a fifteen-bone skeleton (knees,
+ * elbows and ankles, so they can run and keep their soles flat, and a bone for the scarf's
+ * tail), readable from the chase camera. Its ink outline is an inverted hull in the same
+ * geometry (each part again, a little larger and facing inward, so only its far side shows round
+ * the silhouette), which keeps the whole figure, shadow included, to one draw call.
  */
 
 /** How much larger than life the figure is drawn: the same as the street furniture. */
 export const CHARACTER_SCALE = 1.3;
 /** Outline thickness, in model metres. */
-const OUTLINE_WIDTH = 0.035;
+export const OUTLINE_WIDTH = 0.035;
 
 export const BONES = [
   'root',
@@ -40,6 +41,7 @@ export const BONES = [
   'shinR',
   'footL',
   'footR',
+  'scarf',
 ] as const;
 export type BoneName = (typeof BONES)[number];
 
@@ -50,7 +52,7 @@ const ANKLE = 0.09;
 /** The hips' height standing straight. */
 const REST_HIPS = THIGH + SHIN + ANKLE;
 /** The ball of the foot, where it rolls onto its toes, ahead of the ankle (model metres). */
-const BALL = 0.11;
+const BALL = 0.12;
 /** The hip joints either side of the middle (model metres). */
 const HIP_X = 0.1;
 /** Shoulder to elbow, and elbow to the middle of the hand (model metres). */
@@ -73,94 +75,340 @@ const JOINTS: Record<BoneName, { parent: BoneName | null; at: V3 }> = {
   shinR: { parent: 'legR', at: [0, -THIGH, 0] },
   footL: { parent: 'shinL', at: [0, -SHIN, 0] },
   footR: { parent: 'shinR', at: [0, -SHIN, 0] },
+  // The scarf's tail hangs from behind the neck.
+  scarf: { parent: 'torso', at: [0.075, 0.58, -0.165] },
 };
 
-interface Part {
+/** A closed loop of corners, all in one plane: a cross-section of a part. */
+type Ring = readonly V3[];
+
+/**
+ * A convex part of the figure, lofted through cross-sections (`rings`, each with the same number
+ * of corners) and capped at both ends, on one bone. Faces take `color`, or what `paint` gives a
+ * side face (`band` counts the gaps between rings from the first, `side` the corners round them)
+ * or a cap (band -1 for the first, `rings.length - 1` for the last). Its ink hull follows `hull`
+ * if given (fewer or larger rings), its own rings if not, or none for small parts (`false`).
+ * An end always hidden inside another part is left open (`open`: first, last).
+ */
+interface Solid {
   bone: BoneName;
-  min: V3;
-  max: V3;
+  rings: readonly Ring[];
   color: number;
-  outline?: false;
+  paint?: (band: number, side: number) => number;
+  hull?: readonly Ring[] | false;
+  open?: readonly [boolean, boolean];
 }
 
-const mirror = (p: Part, bone: BoneName): Part => ({
-  ...p,
-  bone,
-  min: [-p.max[0], p.min[1], p.min[2]],
-  max: [-p.min[0], p.max[1], p.max[2]],
-});
+/** The walker's colours that vary from one device to the next; the coat stays accent blue. */
+export interface Outfit {
+  scarf: number;
+  bag: number;
+  hair: number;
+  trousers: number;
+}
 
-// Each limb part hangs from the bone whose pivot is above it: thigh and upper arm from the
-// hip and shoulder, shin and forearm from the knee and elbow.
-const LEG: Part[] = [
-  { bone: 'legL', min: [0.02, 0.47, -0.08], max: [0.18, 0.84, 0.08], color: WALKER.trousers },
-  // The knee: a block round the joint that turns with the shin, so a bent leg stays one piece
-  // instead of two boxes opening a notch.
-  { bone: 'shinL', min: [0.025, 0.39, -0.085], max: [0.175, 0.51, 0.085], color: WALKER.trousers },
-  { bone: 'shinL', min: [0.03, 0.1, -0.075], max: [0.17, 0.42, 0.075], color: WALKER.trousers },
-  { bone: 'footL', min: [0.02, 0, -0.09], max: [0.19, 0.12, 0.14], color: WALKER.shoes },
-];
-const ARM: Part[] = [
-  { bone: 'armL', min: [0.22, 1.07, -0.07], max: [0.34, 1.36, 0.07], color: WALKER.coat },
-  { bone: 'foreL', min: [0.225, 0.86, -0.065], max: [0.335, 1.1, 0.065], color: WALKER.coat },
-  { bone: 'foreL', min: [0.235, 0.76, -0.055], max: [0.325, 0.87, 0.055], color: WALKER.skin },
-];
-
-/** Model-space boxes, in the bind pose: all bones unrotated, pivots as in JOINTS. */
-export const PARTS: readonly Part[] = [
-  ...LEG,
-  ...LEG.map((p) => mirror(p, p.bone.replace('L', 'R') as BoneName)),
-  { bone: 'torso', min: [-0.22, 0.74, -0.13], max: [0.22, 1.36, 0.13], color: WALKER.coat },
-  { bone: 'torso', min: [-0.2, 1.26, -0.15], max: [0.2, 1.39, 0.15], color: WALKER.scarf },
-  { bone: 'torso', min: [0.05, 1.0, 0.12], max: [0.14, 1.28, 0.17], color: WALKER.scarf },
-  { bone: 'torso', min: [-0.17, 0.88, -0.27], max: [0.17, 1.3, -0.12], color: WALKER.bag },
-  ...ARM,
-  ...ARM.map((p) => mirror(p, p.bone.replace('L', 'R') as BoneName)),
-  { bone: 'head', min: [-0.2, 1.38, -0.19], max: [0.2, 1.78, 0.19], color: WALKER.skin },
-  { bone: 'head', min: [-0.22, 1.72, -0.21], max: [0.22, 1.85, 0.21], color: WALKER.hair },
-  { bone: 'head', min: [-0.22, 1.46, -0.21], max: [0.22, 1.76, -0.06], color: WALKER.hair },
-  // Eyes: dots on the face, too small for an outline.
-  { bone: 'head', min: [0.06, 1.55, 0.18], max: [0.12, 1.63, 0.2], color: OUTLINE, outline: false },
-  {
-    bone: 'head',
-    min: [-0.12, 1.55, 0.18],
-    max: [-0.06, 1.63, 0.2],
-    color: OUTLINE,
-    outline: false,
-  },
-];
-
-const FACES: readonly { axis: 0 | 1 | 2; side: 0 | 1 }[] = [0, 1, 2].flatMap((axis) =>
-  [0, 1].map((side) => ({ axis: axis as 0 | 1 | 2, side: side as 0 | 1 })),
-);
-
-/** A box's six faces, facing out, or in for the outline hull. */
-function addBox(mesh: MeshBuilder, min: V3, max: V3, color: number, inward: boolean): void {
-  const at = (x: 0 | 1, y: 0 | 1, z: 0 | 1): V3 => [
-    (x ? max : min)[0],
-    (y ? max : min)[1],
-    (z ? max : min)[2],
+/**
+ * A level cross-section at `y`: the rectangle `x0`–`x1` by `z0`–`z1`, its corners cut by `bevel`
+ * (eight corners, front-right first and round by the back), or square (four).
+ */
+function level(y: number, x0: number, x1: number, z0: number, z1: number, bevel = 0): Ring {
+  if (!bevel) {
+    return [
+      [x1, y, z1],
+      [x1, y, z0],
+      [x0, y, z0],
+      [x0, y, z1],
+    ];
+  }
+  return [
+    [x1 - bevel, y, z1],
+    [x1, y, z1 - bevel],
+    [x1, y, z0 + bevel],
+    [x1 - bevel, y, z0],
+    [x0 + bevel, y, z0],
+    [x0, y, z0 + bevel],
+    [x0, y, z1 - bevel],
+    [x0 + bevel, y, z1],
   ];
-  for (const { axis, side } of FACES) {
-    const corners = [
-      [0, 0],
-      [1, 0],
-      [1, 1],
-      [0, 1],
-    ].map(([u, v]) => {
-      const c = [0, 0, 0] as [0 | 1, 0 | 1, 0 | 1];
-      c[axis] = side;
-      c[(axis + 1) % 3] = u as 0 | 1;
-      c[(axis + 2) % 3] = v as 0 | 1;
-      return at(...c);
-    }) as [V3, V3, V3, V3];
-    const out = (side ? 1 : -1) * (inward ? -1 : 1);
-    const hint: V3 = [axis === 0 ? out : 0, axis === 1 ? out : 0, axis === 2 ? out : 0];
-    mesh.quad(...corners, color, hint);
+}
+
+/** A box from `min` to `max`: two square levels. */
+const box = (min: V3, max: V3): Ring[] => [
+  level(min[1], min[0], max[0], min[2], max[2]),
+  level(max[1], min[0], max[0], min[2], max[2]),
+];
+
+/** A side profile (z, y) swept across from `x0` to `x1`: a shoe. */
+const profile = (points: readonly (readonly [number, number])[], x0: number, x1: number): Ring[] =>
+  [x0, x1].map((x) => points.map(([z, y]): V3 => [x, y, z]));
+
+/** Sides of the octagonal levels: the middle of the front, and the back three. */
+const FRONT = 7;
+const BACK = new Set([2, 3, 4]);
+
+const sub = (a: V3, b: V3): V3 => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const add = (a: V3, b: V3, k = 1): V3 => [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k];
+const cross = (a: V3, b: V3): V3 => [
+  a[1] * b[2] - a[2] * b[1],
+  a[2] * b[0] - a[0] * b[2],
+  a[0] * b[1] - a[1] * b[0],
+];
+const dot = (a: V3, b: V3) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const unit = (a: V3): V3 => {
+  const length = Math.hypot(...a) || 1;
+  return [a[0] / length, a[1] / length, a[2] / length];
+};
+const centroid = (points: readonly V3[]): V3 =>
+  points.reduce((sum, p) => add(sum, p, 1 / points.length), [0, 0, 0] as V3);
+
+/**
+ * The rings of a part's ink hull: each ring offset outward in its own plane by `width`, mitred
+ * at the corners so every side moves out the same, and the end rings pushed out along the part.
+ */
+export function grown(rings: readonly Ring[], width: number): Ring[] {
+  const along = sub(centroid(rings.at(-1)!), centroid(rings[0]!));
+  return rings.map((ring, r) => {
+    const c = centroid(ring);
+    const n = ring.length;
+    // The ring's plane (Newell's normal), facing along the part.
+    let ends: V3 = [0, 0, 0];
+    for (let i = 0; i < n; i++) ends = add(ends, cross(ring[i]!, ring[(i + 1) % n]!));
+    ends = unit(ends);
+    if (dot(ends, along) < 0) ends = [-ends[0], -ends[1], -ends[2]];
+    // Each side's outward normal in the ring's plane: across the side, away from the middle.
+    const normals = ring.map((p, i) => {
+      const edge = sub(ring[(i + 1) % n]!, p);
+      const across = unit(cross(edge, ends));
+      return dot(across, sub(p, c)) < 0 ? ([-across[0], -across[1], -across[2]] as V3) : across;
+    });
+    const shift = r === 0 ? -width : r === rings.length - 1 ? width : 0;
+    return ring.map((p, i) => {
+      const [a, b] = [normals[(i + n - 1) % n]!, normals[i]!];
+      const mitre = unit(add(a, b));
+      return add(add(p, mitre, width / Math.max(0.3, dot(mitre, a))), ends, shift);
+    });
+  });
+}
+
+/** A part's faces, facing out, or in for its hull, which is all ink. */
+function addSolid(mesh: MeshBuilder, solid: Solid, rings: readonly Ring[], hull: boolean): void {
+  const middle = centroid(rings.flat());
+  const colour = (band: number, side: number) =>
+    hull ? OUTLINE : (solid.paint?.(band, side) ?? solid.color);
+  const facing = (points: readonly V3[]): V3 => {
+    const out = unit(sub(centroid(points), middle));
+    return hull ? [-out[0], -out[1], -out[2]] : out;
+  };
+  for (let band = 0; band + 1 < rings.length; band++) {
+    const [a, b] = [rings[band]!, rings[band + 1]!];
+    for (let i = 0; i < a.length; i++) {
+      const j = (i + 1) % a.length;
+      const quad = [a[i]!, a[j]!, b[j]!, b[i]!] as const;
+      mesh.quad(...quad, colour(band, i), facing(quad));
+    }
+  }
+  for (const [band, ring, open] of [
+    [-1, rings[0]!, solid.open?.[0]],
+    [rings.length - 1, rings.at(-1)!, solid.open?.[1]],
+  ] as const) {
+    if (open) continue;
+    const hint = facing(ring);
+    for (let i = 1; i + 1 < ring.length; i++) {
+      mesh.triangle(ring[0]!, ring[i]!, ring[i + 1]!, colour(band, -1), hint);
+    }
   }
 }
 
-const grow = (v: V3, by: number): V3 => [v[0] + by, v[1] + by, v[2] + by];
+/** The face's flat decals: eyes, which need no outline. */
+interface Decal {
+  bone: BoneName;
+  corners: readonly [V3, V3, V3, V3];
+  color: number;
+}
+
+const mirrorRing = (ring: Ring): Ring => ring.map(([x, y, z]): V3 => [-x, y, z]);
+const mirror = (s: Solid): Solid => ({
+  ...s,
+  bone: s.bone.replace('L', 'R') as BoneName,
+  rings: s.rings.map(mirrorRing),
+  hull: s.hull ? s.hull.map(mirrorRing) : s.hull,
+});
+
+/** An eye: a dot on the face, too small for an outline. */
+const eye = (x0: number, x1: number): Decal => ({
+  bone: 'head',
+  corners: [
+    [x0, 1.6, 0.186],
+    [x1, 1.6, 0.186],
+    [x1, 1.67, 0.192],
+    [x0, 1.67, 0.192],
+  ],
+  color: OUTLINE,
+});
+
+/**
+ * The figure, in model metres in the bind pose (bones unrotated, pivots as in JOINTS), dressed
+ * in an outfit. Each part hangs from the bone whose pivot is above it: thigh and upper arm from
+ * hip and shoulder, shin and forearm from knee and elbow, shoe from the ankle.
+ */
+export function figure(outfit: Outfit): { solids: Solid[]; decals: Decal[] } {
+  const leg: Solid[] = [
+    {
+      bone: 'legL',
+      rings: [level(0.47, 0.035, 0.165, -0.07, 0.07), level(0.84, 0.02, 0.18, -0.085, 0.085)],
+      color: outfit.trousers,
+    },
+    // The knee: a block round the joint that turns with the shin, so a bent leg stays one
+    // piece instead of two boxes opening a notch.
+    {
+      bone: 'shinL',
+      rings: box([0.03, 0.39, -0.08], [0.17, 0.51, 0.08]),
+      color: outfit.trousers,
+    },
+    {
+      bone: 'shinL',
+      rings: [level(0.12, 0.04, 0.16, -0.06, 0.065), level(0.42, 0.035, 0.165, -0.07, 0.07)],
+      color: outfit.trousers,
+    },
+    // The shoe: an upper that slopes down to the toe, a pale toe cap and a sole, under one hull
+    // that springs up at the toe as the sole does.
+    {
+      bone: 'footL',
+      rings: profile(
+        [
+          [-0.1, 0.03],
+          [0.17, 0.03],
+          [0.15, 0.1],
+          [-0.09, 0.155],
+        ],
+        0.025,
+        0.175,
+      ),
+      color: WALKER.shoes,
+      hull: profile(
+        [
+          [-0.105, 0],
+          [0.125, 0],
+          [0.2, 0.04],
+          [0.2, 0.095],
+          [-0.095, 0.155],
+        ],
+        0.02,
+        0.18,
+      ),
+    },
+    {
+      bone: 'footL',
+      rings: box([0.02, 0.04, 0.12], [0.18, 0.1, 0.2]),
+      color: WALKER.sole,
+      hull: false,
+    },
+    {
+      bone: 'footL',
+      rings: box([0.02, 0, -0.105], [0.18, 0.035, 0.12]),
+      color: WALKER.sole,
+      hull: false,
+    },
+  ];
+  const arm: Solid[] = [
+    {
+      bone: 'armL',
+      rings: [level(1.07, 0.22, 0.33, -0.065, 0.065), level(1.37, 0.215, 0.335, -0.075, 0.075)],
+      color: WALKER.coat,
+    },
+    {
+      bone: 'foreL',
+      rings: [level(0.86, 0.23, 0.32, -0.058, 0.058), level(1.1, 0.222, 0.328, -0.065, 0.065)],
+      color: WALKER.coat,
+    },
+    // A mitten, knitted to match the scarf, with its thumb forward.
+    {
+      bone: 'foreL',
+      rings: [level(0.73, 0.232, 0.318, -0.06, 0.06), level(0.87, 0.225, 0.325, -0.066, 0.072)],
+      color: outfit.scarf,
+    },
+    {
+      bone: 'foreL',
+      rings: box([0.245, 0.79, 0.06], [0.3, 0.85, 0.105]),
+      color: outfit.scarf,
+      hull: false,
+    },
+  ];
+  const strap: Solid = {
+    bone: 'torso',
+    rings: [level(0.98, 0.075, 0.125, 0.115, 0.15), level(1.37, 0.075, 0.125, 0.12, 0.158)],
+    color: outfit.bag,
+    hull: false,
+  };
+  const solids: Solid[] = [
+    ...leg,
+    ...leg.map(mirror),
+    // The coat: broad at the shoulders, in at the waist, its hem flaring out over the hips.
+    {
+      bone: 'torso',
+      rings: [
+        level(0.6, -0.25, 0.25, -0.17, 0.17, 0.07),
+        level(0.88, -0.2, 0.2, -0.13, 0.13, 0.05),
+        level(1.38, -0.24, 0.24, -0.14, 0.14, 0.08),
+      ],
+      color: WALKER.coat,
+      open: [true, false],
+    },
+    strap,
+    mirror(strap),
+    {
+      bone: 'torso',
+      rings: box([-0.16, 0.9, -0.27], [0.16, 1.26, -0.13]),
+      color: outfit.bag,
+    },
+    {
+      bone: 'torso',
+      rings: [
+        level(1.3, -0.19, 0.19, -0.155, 0.15, 0.06),
+        level(1.45, -0.18, 0.18, -0.145, 0.14, 0.06),
+      ],
+      color: outfit.scarf,
+      open: [true, false],
+    },
+    // The scarf's tail, down the back to the top of the bag, on a bone of its own.
+    {
+      bone: 'scarf',
+      rings: box([0.02, 1.15, -0.19], [0.13, 1.4, -0.14]),
+      color: outfit.scarf,
+    },
+    {
+      bone: 'torso',
+      rings: box([-0.07, 1.42, -0.065], [0.07, 1.53, 0.065]),
+      color: WALKER.skin,
+      hull: false,
+      open: [true, true],
+    },
+    ...arm,
+    ...arm.map(mirror),
+    // The head: an octagon, broader at the cheeks, bevelled to the crown; hair at the back and on
+    // top, with a fringe above the forehead.
+    {
+      bone: 'head',
+      rings: [
+        level(1.5, -0.16, 0.16, -0.15, 0.16, 0.06),
+        level(1.7, -0.2, 0.2, -0.19, 0.19, 0.07),
+        level(1.79, -0.205, 0.205, -0.195, 0.195, 0.075),
+        level(1.9, -0.17, 0.17, -0.165, 0.165, 0.08),
+      ],
+      color: WALKER.skin,
+      paint: (band, side) =>
+        band >= 2 || (band === 1 && side !== FRONT) || (band === 0 && BACK.has(side))
+          ? outfit.hair
+          : WALKER.skin,
+      hull: [
+        level(1.5, -0.16, 0.16, -0.15, 0.16, 0.06),
+        level(1.74, -0.205, 0.205, -0.195, 0.195, 0.075),
+        level(1.9, -0.17, 0.17, -0.165, 0.165, 0.08),
+      ],
+    },
+  ];
+  return { solids, decals: [eye(0.055, 0.11), eye(-0.11, -0.055)] };
+}
 
 /** A flat octagon under the feet, in model metres: the blob shadow. */
 function addBlob(mesh: MeshBuilder, radius = 0.42): void {
@@ -173,18 +421,22 @@ function addBlob(mesh: MeshBuilder, radius = 0.42): void {
 }
 
 /**
- * The figure's geometry with one bone per vertex: body boxes, their outline hulls, and the
+ * The figure's geometry with one bone per vertex: its parts, their outline hulls, and the
  * blob shadow on the root. A `dither` attribute marks the shadow, which the material draws as
  * a checkerboard of pixels: see-through without blending, so it costs no extra draw call.
  */
-export function characterGeometry(): BufferGeometry {
+export function characterGeometry(outfit: Outfit = WALKER): BufferGeometry {
+  const { solids, decals } = figure(outfit);
   const pieces: { geometry: BufferGeometry; bone: number; dither: number }[] = [];
   for (const [bone, name] of BONES.entries()) {
     const mesh = new MeshBuilder();
-    for (const p of PARTS.filter((part) => part.bone === name)) {
-      addBox(mesh, p.min, p.max, p.color, false);
-      if (p.outline === false) continue;
-      addBox(mesh, grow(p.min, -OUTLINE_WIDTH), grow(p.max, OUTLINE_WIDTH), OUTLINE, true);
+    for (const solid of solids.filter((s) => s.bone === name)) {
+      addSolid(mesh, solid, solid.rings, false);
+      if (solid.hull !== false)
+        addSolid(mesh, solid, grown(solid.hull ?? solid.rings, OUTLINE_WIDTH), true);
+    }
+    for (const decal of decals.filter((d) => d.bone === name)) {
+      mesh.quad(...decal.corners, decal.color, [0, 0, 1]);
     }
     const geometry = mesh.build();
     if (geometry.getAttribute('position').count) pieces.push({ geometry, bone, dither: 0 });
@@ -241,7 +493,11 @@ export interface Character {
  * The figure, bound to its skeleton, and its x-ray twin sharing that skeleton. The twin draws
  * after the city but before the figure, wherever something stands in front: two draw calls.
  */
-export function createCharacter(body: Material, xray: Material): Character {
+export function createCharacter(
+  body: Material,
+  xray: Material,
+  outfit: Outfit = WALKER,
+): Character {
   const bones = Object.fromEntries(BONES.map((name) => [name, new Bone()])) as Record<
     BoneName,
     Bone
@@ -254,7 +510,7 @@ export function createCharacter(body: Material, xray: Material): Character {
     bones[name].position.set(...at);
     if (parent) bones[parent].add(bones[name]);
   }
-  const geometry = characterGeometry();
+  const geometry = characterGeometry(outfit);
   const mesh = new SkinnedMesh(geometry, body);
   mesh.add(bones.root);
   mesh.bind(new Skeleton(BONES.map((name) => bones[name])));
@@ -299,8 +555,14 @@ export interface Pose {
   /** Head nod and turn. */
   nod: number;
   look: number;
+  /** The scarf's tail, swung back from hanging straight down (radians). */
+  scarf: number;
 }
 
+/** How far out from the body the arms hang (radians). */
+const ARM_SPREAD = 0.07;
+/** The scarf's tail lies back over the top of the bag at rest (radians). */
+const SCARF_REST = 0.25;
 /** Elbows hang a little bent, as arms do. */
 const REST_ELBOW = -0.12;
 /** The furthest the head turns toward where the camera looks (radians). */
@@ -309,9 +571,9 @@ const LOOK_LIMIT = 1.1;
 const REACH = THIGH + SHIN - 0.004;
 /** The sole's heel, ball and toe tip, from the ankle (z forward, y up; model metres). */
 export const SOLE = [
-  [-0.09, -ANKLE],
+  [-0.105, -ANKLE],
   [BALL, -ANKLE],
-  [0.18, -0.055],
+  [0.2, -0.05],
 ] as const;
 /**
  * How the gait changes from a walk (first) to a run (second), in model metres and radians: the
@@ -504,6 +766,11 @@ export function poseAt(
   out.twist = (0.16 - 0.1 * run) * step * swing;
   out.bank = Math.max(-0.3, Math.min(0.3, -0.03 * turning * speed));
   out.nod = -0.6 * out.lean;
+  // The scarf's tail hangs plumb, streams back with speed, kicks back as the walker sets off
+  // and forward as it stops, and flutters with the stride.
+  const trail = 1.1 * (1 - Math.exp(-speed / 8));
+  const flutter = (0.06 + 0.1 * run) * step * Math.sin(2 * phase);
+  out.scarf = SCARF_REST + trail + 0.35 * surge + flutter - out.lean;
   out.look = Math.max(-LOOK_LIMIT, Math.min(LOOK_LIMIT, look));
   if (idle && speed === 0 && still < IDLE_SECONDS) {
     const u = still / IDLE_SECONDS;
@@ -534,8 +801,10 @@ export function applyPose({ bones }: Character, pose: Pose): void {
   bones.shinR.rotation.x = pose.kneeR;
   bones.footL.rotation.x = pose.footL;
   bones.footR.rotation.x = pose.footR;
-  bones.armL.rotation.x = pose.armL;
-  bones.armR.rotation.x = pose.armR;
+  // The arms hang a little out from the body, so the mittens clear the coat's hem.
+  bones.armL.rotation.set(pose.armL, 0, ARM_SPREAD);
+  bones.armR.rotation.set(pose.armR, 0, -ARM_SPREAD);
+  bones.scarf.rotation.x = pose.scarf;
   bones.foreL.rotation.x = pose.elbowL;
   bones.foreR.rotation.x = pose.elbowR;
 }
