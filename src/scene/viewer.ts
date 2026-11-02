@@ -910,6 +910,7 @@ export function createViewer(options: ViewerOptions): Viewer {
           city,
           facade: (b) => ({ ...facadeOf(b), foot: footing(terrain, b.ring) }),
           height: (x, z) => terrain.height(x, z),
+          ground: drawnAt,
           gradientMap,
           anisotropy: Math.min(8, renderer.capabilities.getMaxAnisotropy()),
           compile: (object) => renderer.compileAsync(object, view, scene),
