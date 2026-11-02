@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import { Terrain } from '../data/terrain.ts';
+import { footing } from './buildings.ts';
 import {
   Footings,
   PLATE_DEPTH,
@@ -171,7 +172,7 @@ describe('Footings', () => {
   // A house from x = 23 to 60, its lowest corner at 2.3 m (it stands at 2), and one further west.
   const footings = new Footings(
     [Float32Array.of(23, 0, 60, 0, 60, 10, 23, 10), Float32Array.of(-43, 30, -30, 30, -30, 40)],
-    slope,
+    { footing: (ring) => footing(slope, ring), height: (x, z) => slope.height(x, z) },
   );
 
   test('a plate hangs from the foot of its house, wherever along the wall it is', () => {

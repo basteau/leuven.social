@@ -11,8 +11,6 @@
  */
 
 import { pointInRing } from '../data/geometry.ts';
-import type { Terrain } from '../data/terrain.ts';
-import { footing } from './buildings.ts';
 
 /** Where a slice of the atlas is (0–1 texture coordinates) and how wide it is in plate heights. */
 export interface Slice {
@@ -293,6 +291,12 @@ export function packCells(
 const FOOTPRINT_CELL = 32;
 const cellKey = (i: number, j: number) => (i + 32768) * 65536 + (j + 32768);
 
+/** Where a house stands, from its footprint, and the ground at a point (m). */
+export interface Ground {
+  footing(ring: ArrayLike<number>): number;
+  height(x: number, z: number): number;
+}
+
 /**
  * Where the house a plate hangs on stands (`footing`, as the cells lift it), so a plate keeps its
  * height on the wall wherever the ground is: found from a point just behind the plate, inside
@@ -300,12 +304,12 @@ const cellKey = (i: number, j: number) => (i + 32768) * 65536 + (j + 32768);
  */
 export class Footings {
   readonly #rings: readonly ArrayLike<number>[];
-  readonly #terrain: Terrain;
+  readonly #ground: Ground;
   readonly #cells = new Map<number, number[]>();
 
-  constructor(rings: readonly ArrayLike<number>[], terrain: Terrain) {
+  constructor(rings: readonly ArrayLike<number>[], ground: Ground) {
     this.#rings = rings;
-    this.#terrain = terrain;
+    this.#ground = ground;
     const s = FOOTPRINT_CELL;
     for (const [b, ring] of rings.entries()) {
       let [minX, minZ, maxX, maxZ] = [Infinity, Infinity, -Infinity, -Infinity];
@@ -329,8 +333,8 @@ export class Footings {
     const s = FOOTPRINT_CELL;
     for (const b of this.#cells.get(cellKey(Math.floor(px / s), Math.floor(pz / s))) ?? []) {
       const ring = this.#rings[b]!;
-      if (pointInRing(ring, px, pz)) return footing(this.#terrain, ring);
+      if (pointInRing(ring, px, pz)) return this.#ground.footing(ring);
     }
-    return this.#terrain.height(x, z);
+    return this.#ground.height(x, z);
   }
 }

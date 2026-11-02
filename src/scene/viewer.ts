@@ -161,7 +161,7 @@ const MAX_HEIGHT = 90;
 const SHADOW_REACH = 60;
 /**
  * From the map, the shadow square is drawn again once its texels are this much coarser than
- * the view needs: zooming in to the street, about 9 cm a texel at zoom 4 instead of 35.
+ * the view needs: 21 cm a texel at zoom 4, where 4× kept the default view's 70 cm.
  */
 const SHADOW_COARSER = 2;
 /**
@@ -795,7 +795,10 @@ export function createViewer(options: ViewerOptions): Viewer {
           },
           scene,
           city,
-          terrain,
+          ground: {
+            footing: (ring) => footing(terrain, ring),
+            height: (x, z) => terrain.height(x, z),
+          },
           gradientMap,
           anisotropy: Math.min(8, renderer.capabilities.getMaxAnisotropy()),
           compile: (object) => renderer.compileAsync(object, view, scene),

@@ -12,9 +12,8 @@ import {
   unpackWalk,
 } from '../data/plates.ts';
 import type { WalkData } from '../data/plates.ts';
-import type { Terrain } from '../data/terrain.ts';
 import { Footings, PlateBuffers, addPlate, packCells } from './plate-mesh.ts';
-import type { PlateStyle, Slice } from './plate-mesh.ts';
+import type { Ground, PlateStyle, Slice } from './plate-mesh.ts';
 import type { PLATE } from './palette.ts';
 
 /**
@@ -229,8 +228,8 @@ export interface PlatesHost {
   kit: PlateKit;
   scene: Scene;
   city: City;
-  /** The ground the houses stand on: a plate hangs at its height over its house's foot. */
-  terrain: Terrain;
+  /** The ground and where houses stand on it: a plate hangs at its height over its house's foot. */
+  ground: Ground;
   gradientMap: Texture;
   /** The most anisotropic filtering the GPU offers, so letters stay sharp at a slant. */
   anisotropy: number;
@@ -301,7 +300,7 @@ export function createPlates(host: PlatesHost, data: WalkData): Plates {
     const nearStreets = streets.near(cx, cz, STREET_REACH + SLACK, MAX_STREETS);
     footings ??= new Footings(
       host.city.buildings.map((b) => b.ring),
-      host.terrain,
+      host.ground,
     );
     for (const i of nearHouses) {
       const h = data.houses[i]!;
