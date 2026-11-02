@@ -38,7 +38,7 @@ const POSTLESS_SUPPORTS = new Set(['wall_mounted', 'suspended', 'wire', 'ceiling
 const DIRECTED = (kind: PropKind) => kind === 'bench' || kind === 'lamp' || isMonument(kind);
 /** Kinds drawn along the way they're mapped as, when they are: a long bench, a row of stands. */
 const RUNS = new Set<PropKind>(['bench', 'bikes']);
-const POINTS = 'N NNE NE ENE E ESE SE SSE S SSW SW WSW W WNW NW NNW'.split(' ');
+const POINTS = /* @__PURE__ */ 'N NNE NE ENE E ESE SE SSE S SSW SW WSW W WNW NW NNW'.split(' ');
 
 /**
  * An OSM `direction` (degrees clockwise from north, or a compass point) as a turn in the map's
@@ -152,11 +152,14 @@ const EXTENT: Record<'lamp' | 'bench' | 'shelter' | 'busstop', [number, number, 
   shelter: [-1.6, 1.6, -0.75, 0.75],
   busstop: [-0.1, 0.1, -0.3, 0.3],
 };
-/** A bike is this long from wheel to wheel, and may be parked this far off its stand (m). */
-const BIKE_HALF_LENGTH = 0.88;
+/**
+ * Half a parked bike's length, whatever it carries and however its front wheel is turned, and
+ * how far it may stand off its stand (m). src/scene/props.test.ts checks every look fits.
+ */
+const BIKE_HALF_LENGTH = 0.9;
 export const BIKE_SHIFT = 0.15;
-/** Half a handlebar's width: what a rack's end bikes reach past their stand (m). */
-export const HANDLEBAR = 0.25;
+/** What a rack's end bikes reach past their stand: half a handlebar, turned and off square (m). */
+export const HANDLEBAR = 0.3;
 /** A rack's second row stands this far behind the first (m). */
 export const ROW_GAP = 0.9;
 

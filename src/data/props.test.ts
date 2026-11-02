@@ -179,7 +179,7 @@ test('a bench or rack drawn as a way runs along it; a bench line faces its side'
 });
 
 test('a rack drawn as a way without a capacity fills its length, in one row', () => {
-  expect(standsAlong(4.8)).toBe(DEFAULT_STANDS); // Leuven's typical rack
+  expect(standsAlong(5.6)).toBe(DEFAULT_STANDS); // Leuven's typical rack, its end bars' reach included
   expect(standsAlong(1)).toBe(2);
   expect(standsAlong(60)).toBe(ROW);
   // Drawn, its stands span about the way.
