@@ -18,7 +18,7 @@ import {
   SoundIcon,
   WalkIcon,
 } from './icons.tsx';
-import { KEYCAPS, layoutKeycaps, movesMap } from './input.ts';
+import { createTurnHold, KEYCAPS, layoutKeycaps, movesMap } from './input.ts';
 import type { KeyboardLayout, Keycaps } from './input.ts';
 import { useShortcuts } from './shortcuts.ts';
 import { StreetSign } from './street-sign.tsx';
@@ -98,6 +98,8 @@ export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
+  // Turn buttons and, on the map, Q and E: a tap is a step; held, they keep turning.
+  const [turnHold] = useState(createTurnHold);
   const [status, setStatus] = useState<Status>({ state: 'loading' });
   const [attempt, setAttempt] = useState(0);
   const retryRef = useRef<HTMLButtonElement>(null);
@@ -177,6 +179,7 @@ export function App() {
             setWalkLoad('idle');
             walkModeRef.current = mode;
             setWalkMode(mode);
+            turnHold.release(); // a held turn ends with the mode it began in
             setBlocked(0);
             // The buttons that started or ended the walk are gone: keep the keys working. The
             // browser shows the ring only if a key pressed that button.
@@ -220,7 +223,7 @@ export function App() {
       viewerRef.current?.dispose();
       viewerRef.current = null;
     };
-  }, [attempt]);
+  }, [attempt, turnHold]);
 
   useEffect(() => {
     // Focus moved there for the person, not by a click: show where it went.
@@ -235,6 +238,7 @@ export function App() {
     startWalk: () => startWalkRef.current(),
     onWalkKey: () => steppedRef.current(),
     toggleSound: () => toggleSoundRef.current(),
+    turnHold,
   });
 
   const toggleRun = () => {
@@ -404,7 +408,8 @@ export function App() {
               label="Turn left"
               shortcut={keys.KeyQ}
               disabled={!ready}
-              onPress={() => viewer()?.rotate(-1)}
+              onPress={() => turnHold.press('left', -1, viewer())}
+              onRelease={() => turnHold.release('left')}
             >
               <RotateLeftIcon />
             </RoundButton>
@@ -412,7 +417,8 @@ export function App() {
               label="Turn right"
               shortcut={keys.KeyE}
               disabled={!ready}
-              onPress={() => viewer()?.rotate(1)}
+              onPress={() => turnHold.press('right', 1, viewer())}
+              onRelease={() => turnHold.release('right')}
             >
               <RotateRightIcon />
             </RoundButton>
