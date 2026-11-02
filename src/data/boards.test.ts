@@ -35,6 +35,7 @@ describe('the name on a board', () => {
     // No dangling joiner before the ellipsis.
     expect(cutName('Frituur Tivoli - Oude Markt')).toBe(`Frituur Tivoli - Oude${ELLIPSIS}`);
     expect(cutName('Het Land van Belofte - Vin')).toBe(`Het Land van Belofte${ELLIPSIS}`);
+    expect(cutName('Costa Brava Fish & Chips')).toBe(`Costa Brava Fish${ELLIPSIS}`);
   });
 });
 
@@ -61,7 +62,7 @@ describe('placing boards', () => {
     expect(boards).toHaveLength(2);
     const [bank, cafe] = boards;
     // Rounded to a decimetre along, as city.bin keeps it.
-    expect(bank).toMatchObject({ kind: 'bank', name: 'KBC', width: 4 });
+    expect(bank).toMatchObject({ kind: 'bank', name: 'KBC', width: 4, awning: true });
     expect(bank!.x).toBeCloseTo(6, 9);
     expect(bank!.z).toBeCloseTo(-0.06, 9);
     expect(bank!.angle).toBeCloseTo(-Math.PI / 2, 9);
@@ -75,12 +76,24 @@ describe('placing boards', () => {
     expect(bank!.x + bank!.width / 2).toBeLessThanOrEqual(cafe!.x - cafe!.width / 2 + 1e-9);
   });
 
-  test('skips a front with no name, one it cannot show and one too narrow for an awning', () => {
-    const fronts = [front(2), front(5), front(8), front(11.8), front(11.9)];
+  test('slides a board clear of the wall end where its front has no room for an awning', () => {
+    const fronts = [front(0.5, 'bakery'), front(5)];
+    const tags = new Map([
+      [fronts[0]!, { name: 'Bakkerij' }],
+      [fronts[1]!, { name: 'Next door' }],
+    ]);
+    const [corner] = placeBoards(fronts, [ring], tags, 0.06).boards;
+    // Its own stretch runs from the wall's end to halfway to its neighbour.
+    expect(corner).toMatchObject({ awning: false, width: 2.45, name: 'Bakkerij' });
+    expect(corner!.x).toBeCloseTo(END_GAP + 2.45 / 2, 9);
+  });
+
+  test('skips a front with no name, one it cannot show and one with no wall to itself', () => {
+    const fronts = [front(2), front(5), front(8), front(11.6), front(11.9)];
     const tags = new Map([
       [fronts[1]!, { name: '寿司' }],
       [fronts[2]!, { name: '' }],
-      [fronts[3]!, { name: 'Corner' }],
+      [fronts[4]!, { name: 'Corner' }],
     ]);
     const { boards, skipped } = placeBoards(fronts, [ring], tags, 0.06);
     expect(boards).toEqual([]);

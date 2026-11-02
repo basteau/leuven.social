@@ -6,7 +6,7 @@
 
 import type { ShopFront } from './city.ts';
 import type { ShopKind } from './shop-kinds.ts';
-import { MIN_ROOM, awningRoom, frontPoint } from './shops.ts';
+import { AWNING_HALF, END_GAP, MIN_ROOM, awningRoom, frontPoint } from './shops.ts';
 
 type Tags = Record<string, string | undefined>;
 
@@ -19,10 +19,12 @@ export const ELLIPSIS = '…';
  * shop names use. The atlas draws only these; anything else (Chinese, Greek, Arabic, emoji) is
  * left out of a name rather than drawn as an empty box.
  */
-const SHOWN = /[\p{Script=Latin}0-9 &'’.,\-–!?:/+()@#%*"“”·]/u;
+const SHOWN = /[\p{Script=Latin}0-9 &'’.,\-–!?:/+()@#%*"“”·…]/u;
 const READABLE = /[\p{Script=Latin}0-9]/u;
 /** Spaces and joiners left at either end once letters are dropped. */
 const LOOSE_ENDS = /^[\s\-–:,/·|]+|[\s\-–:,/·|]+$/gu;
+/** ...and those a cut leaves before its ellipsis, where "Fish &…" would promise a word. */
+const CUT_END = /[\s\-–:,/·|&+]+$/u;
 
 /** A name with only what a board can show, or null when no letter or figure is left. */
 export function latinOnly(name: string): string | null {
@@ -44,7 +46,7 @@ export function cutName(name: string, max = MAX_NAME): string {
   let kept = chars.slice(0, max - 1);
   const space = kept.lastIndexOf(' ');
   if (chars[max - 1] !== ' ' && space >= max / 2) kept = kept.slice(0, space);
-  return `${kept.join('').replace(LOOSE_ENDS, '')}${ELLIPSIS}`;
+  return `${kept.join('').replace(CUT_END, '')}${ELLIPSIS}`;
 }
 
 /**
@@ -62,13 +64,18 @@ export function boardName(tags: Tags): string | null {
 
 /** A shop's name board, on the wall of its front. */
 export interface Board {
-  /** The middle of its front on the wall, a few centimetres proud of it (`PROUD`). */
+  /** Its middle on the wall, a few centimetres proud of it (`PROUD`). */
   x: number;
   z: number;
   /** Which way its wall faces (radians from +x towards +z). */
   angle: number;
-  /** How wide its front is (m): its awning's span, which the board fills. */
+  /** How wide it is (m): its awning's span, or the wall its front has to itself. */
   width: number;
+  /**
+   * Whether its front has room for an awning: if its kind has one, the board hangs on it, in
+   * the middle of the front. Else it is a fascia on the wall, slid clear of the wall's ends.
+   */
+  awning: boolean;
   kind: ShopKind;
   name: string;
 }
@@ -79,12 +86,15 @@ export interface PlacedBoards {
 }
 
 const dm = (v: number) => Math.round(v * 10) / 10;
+/** A fascia narrower than this (m) would show a letter or two: none is hung. */
+export const MIN_BOARD = 1;
 
 /**
- * A board for each front whose shop (its OSM `tags`) has a name, centred on it and as wide as its awning (`awningRoom`),
- * `proud` metres off its wall. A front too narrow for an awning gets none. Its building's ring
- * and the fronts' places are rounded as city.bin keeps them, so the board lines up with the
- * awning the browser draws.
+ * A board for each front whose shop (its OSM `tags`) has a name, `proud` metres off its wall:
+ * centred on its front and as wide as its awning (`awningRoom`), or, on a front too near its
+ * wall's end for an awning, as wide as the wall it has to itself (up to an awning's span) and
+ * slid along it to fit. The ring and the fronts' places are rounded as city.bin keeps them, so
+ * a board lines up with the awning the browser draws.
  */
 export function placeBoards(
   fronts: readonly ShopFront[],
@@ -103,20 +113,32 @@ export function placeBoards(
       continue;
     }
     const along = dm(front.along);
-    const p = frontPoint(rings[front.building]!, { edge: front.edge, along });
+    const ring = rings[front.building]!;
+    const { length } = frontPoint(ring, front);
     const others = fronts
       .filter((o) => o.building === front.building && o.edge === front.edge && o !== front)
       .map((o) => dm(o.along));
-    const room = awningRoom(along, p.length, others);
-    if (room <= MIN_ROOM) {
+    const room = awningRoom(along, length, others);
+    const awning = room > MIN_ROOM;
+    // Its own stretch of wall: halfway to the fronts either side, short of the wall's ends.
+    const lo = Math.max(END_GAP, ...others.filter((o) => o < along).map((o) => (o + along) / 2));
+    const hi = Math.min(
+      length - END_GAP,
+      ...others.filter((o) => o >= along).map((o) => (o + along) / 2),
+    );
+    const width = awning ? room * 2 : Math.min(AWNING_HALF * 2, hi - lo);
+    if (width < MIN_BOARD) {
       miss('too narrow');
       continue;
     }
+    const at = awning ? along : Math.min(hi - width / 2, Math.max(lo + width / 2, along));
+    const p = frontPoint(ring, { edge: front.edge, along: at });
     boards.push({
       x: p.x + p.nx * proud,
       z: p.z + p.nz * proud,
       angle: Math.atan2(p.nz, p.nx),
-      width: room * 2,
+      width,
+      awning,
       kind: front.kind,
       name: text,
     });
