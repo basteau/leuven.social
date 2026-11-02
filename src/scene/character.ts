@@ -233,13 +233,132 @@ const across = (y: number, w: number, z0: number, z1: number, bevel: number) =>
   level(y, -w, w, z0, z1, bevel);
 const NO_HULL = { hull: false } as const;
 
+/** A colour darkened by `k` (0 to 1): seams, hems and the shadowed side of folds. */
+const shade = (hex: number, k: number) =>
+  [16, 8, 0].reduce((sum, at) => sum + (Math.round(((hex >> at) & 255) * k) << at), 0);
+
+/** The shirt's cross-sections from the belt up, and the one tucked into it. */
+const SHIRT = [
+  across(0.93, 0.2, -0.128, 0.13, 0.05),
+  across(1.08, 0.232, -0.145, 0.148, 0.07),
+  across(1.36, 0.245, -0.14, 0.145, 0.08),
+  across(1.43, 0.17, -0.115, 0.14, 0.06),
+];
+const SHIRT_TUCK = across(0.84, 0.19, -0.12, 0.12, 0.05);
+/** How far forward the front of the shirt is at height `y`, between its cross-sections. */
+function shirtFront(y: number): number {
+  const i = Math.max(0, SHIRT.findIndex((ring) => ring[0]![1] > y) - 1);
+  const [a, b] = [SHIRT[i]![0]!, SHIRT[i + 1]![0]!];
+  return a[2] + ((b[2] - a[2]) * (y - a[1])) / (b[1] - a[1]);
+}
+
+/**
+ * A detail too small to outline (an eye, a button, a seam): a flat triangle or quad on a bone,
+ * facing `normal`, a few millimetres proud of the part under it.
+ */
+interface Flat {
+  bone: BoneName;
+  color: number;
+  points: readonly V3[];
+  normal: V3;
+}
+
+/** A flat rectangle facing forward, from `x0` to `x1` and `y0` to `y1`, at `z0` below, `z1` above. */
+const front = (
+  bone: BoneName,
+  color: number,
+  [x0, x1, y0, y1]: readonly number[],
+  z0: number,
+  z1 = z0,
+): Flat => ({
+  bone,
+  color,
+  points: [
+    [x0!, y0!, z0],
+    [x1!, y0!, z0],
+    [x1!, y1!, z1],
+    [x0!, y1!, z1],
+  ],
+  normal: [0, 0, 1],
+});
+/** A rectangle on the front of the shirt, following its slope. */
+const onShirt = (color: number, x0: number, x1: number, y0: number, y1: number, proud = 0.004) =>
+  front('torso', color, [x0, x1, y0, y1], shirtFront(y0) + proud, shirtFront(y1) + proud);
+const mirrorFlat = (f: Flat): Flat => ({
+  bone: f.bone.replace('L', 'R') as BoneName,
+  color: f.color,
+  points: f.points.map(([x, y, z]): V3 => [-x, y, z]),
+  normal: [-f.normal[0], f.normal[1], f.normal[2]],
+});
+
+/** The figure's flat details: the shirt's front, the belt's buckle, the seams, the face. */
+export function details(outfit: Outfit): Flat[] {
+  const placket = shade(outfit.shirt, 0.82);
+  // A seam down the outside of each leg of the shorts.
+  const seam: Flat = {
+    bone: 'legL',
+    color: shade(outfit.shorts, 0.78),
+    points: [
+      [0.191, 0.55, -0.007],
+      [0.191, 0.55, 0.007],
+      [0.183, 0.86, 0.007],
+      [0.183, 0.86, -0.007],
+    ],
+    normal: [1, 0, 0],
+  };
+  const lapel: Flat = {
+    bone: 'torso',
+    color: shade(outfit.shirt, 0.92),
+    points: [
+      [0.07, 1.43, shirtFront(1.43) + 0.005],
+      [0.035, 1.35, shirtFront(1.35) + 0.005],
+      [0.13, 1.395, shirtFront(1.395) + 0.005],
+    ],
+    normal: [0, 0.3, 1],
+  };
+  return [
+    seam,
+    mirrorFlat(seam),
+    lapel,
+    mirrorFlat(lapel),
+    // The open collar: a V of skin down the front of the shirt, to the top button.
+    {
+      bone: 'torso',
+      color: WALKER.skin,
+      points: [
+        [-0.07, 1.43, 0.144],
+        [0, 1.27, 0.15],
+        [0.07, 1.43, 0.144],
+      ],
+      normal: [0, 0, 1],
+    },
+    // The button placket and its buttons, and a pocket over the heart.
+    onShirt(placket, -0.016, 0.016, 0.93, 1.08),
+    onShirt(placket, -0.016, 0.016, 1.08, 1.27),
+    ...[1.0, 1.12, 1.22].map((y) =>
+      onShirt(WALKER.buttons, -0.012, 0.012, y - 0.012, y + 0.012, 0.007),
+    ),
+    onShirt(shade(outfit.shirt, 0.9), 0.06, 0.16, 1.08, 1.19),
+    onShirt(placket, 0.06, 0.16, 1.19, 1.205),
+    front('hips', WALKER.buckle, [-0.026, 0.026, 0.874, 0.921], 0.142),
+    // Eyes: dots on the face.
+    ...[0.055, -0.11].map((x) => front('head', OUTLINE, [x, x + 0.055, 1.6, 1.67], 0.186, 0.192)),
+  ];
+}
+
 export function figure(outfit: Outfit): Solid[] {
   const leg = [
-    // Shorts to the knee, a little loose at the hem.
-    part('legL', outfit.shorts, [
-      level(0.5, 0.012, 0.188, -0.09, 0.09),
-      level(0.86, 0.02, 0.18, -0.085, 0.085),
-    ]),
+    // Shorts to the knee, a little loose, with a turned-up cuff at the hem.
+    part(
+      'legL',
+      outfit.shorts,
+      [
+        level(0.5, 0.008, 0.192, -0.093, 0.093),
+        level(0.55, 0.012, 0.188, -0.09, 0.09),
+        level(0.86, 0.02, 0.18, -0.085, 0.085),
+      ],
+      { paint: (band) => (band ? outfit.shorts : shade(outfit.shorts, 0.9)) },
+    ),
     // A bare shin, its top round the knee inside the shorts, so a bent leg stays one piece.
     part('shinL', WALKER.skin, [
       level(0.13, 0.05, 0.15, -0.055, 0.055),
@@ -296,11 +415,17 @@ export function figure(outfit: Outfit): Solid[] {
     ),
   ];
   const arm = [
-    // A short, loose sleeve, then a bare forearm and hand.
-    part('armL', outfit.shirt, [
-      level(1.12, 0.205, 0.345, -0.085, 0.085),
-      level(1.38, 0.21, 0.335, -0.08, 0.08),
-    ]),
+    // A short, loose sleeve with a hem, then a bare forearm and hand.
+    part(
+      'armL',
+      outfit.shirt,
+      [
+        level(1.1, 0.198, 0.352, -0.092, 0.092),
+        level(1.15, 0.2, 0.35, -0.09, 0.09),
+        level(1.38, 0.21, 0.335, -0.08, 0.08),
+      ],
+      { paint: (band) => (band ? outfit.shirt : shade(outfit.shirt, 0.85)) },
+    ),
     part('foreL', WALKER.skin, [
       level(0.74, 0.232, 0.318, -0.06, 0.06),
       level(1.13, 0.24, 0.31, -0.05, 0.05),
@@ -309,21 +434,34 @@ export function figure(outfit: Outfit): Solid[] {
   return [
     ...leg,
     ...leg.map(mirror),
-    // The seat of the shorts, under the shirt's hem.
-    part('hips', outfit.shorts, box([-0.2, 0.68, -0.125], [0.2, 0.86, 0.125]), {
+    // The seat of the shorts, belted, the shirt tucked in.
+    part('hips', outfit.shorts, box([-0.2, 0.68, -0.125], [0.2, 0.92, 0.125]), {
       open: [false, true],
     }),
-    // The shirt, worn loose: broad at the shoulders, straight down to a hem over the shorts.
     part(
-      'torso',
-      outfit.shirt,
-      [across(0.78, 0.225, -0.15, 0.15, 0.06), across(1.38, 0.24, -0.14, 0.14, 0.08)],
-      { open: [true, false] },
+      'hips',
+      WALKER.belt,
+      [0.87, 0.925].map((y) => across(y, 0.212, -0.137, 0.137, 0.03)),
+      { ...NO_HULL, open: [true, true] },
     ),
+    // The shirt, worn loose: bloused over the belt, broad at the shoulders and sloping to the
+    // neck. Its lowest ring is hidden in the belt, so its outline starts above it.
+    part('torso', outfit.shirt, [SHIRT_TUCK, ...SHIRT], { hull: SHIRT, open: [true, false] }),
     part('torso', WALKER.skin, box([-0.07, 1.34, -0.065], [0.07, 1.53, 0.065]), {
       ...NO_HULL,
       open: [true, true],
     }),
+    // The collar stands round the neck, open at the front.
+    part(
+      'torso',
+      outfit.shirt,
+      [across(1.41, 0.115, -0.105, 0.135, 0.04), across(1.475, 0.09, -0.085, 0.105, 0.035)],
+      {
+        ...NO_HULL,
+        open: [true, true],
+        paint: (_band, side) => (side === FRONT ? WALKER.skin : shade(outfit.shirt, 0.92)),
+      },
+    ),
     ...arm,
     ...arm.map(mirror),
     // The head: an octagon, broader at the cheeks, bevelled to the crown; hair at the back and on
@@ -371,30 +509,10 @@ export function characterGeometry(outfit: Outfit = WALKER): BufferGeometry {
       addSolid(mesh, solid, grown(solid.hull ?? solid.rings, OUTLINE_WIDTH), true);
     }
   }
-  // The open collar: a V of skin down the front of the shirt.
-  mesh.triangle(
-    [-0.075, 1.38, 0.142],
-    [0, 1.25, 0.142],
-    [0.075, 1.38, 0.142],
-    WALKER.skin,
-    [0, 0, 1],
-    BONES.indexOf('torso'),
-  );
-  // Eyes: dots on the face, too small for an outline.
-  for (const x of [0.055, -0.11]) {
-    const [a, b]: [V3, V3] = [
-      [x, 1.6, 0.186],
-      [x + 0.055, 1.67, 0.192],
-    ];
-    mesh.quad(
-      a,
-      [b[0], a[1], a[2]],
-      b,
-      [a[0], b[1], b[2]],
-      OUTLINE,
-      [0, 0, 1],
-      BONES.indexOf('head'),
-    );
+  for (const { bone, color, points, normal } of details(outfit)) {
+    const [a, b, c, d] = points as [V3, V3, V3, V3?];
+    if (d) mesh.quad(a, b, c, d, color, normal, BONES.indexOf(bone));
+    else mesh.triangle(a, b, c, color, normal, BONES.indexOf(bone));
   }
   addBlob(mesh);
   const geometry = mesh.build({ facade: true });

@@ -80,26 +80,32 @@ describe('characterGeometry', () => {
 
   test('a hull moves every side of a part out by the outline width', () => {
     const thigh = figure(WALKER)[0]!;
-    const [bottom, top] = grown(thigh.rings, OUTLINE_WIDTH);
+    const rings = grown(thigh.rings, OUTLINE_WIDTH);
+    const [bottom, top] = [rings[0], rings.at(-1)];
     const xs = bottom!.map((p) => p[0]);
-    expect(Math.min(...xs)).toBeCloseTo(0.012 - OUTLINE_WIDTH);
-    expect(Math.max(...xs)).toBeCloseTo(0.188 + OUTLINE_WIDTH);
+    expect(Math.min(...xs)).toBeCloseTo(0.008 - OUTLINE_WIDTH);
+    expect(Math.max(...xs)).toBeCloseTo(0.192 + OUTLINE_WIDTH);
     expect(bottom![0]![1]).toBeCloseTo(0.5 - OUTLINE_WIDTH);
     expect(top![0]![1]).toBeCloseTo(0.86 + OUTLINE_WIDTH);
   });
 
-  test('every part but the smallest sits well inside its hull', () => {
+  test('every part but the smallest sits well inside its hull, where it shows', () => {
     const solids = figure(WALKER);
     const outlined = solids.filter((s) => s.hull !== false);
-    expect(outlined.length).toBeGreaterThan(solids.length / 2);
+    expect(outlined.length).toBeGreaterThan(solids.length / 3);
     for (const solid of outlined) {
+      // A ring at an open end is hidden in another part, as the shirt's is in the belt.
+      const last = solid.rings.length - 1;
+      const shown = solid.rings.filter(
+        (_, r) => !(solid.open?.[0] && r === 0) && !(solid.open?.[1] && r === last),
+      );
       const hull = grown(solid.hull || solid.rings, OUTLINE_WIDTH).flat();
       for (const axis of [0, 1, 2]) {
         const [lo, hi] = [
           Math.min(...hull.map((p) => p[axis]!)),
           Math.max(...hull.map((p) => p[axis]!)),
         ];
-        for (const p of solid.rings.flat()) {
+        for (const p of shown.flat()) {
           expect(p[axis]! - lo).toBeGreaterThan(0.015);
           expect(hi - p[axis]!).toBeGreaterThan(0.015);
         }

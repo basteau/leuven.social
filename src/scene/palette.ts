@@ -260,6 +260,9 @@ export const WALKER = {
   shorts: 0xe9dcbf,
   sneakers: 0x2c2b30,
   sole: 0x6b6661,
+  belt: 0x5c3d2a,
+  buckle: 0xe2b64e,
+  buttons: 0xfbf3e2,
   xray: 0x2f62a8,
 } as const;
 
