@@ -301,6 +301,22 @@ function wallRings(b: Building, plan: RoofPlan): readonly ArrayLike<number>[] {
   return plan.type === 'hip' ? [plan.ring, ...plan.holes] : [b.ring, ...b.holes];
 }
 
+/** A shop, café or office on the ground floor: its walls get a shop front. */
+const shopFront = (b: Building) => b.kind === 'retail';
+
+/**
+ * A building's walls as drawn, for what hangs on them (the plates): the rings they stand on, the
+ * wall top the facade shader counts storeys under, and whether the ground floor is a shop front.
+ */
+export function facadeOf(b: Building): {
+  rings: readonly ArrayLike<number>[];
+  top: number;
+  shop: boolean;
+} {
+  const plan = planOf(b);
+  return { rings: wallRings(b, plan), top: plan.eave, shop: shopFront(b) };
+}
+
 /**
  * A footprint corner as one number: its coordinates in decimetres, the precision the city file
  * keeps, each offset to be positive and given 21 bits (±100 km).
@@ -447,7 +463,7 @@ export function addBuilding(
   const top = plan.eave;
   // Sheds get no windows, churches lancets: the window grid would make an office block of them.
   const windows = landmark?.windows ?? (b.kind === 'church' ? 'lancet' : b.kind !== 'shed');
-  const front = windows === 'lancet' ? LANCETS : b.kind === 'retail' ? SHOP_FRONT : 0;
+  const front = windows === 'lancet' ? LANCETS : shopFront(b) ? SHOP_FRONT : 0;
   const facade = windows ? top + front : 0;
   for (const r of [ring, ...holes]) addWalls(mesh, ink, r, top, wall, facade, walls, base);
   if (b.tower && !landmark) addTower(mesh, ink, ring, b.tower, wall, LANDMARK.spire);

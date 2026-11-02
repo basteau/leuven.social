@@ -11,6 +11,7 @@
  */
 
 import { pointInRing } from '../data/geometry.ts';
+import { HOUSE_PLATE_HEIGHT, STREET_PLATE_HEIGHT } from '../data/plates.ts';
 
 /** Where a slice of the atlas is (0–1 texture coordinates) and how wide it is in plate heights. */
 export interface Slice {
@@ -291,22 +292,55 @@ export function packCells(
 const FOOTPRINT_CELL = 32;
 const cellKey = (i: number, j: number) => (i + 32768) * 65536 + (j + 32768);
 
-/** Where a house stands, from its footprint, and the ground at a point (m). */
+/**
+ * A building's walls as they are drawn (src/scene/buildings.ts): the rings they stand on (a
+ * hipped roof's are simplified), where the house stands, its wall top above that, and whether its
+ * ground floor is a shop front.
+ */
+export interface Facade {
+  rings: readonly ArrayLike<number>[];
+  foot: number;
+  top: number;
+  shop: boolean;
+}
+
+/** The buildings' facades by their place in the list, and the ground at a point (m). */
 export interface Ground {
-  footing(ring: ArrayLike<number>): number;
+  facade(building: number): Facade;
   height(x: number, z: number): number;
 }
 
+/** Where a plate hangs, settled onto the wall it is on. */
+export interface Hang {
+  x: number;
+  z: number;
+  /** Which way the wall faces (radians from +x towards +z). */
+  angle: number;
+  /** The foot of the house and the top of its walls (m). */
+  foot: number;
+  top: number;
+  shop: boolean;
+}
+
+/** A plate's sides reach this far into its wall, so no seam opens between them. */
+const TUCK = 0.01;
+/** A drawn wall this far from where the bake hung a plate (m) is still its wall. */
+const SNAP = 1.5;
+/** ...and faces within about 40° of the way the bake said. */
+const FACING = 0.75;
+
 /**
- * Where the house a plate hangs on stands (`footing`, as the cells lift it), so a plate keeps its
- * height on the wall wherever the ground is: found from a point just behind the plate, inside
- * the footprint. Plates on no footprint hang over the ground at their point.
+ * Settles plates onto the walls as they are drawn: the bake hangs them on the surveyed footprint,
+ * a few centimetres proud and facing a 256th of a turn, but a hipped roof's walls stand on a
+ * simplified ring, and a slight turn opens a gap at the end of a long plate. The plate takes the
+ * drawn wall's own facing and stands just off it, its sides tucked into it.
  */
-export class Footings {
+export class Walls {
   readonly #rings: readonly ArrayLike<number>[];
   readonly #ground: Ground;
   readonly #cells = new Map<number, number[]>();
 
+  /** `rings`: each building's surveyed footprint, to find which one a plate is on. */
   constructor(rings: readonly ArrayLike<number>[], ground: Ground) {
     this.#rings = rings;
     this.#ground = ground;
@@ -327,14 +361,69 @@ export class Footings {
     }
   }
 
-  /** The foot of the wall a plate at (x, z), facing `angle`, hangs on. */
-  at(x: number, z: number, angle: number): number {
-    const [px, pz] = [x - Math.cos(angle) * 0.25, z - Math.sin(angle) * 0.25];
+  /**
+   * Where a plate `half` metres either side of (x, z), facing `angle`, hangs: on the drawn wall
+   * nearest it that faces about the same way, kept within that wall's ends where it fits. A plate
+   * on no house stays where it is, over the ground at its point.
+   */
+  hang(x: number, z: number, angle: number, half: number): Hang {
+    const [cx, cz] = [Math.cos(angle), Math.sin(angle)];
+    const [px, pz] = [x - cx * 0.25, z - cz * 0.25];
     const s = FOOTPRINT_CELL;
+    let building = -1;
     for (const b of this.#cells.get(cellKey(Math.floor(px / s), Math.floor(pz / s))) ?? []) {
-      const ring = this.#rings[b]!;
-      if (pointInRing(ring, px, pz)) return this.#ground.footing(ring);
+      if (pointInRing(this.#rings[b]!, px, pz)) building = b;
     }
-    return this.#ground.height(x, z);
+    // No house under it: as on a house of three storeys, over the ground at its point.
+    if (building < 0) return { x, z, angle, foot: this.#ground.height(x, z), top: 9, shop: false };
+    const facade = this.#ground.facade(building);
+    let best = { d: SNAP, x, z, angle };
+    for (const ring of facade.rings) {
+      const n = ring.length;
+      for (let i = 0; i < n; i += 2) {
+        const [ax, az] = [ring[i]!, ring[i + 1]!];
+        const [ex, ez] = [ring[(i + 2) % n]! - ax, ring[(i + 3) % n]! - az];
+        const length = Math.hypot(ex, ez);
+        if (length < 1e-3) continue;
+        const [ux, uz] = [ex / length, ez / length];
+        // Out of the building, for counter-clockwise rings (and clockwise courtyards).
+        const [nx, nz] = [uz, -ux];
+        if (nx * cx + nz * cz < FACING) continue;
+        const along = (x - ax) * ux + (z - az) * uz;
+        const t = Math.min(length, Math.max(0, along));
+        const d = Math.hypot(ax + ux * t - x, az + uz * t - z);
+        if (d >= best.d) continue;
+        const kept = length >= 2 * half ? Math.min(length - half, Math.max(half, along)) : t;
+        const out = PLATE_DEPTH - TUCK;
+        best = {
+          d,
+          x: ax + ux * kept + nx * out,
+          z: az + uz * kept + nz * out,
+          angle: Math.atan2(nz, nx),
+        };
+      }
+    }
+    return { x: best.x, z: best.z, angle: best.angle, ...facade };
   }
+}
+
+/** Space (m) between a plate and the openings or plate below it. */
+const GAP = 0.08;
+
+/**
+ * How high plates hang above a house's foot (their middles, m), in the band the facade shader
+ * leaves bare between the ground floor's openings and the first floor's sills
+ * (facade-material.ts): a house number just over the doors and windows (over the awning on a
+ * shop front), the way many Leuven numbers sit on the lintel, and a street name above it. So no
+ * plate covers a window, whatever the rhythm of its house. Both stay under the eaves.
+ */
+export function plateHeights(top: number, shop: boolean): { house: number; street: number } {
+  const storey = Math.min(4, Math.max(2.8, top / Math.max(1, Math.floor(top / 3.2 + 0.5))));
+  const lintel = (shop ? 0.92 : 0.8) * storey;
+  const sill = Math.min(1.32 * storey, top);
+  const [h, s] = [HOUSE_PLATE_HEIGHT / 2, STREET_PLATE_HEIGHT / 2];
+  const under = (half: number) => top - 0.25 - half;
+  const house = Math.min(lintel + GAP + h, under(h));
+  const street = Math.min(Math.max((lintel + sill) / 2, house + h + GAP + s), under(s));
+  return { house, street };
 }
