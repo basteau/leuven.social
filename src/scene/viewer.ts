@@ -252,6 +252,8 @@ const PROP_ZOOM = 2;
  */
 const TRAFFIC_NEAR = 250;
 const TRAFFIC_REACH = 1100;
+/** Frames a second the map draws while the traffic moves or the day passes (a little under). */
+const LIVE_FPS = 32;
 /** Time the idle builder may take per slice before handing the main thread back (ms). */
 const IDLE_SLICE_MS = 8;
 /** Time the first frame's cells may take to build before the page gets a turn (ms). */
@@ -1233,6 +1235,12 @@ export function createViewer(options: ViewerOptions): Viewer {
   function tickLive(now: number): void {
     liveFrame = 0;
     if (!alive()) return;
+    // On the map, every other frame is plenty for cars a few pixels long, and half the GPU time
+    // on a phone; walking draws every frame anyway.
+    if (!walk?.animating && now - liveLast < 1000 / LIVE_FPS) {
+      liveFrame = requestAnimationFrame(tickLive);
+      return;
+    }
     const dt = Math.min(0.1, Math.max(0, (now - liveLast) / 1000));
     liveLast = now;
     if (passing) {
