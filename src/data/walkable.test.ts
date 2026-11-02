@@ -91,9 +91,12 @@ describe('WalkGrid', () => {
     expect(bridged.walkable(103, 50)).toBe(true); // the bank
     expect(bridged.walkable(100.2, 70)).toBe(false); // the parapet
     expect(bridged.buildingHeight(100.2, 70)).toBe(2);
-    // A body on the deck keeps clear of the parapet like a wall.
-    expect(bridged.walkable(103, 70, 0.5)).toBe(true);
-    expect(bridged.walkable(101.3, 70, 0.6, -1, 0)).toBe(false);
+    // A body on the deck keeps clear of the parapet, as thick as it's drawn, like a wall.
+    const out: [number, number] = [0, 0];
+    expect(bridged.wallOverlap(103, 70, 0.45, out)).toBe(0);
+    expect(bridged.wallOverlap(100.5, 70, 0.45, out)).toBeCloseTo(0.2);
+    expect(out[0]).toBeCloseTo(1);
+    expect(bridged.closed(130, 70)).toBe(1);
   });
 
   test('a building closes the road under it and keeps its height', () => {
@@ -109,23 +112,47 @@ describe('WalkGrid', () => {
     expect(grid.walkable(65, 68)).toBe(true);
   });
 
-  test('clearance keeps a body off walls but not off the edge of a path', () => {
-    expect(grid.walkable(50, 45.2)).toBe(true);
-    expect(grid.walkable(50, 45.2, 0.5)).toBe(false);
-    expect(grid.walkable(50, 46.5, 0.5)).toBe(true);
-    expect(grid.walkable(20.6, 25, 0.5)).toBe(true);
-    expect(grid.walkable(30, 25, 0.5)).toBe(false);
+  test('a body meets walls as drawn: how far it reaches in, and the way out', () => {
+    const out: [number, number] = [0, 0];
+    // Half a metre from the house's west wall (x = 40), clear; nearer, in by the difference.
+    expect(grid.wallOverlap(39.5, 42, 0.45, out)).toBe(0);
+    expect(grid.wallOverlap(39.7, 42, 0.45, out)).toBeCloseTo(0.15);
+    expect(out[0]).toBeCloseTo(-1);
+    expect(out[1]).toBeCloseTo(0);
+    // Off its north-west corner (40, 45), out along the diagonal: the corner is a point.
+    expect(grid.wallOverlap(39.8, 45.2, 0.45, out)).toBeCloseTo(0.45 - Math.hypot(0.2, 0.2));
+    expect(out[0]).toBeCloseTo(-Math.SQRT1_2);
+    expect(out[1]).toBeCloseTo(Math.SQRT1_2);
+    // Inside, out through the nearest face, the front at z = 45.
+    expect(grid.wallOverlap(50, 44.5, 0.45, out)).toBeCloseTo(0.95);
+    expect(out[1]).toBeCloseTo(1);
+    // The tank too; the edge of the water is no wall.
+    expect(grid.wallOverlap(65, 69.8, 0.45, out)).toBeCloseTo(0.25);
+    expect(grid.wallOverlap(30, 25, 0.45, out)).toBe(0);
   });
 
-  test('given a move, only the sides it moves toward need room', () => {
-    // The cell centre at the house's west wall, as `nearest` hands out.
-    expect(grid.walkable(39.5, 42.5, 0.5)).toBe(false);
-    expect(grid.walkable(39.5, 42.5, 0.5, 0, 0.1)).toBe(true); // along the wall
-    expect(grid.walkable(39.5, 42.5, 0.5, -0.1, 0)).toBe(true); // away from it
-    expect(grid.walkable(39.5, 42.5, 0.5, 0.1, 0)).toBe(false); // into it
-    expect(grid.walkable(50.5, 45.4, 0.5, 0, -0.1)).toBe(false); // up to the house's front
+  test('in a lane between two houses, both walls push, and balance in the middle', () => {
+    const lane = new WalkGrid({
+      ...town,
+      buildings: [house(rect(40, 30, 60, 45)), house(rect(40, 46, 60, 60))],
+    });
+    const out: [number, number] = [0, 0];
+    expect(lane.wallOverlap(50, 45.5, 0.45, out)).toBe(0);
+    expect(lane.wallOverlap(50, 45.5, 0.6, out)).toBe(0); // squeezed equally
+    expect(lane.wallOverlap(50, 45.3, 0.45, out)).toBeCloseTo(0.15);
+    expect(out[1]).toBeCloseTo(1);
   });
 
+  test('the edge of closed ground blends between cell centres, as a nearly straight line', () => {
+    expect(grid.closed(30, 25)).toBe(1);
+    expect(grid.closed(15, 45)).toBe(0);
+    expect(grid.closed(20, 25)).toBe(0); // the path across the lake
+    expect(grid.closed(50, 42)).toBe(0); // a house is no water: it is met as a wall
+    expect(grid.closed(-5, 45)).toBe(1); // off the map
+    // The road's edge at z = 40: half way between the cell centres either side.
+    expect(grid.closed(100, 40)).toBeCloseTo(0.5);
+    expect(grid.closed(100, 39.75)).toBeCloseTo(0.75);
+  });
   test('nothing off the map is walkable, even where a path spills past its edge', () => {
     const spill = new WalkGrid({ ...town, area: [{ minX: 0, minZ: 0, maxX: 100, maxZ: 120 }] });
     expect(spill.walkable(99.5, 45)).toBe(true);

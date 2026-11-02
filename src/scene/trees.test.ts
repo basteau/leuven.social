@@ -4,7 +4,7 @@ import { MeshBuilder, unindexed } from './mesh-builder.ts';
 import { deltaE, toOklab } from '../data/colour.ts';
 import { trunkRadius } from '../data/trees.ts';
 import { TREE } from './palette.ts';
-import { MODEL_HEIGHT, TREE_TRIANGLES, addTree, crownColor, treeSolid } from './trees.ts';
+import { MODEL_HEIGHT, TREE_TRIANGLES, addTree, crownColor } from './trees.ts';
 
 test('a tree is a slim trunk and a low-poly crown, all facing outward', () => {
   const mesh = new MeshBuilder();
@@ -74,25 +74,5 @@ test('a trunk is never drawn wider than street furniture keeps clear of', () => 
         );
       }
     }
-  }
-});
-
-test('a tree as a solid sits inside the tree as drawn', () => {
-  for (const [seed, height] of [
-    [3, 0],
-    [11, 14],
-    [5, 22],
-  ] as const) {
-    const mesh = new MeshBuilder();
-    addTree(mesh, 0, 0, seed, height);
-    const g = mesh.build();
-    g.computeBoundingBox();
-    const b = g.boundingBox!;
-    const { trunk, crownY, crownWide, crownTall } = treeSolid(seed, height);
-    expect(trunk).toBeGreaterThan(0.2);
-    expect(crownY + crownTall).toBeLessThan(b.max.y);
-    expect(crownY + crownTall).toBeGreaterThan(b.max.y * 0.9);
-    expect(crownWide).toBeLessThan(Math.max(b.max.x, b.max.z));
-    expect(crownWide).toBeGreaterThan(Math.max(b.max.x, b.max.z) * 0.7);
   }
 });

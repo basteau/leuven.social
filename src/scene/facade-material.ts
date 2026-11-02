@@ -1,5 +1,5 @@
 import { Color, MeshToonMaterial } from 'three';
-import type { Texture } from 'three';
+import type { LineBasicMaterial, Texture } from 'three';
 
 import { SHOP_FRONT } from './buildings.ts';
 import { LANCETS } from './landmarks.ts';
@@ -16,6 +16,49 @@ const vec = (hex: number) => {
   return `vec3(${f(c.r)}, ${f(c.g)}, ${f(c.b)})`;
 };
 
+/** A 4×4 ordered dither: a threshold from 0 to 15/16 for each pixel of a block. */
+export const BAYER = `float bayer2(vec2 a) { a = mod(floor(a), 2.0); return fract(a.x / 2.0 + a.y * a.y * 0.75); }
+float bayer4(vec2 a) { return bayer2(0.5 * a) * 0.25 + bayer2(a); }`;
+
+/**
+ * How near the walking camera (m) the city dithers away; 0 on the map, where nothing does. One
+ * uniform for the city's materials, set by walk mode.
+ */
+export const nearFade = { value: 0 };
+
+const NEAR_FADE = `uniform float uNearFade;\n${BAYER}`;
+
+/**
+ * Drops the fragment at `world` in a dither the nearer it is to the camera, from `nearFade` in
+ * to about half that, where all of it is gone: whatever the walking camera backs into (a
+ * facade, a trunk, a crown, a lamp post) opens up rather than filling the screen, and a house
+ * it stands in shows none of its insides. Still no blending or sorting. `keep` spares the
+ * street underfoot.
+ */
+const nearDiscard = (world: string, keep: string) =>
+  `if (uNearFade > 0.0 && !(${keep}) &&
+    bayer4(gl_FragCoord.xy) >= smoothstep(0.45 * uNearFade, uNearFade, distance(${world}, cameraPosition))) discard;`;
+
+/** The city's ink lines dither away near the walking camera too, all but those on the ground. */
+export function fadeInkNearCamera(ink: LineBasicMaterial): void {
+  ink.onBeforeCompile = (shader) => {
+    shader.uniforms.uNearFade = nearFade;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vNearWorld;')
+      .replace(
+        '#include <project_vertex>',
+        '#include <project_vertex>\nvNearWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;',
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>\nvarying vec3 vNearWorld;\n${NEAR_FADE}`)
+      .replace(
+        '#include <clipping_planes_fragment>',
+        `#include <clipping_planes_fragment>\n${nearDiscard('vNearWorld', 'vNearWorld.y < 0.45')}`,
+      );
+  };
+  ink.customProgramCacheKey = () => 'ink-v1';
+}
+
 /**
  * The one material every cell draws with: toon shading plus detail from world position.
  * - Walls (`facade` > 0 holds the wall top, plus SHOP_FRONT over a shop front, LANCETS on a
@@ -28,6 +71,8 @@ const vec = (hex: number) => {
  * - Railway sleepers (codes from `SLEEPER_CODE`, rails.ts): a band of them along each track, from
  *   the distance along it, fading to their average tint when they get finer than a pixel.
  * - Shade everywhere keeps a richer version of its surface's own hue (lighting.ts).
+ * - While walking, whatever stands within a couple of metres of the camera dithers away
+ *   (`nearFade`), all but the street.
  * None of it costs a triangle.
  */
 export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
@@ -48,6 +93,7 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
     shader.uniforms.uGlass = { value: glass };
     shader.uniforms.uLit = { value: lit };
     shader.uniforms.uPixel = pixel;
+    shader.uniforms.uNearFade = nearFade;
     shader.vertexShader = linearVertexColors(shader.vertexShader)
       .replace(
         '#include <common>',
@@ -56,7 +102,8 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
         uniform float uPixel;
         varying float vFacade;
         varying vec3 vWorld;
-        varying vec2 vWallNormal;`,
+        varying vec2 vWallNormal;
+        varying float vUp;`,
       )
       .replace(
         '#include <begin_vertex>',
@@ -91,7 +138,8 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
         `#include <worldpos_vertex>
         vFacade = facade;
         vWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;
-        vWallNormal = normalize((modelMatrix * vec4(objectNormal, 0.0)).xz + 1e-5);`,
+        vWallNormal = normalize((modelMatrix * vec4(objectNormal, 0.0)).xz + 1e-5);
+        vUp = (modelMatrix * vec4(objectNormal, 0.0)).y;`,
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
@@ -102,6 +150,8 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
         varying float vFacade;
         varying vec3 vWorld;
         varying vec2 vWallNormal;
+        varying float vUp;
+        ${NEAR_FADE}
         // Sleepers: one per metre, wider apart than the real 0.6 m so a standard screen still
         // resolves them at the closest zoom.
         const float SLEEPER_PITCH = 1.0;
@@ -113,6 +163,11 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
           return mix(mix(hash2(i), hash2(i + vec2(1.0, 0.0)), u.x),
                      mix(hash2(i + vec2(0.0, 1.0)), hash2(i + vec2(1.0, 1.0)), u.x), u.y);
         }`,
+      )
+      .replace(
+        '#include <clipping_planes_fragment>',
+        `#include <clipping_planes_fragment>
+        ${nearDiscard('vWorld', 'vUp > 0.5 && vWorld.y < 0.45')}`,
       )
       .replace(
         '#include <color_fragment>',
@@ -212,7 +267,7 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
         #include <opaque_fragment>`,
       );
   };
-  material.customProgramCacheKey = () => 'facade-v4';
+  material.customProgramCacheKey = () => 'facade-v5';
   return material;
 }
 

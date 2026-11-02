@@ -33,7 +33,7 @@ import { partyWalls } from './buildings.ts';
 import type { PartyWalls } from './buildings.ts';
 import { buildCell, buildFurniture, partition } from './cells.ts';
 import type { Cell, DetailMarks } from './cells.ts';
-import { createFacadeMaterial, setPixelSize } from './facade-material.ts';
+import { createFacadeMaterial, fadeInkNearCamera, setPixelSize } from './facade-material.ts';
 import { LIGHT } from './lighting.ts';
 import { SLAB_DEPTH } from './ground.ts';
 import { LINE_LOD } from './paint.ts';
@@ -234,6 +234,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   // A mesh without a `facade` attribute (street furniture) reads 0: a plain surface.
   Object.assign(material, { defaultAttributeValues: { facade: [0] } });
   const ink = new LineBasicMaterial({ color: OUTLINE });
+  fadeInkNearCamera(ink);
 
   // Cells are built when they first come into view, and the rest while the page is idle, so
   // the first frame costs what the visible part of the city costs. The city is cut into them

@@ -24,10 +24,8 @@ import {
   CHASE_FOV,
   LOOK_HEIGHT,
   MAP_FOV,
-  SHORT_BOOM,
-  TreeObstacles,
   boomDirection,
-  boomReach,
+  boomPitch,
   chaseFov,
   clearPitch,
   createBoom,
@@ -41,22 +39,21 @@ import {
   mapYaw,
   recentre,
   recentreWeight,
-  settleFloor,
-  settleReach,
-  shoulderPitch,
   spanAt,
   steerYaw,
   stretchBoom,
   turnBoom,
   wheelKind,
+  wheelZoom,
   wrap,
+  zoomStop,
 } from './chase.ts';
 import type { Boom, Lens, Shot, Vec3 } from './chase.ts';
+import { nearFade } from './facade-material.ts';
 import { linearVertexColors } from './mesh-builder.ts';
 import { clock, decay, spring, springTo, ticks } from './motion.ts';
 import { SKY } from './palette.ts';
 import { passedVertices, routeMarker } from './route-marker.ts';
-import { treeSolid } from './trees.ts';
 import type { RouteMarker } from './route-marker.ts';
 import { STEP, WALK_SPEED, createWalker, followRoute, runBlend, stepWalker } from './walker.ts';
 import type { Walker } from './walker.ts';
@@ -81,8 +78,12 @@ const TAP_MS = 600;
 const FLIGHT = 1.4;
 /** The figure pops up over this long once the camera is close (s). */
 const APPEAR = 0.3;
-/** Half the figure's width (m): how close steering may bring its middle to a wall. */
-const BODY_RADIUS = 0.5;
+/**
+ * Within this distance of the camera (m) houses, trees and furniture dither away, all of them
+ * within about half of it: the camera keeps its distance however tight the street, so what it
+ * backs into opens up instead of filling the screen (facade-material.ts).
+ */
+const NEAR_FADE = 2.4;
 /**
  * Feet just above the squares, the highest ground layer, so the outline under the soles never
  * dips below the street (where the x-ray would show it).
@@ -180,7 +181,7 @@ export interface Walk {
   look(direction: number): void;
   /** Turns the view an eighth of the way round: -1 left, 1 right. */
   turn(direction: 1 | -1): void;
-  /** Brings the camera closer (factor above 1) or further. */
+  /** Brings the camera one zoom stop closer (factor above 1) or further. */
   zoom(factor: number): void;
   dispose(): void;
 }
@@ -213,19 +214,6 @@ function createSky(): Mesh {
   return sky;
 }
 
-/** The city's trees as the camera meets them (chase.ts), sized as they're drawn (trees.ts). */
-function treeObstacles(city: City): TreeObstacles {
-  const shapes = new Float32Array(city.trees.length * 3);
-  for (let i = 0; i < city.trees.length / 2; i++) {
-    const { trunk, crownY, crownWide, crownTall } = treeSolid(i, city.treeHeights[i] ?? 0);
-    shapes.set(
-      [city.trees[i * 2]!, city.trees[i * 2 + 1]!, trunk, crownY, crownWide, crownTall],
-      i * 6,
-    );
-  }
-  return new TreeObstacles(shapes);
-}
-
 export function createWalk(host: WalkHost): Walk {
   const { scene, camera, controls, canvas, reducedMotion } = host;
   let mode: WalkMode = 'map';
@@ -233,17 +221,10 @@ export function createWalk(host: WalkHost): Walk {
   // The walk grid is built the first time someone wants to walk, not with the map.
   let grid: WalkGrid | undefined;
   let router: Router | undefined;
-  /** Keys steer the figure's body clear of facades; routes keep their own distance. */
-  const walkable = (x: number, z: number, dx: number, dz: number) =>
-    grid!.walkable(x, z, BODY_RADIUS, dx, dz);
   const heightAt = (x: number, z: number) => grid!.buildingHeight(x, z);
-  // The camera keeps out of trees too: their trunks and crowns, filed once with the grid.
-  let trees: TreeObstacles | undefined;
-  const inTree = (x: number, y: number, z: number, from: Vec3) => trees!.solid(x, y, z, from);
   const ensureGrid = () => {
     grid ??= new WalkGrid(host.city);
     router ??= new Router(grid);
-    trees ??= treeObstacles(host.city);
     return grid;
   };
 
@@ -281,9 +262,6 @@ export function createWalk(host: WalkHost): Walk {
   const boom: Boom = createBoom(0);
   const lookAt: Vec3 = [0, 0, 0];
   const out: Vec3 = [0, 0, 0];
-  /** How far the boom reaches at a pitch, as far as a tight spot needs to know. */
-  const freeAt = (pitch: number) =>
-    boomReach(heightAt, lookAt, boom.yaw, pitch, SHORT_BOOM, inTree);
   const steerFrame = createSteerFrame();
   const followX = spring();
   const followZ = spring();
@@ -556,7 +534,7 @@ export function createWalk(host: WalkHost): Walk {
       turnBoom(boom, -event.deltaX * scale, event.deltaY * scale);
       lastLook = event.timeStamp;
     } else {
-      stretchBoom(boom, Math.exp(event.deltaY * (gesture === 'pinch' ? 0.01 : 0.0015)));
+      stretchBoom(boom, wheelZoom(event, gesture === 'pinch'));
     }
     wake();
   };
@@ -595,6 +573,7 @@ export function createWalk(host: WalkHost): Walk {
     host.useView(null);
     sky.visible = false;
     fog.near = 1e7;
+    nearFade.value = 0;
     fog.far = 1e7 + 1;
     if (walker) controls.target.set(walker.x, 0, walker.z);
     walker = undefined;
@@ -637,7 +616,8 @@ export function createWalk(host: WalkHost): Walk {
             walker.phase,
           ];
           const routed = walker.route !== null;
-          moving = stepWalker(walker, STEP, sx, sz, walkable, running || stick.run);
+          // Keys steer the body clear of facades; routes keep their own distance.
+          moving = stepWalker(walker, STEP, sx, sz, grid!, running || stick.run);
           sounds.stride(walker.phase, walker.speed, runBlend(walker.speed));
           // A route let go of without steering is a route walked to its end.
           if (routed && !walker.route && !sx && !sz) sounds.routeEnd();
@@ -713,20 +693,6 @@ export function createWalk(host: WalkHost): Walk {
       // Eased every frame: `busy ||= easeBoom(…)` would skip it whenever something else moved.
       const easing = easeBoom(boom, sprint, dt);
       busy ||= easing;
-
-      // In a tight spot the boom rises to look over the walker's shoulder rather than close in
-      // on its head; then it shortens for walls and trees: quickly, before a corner cuts the view.
-      const rise = shoulderPitch(freeAt, boom.pitch);
-      boom.floor = reducedMotion ? rise : settleFloor(boom.floor, rise, dt);
-      busy ||= Math.abs(boom.floor - rise) > 1e-3;
-      const pitch = Math.max(boom.pitch, boom.floor);
-      const want = boomReach(heightAt, lookAt, boom.yaw, pitch, boom.length, inTree);
-      boomDirection(boom.yaw, pitch, out);
-      const r = boom.reach;
-      const [cx, cy, cz] = [lookAt[0] + out[0] * r, lookAt[1] + out[1] * r, lookAt[2] + out[2] * r];
-      const inside = cy < heightAt(cx, cz) + 0.2 || inTree(cx, cy, cz, lookAt);
-      boom.reach = reducedMotion ? want : settleReach(r, want, dt, inside);
-      busy ||= Math.abs(boom.reach - want) > 0.01;
       controls.target.set(walker.x, 0, walker.z);
 
       if (flying) {
@@ -754,9 +720,9 @@ export function createWalk(host: WalkHost): Walk {
   function placeView(dt = 0): void {
     const fov = chaseFov(canvas.clientWidth / Math.max(1, canvas.clientHeight), sprint);
     chaseShot.yaw = boom.yaw;
-    chaseShot.pitch = Math.max(boom.pitch, boom.floor);
+    chaseShot.pitch = boomPitch(boom.pitch, boom.length);
     chaseShot.fov = fov;
-    chaseShot.span = spanAt(boom.reach, fov);
+    chaseShot.span = spanAt(boom.length, fov);
     flight(mapShot, chaseShot, flown, lens);
     if (flown < 1) {
       // Over the roofs, not through them: rise at once for one in the way, sink back gently.
@@ -794,8 +760,10 @@ export function createWalk(host: WalkHost): Walk {
     view.lookAt(lens.look[0], lens.look[1], lens.look[2]);
     // High up the flight there is no haze, and the whole map is in reach. Haze, sky and far
     // plane keep their order all the way: the haze ends inside the sky, the sky inside the far.
-    // The walker is the nearest thing worth keeping in view, wherever the camera was pulled to.
+    // The walker is the nearest thing worth keeping in view, wherever the flight put the camera;
+    // anything nearer than NEAR_FADE dithers away.
     const eye = view.position;
+    nearFade.value = NEAR_FADE;
     const near = Math.min(d, Math.hypot(eye.x - lookAt[0], eye.y - lookAt[1], eye.z - lookAt[2]));
     const high = (1 - flown) * 4000;
     view.fov = lens.fov;
@@ -896,7 +864,7 @@ export function createWalk(host: WalkHost): Walk {
       wake();
     },
     zoom(factor) {
-      stretchBoom(boom, 1 / factor);
+      boom.distance = zoomStop(boom.distance, factor > 1);
       wake();
     },
     dispose() {
