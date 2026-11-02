@@ -373,7 +373,12 @@ export function createWalk(host: WalkHost): Walk {
   /** Where a click at client coordinates lands on walkable ground, or null. */
   const raycaster = new Raycaster();
   const ndc = new Vector2();
-  function spotAt(clientX: number, clientY: number, reach: number): [number, number] | null {
+  function spotAt(
+    clientX: number,
+    clientY: number,
+    reach: number,
+    street = false,
+  ): [number, number] | null {
     const rect = canvas.getBoundingClientRect();
     ndc.set(
       ((clientX - rect.left) / rect.width) * 2 - 1,
@@ -386,6 +391,7 @@ export function createWalk(host: WalkHost): Walk {
       [origin.x, origin.y, origin.z],
       [direction.x, direction.y, direction.z],
       reach,
+      street,
     );
   }
 
@@ -411,7 +417,9 @@ export function createWalk(host: WalkHost): Walk {
   }
 
   function onClick(clientX: number, clientY: number): void {
-    const spot = spotAt(clientX, clientY, mode === 'pick' ? START_REACH : CLICK_REACH);
+    // A walk starts on a street; once on foot, any open ground is a place to go.
+    const picking = mode === 'pick';
+    const spot = spotAt(clientX, clientY, picking ? START_REACH : CLICK_REACH, picking);
     if (!spot) host.onBlocked?.();
     else if (mode === 'pick') start(...spot);
     else walkTo(...spot);
@@ -838,7 +846,12 @@ export function createWalk(host: WalkHost): Walk {
     startAtCentre() {
       if (mode === 'map') mapZoomBefore = camera.zoom;
       const rect = canvas.getBoundingClientRect();
-      const spot = spotAt(rect.left + rect.width / 2, rect.top + rect.height / 2, START_REACH);
+      const spot = spotAt(
+        rect.left + rect.width / 2,
+        rect.top + rect.height / 2,
+        START_REACH,
+        true,
+      );
       if (spot) start(...spot);
       else host.onBlocked?.();
     },

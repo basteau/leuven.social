@@ -1,7 +1,22 @@
 import { describe, expect, test } from 'bun:test';
 
-import type { City } from './city.ts';
+import type { Building, City } from './city.ts';
 import { town } from './walkable.fixture.ts';
+
+const rect = (x0: number, z0: number, x1: number, z1: number) =>
+  Float32Array.of(x0, z0, x1, z0, x1, z1, x0, z1);
+
+const house = (ring: Float32Array): Building => ({
+  id: 2,
+  tier: 'core',
+  kind: 'house',
+  roof: 'flat',
+  height: 10,
+  eave: 10,
+  roofColor: null,
+  ring,
+  holes: [],
+});
 import { WalkGrid, pickWalkable } from './walkable.ts';
 
 describe('WalkGrid', () => {
@@ -41,6 +56,25 @@ describe('WalkGrid', () => {
     expect(dry.walkable(120, 90)).toBe(true);
     expect(dry.walkable(50, 42)).toBe(false); // still not through the house
     expect(dry.walkable(65, 74)).toBe(false); // nor the tank
+  });
+
+  test('a walk starts on a street, never in a garden walled in by houses', () => {
+    // On dry ground, a yard north of the street closed in on all four sides by houses.
+    const walls = [rect(100, 10, 130, 14), rect(100, 26, 130, 30), rect(100, 14, 104, 26)];
+    const yard = new WalkGrid({
+      ...town,
+      water: [],
+      buildings: [...town.buildings, ...walls.map((ring): Building => house(ring))],
+      tanks: [...town.tanks, { height: 6, ring: rect(126, 14, 130, 26) }],
+    });
+    expect(yard.walkable(115, 20)).toBe(true); // open ground, once you're there
+    expect(yard.street(yard.cellAt(115, 20))).toBe(false);
+    expect(yard.street(yard.cellAt(115, 45))).toBe(true);
+    expect(yard.nearest(115, 20, 3)).toEqual([115.5, 20.5]);
+    // Picking a start in the yard finds the street south of the houses instead.
+    expect(yard.nearest(115, 20, 30, true)).toEqual([115.5, 40.5]);
+    expect(pickWalkable(yard, [115, 300, 20], [0, -1, 0], 30, true)).toEqual([115.5, 40.5]);
+    expect(yard.nearest(115, 20, 5, true)).toBeNull();
   });
 
   test('a bridge deck crosses the water, and its parapets keep you on it', () => {

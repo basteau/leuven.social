@@ -18,9 +18,15 @@ const TILE = 64;
 /** Narrow paths still get a ribbon at least this wide, so diagonal ones never break apart. */
 const MIN_HALF_WIDTH = 0.75;
 
-/** A cell's value: closed ground, walkable, or a building or tank (its height in metres + 1). */
+/**
+ * A cell's value: closed ground, open ground, a street (a road, square, path or bridge deck), or
+ * a building, tank or parapet (its height in metres + 3). Walks start on a street: dry ground
+ * behind a block can be a garden walled in by houses, with no way out.
+ */
 const CLOSED = 0;
 const OPEN = 1;
+const STREET = 2;
+const SOLID = 3;
 /** A parapet's height (m), and the half width it closes so a diagonal one leaves no gap. */
 const PARAPET_HEIGHT = 1.1;
 const PARAPET_HALF = 0.75;
@@ -43,7 +49,7 @@ interface Ribbon {
   value: number;
 }
 
-const heightCode = (height: number) => Math.min(254, Math.ceil(height)) + 1;
+const heightCode = (height: number) => Math.min(255 - SOLID, Math.ceil(height)) + SOLID;
 
 const ringBox = (ring: ArrayLike<number>, pad = 0): Bounds => {
   let [minX, minZ, maxX, maxZ] = [Infinity, Infinity, -Infinity, -Infinity];
@@ -88,11 +94,11 @@ export class WalkGrid {
       each(ringBox(ring), (t) => this.#shapes[t]!.push({ ring, value: CLOSED }));
     }
     for (const ring of [...city.roads, ...city.plazas, ...(city.bridges ?? [])]) {
-      each(ringBox(ring), (t) => this.#shapes[t]!.push({ ring, value: OPEN }));
+      each(ringBox(ring), (t) => this.#shapes[t]!.push({ ring, value: STREET }));
     }
     for (const { line, width } of city.paths) {
       const half = Math.max(width / 2, MIN_HALF_WIDTH);
-      each(ringBox(line, half), (t) => this.#ribbons[t]!.push({ line, half, value: OPEN }));
+      each(ringBox(line, half), (t) => this.#ribbons[t]!.push({ line, half, value: STREET }));
     }
     // Tanks and silos are as solid as buildings, and as tall.
     for (const { ring, height } of [...city.buildings, ...city.tanks]) {
@@ -143,7 +149,13 @@ export class WalkGrid {
   }
 
   open(cell: number): boolean {
-    return this.value(cell) === OPEN;
+    const v = this.value(cell);
+    return v === OPEN || v === STREET;
+  }
+
+  /** Whether a cell is a road, square, path or bridge deck: somewhere a walk can start. */
+  street(cell: number): boolean {
+    return this.value(cell) === STREET;
   }
 
   /**
@@ -168,19 +180,23 @@ export class WalkGrid {
   /** Roof height of the building over (x, z), or 0 where there is none. */
   buildingHeight(x: number, z: number): number {
     const v = this.value(this.cellAt(x, z));
-    return v > OPEN ? v - 1 : 0;
+    return v >= SOLID ? v - SOLID : 0;
   }
 
-  /** The walkable cell centre nearest (x, z) within `radius` metres, or null. */
-  nearest(x: number, z: number, radius: number): [number, number] | null {
-    if (this.walkable(x, z)) return this.centre(this.cellAt(x, z));
+  /**
+   * The walkable cell centre nearest (x, z) within `radius` metres, or null; with `street`, the
+   * nearest street cell, so a walk never starts in a garden walled in by houses.
+   */
+  nearest(x: number, z: number, radius: number, street = false): [number, number] | null {
+    const ok = (cell: number) => (street ? this.street(cell) : this.open(cell));
+    if (ok(this.cellAt(x, z))) return this.centre(this.cellAt(x, z));
     let best: [number, number] | null = null;
     let bestDistance = radius;
     const steps = Math.ceil(radius / WALK_CELL);
     for (let dz = -steps; dz <= steps; dz++) {
       for (let dx = -steps; dx <= steps; dx++) {
         const cell = this.cellAt(x + dx * WALK_CELL, z + dz * WALK_CELL);
-        if (!this.open(cell)) continue;
+        if (!ok(cell)) continue;
         const [cx, cz] = this.centre(cell);
         const d = Math.hypot(cx - x, cz - z);
         if (d <= bestDistance) [best, bestDistance] = [[cx, cz], d];
@@ -200,15 +216,16 @@ export class WalkGrid {
     // The ground is open; water and railway close it, surfaces and paths open it again, then
     // buildings, tanks and parapets stand on it.
     tile.fill(OPEN);
-    for (const s of shapes) if (s.value <= OPEN) this.#fillRing(tile, s, x0, z0);
-    for (const r of ribbons) if (r.value <= OPEN) this.#fillRibbon(tile, r, x0, z0);
-    for (const s of shapes) if (s.value > OPEN) this.#fillRing(tile, s, x0, z0);
-    for (const r of ribbons) if (r.value > OPEN) this.#fillRibbon(tile, r, x0, z0);
+    for (const s of shapes) if (s.value < SOLID) this.#fillRing(tile, s, x0, z0);
+    for (const r of ribbons) if (r.value < SOLID) this.#fillRibbon(tile, r, x0, z0);
+    for (const s of shapes) if (s.value >= SOLID) this.#fillRing(tile, s, x0, z0);
+    for (const r of ribbons) if (r.value >= SOLID) this.#fillRibbon(tile, r, x0, z0);
     // Paths can spill a little past the map's edge: nothing off the slab is walkable.
     for (let r = 0; r < TILE; r++) {
       const z = z0 + (r + 0.5) * WALK_CELL;
       for (let c = 0; c < TILE; c++) {
-        if (tile[r * TILE + c] !== OPEN) continue;
+        const v = tile[r * TILE + c];
+        if (v !== OPEN && v !== STREET) continue;
         if (areaIndex(this.#area, x0 + (c + 0.5) * WALK_CELL, z) < 0) tile[r * TILE + c] = CLOSED;
       }
     }
@@ -274,13 +291,15 @@ const PICK_STEP = 0.5;
  * Where a click lands, for walking there: follows the view ray from above the rooftops down
  * to the first building it meets or the ground. A click on a building means the street in
  * front of it, on the side the camera sees. Returns the nearest walkable spot within `radius`
- * metres, or null. `origin` is any point on the ray and `dir` points into the scene.
+ * metres (with `street`, the nearest street), or null. `origin` is any point on the ray and
+ * `dir` points into the scene.
  */
 export function pickWalkable(
   grid: WalkGrid,
   origin: readonly [number, number, number],
   dir: readonly [number, number, number],
   radius: number,
+  street = false,
 ): [number, number] | null {
   const [ox, oy, oz] = origin;
   const [dx, dy, dz] = dir;
@@ -304,5 +323,5 @@ export function pickWalkable(
     }
     break;
   }
-  return grid.nearest(x, z, radius);
+  return grid.nearest(x, z, radius, street);
 }
