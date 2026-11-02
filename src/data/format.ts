@@ -65,7 +65,8 @@ import type { Field } from './pitches.ts';
 
 const MAGIC = 'LVN1';
 // v16: a byte per bike rack, its fill (`Prop.fill`). Bump the cache in public/sw.js with it.
-const VERSION = 16;
+// v17: pitch surfaces and the fields painted on them, after the polygon layers.
+const VERSION = 17;
 const DM = 10; // units per metre
 const GROUND = 20; // terrain heights per metre: 5 cm
 const ZIGZAG = { encoding: 'zigzag' } as const;
