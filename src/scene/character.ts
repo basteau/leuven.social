@@ -7,9 +7,9 @@ import { OUTLINE, WALKER } from './palette.ts';
 import { IDLE_SECONDS, STRIDE_RUN, STRIDE_WALK, runBlend } from './walker.ts';
 
 /**
- * The walker: a Leuven student of chunky, bevelled blocks on a fifteen-bone skeleton (knees,
- * elbows and ankles, so they can run and keep their soles flat, and a bone for the scarf's
- * tail), readable from the chase camera. Its ink outline is an inverted hull in the same
+ * The walker: a Leuven student in a shirt and shorts, a few chunky blocks on a fourteen-bone
+ * skeleton (knees, elbows and ankles, so they can run and keep their soles flat), readable from
+ * the chase camera. Its ink outline is an inverted hull in the same
  * geometry (each part again, a little larger and facing inward, so only its far side shows round
  * the silhouette), which keeps the whole figure, shadow included, to one draw call.
  */
@@ -34,7 +34,6 @@ export const BONES = [
   'shinR',
   'footL',
   'footR',
-  'scarf',
 ] as const;
 export type BoneName = (typeof BONES)[number];
 
@@ -71,8 +70,6 @@ const JOINTS: Record<BoneName, readonly [BoneName | '', number, number, number]>
   shinR: ['legR', 0, -THIGH, 0],
   footL: ['shinL', 0, -SHIN, 0],
   footR: ['shinR', 0, -SHIN, 0],
-  // The scarf's tail hangs from behind the neck.
-  scarf: ['torso', 0.075, 0.58, -0.165],
 };
 
 /** A closed loop of corners, all in one plane: a cross-section of a part. */
@@ -95,12 +92,11 @@ interface Solid {
   open?: readonly [boolean, boolean];
 }
 
-/** The walker's colours that vary from one device to the next; the coat stays accent blue. */
+/** The walker's clothes and hair. */
 export interface Outfit {
-  scarf: number;
-  bag: number;
+  shirt: number;
+  shorts: number;
   hair: number;
-  trousers: number;
 }
 
 /**
@@ -239,24 +235,26 @@ const NO_HULL = { hull: false } as const;
 
 export function figure(outfit: Outfit): Solid[] {
   const leg = [
-    part('legL', outfit.trousers, [
-      level(0.47, 0.035, 0.165, -0.07, 0.07),
-      level(0.84, 0.02, 0.18, -0.085, 0.085),
+    // Shorts to the knee, a little loose at the hem.
+    part('legL', outfit.shorts, [
+      level(0.5, 0.012, 0.188, -0.09, 0.09),
+      level(0.86, 0.02, 0.18, -0.085, 0.085),
     ]),
-    // The knee: a block round the joint that turns with the shin, so a bent leg stays one
-    // piece instead of two boxes opening a notch.
-    part('shinL', outfit.trousers, box([0.03, 0.39, -0.08], [0.17, 0.51, 0.08])),
-    part('shinL', outfit.trousers, box([0.04, 0.12, -0.065], [0.16, 0.42, 0.065])),
-    // The shoe: an upper that slopes down to the toe, a pale toe cap and a sole, under one hull
-    // that springs up at the toe as the sole does.
+    // A bare shin, its top round the knee inside the shorts, so a bent leg stays one piece.
+    part('shinL', WALKER.skin, [
+      level(0.13, 0.05, 0.15, -0.055, 0.055),
+      level(0.53, 0.03, 0.17, -0.072, 0.072),
+    ]),
+    // A sneaker that slopes down to the toe, springing up from the ball of the foot.
     part(
       'footL',
-      WALKER.shoes,
+      WALKER.sneakers,
       profile(
         [
-          [-0.1, 0.03],
-          [0.17, 0.03],
-          [0.15, 0.1],
+          [-0.1, 0],
+          [0.12, 0],
+          [0.175, 0.035],
+          [0.165, 0.095],
           [-0.09, 0.155],
         ],
         0.025,
@@ -276,48 +274,33 @@ export function figure(outfit: Outfit): Solid[] {
         ),
       },
     ),
-    part('footL', WALKER.sole, box([0.02, 0.04, 0.12], [0.18, 0.1, 0.2]), NO_HULL),
-    part('footL', WALKER.sole, box([0.02, 0, -0.105], [0.18, 0.035, 0.12]), NO_HULL),
   ];
   const arm = [
-    part('armL', WALKER.coat, [
-      level(1.07, 0.22, 0.33, -0.065, 0.065),
-      level(1.37, 0.215, 0.335, -0.075, 0.075),
+    // A short, loose sleeve, then a bare forearm and hand.
+    part('armL', outfit.shirt, [
+      level(1.12, 0.205, 0.345, -0.085, 0.085),
+      level(1.38, 0.21, 0.335, -0.08, 0.08),
     ]),
-    part('foreL', WALKER.coat, box([0.225, 0.86, -0.062], [0.325, 1.1, 0.062])),
-    // A mitten, knitted to match the scarf, with its thumb forward.
-    part('foreL', outfit.scarf, box([0.228, 0.73, -0.064], [0.322, 0.87, 0.07])),
-    part('foreL', outfit.scarf, box([0.245, 0.79, 0.06], [0.3, 0.85, 0.105]), NO_HULL),
+    part('foreL', WALKER.skin, [
+      level(0.74, 0.232, 0.318, -0.06, 0.06),
+      level(1.13, 0.24, 0.31, -0.05, 0.05),
+    ]),
   ];
-  const strap = part('torso', outfit.bag, box([0.075, 0.98, 0.12], [0.125, 1.37, 0.155]), NO_HULL);
   return [
     ...leg,
     ...leg.map(mirror),
-    // The coat: broad at the shoulders, in at the waist, its hem flaring out over the hips.
+    // The seat of the shorts, under the shirt's hem.
+    part('hips', outfit.shorts, box([-0.2, 0.68, -0.125], [0.2, 0.86, 0.125]), {
+      open: [false, true],
+    }),
+    // The shirt, worn loose: broad at the shoulders, straight down to a hem over the shorts.
     part(
       'torso',
-      WALKER.coat,
-      [
-        across(0.6, 0.25, -0.17, 0.17, 0.07),
-        across(0.88, 0.2, -0.13, 0.13, 0.05),
-        across(1.38, 0.24, -0.14, 0.14, 0.08),
-      ],
+      outfit.shirt,
+      [across(0.78, 0.225, -0.15, 0.15, 0.06), across(1.38, 0.24, -0.14, 0.14, 0.08)],
       { open: [true, false] },
     ),
-    strap,
-    mirror(strap),
-    part('torso', outfit.bag, box([-0.16, 0.9, -0.27], [0.16, 1.26, -0.13])),
-    part(
-      'torso',
-      outfit.scarf,
-      [across(1.3, 0.19, -0.155, 0.15, 0.06), across(1.45, 0.18, -0.145, 0.14, 0.06)],
-      {
-        open: [true, false],
-      },
-    ),
-    // The scarf's tail, down the back to the top of the bag, on a bone of its own.
-    part('scarf', outfit.scarf, box([0.02, 1.15, -0.19], [0.13, 1.4, -0.14])),
-    part('torso', WALKER.skin, box([-0.07, 1.42, -0.065], [0.07, 1.53, 0.065]), {
+    part('torso', WALKER.skin, box([-0.07, 1.34, -0.065], [0.07, 1.53, 0.065]), {
       ...NO_HULL,
       open: [true, true],
     }),
@@ -368,6 +351,15 @@ export function characterGeometry(outfit: Outfit = WALKER): BufferGeometry {
       addSolid(mesh, solid, grown(solid.hull ?? solid.rings, OUTLINE_WIDTH), true);
     }
   }
+  // The open collar: a V of skin down the front of the shirt.
+  mesh.triangle(
+    [-0.075, 1.38, 0.142],
+    [0, 1.25, 0.142],
+    [0.075, 1.38, 0.142],
+    WALKER.skin,
+    [0, 0, 1],
+    BONES.indexOf('torso'),
+  );
   // Eyes: dots on the face, too small for an outline.
   for (const x of [0.055, -0.11]) {
     const [a, b]: [V3, V3] = [
@@ -482,14 +474,10 @@ export interface Pose {
   /** Head nod and turn. */
   nod: number;
   look: number;
-  /** The scarf's tail, swung back from hanging straight down (radians). */
-  scarf: number;
 }
 
 /** How far out from the body the arms hang (radians). */
 const ARM_SPREAD = 0.07;
-/** The scarf's tail lies back over the top of the bag at rest (radians). */
-const SCARF_REST = 0.25;
 /** Elbows hang a little bent, as arms do. */
 const REST_ELBOW = -0.12;
 /** The furthest the head turns toward where the camera looks (radians). */
@@ -677,10 +665,6 @@ export function poseAt(
   out.twist = (0.16 - 0.1 * run) * step * swing;
   out.bank = Math.max(-0.3, Math.min(0.3, -0.03 * turning * speed));
   out.nod = -0.6 * out.lean;
-  // The scarf's tail hangs plumb, streams back with speed, kicks back as the walker sets off
-  // and forward as it stops.
-  const trail = Math.min(0.9, speed / 9);
-  out.scarf = SCARF_REST + trail + 0.35 * surge - out.lean;
   out.look = Math.max(-LOOK_LIMIT, Math.min(LOOK_LIMIT, look));
   if (idle && speed === 0 && still < IDLE_SECONDS) {
     const u = still / IDLE_SECONDS;
@@ -711,10 +695,9 @@ export function applyPose({ bones }: Character, pose: Pose): void {
   bones.shinR.rotation.x = pose.kneeR;
   bones.footL.rotation.x = pose.footL;
   bones.footR.rotation.x = pose.footR;
-  // The arms hang a little out from the body, so the mittens clear the coat's hem.
+  // The arms hang a little out from the body, so the hands clear the shirt's hem.
   bones.armL.rotation.set(pose.armL, 0, ARM_SPREAD);
   bones.armR.rotation.set(pose.armR, 0, -ARM_SPREAD);
-  bones.scarf.rotation.x = pose.scarf;
   bones.foreL.rotation.x = pose.elbowL;
   bones.foreR.rotation.x = pose.elbowR;
 }
