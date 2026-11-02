@@ -42,10 +42,13 @@ const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[
     gzip: true,
   },
   // The plates on the facades load after walk mode, in a chunk and a data file of their own.
+  // 6: the shops' name boards (fitting a name to its front, its paint at 4.5:1, hanging it on
+  // the awning's valance or the fascia, and the shader that paints under the letters) took the
+  // chunk from 4.6 to 5.6 KB.
   {
     label: 'Facade plates JS (on first walk)',
     pattern: 'assets/plates-*.js',
-    limit: 5 * KB,
+    limit: 6 * KB,
     gzip: true,
   },
   // Street furniture, monuments and the shop fronts' awnings, signs and terraces load once the
@@ -57,7 +60,8 @@ const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[
     limit: 6 * KB,
     gzip: true,
   },
-  // About 11k house numbers and 1.3k street plates are 64 KB; room for the map to grow by half.
+  // About 11.6k house numbers and 1.8k street plates are 67 KB, and 1.1k shop name boards 17 KB
+  // more; room for the map to grow.
   { label: 'Plates data (already gzipped)', pattern: 'data/walk.bin', limit: 96 * KB, gzip: false },
   // What the first visit downloads: the shell and the engine, not the chunks loaded later.
   // 252: land use from relations, data-chosen monuments and hold-to-turn together passed 250.

@@ -1,8 +1,8 @@
 /**
- * The geometry of the enamel plates on the facades (house numbers and street names): one mesh
- * for every plate near the walker, each a face mapped onto a shared glyph atlas plus the thin
- * sides that make it stand off its wall. Pure, so it is tested; plates.ts draws the atlas and
- * owns the three.js objects.
+ * The geometry of the enamel plates on the facades (house numbers and street names) and the
+ * shops' name boards: one mesh for every plate near the walker, each a face mapped onto a shared
+ * glyph atlas plus the thin sides that make it stand off its wall. Pure, so it is tested;
+ * plates.ts draws the atlas and owns the three.js objects.
  *
  * A plate's face is a row of slices of the atlas, left to right: a rounded left cap, blank
  * enamel to pad it to its least width, a slice per letter, blank again, a rounded right cap. Every
@@ -57,9 +57,16 @@ export class PlateBuffers {
   positions: Float32Array<ArrayBuffer> = new Float32Array(0);
   normals: Float32Array<ArrayBuffer> = new Float32Array(0);
   uvs: Float32Array<ArrayBuffer> = new Float32Array(0);
+  /**
+   * Linear RGB under the atlas: a name board's paint shows where its cells are clear. A plate's
+   * cells are opaque, so what it carries there doesn't show.
+   */
+  colors: Float32Array<ArrayBuffer> = new Float32Array(0);
   indices: Uint32Array<ArrayBuffer> = new Uint32Array(0);
   vertices = 0;
   count = 0;
+  /** The colour the next vertices carry. */
+  tint: readonly [number, number, number] = [0, 0, 0];
 
   reset(): void {
     this.vertices = 0;
@@ -74,6 +81,7 @@ export class PlateBuffers {
       this.positions = grow(this.positions, size * 3);
       this.normals = grow(this.normals, size * 3);
       this.uvs = grow(this.uvs, size * 2);
+      this.colors = grow(this.colors, size * 3);
     }
     const i = this.count + indices;
     if (i > this.indices.length) {
@@ -103,6 +111,7 @@ export class PlateBuffers {
     q[n * 3 + 2] = nz;
     t[n * 2] = u;
     t[n * 2 + 1] = v;
+    this.colors.set(this.tint, n * 3);
     return n;
   }
 
@@ -125,6 +134,69 @@ export function plateWidth(text: string, style: PlateStyle): number {
   let letters = 0;
   for (const ch of text) letters += style.glyphs.get(ch)?.width ?? 0;
   return Math.max(style.minWidth, style.left.width + letters + style.right.width);
+}
+
+/**
+ * The text a name board `width` metres wide shows, and how tall the board is: as tall as `high`
+ * while the name fits, shorter (down to `low`) for a long one, and below that the name is cut
+ * further, ending in an ellipsis. Null when not even one letter fits.
+ */
+export function fitBoard(
+  text: string,
+  style: PlateStyle,
+  width: number,
+  low: number,
+  high: number,
+): { text: string; height: number } | null {
+  let chars = [...text];
+  for (;;) {
+    const shown = chars.join('');
+    const height = Math.min(high, width / plateWidth(shown, { ...style, minWidth: 0 }));
+    if (height >= low) return { text: shown, height };
+    const kept = chars.at(-1) === ELLIPSIS ? chars.slice(0, -2) : chars.slice(0, -1);
+    while (kept.at(-1) === ' ') kept.pop();
+    if (kept.length === 0) return null;
+    chars = [...kept, ELLIPSIS];
+  }
+}
+const ELLIPSIS = '…';
+
+/**
+ * An sRGB colour as linear light, and a channel back: colour.ts's `linear` and `gamma`, kept
+ * here so this chunk takes nothing more from the palette's, which every first visit loads.
+ */
+export const linearRgb = (hex: number): [number, number, number] =>
+  [(hex >> 16) & 255, (hex >> 8) & 255, hex & 255].map((c) => {
+    const u = c / 255;
+    return u <= 0.04045 ? u / 12.92 : ((u + 0.055) / 1.055) ** 2.4;
+  }) as [number, number, number];
+const toByte = (u: number) =>
+  Math.round(255 * Math.min(1, u <= 0.0031308 ? u * 12.92 : 1.055 * u ** (1 / 2.4) - 0.055));
+
+/** WCAG's relative luminance of an sRGB colour. */
+const luminance = (hex: number) => {
+  const [r, g, b] = linearRgb(hex);
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+
+/** WCAG's contrast ratio between two sRGB colours, 1 to 21. */
+export function contrast(a: number, b: number): number {
+  const [x, y] = [luminance(a), luminance(b)];
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+}
+
+/**
+ * A name board's paint: the darker of its kind's canvas and stripe (`FRONTS`), deepened by
+ * lightness alone (its linear light scaled, so its hue stays) until `paper` letters on it reach
+ * 4.5:1. A dark canvas stays as it is.
+ */
+export function boardColour(front: { canvas: number; stripe?: number }, paper: number): number {
+  const { canvas, stripe = canvas } = front;
+  const base = luminance(stripe) < luminance(canvas) ? stripe : canvas;
+  // 4.6, so rounding to whole channels keeps it over 4.5.
+  const k = Math.min(1, ((luminance(paper) + 0.05) / 4.6 - 0.05) / luminance(base));
+  const [r, g, b] = linearRgb(base).map((u) => toByte(u * k));
+  return (r! << 16) | (g! << 8) | b!;
 }
 
 /**
@@ -410,6 +482,11 @@ export class Walls {
 
 /** Space (m) between a plate and the openings or plate below it. */
 const GAP = 0.08;
+/**
+ * How far a shop's awning reaches out from its wall (m), as storefronts.ts draws it: a name board
+ * on it hangs just in front of its valance.
+ */
+export const AWNING_REACH = 1;
 
 /**
  * How high plates hang above a house's foot (their middles, m), in the band the facade shader
@@ -417,15 +494,22 @@ const GAP = 0.08;
  * (facade-material.ts): a house number just over the doors and windows (over the awning on a
  * shop front, where storefronts.ts hangs it), the way many Leuven numbers sit on the lintel, and a
  * street name above it. So no plate covers a window, whatever the rhythm of its house. Both stay
- * under the eaves.
+ * under the eaves. A shop's name board is lower: on its fascia, the band the shader paints in its
+ * kind's canvas between the shop window and the ground floor's ceiling, or on the middle of its
+ * awning's valance (storefronts.ts), which hangs the same at every front.
  */
-export function plateHeights(top: number, shop: boolean): { house: number; street: number } {
+export function plateHeights(
+  top: number,
+  shop: boolean,
+): { house: number; street: number; fascia: number; valance: number } {
   const storey = Math.min(4, Math.max(2.8, top / Math.max(1, Math.floor(top / 3.2 + 0.5))));
-  const lintel = shop ? Math.max(0.97 * storey, 3.2) : 0.8 * storey;
+  // An awning's top, where it meets the wall: its valance hangs 0.4 m lower, 0.2 m deep.
+  const awning = Math.max(0.97 * storey, 3.2);
+  const lintel = shop ? awning : 0.8 * storey;
   const sill = Math.min(1.32 * storey, top);
   const [h, s] = [HOUSE_PLATE_HEIGHT / 2, STREET_PLATE_HEIGHT / 2];
   const under = (half: number) => top - 0.25 - half;
   const house = Math.min(lintel + GAP + h, under(h));
   const street = Math.min(Math.max((lintel + sill) / 2, house + h + GAP + s), under(s));
-  return { house, street };
+  return { house, street, fascia: 0.85 * storey, valance: awning - 0.5 };
 }

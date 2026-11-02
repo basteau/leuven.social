@@ -92,6 +92,8 @@ export interface FrontInput {
 
 export interface PlacedFronts {
   fronts: ShopFront[];
+  /** Each front's shop's OSM tags, for its name board (src/data/boards.ts). */
+  tags: Map<ShopFront, Tags>;
   placed: Partial<Record<Facing, number>>;
   skipped: Record<string, number>;
 }
@@ -115,6 +117,7 @@ function nearestStreet(streets: ReadonlyMap<number, readonly number[]>, x: numbe
 export function placeFronts(points: readonly ShopPoint[], input: FrontInput): PlacedFronts {
   const { facades, streets, names, squares, open, skip } = input;
   const fronts: ShopFront[] = [];
+  const shops = new Map<ShopFront, Tags>();
   const placed: Partial<Record<Facing, number>> = {};
   const skipped: Record<string, number> = {};
   const miss = (why: string) => (skipped[why] = (skipped[why] ?? 0) + 1);
@@ -138,7 +141,7 @@ export function placeFronts(points: readonly ShopPoint[], input: FrontInput): Pl
     }
     const wall = facades.walls[found.w]!;
     const along = (found.px - wall.ax) * wall.ux + (found.pz - wall.az) * wall.uz;
-    const twin = fronts.some(
+    const twin = fronts.find(
       (f) =>
         f.building === building &&
         f.edge === wall.edge &&
@@ -146,17 +149,21 @@ export function placeFronts(points: readonly ShopPoint[], input: FrontInput): Pl
         Math.abs(f.along - along) < TWIN,
     );
     if (twin) {
+      // One of the two may carry the name the other lacks.
+      shops.set(twin, { ...tags, ...shops.get(twin) });
       miss('mapped twice');
       continue;
     }
     placed[found.how] = (placed[found.how] ?? 0) + 1;
-    fronts.push({
+    const front = {
       building,
       edge: wall.edge,
       along,
       kind,
       terrace: tags.outdoor_seating === 'yes',
-    });
+    };
+    fronts.push(front);
+    shops.set(front, tags);
   }
   fronts.sort(
     (a, b) =>
@@ -165,7 +172,7 @@ export function placeFronts(points: readonly ShopPoint[], input: FrontInput): Pl
       a.edge - b.edge ||
       a.along - b.along,
   );
-  return { fronts, placed, skipped };
+  return { fronts, tags: shops, placed, skipped };
 }
 
 /**

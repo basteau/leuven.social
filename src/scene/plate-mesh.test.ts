@@ -1,19 +1,30 @@
 import { describe, expect, test } from 'bun:test';
 
+import { deltaE, gamma, linear, toOklab } from '../data/colour.ts';
 import { HOUSE_PLATE_HEIGHT, STREET_PLATE_HEIGHT } from '../data/plates.ts';
+import { SHOP_KINDS } from '../data/shop-kinds.ts';
+import { frontPoint } from '../data/shops.ts';
 import { Terrain } from '../data/terrain.ts';
 import { footing } from './buildings.ts';
+import { MeshBuilder } from './mesh-builder.ts';
+import { FRONTS, PLATE } from './palette.ts';
 import {
+  AWNING_REACH,
   PLATE_DEPTH,
   PlateBuffers,
   Walls,
   addPlate,
+  boardColour,
+  contrast,
+  fitBoard,
+  linearRgb,
   packCells,
   plateHeights,
   plateOutline,
   plateWidth,
 } from './plate-mesh.ts';
 import type { PlateStyle, Slice } from './plate-mesh.ts';
+import { addAwning } from './storefronts.ts';
 
 const slice = (u0: number, width: number): Slice => ({
   u0,
@@ -35,6 +46,95 @@ const style: PlateStyle = {
   ]),
 };
 const ink: [number, number] = [0.9, 0.1];
+
+describe('fitBoard', () => {
+  // Letters 0.3 board heights wide, caps 0.3 each.
+  const board: PlateStyle = {
+    ...style,
+    glyphs: new Map([...'abcdefghij …'].map((ch, i) => [ch, slice(i / 20, 0.3)])),
+  };
+
+  test('a name that fits keeps the board at its tallest', () => {
+    expect(fitBoard('abc', board, 3, 0.2, 0.4)).toEqual({ text: 'abc', height: 0.4 });
+  });
+
+  test('a longer one makes it shorter, filling the front', () => {
+    // 10 letters and the caps are 3.6 board heights: 0.25 m tall in 0.9 m.
+    const fit = fitBoard('abcdefghij', board, 0.9, 0.2, 0.4)!;
+    expect(fit.text).toBe('abcdefghij');
+    expect(fit.height).toBeCloseTo(0.25, 9);
+    expect(plateWidth(fit.text, { ...board, minWidth: 0 }) * fit.height).toBeCloseTo(0.9, 9);
+  });
+
+  test('then cuts the name, ending in an ellipsis, never on a space', () => {
+    const fit = fitBoard('abcde fghij', board, 0.55, 0.2, 0.4)!;
+    expect(fit.text).toBe('abcde…');
+    expect(plateWidth(fit.text, { ...board, minWidth: 0 }) * fit.height).toBeLessThanOrEqual(0.55);
+    expect(fitBoard('abcd…', board, 0.6, 0.2, 0.4)!.text).toBe('abcd…');
+    expect(fitBoard('abcdefghij', board, 0.1, 0.2, 0.4)).toBeNull();
+  });
+
+  test('a board stays inside its front', () => {
+    const width = 2.4;
+    const fit = fitBoard('abcdefghij', board, width, 0.2, 0.34)!;
+    const out = new PlateBuffers();
+    const at = { x: 3, y: 2.7, z: 0, angle: -Math.PI / 2, text: fit.text };
+    addPlate(
+      out,
+      { ...at, style: { ...board, height: fit.height, minWidth: width / fit.height } },
+      ink,
+    );
+    for (let i = 0; i < out.vertices; i++) {
+      expect(Math.abs(out.positions[i * 3]! - 3)).toBeLessThanOrEqual(width / 2 + 1e-6);
+      expect(Math.abs(out.positions[i * 3 + 1]! - 2.7)).toBeLessThanOrEqual(fit.height / 2 + 1e-6);
+    }
+  });
+});
+
+const hue = (c: number) => {
+  const [, a, b] = toOklab(c);
+  return Math.atan2(b, a);
+};
+
+describe("a board's paint", () => {
+  test('takes paper letters at 4.5:1 or more on every kind of front', () => {
+    for (const kind of SHOP_KINDS) {
+      expect(contrast(boardColour(FRONTS[kind], PLATE.paper), PLATE.paper)).toBeGreaterThanOrEqual(
+        4.5,
+      );
+    }
+    expect(contrast(0xffffff, 0)).toBeCloseTo(21, 9);
+    expect(contrast(0, 0xffffff)).toBeCloseTo(21, 9);
+  });
+
+  test('converts to linear light as colour.ts does', () => {
+    for (const hex of [0, 0xffffff, 0x0a0a0a, 0x8c2f3a, FRONTS.cafe.canvas]) {
+      const want = [(hex >> 16) & 255, (hex >> 8) & 255, hex & 255].map(linear);
+      expect(linearRgb(hex).map((u, i) => u - want[i]!)).toEqual([0, 0, 0]);
+      expect(linearRgb(hex).map(gamma)).toEqual([(hex >> 16) & 255, (hex >> 8) & 255, hex & 255]);
+    }
+  });
+
+  test("is its kind's colour, deepened by lightness alone", () => {
+    for (const kind of SHOP_KINDS) {
+      const { canvas, stripe = canvas } = FRONTS[kind];
+      const paint = boardColour(FRONTS[kind], PLATE.paper);
+      const base = toOklab(stripe)[0] < toOklab(canvas)[0] ? stripe : canvas;
+      expect(toOklab(paint)[0]).toBeLessThanOrEqual(toOklab(base)[0] + 1e-3);
+      if (Math.hypot(...toOklab(base).slice(1)) > 0.03) {
+        const turn = Math.abs(
+          Math.atan2(Math.sin(hue(paint) - hue(base)), Math.cos(hue(paint) - hue(base))),
+        );
+        expect(turn).toBeLessThan(0.2);
+      }
+    }
+    // A dark canvas is left as it is; a bakery's cream gives way to its brown stripe.
+    expect(boardColour(FRONTS.books, PLATE.paper)).toBe(FRONTS.books.canvas);
+    expect(deltaE(boardColour(FRONTS.bakery, PLATE.paper), FRONTS.bakery.stripe!)).toBeLessThan(
+      0.2,
+    );
+  });
+});
 
 describe('plateWidth', () => {
   test('is the caps and letters, or the least width', () => {
@@ -120,6 +220,16 @@ describe('addPlate', () => {
     addPlate(long, { ...plate, text: '1212' }, ink);
     // One letter and two pads against four letters: the same number of quads.
     expect(short.vertices).toBe(long.vertices - 4);
+  });
+
+  test('carries its tint on every vertex', () => {
+    const out = new PlateBuffers();
+    out.tint = [0.5, 0.25, 0.125];
+    addPlate(out, { x: 0, y: 0, z: 0, angle: 0, text: '12', style }, ink);
+    expect(out.colors.length).toBeGreaterThanOrEqual(out.vertices * 3);
+    for (let i = 0; i < out.vertices; i++) {
+      expect([...out.colors.subarray(i * 3, i * 3 + 3)]).toEqual([0.5, 0.25, 0.125]);
+    }
   });
 
   test('grows its buffers and starts over on reset', () => {
@@ -255,6 +365,37 @@ describe('plateHeights', () => {
     expect(plateHeights(9.6, true).house - house).toBeGreaterThan(0.97 * 3.2);
     expect(plateHeights(9.6, true).street + street).toBeLessThan(1.32 * 3.2);
     expect(plateHeights(9.6, true).street).toBeGreaterThan(plateHeights(9.6, false).street - 1e-9);
+  });
+
+  test("hangs a name board over the shop window, under the ground floor's top", () => {
+    for (const top of [5.6, 6, 8, 9.6, 13, 20]) {
+      const storey = Math.min(4, Math.max(2.8, top / Math.max(1, Math.round(top / 3.2))));
+      const { fascia, house: h } = plateHeights(top, true);
+      // The highest fascia board is 0.5 m: clear of the panes, of the first floor and the number.
+      expect(fascia - 0.25).toBeGreaterThan(0.72 * storey);
+      expect(fascia + 0.25).toBeLessThan(storey);
+      expect(fascia + 0.25).toBeLessThan(h - house);
+    }
+  });
+
+  test("or on the middle of its awning's valance, just in front of it", () => {
+    // A front 2 m wide on a wall 12 m tall facing -z, its house's foot at 0.
+    const ring = new Float32Array([0, 0, 12, 0, 12, 10, 0, 10]);
+    const p = frontPoint(ring, { edge: 0, along: 6 });
+    const mesh = new MeshBuilder();
+    addAwning(mesh, p, 'cafe', 12, 1, 0);
+    const g = mesh.build();
+    const position = g.getAttribute('position');
+    const front = Array.from({ length: position.count }, (_, i) => [
+      position.getY(i),
+      position.getZ(i),
+    ])
+      .filter(([, z]) => Math.abs(z! + AWNING_REACH) < 1e-6)
+      .map(([y]) => y!);
+    expect(front.length).toBeGreaterThan(0);
+    const middle = (Math.min(...front) + Math.max(...front)) / 2;
+    expect(plateHeights(12, false).valance).toBeCloseTo(middle, 6);
+    expect(plateHeights(12, true).valance).toBeCloseTo(middle, 6);
   });
 
   test('stays under the eaves of a low house', () => {

@@ -21,6 +21,19 @@ const data: WalkData = {
     { x: -301.2, z: 815, angle: Math.PI, text: '2' },
   ],
   streets: [{ x: 4.4, z: 1.2, angle: -Math.PI / 4, name: 7 }],
+  boards: [
+    {
+      x: 20.06,
+      z: -3.94,
+      angle: Math.PI / 2,
+      width: 4.2,
+      awning: true,
+      kind: 'cafe',
+      name: 'Café Belge',
+    },
+    { x: 25.5, z: -4, angle: Math.PI / 2, width: 2.75, awning: false, kind: 'bank', name: 'KBC' },
+    { x: -310, z: 820, angle: 0, width: 5, awning: true, kind: 'frituur', name: 'Café Belge' },
+  ],
 };
 
 describe('the walk file', () => {
@@ -38,6 +51,39 @@ describe('the walk file', () => {
     expect(plate).toMatchObject({ name: 7 });
     expect(plate!.x).toBeCloseTo(4.4, 5);
     expect(plate!.angle).toBeCloseTo((224 / 256) * Math.PI * 2, 9);
+  });
+
+  test('round-trips name boards: their front, width to a decimetre, kind and name', async () => {
+    const back = await unpackWalk(await packWalk(data));
+    expect(back.boards.map((b) => [b.name, b.kind, b.width, b.awning])).toEqual([
+      ['Café Belge', 'cafe', 4.2, true],
+      ['KBC', 'bank', 2.8, false],
+      ['Café Belge', 'frituur', 5, true],
+    ]);
+    for (const [i, b] of back.boards.entries()) {
+      const want = data.boards[i]!;
+      expect(Math.abs(b.x - want.x)).toBeLessThanOrEqual(0.05001);
+      expect(Math.abs(b.z - want.z)).toBeLessThanOrEqual(0.05001);
+      expect(b.angle).toBeCloseTo(want.angle, 9);
+    }
+    // Each name once, in a table of its own.
+    const text = new TextDecoder().decode(encodeWalk(data));
+    expect(text.split('Café Belge').length).toBe(2);
+  });
+
+  test('refuses a board of no known kind', () => {
+    const board = {
+      x: 0,
+      z: 0,
+      angle: 0,
+      width: 1,
+      awning: false,
+      kind: 'cafe' as const,
+      name: 'A',
+    };
+    const bytes = encodeWalk({ houses: [], streets: [], boards: [board] });
+    bytes[bytes.length - 1] = 200;
+    expect(() => decodeWalk(bytes)).toThrow('Bad name board.');
   });
 
   test('stores each number once, in natural order', () => {
@@ -63,7 +109,11 @@ describe('the walk file', () => {
   });
 
   test('refuses a house number outside its table', () => {
-    const bytes = encodeWalk({ houses: [{ x: 0, z: 0, angle: 0, text: '1' }], streets: [] });
+    const bytes = encodeWalk({
+      houses: [{ x: 0, z: 0, angle: 0, text: '1' }],
+      streets: [],
+      boards: [],
+    });
     // magic, version, table (1 string of 1), count, x, z, then the index: point it past the table.
     bytes[11] = 5;
     expect(() => decodeWalk(bytes)).toThrow('Bad house number.');

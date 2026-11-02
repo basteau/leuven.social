@@ -8,7 +8,11 @@
  * - the house numbers: a count, their positions as one ring (decimetres, zigzag deltas, as in
  *   city.bin), then each one's place in the table and its wall's facing (a byte: 256ths of a turn);
  * - the street plates: a count, their positions as one ring, then each one's name (its place in
- *   `City.streetNames`) and facing.
+ *   `City.streetNames`) and facing;
+ * - (v3) the shops' names, as a table of strings, sorted;
+ * - (v3) the shops' name boards: a count, their positions as one ring, then each one's name (its
+ *   place in that table), facing, width (decimetres, a byte) and kind (its place in SHOP_KINDS,
+ *   the top bit set where its front has room for an awning).
  * Positions are the plate's face, a few centimetres proud of its wall (`PROUD`), so rounding to
  * decimetres never sinks it into the wall. How high a plate hangs is the renderer's to say, from
  * the windows of the house it is on (src/scene/plate-mesh.ts), so it isn't stored.
@@ -17,10 +21,16 @@
 import * as Binary from '@portable/binary';
 import * as Compress from '@portable/compress';
 
+import type { Board } from './boards.ts';
+import { SHOP_KINDS } from './shop-kinds.ts';
+
 const MAGIC = 'LVW1';
-const VERSION = 2;
+// v2: plates keep no height. v3: the shops' name boards.
+const VERSION = 3;
 const DM = 10;
 const ZIGZAG = { encoding: 'zigzag' } as const;
+/** A name board's kind byte has this bit set when its front has room for an awning. */
+const ON_AWNING = 0x80;
 const TURN = Math.PI * 2;
 /** Refuse anything larger after decompression. */
 export const MAX_WALK_BYTES = 4_000_000;
@@ -59,6 +69,7 @@ export interface StreetPlate {
 export interface WalkData {
   houses: HousePlate[];
   streets: StreetPlate[];
+  boards: Board[];
 }
 
 export class WalkFormatError extends Error {
@@ -120,6 +131,23 @@ export function encodeWalk(data: WalkData): Uint8Array {
     w.varint(s.name);
     w.uint8(turn(s.angle));
   }
+  const names = [...new Set(data.boards.map((b) => b.name))].toSorted((a, b) =>
+    a < b ? -1 : a > b ? 1 : 0,
+  );
+  const named = new Map(names.map((name, i) => [name, i]));
+  w.varint(names.length);
+  for (const name of names) {
+    w.varint(Binary.utf8Length(name));
+    w.string(name);
+  }
+  w.varint(data.boards.length);
+  writePoints(w, data.boards);
+  for (const b of data.boards) {
+    w.varint(named.get(b.name)!);
+    w.uint8(turn(b.angle));
+    w.uint8(Math.min(255, Math.round(b.width * DM)));
+    w.uint8(SHOP_KINDS.indexOf(b.kind) | (b.awning ? ON_AWNING : 0));
+  }
   return w.toBytes();
 }
 
@@ -144,8 +172,21 @@ export function decodeWalk(bytes: Uint8Array): WalkData {
     const angle = (r.uint8() / 256) * TURN;
     return { x: spots[i * 2]!, z: spots[i * 2 + 1]!, angle, name };
   });
+  const names = Array.from({ length: r.varint() }, () => r.string(r.varint()));
+  const fronts = r.varint();
+  const at = readPoints(r, fronts);
+  const boards = Array.from({ length: fronts }, (_, i): Board => {
+    const name = names[r.varint()];
+    const angle = (r.uint8() / 256) * TURN;
+    const width = r.uint8() / DM;
+    const packed = r.uint8();
+    const kind = SHOP_KINDS[packed & (ON_AWNING - 1)];
+    if (name === undefined || kind === undefined) throw new WalkFormatError('Bad name board.');
+    const awning = (packed & ON_AWNING) !== 0;
+    return { x: at[i * 2]!, z: at[i * 2 + 1]!, angle, width, awning, kind, name };
+  });
   if (r.remaining !== 0) throw new WalkFormatError(`${r.remaining} trailing bytes.`);
-  return { houses, streets };
+  return { houses, streets, boards };
 }
 
 export async function packWalk(data: WalkData): Promise<Uint8Array> {

@@ -58,7 +58,8 @@ if (Bun.deepEquals(walkAfter, walkBefore)) {
   console.log('public/data/walk.bin is reproduced byte for byte.');
 } else {
   const [a, b] = await Promise.all([unpackWalk(walkAfter), unpackWalk(walkBefore)]);
-  const counts = (w: typeof a) => `${w.houses.length} house numbers, ${w.streets.length} plates`;
+  const counts = (w: typeof a) =>
+    `${w.houses.length} house numbers, ${w.streets.length} plates, ${w.boards.length} name boards`;
   console.error(
     `The rebuilt plates differ from the ones you had.\n  rebuilt: ${counts(a)}\n  before:  ${counts(b)}\n` +
       'They are in public/data/walk.bin now: commit them if the change is intended, or restore the file.',
