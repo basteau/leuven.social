@@ -174,17 +174,30 @@ async function holdKeys(keys: string[], ms: number): Promise<void> {
 
 const canvasData = (name: string) => `document.querySelector('canvas')?.dataset.${name}`;
 
+/** Walking has started and the walker has dropped in and landed (it publishes where it stands). */
+const landed = `${canvasData('walk')} === 'walk' && !!${canvasData('walker')}`;
+
+/** Pans and the like are no taps: the map must still be the map, with nobody on it. */
+async function expectOnMap(after: string): Promise<void> {
+  const mode = await evalJson<string>(
+    `JSON.stringify((${canvasData('walk')} ?? 'map') + ' ' + (${canvasData('walker')} ?? ''))`,
+  );
+  if (mode.trim() !== 'map') throw new Error(`${after} started a walk (${mode})`);
+  console.log(`ok  ${after} didn't start a walk`);
+}
+
 /**
- * Walk mode: start in the middle of the view, fly down behind the walker, walk, run and turn
- * the view a little, then fly back to the map.
+ * Walk mode: click a spot on the map, dive down to it while the walker drops in, walk, run and
+ * turn the view a little, then fly back to the map.
  */
 async function expectWalking(): Promise<void> {
   // From the default view, so landing back on the map costs what the first frame does.
   await browser('press', 'r');
-  await browser('press', 'w');
-  await browser('wait', '--fn', `${canvasData('walk')} === 'pick'`);
-  await browser('press', 'Enter');
-  await browser('wait', '--fn', `${canvasData('walk')} === 'walk'`);
+  await browser('wait', '400');
+  await browser('mouse', 'move', '640', '400');
+  await browser('mouse', 'down');
+  await browser('mouse', 'up');
+  await browser('wait', '--fn', landed);
   const start = await evalJson<string>(`JSON.stringify(${canvasData('walker')})`);
   await holdKeys(['d'], 800);
   await holdKeys(['Shift', 'w'], 800);
@@ -231,14 +244,12 @@ const canvasNumber = async (name: string) =>
 
 /**
  * Riding: start a walk by the rack nearest the middle (the map dragged so it's in the middle of
- * the view), F walks to its nearest bike and gets on, W pedals and D turns, F gets off and leaves
+ * the view, then W), F walks to its nearest bike and gets on, W pedals and D turns, F gets off and leaves
  * the bike standing there.
  */
 async function expectRiding(): Promise<void> {
   const [x, z] = await nearestRack();
   await browser('press', 'r');
-  await browser('press', 'w');
-  await browser('wait', '--fn', `${canvasData('walk')} === 'pick'`);
   // The map turned a quarter from north, at zoom 1: 800 px show 560 m. A drag moves the ground
   // under the pointer, across by its screen width and along by its depth.
   const k = 800 / 560;
@@ -255,8 +266,11 @@ async function expectRiding(): Promise<void> {
     );
   }
   await browser('mouse', 'up');
-  await browser('press', 'Enter');
-  await browser('wait', '--fn', `${canvasData('walk')} === 'walk'`);
+  await browser('wait', '400');
+  await expectOnMap('dragging the map');
+  // W walks from the street nearest the middle of the view.
+  await browser('press', 'w');
+  await browser('wait', '--fn', landed);
   await browser('eval', key('keydown', 'KeyF'));
   await browser('eval', key('keyup', 'KeyF'));
   await browser('wait', '--timeout', '20000', '--fn', `${canvasData('ride')} === 'riding'`);
@@ -350,6 +364,7 @@ try {
   }
   await browser('wait', '400');
   await expectHealthyPage('desktop zoomed out, panned');
+  await expectOnMap('panning the map');
 
   await expectWalking();
   await expectRiding();

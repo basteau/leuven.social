@@ -651,24 +651,6 @@ h1.sign {
   }
 }
 
-/* Marks where "Start here" begins: ink on a paper halo, readable over any street. */
-.reticle {
-  position: absolute;
-  inset-block-start: 50%;
-  inset-inline-start: 50%;
-  translate: -50% -50%;
-  fill: none;
-  stroke: var(--ink);
-  stroke-width: 2;
-  stroke-linecap: square;
-  pointer-events: none;
-}
-
-.reticle-halo {
-  stroke: var(--paper);
-  stroke-width: 6;
-}
-
 /* Mute and the © centred on the corner panel's row: 44px controls on a 48px panel. */
 .corner-end {
   justify-self: end;

@@ -1,7 +1,7 @@
 /**
  * Walk mode's sounds, in its own chunk: footsteps in time with the stride, a cue going down to
- * the street and back up, and a tick when a route starts and ends. Each is scheduled when it
- * happens, never per frame.
+ * the street and back up, a thud landing there, a low pair for a spot nobody can walk to, and a
+ * tick when a route starts and ends. Each is scheduled when it happens, never per frame.
  */
 
 import { sound, vary } from './sound.ts';
@@ -57,6 +57,18 @@ export function flight(down: boolean): Voice[] {
   ];
 }
 
+/** The walker dropped in landing on its feet: a soft, low thud under a puff of grit. */
+export const landing = (): Voice[] => [
+  { wave: 'triangle', pitch: [120, 60], gain: 0.22, decay: 0.16, cutoff: 500 },
+  { wave: 'noise', pitch: [900, 400], gain: 0.06, decay: 0.12, q: 0.7, delay: 0.005 },
+];
+
+/** A spot nobody can walk to: two low notes, falling, quieter than any cue that goes. */
+export const blocked = (): Voice[] => [
+  { wave: 'triangle', pitch: 330, gain: 0.05, decay: 0.09, cutoff: 1200 },
+  { wave: 'triangle', pitch: 247, gain: 0.05, decay: 0.12, cutoff: 1200, delay: 0.09 },
+];
+
 /** A quiet tick setting off along a route, and a lighter pair of them on arriving. */
 export const routeStart = (): Voice[] => [
   { wave: 'triangle', pitch: vary(1175, 0.03), gain: 0.05, decay: 0.035 },
@@ -74,6 +86,10 @@ export interface WalkSounds {
   stride(phase: number, speed: number, run: number): void;
   enter(): void;
   leave(): void;
+  /** The walker dropped in and landed. */
+  land(): void;
+  /** A click on a spot nobody can walk to. */
+  blocked(): void;
   routeStart(): void;
   routeEnd(): void;
 }
@@ -93,6 +109,8 @@ export function createWalkSounds(
     },
     enter: () => play(flight(true)),
     leave: () => play(flight(false)),
+    land: () => play(landing()),
+    blocked: () => play(blocked()),
     routeStart: () => play(routeStart()),
     routeEnd: () => play(routeEnd()),
   };
