@@ -48,9 +48,12 @@ test('OSM points become the props they are', () => {
   });
   expect(propFromOsm({ man_made: 'water_well', historic: 'yes' })).toEqual({
     kind: 'pump',
-    size: 0,
+    size: 2.6,
     facing: null,
     axis: null,
+    width: 0.8,
+    depth: 1.3,
+    material: 'bluestone',
   });
   // Lamp posts that carry flags are lamps.
   expect(propFromOsm({ highway: 'street_lamp', man_made: 'flagpole' })?.kind).toBe('lamp');
@@ -58,31 +61,39 @@ test('OSM points become the props they are', () => {
   expect(propFromOsm({ tourism: 'artwork', artwork_type: 'mural' })).toBeNull();
 });
 
-test('a sculpture is a statue, a tall one a needle, a fountain sculpture a fountain', () => {
+test('monuments carry their archetype, height, plinth and material (src/data/monuments.ts)', () => {
   expect(propFromOsm({ tourism: 'artwork', artwork_type: 'statue' })).toEqual({
-    kind: 'statue',
-    size: 0,
-    facing: null,
-    axis: null,
-  });
-  expect(propFromOsm({ historic: 'memorial', memorial: 'statue', height: '4' })).toEqual({
     kind: 'statue',
     size: 4,
     facing: null,
     axis: null,
+    width: 1.2,
+    depth: 1.2,
+    material: 'bronze',
   });
+  expect(propFromOsm({ historic: 'memorial', memorial: 'statue', height: '4.5' })?.size).toBe(4.5);
   expect(
     propFromOsm({ tourism: 'artwork', artwork_type: 'sculpture', name: 'Totem', height: '23' }),
-  ).toEqual({ kind: 'needle', size: 23, facing: null, axis: null });
+  ).toMatchObject({ kind: 'needle', size: 23 });
   // A statue on a bench (De Kotmadam) is the statue; Fonske is a fountain.
   expect(propFromOsm({ amenity: 'bench', tourism: 'artwork', artwork_type: 'statue' })?.kind).toBe(
     'statue',
   );
   expect(
     propFromOsm({ amenity: 'fountain', tourism: 'artwork', artwork_type: 'sculpture' }),
-  ).toEqual({ kind: 'fountain', size: 0, facing: null, axis: null });
-  // Nonsense heights are ignored.
-  expect(propFromOsm({ tourism: 'artwork', artwork_type: 'bust', height: '300' })?.size).toBe(0);
+  ).toMatchObject({ kind: 'fountain', material: 'bronze' });
+  // A tagged direction turns it; a plinth the GRB maps lines it up.
+  expect(
+    propFromOsm({ historic: 'memorial', memorial: 'stone', direction: 'S' })?.facing,
+  ).toBeCloseTo(Math.PI / 2);
+  const plinth = { _bearing: '90.0', _length: '4', _width: '3' };
+  expect(propFromOsm({ tourism: 'artwork', artwork_type: 'statue', ...plinth })?.axis).toBeCloseTo(
+    0,
+  );
+  // A furniture way's bearing isn't a plinth's.
+  expect(
+    propFromOsm({ tourism: 'artwork', artwork_type: 'statue', _bearing: '90' })?.axis,
+  ).toBeNull();
 });
 
 test('bike racks hold their tagged capacity, within reason, unless out of sight', () => {
@@ -266,6 +277,26 @@ test('a bench turns its back to a wall, faces into a square, else towards the ed
   expect(turnOf('bench', 0, 7, s)).toBeCloseTo(SOUTH); // on the square's edge, facing into it
   expect(turnOf('bench', 50, 7, s)).toBeCloseTo(NORTH); // a pavement: towards the kerb
   expect(turnOf('statue', 0, 7, s)).toBeCloseTo(SOUTH);
+});
+
+test('monuments stand on their plinth, true to size, first; one mapped twice stands once', () => {
+  const statue = { kind: 'statue', x: 0, z: 0, angle: 0, size: 5 } as const;
+  const plinth = propFootprint({ ...statue, width: 4, depth: 3 });
+  expect([plinth.u1 - plinth.u0, plinth.v1 - plinth.v0]).toEqual([4, 3]); // not 1.3 times
+  // Built before the bake gave it one, its kind's.
+  expect(propFootprint(statue).u1).toBeCloseTo(0.75);
+  const s = street();
+  const { props, dropped } = placeProps(
+    [
+      point(30, 10, { ...LAMP, _osm: 'node/1' }),
+      point(30, 10, { tourism: 'artwork', artwork_type: 'sculpture', _osm: 'node/8' }),
+      point(30.2, 10, { man_made: 'water_well', _osm: 'node/9' }), // the well it stands at
+    ],
+    s,
+  );
+  expect(props.map((p) => p.kind)).toEqual(['pump', 'lamp']);
+  expect(props[0]).toMatchObject({ x: 30.2, width: 0.8, depth: 1.3, material: 'bluestone' });
+  expect(dropped).toBe(1);
 });
 
 test('drawn as a way, a rack or bench faces across it, to the side its rule picks', () => {

@@ -16,7 +16,8 @@
  * centre line: the gauge is standard everywhere, so a track needs no more.
  * Trees are a ring of positions followed by their heights in decimetres.
  * Props are a kind per prop, then their positions as one ring, then a turn (a byte: 256ths of a
- * full turn) and a size in decimetres each.
+ * full turn) and a size in decimetres each; a monument (v14) adds its plinth's width and depth
+ * (decimetres) and its material (a byte).
  * Tanks are a height in decimetres and a footprint each; parapets are open lines.
  * Street names are a table of strings, then each street as its name's place in the table and a
  * centre line, then one number per plaza: 0 for none, else its name's place plus one.
@@ -32,16 +33,18 @@ import {
   CARRIAGEWAY_KINDS,
   KINDS,
   MARKING_KINDS,
+  MATERIALS,
   PROP_KINDS,
   RAIL_KINDS,
   ROOFS,
   TIERS,
+  isMonument,
 } from './city.ts';
 import type { Bounds, Building, Carriageway, City, Marking, Prop, Rail } from './city.ts';
 import { boundsOf } from './geometry.ts';
 
 const MAGIC = 'LVN1';
-const VERSION = 13;
+const VERSION = 14;
 const DM = 10; // units per metre
 const ZIGZAG = { encoding: 'zigzag' } as const;
 const TURN = Math.PI * 2;
@@ -182,6 +185,10 @@ export function encodeCity(city: City): Uint8Array {
   for (const p of city.props) {
     w.uint8(Math.round((p.angle / TURN) * 256) & 255);
     w.varint(Math.round(p.size * DM));
+    if (!isMonument(p.kind)) continue;
+    w.varint(Math.round((p.width ?? 0) * DM));
+    w.varint(Math.round((p.depth ?? 0) * DM));
+    w.uint8(MATERIALS.indexOf(p.material ?? 'bronze'));
   }
 
   w.varint(city.tanks.length);
@@ -328,13 +335,19 @@ export function decodeCity(bytes: Uint8Array): City {
     return kind;
   });
   const places = readRing(r);
-  const props = kinds.map((kind, i): Prop => ({
-    kind,
-    x: places[i * 2]!,
-    z: places[i * 2 + 1]!,
-    angle: (r.uint8() / 256) * TURN,
-    size: r.varint() / DM,
-  }));
+  const props = kinds.map((kind, i): Prop => {
+    const prop: Prop = {
+      kind,
+      x: places[i * 2]!,
+      z: places[i * 2 + 1]!,
+      angle: (r.uint8() / 256) * TURN,
+      size: r.varint() / DM,
+    };
+    if (!isMonument(kind)) return prop;
+    const [width, depth, material] = [r.varint() / DM, r.varint() / DM, MATERIALS[r.uint8()]];
+    if (!material) throw new CityFormatError('Bad monument material.');
+    return Object.assign(prop, { width, depth, material });
+  });
   const tanks = list((from) => ({ height: r.varint() / DM, ring: readRing(r, from) }));
   const parapets = list((from) => readRing(r, from));
 
