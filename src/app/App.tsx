@@ -12,7 +12,6 @@ import {
   CompassIcon,
   GableIcon,
   MinusIcon,
-  PinIcon,
   PlusIcon,
   RotateLeftIcon,
   RotateRightIcon,
@@ -34,8 +33,7 @@ const CREDITS_VISIBLE_MS = 5_000;
 
 /** The map's description, naming the keys as this keyboard types them. */
 const mapLabels = (k: Keycaps): Record<WalkMode, string> => ({
-  map: `Map of Leuven’s centre around Grote Markt, Oude Markt and Ladeuzeplein. Drag or use the arrow keys to pan; scroll, pinch or press plus and minus to zoom; ${k.KeyQ} and ${k.KeyE} turn the view; ${k.KeyW} starts a walk.`,
-  pick: 'Map of Leuven. Click or tap a street to start walking there, or press Enter to start in the middle of the view. Escape cancels.',
+  map: `Map of Leuven’s centre around Grote Markt, Oude Markt and Ladeuzeplein. Drag or use the arrow keys to pan; scroll, pinch or press plus and minus to zoom; ${k.KeyQ} and ${k.KeyE} turn the view; click or tap a street to start walking there, or press ${k.KeyW} to start in the middle of the view.`,
   walk: `Walking in Leuven. ${k.KeyW}, ${k.KeyA}, ${k.KeyS} and ${k.KeyD} or the arrow keys walk, and hold Shift to run; drag to look around; click or tap a street to walk there; hold ${k.KeyQ} or ${k.KeyE} to turn the view; F rides the nearest bike; Escape returns to the map.`,
 });
 /** Riding, the map says how. */
@@ -159,7 +157,7 @@ export function App() {
     clearTimeout(walkLoadTimer.current);
     setWalkLoad('idle');
     walkLoadTimer.current = setTimeout(() => setWalkLoad('loading'), WALK_LOADING_MS);
-    viewerRef.current?.pickWalkStart();
+    viewerRef.current?.walkFromCentre();
   });
   /** Someone took a first step: the coach has done its job, and goes after a moment. */
   const steppedRef = useRef(() => {
@@ -330,7 +328,6 @@ export function App() {
           </div>
         )}
       </div>
-      {walkMode === 'pick' && <Reticle />}
 
       <header className="hud hud-top">
         {/*
@@ -340,7 +337,7 @@ export function App() {
         <div className="corner panel">
           {walkMode !== 'map' && (
             <ActionButton
-              label={walkMode === 'walk' ? 'Map' : 'Cancel'}
+              label="Map"
               shortcut="Esc"
               keys="Escape"
               quiet
@@ -385,13 +382,6 @@ export function App() {
             ) : walkLoad === 'failed' ? (
               'Walking couldn’t load. Check your connection and try again.'
             ) : null
-          ) : walkMode === 'pick' ? (
-            <>
-              <span className="hint-keys">
-                Click a street to start there, or press <kbd>Enter</kbd> for the middle.
-              </span>
-              <span className="hint-touch">Tap a street, or move the map and tap Start here.</span>
-            </>
           ) : riding && rideCoach ? (
             <>
               <span className="hint-keys">
@@ -462,18 +452,6 @@ export function App() {
               onPress={() => viewer()?.ride('toggle')}
             >
               <BikeIcon />
-            </ActionButton>
-          )}
-          {walkMode === 'pick' && (
-            <ActionButton
-              label="Start here"
-              shortcut="↵"
-              keys="Enter"
-              primary
-              disabled={!ready}
-              onPress={() => viewer()?.walkFromCentre()}
-            >
-              <PinIcon />
             </ActionButton>
           )}
         </div>
@@ -558,15 +536,5 @@ export function App() {
         </div>
       </footer>
     </main>
-  );
-}
-
-/** Marks the middle of the view, where "Start here" begins the walk. Decorative. */
-function Reticle() {
-  return (
-    <svg className="reticle" width="32" height="32" viewBox="0 0 32 32" aria-hidden="true">
-      <path className="reticle-halo" d="M16 3v9M16 20v9M3 16h9M20 16h9" />
-      <path d="M16 3v9M16 20v9M3 16h9M20 16h9" />
-    </svg>
   );
 }

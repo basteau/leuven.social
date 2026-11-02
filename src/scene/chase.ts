@@ -305,17 +305,23 @@ const smoother = (t: number) => t * t * t * (t * (t * 6 - 15) + 10);
 export const spanAt = (distance: number, fov: number) =>
   2 * distance * Math.tan((fov * Math.PI) / 360);
 
+/** The steepest the flight looks down (radians): short of straight down, where yaw is lost. */
+export const DIVE_LIMIT = 1.35;
+
 /**
  * The camera `t` of the way (0 to 1) from shot `a` to shot `b`. The lens widens while the
  * camera closes in so the view's height at the look point shrinks steadily (in log scale):
- * at the narrow end it looks just like the isometric map.
+ * at the narrow end it looks just like the isometric map. A `dive` (radians) tips the view
+ * down over the middle of the way, so the camera drops onto the spot from above, as a game's
+ * spawn camera does, before it swings in behind; flown backwards, it rises the same way.
  */
-export function flight(a: Shot, b: Shot, t: number, out: Lens): Lens {
+export function flight(a: Shot, b: Shot, t: number, out: Lens, dive = 0): Lens {
   const s = smoother(Math.min(1, Math.max(0, t)));
   for (let i = 0; i < 3; i++) out.look[i] = a.look[i]! + (b.look[i]! - a.look[i]!) * s;
   out.yaw = wrap(a.yaw + wrap(b.yaw - a.yaw) * s);
   // The tilt lags the rest, so the camera keeps sinking as it closes in: one arc down behind.
   out.pitch = a.pitch + (b.pitch - a.pitch) * s * s;
+  out.pitch = Math.min(Math.max(out.pitch, DIVE_LIMIT), out.pitch + dive * 4 * s * (1 - s));
   out.fov = a.fov + (b.fov - a.fov) * s;
   const span = Math.exp(Math.log(a.span) + (Math.log(b.span) - Math.log(a.span)) * s);
   out.distance = span / spanAt(1, out.fov);
