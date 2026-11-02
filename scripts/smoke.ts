@@ -141,15 +141,86 @@ async function drag(dx: number, dy: number): Promise<void> {
   await browser('mouse', 'up');
 }
 
-/** The data licences require the credit to be visible at start (it may collapse later). */
+/** The data licences require the credit to be visible on the map. */
 async function expectCreditsShown(): Promise<void> {
   const credits = await evalJson<{ visible: boolean; text: string }>(
-    'JSON.stringify({ visible: !document.getElementById("credits-text")?.hidden, text: document.getElementById("credits-text")?.textContent ?? "" })',
+    'JSON.stringify({ visible: !!document.getElementById("credits-text")?.checkVisibility(), text: document.getElementById("credits-text")?.textContent ?? "" })',
   );
   if (!credits.visible || !credits.text.includes('OpenStreetMap')) {
-    throw new Error('the OpenStreetMap credit is not visible at start (ODbL attribution)');
+    throw new Error('the OpenStreetMap credit is not visible (ODbL attribution)');
   }
-  console.log('ok  credits visible at start');
+  console.log('ok  credits visible');
+}
+
+/**
+ * The loading screen is the page's own HTML, there before any script, and gone once the map is
+ * drawn; then the map has no controls on it but the menu button.
+ */
+async function expectBareMap(): Promise<void> {
+  const html = await (await fetch(BASE)).text();
+  if (!html.includes('id="intro"') || !html.includes('role="progressbar"')) {
+    throw new Error('the loading screen is not in the HTML');
+  }
+  await browser('wait', '--fn', `!document.getElementById('intro')`);
+  const buttons = await evalJson<string[]>(
+    `JSON.stringify([...document.querySelectorAll('main button')].filter((b) => b.checkVisibility() && !b.closest('dialog')).map((b) => b.getAttribute('aria-label') ?? b.textContent))`,
+  );
+  if (buttons.join() !== 'Menu') {
+    throw new Error(`the map should show only the menu button, not ${buttons.join(', ')}`);
+  }
+  console.log('ok  loading screen in the HTML, then a bare map with the menu button');
+}
+
+const menu = {
+  open: `!!document.querySelector('dialog.menu')?.open`,
+  closed: `!document.querySelector('dialog.menu')?.open && document.activeElement === document.querySelector('.map')`,
+  first: `document.querySelector('[role=option][aria-selected=true] .menu-option-label')?.textContent`,
+};
+
+/** Runs a command from the menu by searching for it, as a person would with the keyboard. */
+async function runFromMenu(query: string, expected: string): Promise<void> {
+  await browser('press', 'Control+k');
+  await browser('wait', '--fn', `${menu.open} && document.activeElement?.matches('.menu-search')`);
+  await browser('keyboard', 'type', query);
+  await browser('wait', '--fn', `${menu.first} === ${JSON.stringify(expected)}`);
+  await browser('press', 'Enter');
+  // The menu closes and gives the keys back to the map.
+  await browser('wait', '--fn', menu.closed);
+}
+
+/**
+ * The menu: ⌘K or Ctrl+K opens it, it lists commands for the moment with their keys, a search
+ * finds one and Enter runs it; ? opens the controls; the chord closes it again.
+ */
+async function expectMenu(): Promise<void> {
+  await browser('press', 'Control+k');
+  await browser('wait', '--fn', menu.open);
+  const rows = await evalJson<{ label: string; keys: string }[]>(
+    `JSON.stringify([...document.querySelectorAll('[role=option]')].map((o) => ({ label: o.querySelector('.menu-option-label').textContent, keys: o.querySelector('.keycaps').textContent })))`,
+  );
+  for (const name of ['Walk here', 'Zoom in', 'Turn left', 'Reset view', 'Mute']) {
+    const row = rows.find((r) => r.label === name);
+    if (!row?.keys) throw new Error(`the menu has no "${name}" with its keys`);
+  }
+  await browser('wait', '500'); // its entrance has played
+  await browser('screenshot', `${ARTIFACTS}smoke-menu.png`);
+  await browser('press', 'Control+k');
+  await browser('wait', '--fn', menu.closed);
+  // Running a command: Mute, which says so, and the menu then offers Unmute.
+  await runFromMenu('mute', 'Mute');
+  await browser('wait', '--fn', `document.querySelector('.hint')?.textContent === 'Sound off'`);
+  await runFromMenu('unmute', 'Unmute');
+  await browser('wait', '--fn', `document.querySelector('.hint')?.textContent === 'Sound on'`);
+  // ? opens the controls, every key and gesture.
+  await browser('press', '?');
+  await browser(
+    'wait',
+    '--fn',
+    `document.querySelector('.menu-title')?.textContent === 'Controls and keys' && document.querySelectorAll('.key-row').length > 15`,
+  );
+  await browser('press', 'Control+k');
+  await browser('wait', '--fn', menu.closed);
+  console.log(`ok  menu: ${rows.length} rows; searched, ran Mute and Unmute, opened the controls`);
 }
 
 /** Where the keys the smoke test holds sit on the keyboard: walking reads `code`, not `key`. */
@@ -216,9 +287,8 @@ async function expectWalking(): Promise<void> {
   const plates = await evalJson<string>(`JSON.stringify(${canvasData('plates')})`);
   console.log(`ok  plates on the facades while walking: ${plates}`);
   await browser('screenshot', `${ARTIFACTS}smoke-walk.png`);
-  // Dispatched rather than pressed: agent-browser's Escape leaves the page hidden, so the checks
-  // after it would run in a background tab that draws no frames.
-  await holdKeys(['Escape'], 0);
+  // Back to the map from the menu (riding below goes back with Escape).
+  await runFromMenu('map', 'Back to the map');
   // Back on the map once the flight up has landed.
   await browser(
     'wait',
@@ -339,6 +409,8 @@ try {
   await expectHealthyPage('desktop 1280×800');
   await expectShortTasks('desktop 1280×800');
   await expectCreditsShown();
+  await expectBareMap();
+  await expectMenu();
   // Exercise every control once, then check nothing broke.
   await browser('press', 'e');
   await browser('press', 'r');
@@ -374,6 +446,14 @@ try {
   await expectHealthyPage('phone 390×844');
   await expectShortTasks('phone 390×844');
   await browser('screenshot', `${ARTIFACTS}smoke-phone.png`);
+  // On a phone the menu button opens the menu as a sheet; its close button shuts it.
+  await browser('click', 'button.menu-trigger');
+  await browser('wait', '--fn', menu.open);
+  await browser('wait', '500');
+  await browser('screenshot', `${ARTIFACTS}smoke-phone-menu.png`);
+  await browser('click', 'button.menu-close');
+  await browser('wait', '--fn', `!document.querySelector('dialog.menu')?.open`);
+  console.log('ok  phone: the menu button opens the menu, and its close button shuts it');
   console.log(`screenshots in .artifacts/`);
 } catch (error) {
   console.error(`\nSMOKE FAILED  ${error instanceof Error ? error.message : String(error)}`);

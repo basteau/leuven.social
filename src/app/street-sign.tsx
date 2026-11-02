@@ -1,8 +1,8 @@
 /**
  * The street the walker is on, on a plate like Leuven's own street signs (enamel blue under
- * a pale rim), inset in the corner panel beside the way back to the map. A new name slides in
- * calmly from the side; screen readers hear it politely, since the region stays in the page while
- * the plate comes and goes.
+ * a pale rim), in the start corner: the one thing on screen that says where you are. A new name
+ * slides in calmly from the side; screen readers hear it politely, since the region stays in the
+ * page while the plate comes and goes.
  */
 export function StreetSign(props: { name: string | null }) {
   return (

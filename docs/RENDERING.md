@@ -102,7 +102,7 @@ The size and render budgets are enforced by `bun run verify`; if one is exceeded
 
 | What                                            | Limit  | Checked by          |
 | ----------------------------------------------- | ------ | ------------------- |
-| App shell JS (React + HUD), gzipped             | 90 KB  | `scripts/budget.ts` |
+| App shell JS (React + the shell), gzipped       | 90 KB  | `scripts/budget.ts` |
 | 3D engine JS (three.js chunk, palette), gzipped | 171 KB | `scripts/budget.ts` |
 | Furniture JS (after the first frame)            | 6 KB   | `scripts/budget.ts` |
 | Walk mode JS (loaded on first walk)             | 18 KB  | `scripts/budget.ts` |
@@ -111,6 +111,8 @@ The size and render budgets are enforced by `bun run verify`; if one is exceeded
 | Plates data (`walk.bin`), gzipped               | 96 KB  | `scripts/budget.ts` |
 | First-load JS (shell + engine)                  | 253 KB | `scripts/budget.ts` |
 | CSS, gzipped                                    | 6 KB   | `scripts/budget.ts` |
+| HTML, with the loading screen inline, gzipped   | 7.5 KB | `scripts/budget.ts` |
+| Menu JS (loaded while the city is built)        | 6.5 KB | `scripts/budget.ts` |
 | City data                                       | 1 MB   | `scripts/budget.ts` |
 | Draw calls per frame                            | 100    | `scripts/smoke.ts`  |
 | Triangles per frame                             | 600k   | `scripts/smoke.ts`  |
@@ -121,7 +123,7 @@ The size and render budgets are enforced by `bun run verify`; if one is exceeded
 
 Every frame keeps the same cap, shadow redraws included. A redraw draws the casting cells a second time, so when the view and the redraw together would pass the cap, the redraw gets a frame of its own: it draws only the shadow map, the screen keeps showing the last frame, and the view follows on the next one (`FRAME_CALLS`, `FRAME_TRIANGLES` in `viewer.ts`). Smaller redraws, such as those while walking, share their frame with the view as before.
 
-The three.js chunk loads in parallel with the city data, so the HUD paints before the engine arrives.
+The loading screen is in the HTML (its tokens, styles and the little town as inline CSS and SVG, about 6.7 KB gzipped), so it paints with the first bytes, before any script or stylesheet. The three.js chunk loads in parallel with the city data, while the screen counts the city's bytes. The menu is a chunk of its own (about 6 KB), fetched once the city has arrived and the network is free, while the first frame is built: the first load doesn't grow, and the menu is ready when the map is.
 
 The viewer publishes the first frame, the latest and the most expensive frame of the visit, and the smoke test checks all three at every step: default view, after the controls, zoomed in, zoomed all the way out, dragged around out there (which redraws the shadow map for the most city at once), walking a few steps, back on the map, and on a phone. Each visible cell is two draw calls (three from zoom 2, with its furniture), and a frame that redraws shadows adds one or two per casting cell; draw calls are cheap here because every cell shares one material and program, so the budget watches triangles first. Typical numbers for the whole ring plus Heverlee: 36 calls and 271k triangles at the default view, 18 and 167k zoomed in, 94 and 582k zoomed out, 73 and 593k for the first frame (shadows included), 31 and 234k walking.
 

@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import type { RefObject } from 'react';
 
 import type { Viewer, WalkMode } from '../scene/viewer.ts';
+import { menuKey } from './input.ts';
 import type { TurnHold } from './input.ts';
 
 /**
@@ -32,15 +33,22 @@ export interface ShortcutTarget {
   /** A walking key went down: someone is walking with the keyboard. */
   onWalkKey: () => void;
   toggleSound: () => void;
-  /** Q and E on the map: a tap turns a quarter; held, they keep turning, like the buttons. */
+  /** Q and E on the map: a tap turns a quarter; held, they keep turning. */
   turnHold: TurnHold;
+  /** ⌘K, Ctrl+K, ⌘P, Ctrl+P and `/` open the menu at its list; `?` at the controls. */
+  openMenu: (page: 'list' | 'help') => void;
+  /** The menu is open or on its way: its keys aren't the map's. */
+  menuOpen: RefObject<boolean>;
+  /** A character typed while the menu was on its way, for its search. */
+  typeAhead: (key: string) => void;
 }
 
 /**
  * The keyboard: arrows pan, + and - zoom, Q and E turn, M mutes, R resets and W walks on the map
  * (Q, E and W by position, like walking's keys); held keys walk, run and look while walking, and
  * ride a bike after F (W pedals, S brakes, A and D steer, Shift sprints, B rings the bell).
- * Shortcuts act while focus is anywhere in the app, not in the rest of the page.
+ * ⌘K and its kin open the menu. Shortcuts act while focus is anywhere in the app except the
+ * menu, not in the rest of the page.
  */
 export function useShortcuts(target: ShortcutTarget): void {
   useEffect(() => {
@@ -65,6 +73,23 @@ export function useShortcuts(target: ShortcutTarget): void {
       steer();
     };
     const onKeyDown = (event: KeyboardEvent) => {
+      // The menu's own keys (its search, arrows, Escape) are the menu's.
+      if (event.target instanceof Element && event.target.closest('dialog')) return;
+      // From the moment it's asked for, too: a search typed before its code arrives goes into
+      // its search, and mustn't walk or mute.
+      if (target.menuOpen.current) {
+        event.preventDefault();
+        const typed = event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey;
+        if (typed) target.typeAhead(event.key);
+        return;
+      }
+      const menu = menuKey(event);
+      if (menu && target.viewer.current) {
+        event.preventDefault(); // ⌘P would print
+        release();
+        target.openMenu(event.key === '?' ? 'help' : 'list');
+        return;
+      }
       if (event.metaKey || event.ctrlKey || event.altKey) {
         release(); // a shortcut of the browser's own, not a step
         return;

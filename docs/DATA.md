@@ -276,16 +276,20 @@ An address on the same street and number as one already placed (a shop inside a 
 
 The bake logs 1,111 boards on the 1,167 fronts, 1,060 different names, 56 of them cut; 40 fronts have no wall to themselves and 16 shops have no name. The names use 80 characters. They add 17 KB gzipped to `walk.bin`.
 
+## Places by name
+
+The menu's search finds every named street and square in `city.bin` (`streetNames`, `streets`, `plazas` and `plazaNames`, the same names the street plate reads), so it needs no data of its own. `placesOf` (`src/data/places.ts`) gives each name one spot, the first time someone searches: a square's is the middle of its outline (a name that is both a square and a street is the square); a street's is the point on it nearest the middle of all its stretches, so it lies on the street even where it bends round a block. Choosing one calls the viewer's `walkAt`, which starts the walk on the walkable spot nearest it. The ring plus Heverlee has 489 places, 56 of them squares.
+
 ## Format changes
 
 Bump `VERSION` in `format.ts` (or in `plates.ts` for `walk.bin`) and the cache name in `public/sw.js` together. The round-trip tests in `format.test.ts` and `plates.test.ts`, and `baked.test.ts`, guard the rest.
 
 ## Attribution
 
-The city data must be credited wherever it is shown. The HUD shows "© OpenStreetMap" and "© Digitaal Vlaanderen" in the top-end corner at start, then collapses them to a © button (DESIGN.md has the rules, and the smoke test checks it). Don't remove it or start it collapsed. Its links come from `CREDITS` in `src/data/providers.ts`, so a new provider whose licence asks for credit shows up there by itself.
+The city data must be credited wherever it is shown. The map always shows "© OpenStreetMap" and "© Digitaal Vlaanderen" in the top-end corner, one small linked line, and About in the menu lists every source with its licence (DESIGN.md has the rules, and the smoke test checks it). Don't remove it or hide it. Its links come from `CREDITS` in `src/data/providers.ts`, so a new provider whose licence asks for credit shows up there by itself.
 
 - **GRB:** "Bron: Grootschalig Referentie Bestand Vlaanderen, Digitaal Vlaanderen".
 - **DHMV II:** "Bron: Digitaal Hoogtemodel Vlaanderen II, Digitaal Vlaanderen".
 - **Orthophotos** (roof colours only; no imagery ships): "Bron: Luchtopnamen Digitaal Vlaanderen".
-- All three are under the [Modellicentie Gratis Hergebruik v1.0](https://data.vlaanderen.be/id/licentie/modellicentie-gratis-hergebruik/v1.0); the HUD's "© Digitaal Vlaanderen" covers them.
+- All three are under the [Modellicentie Gratis Hergebruik v1.0](https://data.vlaanderen.be/id/licentie/modellicentie-gratis-hergebruik/v1.0); the map's "© Digitaal Vlaanderen" covers them.
 - **OpenStreetMap:** "© OpenStreetMap contributors", ODbL. The combined building data is an ODbL derivative, so it stays open.
