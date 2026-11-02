@@ -78,9 +78,9 @@ describe('the rider on the figure’s own rig', () => {
             const [gx, gy, gz] = gripAt(steer, side);
             expect(Math.hypot(x - gx, y - gy, z - gz)).toBeLessThan(0.005);
           }
-          // Elbows a little bent, never locked straight; the shoulders turn with the bars.
+          // Elbows a little bent, never locked straight; the hips square on the saddle.
           expect(Math.max(pose.elbowL, pose.elbowR)).toBeLessThan(-0.05);
-          expect(Math.sign(pose.twist)).toBe(Math.sign(steer));
+          expect(pose.twist).toBe(0);
         }
       }
     }

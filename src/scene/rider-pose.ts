@@ -54,9 +54,9 @@ export interface RideState {
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const limb: Limb = { root: 0, joint: 0 };
 const ankle = { z: 0, y: 0 };
-/** How far the shoulders turn with the bars (radians a radian), and how far out the arms
- * hang at rest (`ARM_SPREAD` in character.ts). */
-const TWIST = 0.3;
+/** The furthest an arm stretches, of its length, never quite locked straight. */
+const STRETCH = 0.97;
+/** How far out the arms hang at rest (`ARM_SPREAD` in character.ts). */
 const REST_SPREAD = 0.07;
 
 /**
@@ -64,9 +64,9 @@ const REST_SPREAD = 0.07;
  * grip brought into the torso's frame (the hips' roll, the lean, twist and bank undone, from the
  * shoulder), the elbow bent to its distance, the arm swung out (its spread) until the hand is as
  * far across as the grip, then forward or back onto it. Exact, so a hand stays on its grip
- * however far the bars turn.
+ * however far the bars turn. Returns how far the grip is beyond the arm's easy stretch.
  */
-function reach(out: Pose, side: 1 | -1, [gx, gy, gz]: readonly [number, number, number]): void {
+function reach(out: Pose, side: 1 | -1, [gx, gy, gz]: readonly [number, number, number]): number {
   let [x, y, z, c, s, t] = [gx, gy - out.hips, gz - out.hipsZ, 0, 0, 0];
   // Each turn undone in the order the rig makes them: the hips' roll, the lean, twist and bank.
   [c, s] = [Math.cos(out.roll), Math.sin(out.roll)];
@@ -93,6 +93,7 @@ function reach(out: Pose, side: 1 | -1, [gx, gy, gz]: readonly [number, number, 
   const swing = Math.atan2(Math.sin(arm), Math.cos(arm));
   if (side > 0) [out.armL, out.elbowL, out.spreadL] = [swing, elbow, spread];
   else [out.armR, out.elbowR, out.spreadR] = [swing, elbow, spread];
+  return length - (UPPER_ARM + FOREARM) * STRETCH;
 }
 
 /** Where a pedal is, side 1 the left and -1 the right, in the bike's plane (z forward, y up). */
@@ -142,12 +143,17 @@ export function rideAt(out: Pose, s: RideState): Pose {
     else [out.legR, out.kneeR, out.footR] = [limb.root, limb.joint, turn];
   }
 
-  // The torso leans over the bars, its shoulders turning a little with them; the arms reach the
-  // grips, which turn with the bars.
+  // The torso leans over the bars, square to them: a twist would turn the hips against it
+  // (`applyPose`) and the feet off the pedals. The arms reach the grips, which turn with the bars.
   out.lean = lerp(lerp(LEAN[0], LEAN[1], stand), LEAN[2], foot);
-  out.twist = TWIST * s.steer;
+  out.twist = 0;
   out.bank = -out.roll * 0.5;
-  for (const side of [1, -1] as const) reach(out, side, gripAt(s.steer, side));
+  // A grip turned out of reach brings the shoulders forward over the bars.
+  for (let more = 0; more < 6; more++) {
+    const short = Math.max(reach(out, 1, gripAt(s.steer, 1)), reach(out, -1, gripAt(s.steer, -1)));
+    if (short <= 0) break;
+    out.lean += 0.06;
+  }
   // The head lifts against the lean to look down the street.
   out.nod = -0.85 * out.lean;
   out.look = Math.max(-1.1, Math.min(1.1, s.look));
