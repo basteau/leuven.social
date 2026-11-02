@@ -23,9 +23,12 @@ const BIN = Bun.fileURLToPath(new URL('../node_modules/.bin/', import.meta.url))
  */
 const MAX_DRAW_CALLS = 100;
 const MAX_TRIANGLES = 600_000;
-/** What the whole city hands the GPU once every cell is built. */
-const MAX_VERTICES = 2_750_000;
-const MAX_GEOMETRY_MB = 65;
+/**
+ * What the whole city hands the GPU once every cell is built: 2.40M vertices and 57.7 MB since
+ * racks park fewer bikes (it was 2.69M and 64.1 MB). Just above, so the saving stays won.
+ */
+const MAX_VERTICES = 2_450_000;
+const MAX_GEOMETRY_MB = 59;
 /** The longest the main thread may be busy at once while the page loads (ms). */
 const MAX_LONG_TASK_MS = 750;
 

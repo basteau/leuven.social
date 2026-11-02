@@ -27,8 +27,10 @@ export function propBase(terrain: Terrain, p: Prop): number {
 }
 
 export interface Furniture {
-  /** What shows from zoom 2 on: the props, and the shop fronts' awnings, signs and terraces. */
+  /** What shows from zoom 2 on: the props, and the shop fronts' signs and terraces. */
   near: MeshBuilder;
+  /** Where each parked bike is drawn in `near` (`PARKED`). */
+  bikes: Float32Array;
   /** The shop fronts' awnings, which carry their kind in the `facade` attribute, if any. */
   awnings: MeshBuilder | null;
   /** What shows at every zoom, or null where nothing in the cell is that tall. */
@@ -48,13 +50,14 @@ export interface FurnitureKit extends StorefrontKit {
 export function buildFurniture(cell: Cell, kit: FurnitureKit): Furniture {
   const { MeshBuilder, terrain } = kit;
   const near = new MeshBuilder();
+  const bikes: number[] = [];
   let tall: MeshBuilder | null = null;
   for (const p of cell.props) {
     const mesh = isLarge(p) ? (tall ??= new MeshBuilder()) : near;
     mesh.lift = propBase(terrain, p);
-    addProp(mesh, p);
+    addProp(mesh, p, mesh === near ? bikes : undefined);
   }
   const awnings = cell.fronts.length > 0 ? new MeshBuilder() : null;
   if (awnings) addStorefronts(near, awnings, cell.fronts, kit);
-  return { near, awnings, tall };
+  return { near, bikes: new Float32Array(bikes), awnings, tall };
 }

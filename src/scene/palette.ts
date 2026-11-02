@@ -51,6 +51,9 @@ export const PROPS = {
   wheel: 0x2b2420,
   /** A bike wheel's rim and spokes, read as one pale disc inside the tyre. */
   spokes: 0xb7b3aa,
+  /** The red crate on the front of one bike in ten, and its dark inside. */
+  crate: 0xb5402f,
+  crateInside: 0x5a2a20,
   /** Jan Fabre's jewel beetle on the Totem. */
   beetle: 0x2f8a6e,
 } as const;

@@ -4,6 +4,7 @@ import { AREA, VIEW_AREA } from './area.ts';
 import { areaIndex, ringInArea } from './geometry.ts';
 import { unpackCity } from './format.ts';
 import { unpackWalk } from './plates.ts';
+import { bikesIn } from './props.ts';
 import { StreetIndex } from './streets.ts';
 
 // Guards the committed city file: it must decode, match the area and stay plausible.
@@ -29,6 +30,12 @@ test('public/data/city.bin decodes into a plausible Leuven', async () => {
   // The street sign reads OSM's names: the square at the origin, a street off it.
   expect(city.streetNames).toContain('Naamsestraat');
   expect(city.streets.length).toBeGreaterThan(500);
+  // Racks hold as many bikes as Leuven parks at them: the station's packed, quiet streets a third.
+  const racks = city.props.filter((p) => p.kind === 'bikes');
+  const bikes = racks.reduce((sum, p) => sum + bikesIn(p), 0);
+  expect(bikes).toBeGreaterThan(3000);
+  expect(bikes).toBeLessThan(4500);
+  expect(racks.every((p) => p.fill! >= 0 && p.fill! <= 1)).toBe(true);
   const streets = new StreetIndex(city);
   expect(streets.nameAt(0, 0)).toBe('Grote Markt');
   expect(city.plazaNames.some((n) => city.streetNames[n] === 'Oude Markt')).toBe(true);

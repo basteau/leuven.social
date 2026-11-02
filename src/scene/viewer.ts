@@ -369,7 +369,7 @@ export function createViewer(options: ViewerOptions): Viewer {
    */
   function furnish(entry: CellEntry): void {
     if (!furnishing) return loadFurniture();
-    const { near, awnings, tall } = furnishing.buildFurniture(entry.cell, {
+    const { near, bikes, awnings, tall } = furnishing.buildFurniture(entry.cell, {
       MeshBuilder,
       terrain,
       awning: AWNING,
@@ -378,6 +378,8 @@ export function createViewer(options: ViewerOptions): Viewer {
       ground: (x, z) => terrain.height(x, z),
     });
     entry.furniture = furnitureMesh(near);
+    // Where each parked bike is drawn in it (`PARKED`), for the rideable bikes to come.
+    entry.furniture.userData.bikes = bikes;
     entry.box.union(entry.furniture.geometry.boundingBox!);
     entry.awnings = awnings && furnitureMesh(awnings, true);
     entry.tall = tall && furnitureMesh(tall);

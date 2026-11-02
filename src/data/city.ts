@@ -179,6 +179,8 @@ export interface Prop {
   angle: number;
   /** Stands in a bike rack; a monument's height, plinth included (m); else 0. */
   size: number;
+  /** Bike racks only: the share of their stands that hold a bike (`rackFill`). */
+  fill?: number;
   /** Monuments only: their plinth or basin across (u) and along (v) their facing (m). */
   width?: number;
   depth?: number;

@@ -17,7 +17,8 @@
  * Trees are a ring of positions followed by their heights in decimetres.
  * Props are a kind per prop, then their positions as one ring, then a turn (a byte: 256ths of a
  * full turn) and a size in decimetres each; a monument (v14) adds its plinth's width and depth
- * (decimetres) and its material (a byte).
+ * (decimetres) and its material (a byte), and a bike rack (v16) how full it is (a byte: 255ths of
+ * its stands, which the bake picks by where it stands).
  * Tanks are a height in decimetres and a footprint each; parapets are open lines.
  * Street names are a table of strings, then each street as its name's place in the table and a
  * centre line, then one number per plaza: 0 for none, else its name's place plus one.
@@ -28,7 +29,7 @@
  * from the origin (zigzag), columns and rows, then each height in 5 cm as its difference from the
  * plane through its neighbours to the west, north and north-west (zigzag): the land is smooth,
  * so most of those take a byte.
- * Shop fronts (v16) follow, by building: each is its building's place in the list (the change
+ * Shop fronts (v17) follow, by building: each is its building's place in the list (the change
  * from the front before), the edge of its ring it is on, how far along it (decimetres), and its
  * kind's place in SHOP_KINDS with the top bit set for a terrace. A building's first front is its
  * main one: the decoder hangs it on the building as `front`.
@@ -63,7 +64,9 @@ import { boundsOf } from './geometry.ts';
 import { SHOP_KINDS } from './shop-kinds.ts';
 
 const MAGIC = 'LVN1';
-const VERSION = 16;
+// v16: a byte per bike rack, its fill (`Prop.fill`). v17: the shop fronts. Bump the cache in
+// public/sw.js with it.
+const VERSION = 17;
 const DM = 10; // units per metre
 const GROUND = 20; // terrain heights per metre: 5 cm
 const ZIGZAG = { encoding: 'zigzag' } as const;
@@ -147,7 +150,7 @@ function readTerrain(r: Binary.Reader): TerrainGrid {
   return { step, minX, minZ, cols, rows, heights: Float32Array.from(q, (v) => v / GROUND) };
 }
 
-// Shop fronts (v16): a section of their own, after the terrain.
+// Shop fronts (v17): a section of their own, after the terrain.
 const TERRACE_BIT = 0x80;
 
 function writeFronts(w: Binary.Writer, fronts: readonly ShopFront[]): void {
@@ -270,6 +273,7 @@ export function encodeCity(city: City): Uint8Array {
   for (const p of city.props) {
     w.uint8(Math.round((p.angle / TURN) * 256) & 255);
     w.varint(Math.round(p.size * DM));
+    if (p.kind === 'bikes') w.uint8(Math.round(Math.min(Math.max(p.fill ?? 0, 0), 1) * 255));
     if (!isMonument(p.kind)) continue;
     w.varint(Math.round((p.width ?? 0) * DM));
     w.varint(Math.round((p.depth ?? 0) * DM));
@@ -430,6 +434,7 @@ export function decodeCity(bytes: Uint8Array): City {
       angle: (r.uint8() / 256) * TURN,
       size: r.varint() / DM,
     };
+    if (kind === 'bikes') prop.fill = r.uint8() / 255;
     if (!isMonument(kind)) return prop;
     const [width, depth, material] = [r.varint() / DM, r.varint() / DM, MATERIALS[r.uint8()]];
     if (!material) throw new CityFormatError('Bad monument material.');

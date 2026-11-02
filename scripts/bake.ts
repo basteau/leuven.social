@@ -62,7 +62,9 @@ import {
   discInFootprint,
   placeProps,
   propFootprint,
+  rackFill,
 } from '../src/data/props.ts';
+import type { FillClass } from '../src/data/props.ts';
 import { carriagewayKind, crossingMarking } from '../src/data/roads.ts';
 import type { RoadRole } from '../src/data/roads.ts';
 import { correctRoofColours } from '../src/data/roof-colours.ts';
@@ -487,6 +489,30 @@ const placed = placeProps(
       .map((h, i) => [allTrees.positions[i * 2]!, allTrees.positions[i * 2 + 1]!, trunkRadius(h)]),
   },
 );
+// How full each rack is: by the station (the middle of its platform roofs), how many stands
+// stand round it, and whether it's behind a gate (src/data/props.ts).
+const roofCorners = canopies.flatMap((ring) => [...ring]);
+const station: [number, number] | null = roofCorners.length
+  ? ([0, 1].map(
+      (k) =>
+        roofCorners.filter((_, i) => i % 2 === k).reduce((a, b) => a + b) /
+        (roofCorners.length / 2),
+    ) as [number, number])
+  : null;
+const racks = placed.props.flatMap((p, i) =>
+  p.kind === 'bikes' ? [{ p, access: placed.tags[i]!.access }] : [],
+);
+const fills = rackFill(
+  racks.map(({ p, access }) => ({ x: p.x, z: p.z, size: p.size, access })),
+  station,
+);
+const byFill = new Map<FillClass, { racks: number; stands: number; bikes: number }>();
+for (const [i, { p }] of racks.entries()) {
+  const { class: kind, bikes } = fills[i]!;
+  p.fill = bikes / p.size;
+  const sum = byFill.get(kind) ?? { racks: 0, stands: 0, bikes: 0 };
+  byFill.set(kind, { racks: sum.racks + 1, stands: sum.stands + p.size, bikes: sum.bikes + bikes });
+}
 const props = placed.props.toSorted(
   (a, b) => Math.floor(a.z / STRIP) - Math.floor(b.z / STRIP) || a.x - b.x,
 );
@@ -699,6 +725,9 @@ console.log(
       Object.groupBy(props, (p) => p.kind),
     )
       .map(([kind, list]) => `${list!.length} ${kind}`)
+      .join(', ')}`,
+    `bikes ${fills.reduce((sum, f) => sum + f.bikes, 0)} in ${racks.length} racks: ${[...byFill]
+      .map(([kind, n]) => `${kind} ${n.bikes} of ${n.stands} stands in ${n.racks} racks`)
       .join(', ')}`,
     `tanks ${tanks.length}, bridge decks ${bridges.length}, parapets ${parapets.length}`,
     `church towers ${buildings.filter((b) => b.tower).length}`,

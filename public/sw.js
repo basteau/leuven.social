@@ -1,7 +1,7 @@
 // Offline support. Hashed build assets are cache-first; pages and everything under /data/ (the
 // city, and walk mode's plates) are network-first so a rebake shows up on the next online visit.
 // Bump CACHE to drop everything after a format change.
-const CACHE = 'leuven-v17';
+const CACHE = 'leuven-v18'; // city format v17: the shop fronts
 
 self.addEventListener('install', () => self.skipWaiting());
 

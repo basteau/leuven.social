@@ -48,12 +48,14 @@ const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[
   // About 11k house numbers and 1.3k street plates are 64 KB; room for the map to grow by half.
   { label: 'Plates data (already gzipped)', pattern: 'data/walk.bin', limit: 96 * KB, gzip: false },
   // What the first visit downloads: the shell and the engine, not the chunks loaded later.
-  // 252: land use from relations, data-chosen monuments and hold-to-turn together passed 250;
-  // furniture and monument drawing moved to a chunk of their own to win some of it back.
+  // 252: land use from relations, data-chosen monuments and hold-to-turn together passed 250.
+  // 253: the parked bikes' looks, rails and notes (+0.7 KB). Furniture and monument drawing then
+  // moved to a chunk of their own, taking what they share with the engine as a kit, as plates.ts
+  // does; only the palette, which scene/props.ts imports, loads as a chunk of its own beside it.
   {
     label: 'First-load JS',
     pattern: 'assets/{index,viewer,palette}-*.js',
-    limit: 252 * KB,
+    limit: 253 * KB,
     gzip: true,
   },
 ];
