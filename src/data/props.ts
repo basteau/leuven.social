@@ -164,6 +164,79 @@ export function rackRows(stands: number): { rows: number; perRow: number } {
   return { rows, perRow: Math.ceil(stands / rows) };
 }
 
+/** Small integer hash in [0, 1), so a rack's bikes and their looks stay put across rebakes. */
+export const propHash = (a: number, b: number): number => {
+  let h = Math.imul(a ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(b, 0xc2b2ae35);
+  h ^= h >>> 15;
+  return (Math.imul(h, 0x27d4eb2d) >>> 0) / 2 ** 32;
+};
+/** A prop's seed, from where it stands. */
+export const propSeed = (x: number, z: number): number => Math.round(x * 7) ^ Math.round(z * 13);
+
+/** How full a rack is, by where it stands (`rackFill`). */
+export type FillClass = 'station' | 'hotspot' | 'private' | 'busy' | 'quiet';
+/**
+ * The share of a rack's stands that hold a bike, by class: Leuven's station racks are packed, a
+ * square of racks by the faculties well used, a pavement rack in a quiet street a third full,
+ * and one behind a gate (`access=private`, `customers`, `permit`) mostly empty.
+ */
+export const FILL: Record<FillClass, number> = {
+  station: 0.85,
+  hotspot: 0.65,
+  private: 0.2,
+  busy: 0.45,
+  quiet: 0.3,
+};
+/** Racks this close to the station (the middle of its platform roofs) are station racks (m). */
+export const STATION_REACH = 300;
+/** How far round a rack its neighbours' stands count (m), and how many make it busy or a hotspot. */
+export const NEAR_REACH = 60;
+export const BUSY_STANDS = 50;
+export const HOTSPOT_STANDS = 90;
+/** Bikes drawn in one rack outside the station: a long rack in a quiet street isn't a car park. */
+export const MAX_BIKES = 10;
+const RESTRICTED = new Set(['private', 'customers', 'permit']);
+
+/** What `rackFill` reads off a rack: where it stands, its stands, its OSM `access`. */
+export interface RackSite {
+  x: number;
+  z: number;
+  size: number;
+  access?: string | undefined;
+}
+
+/**
+ * How full each rack is, by where it stands: its class (see `FILL`), checked in that order, and
+ * how many bikes it holds. The count is the class's share of its stands, rounded up or down at
+ * random (seeded by where it stands) so the shares hold on average, and at most `MAX_BIKES`
+ * outside the station. Stands within `NEAR_REACH` count the rack's own. Without a station (no
+ * platform roofs) no rack is a station rack.
+ */
+export function rackFill(
+  racks: readonly RackSite[],
+  station: readonly [number, number] | null,
+): { class: FillClass; bikes: number }[] {
+  return racks.map((r) => {
+    let near = 0;
+    for (const q of racks) {
+      if (Math.hypot(q.x - r.x, q.z - r.z) <= NEAR_REACH) near += q.size;
+    }
+    const kind: FillClass =
+      station && Math.hypot(r.x - station[0], r.z - station[1]) <= STATION_REACH
+        ? 'station'
+        : near >= HOTSPOT_STANDS
+          ? 'hotspot'
+          : RESTRICTED.has(r.access ?? '')
+            ? 'private'
+            : near >= BUSY_STANDS
+              ? 'busy'
+              : 'quiet';
+    const share = r.size * FILL[kind] + propHash(propSeed(r.x, r.z), 99);
+    const most = kind === 'station' ? r.size : Math.min(r.size, MAX_BIKES);
+    return { class: kind, bikes: Math.min(most, Math.floor(share)) };
+  });
+}
+
 /** Where a prop stands and what it covers, drawn to scale: a monument its plinth or basin. */
 export function propFootprint(p: Prop): Footprint {
   let [u0, u1, v0, v1] = p.kind === 'bikes' ? rackExtent(p.size) : extent(p);
