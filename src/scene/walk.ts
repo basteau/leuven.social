@@ -381,6 +381,8 @@ export function createWalk(host: WalkHost): Walk {
           walkTo,
           wake,
         });
+        // Back on the map before it arrived: the bikes left about the city stay off the map.
+        if (mode !== 'walk') riding.leave();
       },
       () => {
         rideLoad = undefined; // tried again near the next rack
