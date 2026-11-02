@@ -4,13 +4,13 @@ import {
   CHASE_FOV,
   DISTANCE,
   DISTANCE_RANGE,
+  LOOK_HEIGHT,
   MAP_FOV,
   PITCH,
   PITCH_RANGE,
-  SHORT_BOOM,
-  TreeObstacles,
+  ZOOM_STOPS,
   boomDirection,
-  boomReach,
+  boomPitch,
   chaseFov,
   clearPitch,
   createBoom,
@@ -22,17 +22,15 @@ import {
   freeLength,
   headLook,
   mapYaw,
-  reachGoal,
   recentre,
   recentreWeight,
-  settleFloor,
-  settleReach,
-  shoulderPitch,
   spanAt,
   steerYaw,
   stretchBoom,
   turnBoom,
   wheelKind,
+  wheelZoom,
+  zoomStop,
 } from './chase.ts';
 import type { Lens, Shot, Vec3 } from './chase.ts';
 
@@ -56,9 +54,10 @@ describe('the boom', () => {
       let moving = true;
       for (let i = 0; i < hz / 10; i++) moving = easeBoom(boom, 0, 1 / hz);
       expect(moving).toBe(true);
-      // A tenth of a second in, the turn is nearly done; the length takes longer.
+      // A tenth of a second in, the turn is nearly done; the length, eased, about half way.
       expect(boom.yaw).toBeGreaterThan(0.8);
-      expect(boom.length).toBeLessThan(DISTANCE * 1.5);
+      expect(boom.length).toBeGreaterThan(DISTANCE * 1.4);
+      expect(boom.length).toBeLessThan(DISTANCE * 1.7);
       for (let i = 0; i < hz * 3; i++) moving = easeBoom(boom, 0, 1 / hz);
       expect(moving).toBe(false);
       return [boom.yaw, boom.pitch, boom.length];
@@ -99,14 +98,80 @@ describe('the boom', () => {
   });
 });
 
-/** A wall from x = 0.5 on, past z = 2. */
-const corner = (x: number, z: number) => (x > 0.5 && z > 2 ? 10 : 0);
+describe('zoom', () => {
+  test('the buttons step between clear stops, from over the shoulder to a high follow view', () => {
+    expect(ZOOM_STOPS[0]).toBe(DISTANCE_RANGE[0]);
+    expect(ZOOM_STOPS.at(-1)).toBe(DISTANCE_RANGE[1]);
+    expect(ZOOM_STOPS).toContain(DISTANCE);
+    for (let i = 1; i < ZOOM_STOPS.length; i++) {
+      expect(ZOOM_STOPS[i]! / ZOOM_STOPS[i - 1]!).toBeGreaterThan(1.5);
+      expect(ZOOM_STOPS[i]! / ZOOM_STOPS[i - 1]!).toBeLessThan(2);
+    }
+    expect(zoomStop(DISTANCE, false)).toBe(13);
+    expect(zoomStop(DISTANCE, true)).toBe(4.4);
+    // From between stops (after a pinch), to the next one along, not back to the last.
+    expect(zoomStop(9, true)).toBe(DISTANCE);
+    expect(zoomStop(9, false)).toBe(13);
+    // A hair off a stop counts as on it.
+    expect(zoomStop(7.4, false)).toBe(13);
+    expect(zoomStop(DISTANCE_RANGE[1], false)).toBe(DISTANCE_RANGE[1]);
+    expect(zoomStop(DISTANCE_RANGE[0], true)).toBe(DISTANCE_RANGE[0]);
+  });
+
+  test('a mouse notch zooms about a sixth in any unit, a pinch as far as the fingers go', () => {
+    const at = { deltaMode: 0, deltaX: 0, deltaY: 0, ctrlKey: false };
+    const notch = wheelZoom({ ...at, deltaY: 100 }, false);
+    expect(notch).toBeGreaterThan(1.1);
+    expect(notch).toBeLessThan(1.25);
+    // Firefox counts three lines a notch.
+    expect(wheelZoom({ ...at, deltaMode: 1, deltaY: 3 }, false)).toBeCloseTo(notch, 1);
+    expect(wheelZoom({ ...at, deltaMode: 2, deltaY: -1 }, false)).toBeLessThan(1);
+    expect(wheelZoom({ ...at, deltaY: -100 }, false)).toBeCloseTo(1 / notch);
+    expect(wheelZoom({ ...at, deltaY: 10, ctrlKey: true }, true)).toBeCloseTo(Math.exp(0.1));
+    // A wheel spun hard still moves a step at a time.
+    expect(wheelZoom({ ...at, deltaY: 5000 }, false)).toBeLessThan(2.1);
+  });
+
+  test('zoomed out it looks further down, zoomed in nearer level, smoothly', () => {
+    expect(boomPitch(PITCH, DISTANCE)).toBeCloseTo(PITCH);
+    const far = boomPitch(PITCH, DISTANCE_RANGE[1]);
+    expect(far).toBeGreaterThan(PITCH + 0.3);
+    expect(far).toBeLessThan(PITCH_RANGE[1]);
+    const near = boomPitch(PITCH, DISTANCE_RANGE[0]);
+    expect(near).toBeLessThan(PITCH);
+    expect(near).toBeGreaterThan(0);
+    let last = near;
+    for (let length = DISTANCE_RANGE[0]; length <= DISTANCE_RANGE[1]; length *= 1.05) {
+      const pitch = boomPitch(PITCH, length);
+      expect(pitch).toBeGreaterThanOrEqual(last - 1e-9);
+      expect(pitch - last).toBeLessThan(0.03);
+      last = pitch;
+    }
+  });
+
+  test('a drag still reaches straight down zoomed out, and every bit of it moves the view', () => {
+    const far = DISTANCE_RANGE[1];
+    expect(boomPitch(PITCH_RANGE[1], far)).toBeCloseTo(PITCH_RANGE[1]);
+    for (let pitch = PITCH_RANGE[0]; pitch < PITCH_RANGE[1]; pitch += 0.05) {
+      expect(boomPitch(pitch + 0.05, far)).toBeGreaterThan(boomPitch(pitch, far));
+    }
+  });
+
+  test('looking up, the camera never sinks under the street', () => {
+    for (const length of [DISTANCE_RANGE[0], DISTANCE, 20, DISTANCE_RANGE[1]]) {
+      const height = LOOK_HEIGHT + Math.sin(boomPitch(PITCH_RANGE[0], length)) * length;
+      expect(height).toBeGreaterThanOrEqual(1 - 1e-9);
+    }
+    // Shorter than the drop to the floor, any pitch is fine.
+    expect(boomPitch(PITCH_RANGE[0], 1)).toBeLessThan(PITCH_RANGE[0]);
+  });
+});
 
 /** A house 10 m tall from z = 5 to 8, open street elsewhere. */
 const house = (_x: number, z: number) => (z >= 5 && z <= 8 ? 10 : 0);
 
-describe('walls and the ground', () => {
-  test('the boom stops short of a house behind the walker', () => {
+describe("the flight's line of sight", () => {
+  test('stops short of a house behind the walker', () => {
     const free = freeLength(house, [0, 2.6, 0], [0, 0, 1], 20);
     expect(free).toBeLessThan(5);
     expect(free).toBeGreaterThan(3.5);
@@ -117,14 +182,14 @@ describe('walls and the ground', () => {
     expect(freeLength(house, [0, 2.6, 0], [0, 0, -1], 20)).toBe(20);
   });
 
-  test('looking up, the boom stops above the ground, and never shrinks to nothing', () => {
+  test('looking up, it stops above the ground, and never shrinks to nothing', () => {
     const free = freeLength(() => 0, [0, 2.6, 0], [0, -0.5, Math.sqrt(0.75)], 20);
     expect(free).toBeLessThan(4.2);
     expect(free).toBeGreaterThan(3);
     expect(freeLength(() => 99, [0, 2.6, 0], [0, 0, 1], 20)).toBe(0.5);
   });
 
-  test('a boom rising above every roof stops looking, however long it is', () => {
+  test('rising above every roof, it stops looking, however long it is', () => {
     let lookups = 0;
     const count = () => {
       lookups++;
@@ -134,7 +199,7 @@ describe('walls and the ground', () => {
     expect(lookups).toBeLessThan(400);
   });
 
-  test('the free length changes smoothly as the walker nears a house, not a step at a time', () => {
+  test('changes smoothly as the walker nears a house, not a step at a time', () => {
     const lengths: number[] = [];
     for (let z = 0; z <= 0.5; z += 0.05)
       lengths.push(freeLength(house, [0, 2.6, z], [0, 0, 1], 20));
@@ -142,131 +207,19 @@ describe('walls and the ground', () => {
     for (const jump of jumps) expect(jump).toBeLessThan(0.1);
     expect(lengths[0]! - lengths.at(-1)!).toBeCloseTo(0.5, 1);
   });
-
-  test('pulls in quickly, at once from inside a house, and lets out gently', () => {
-    const quick = settleReach(8, 3, 1 / 60);
-    expect(quick).toBeLessThan(7);
-    expect(quick).toBeGreaterThan(3);
-    let reach = 8;
-    for (let i = 0; i < 20; i++) reach = settleReach(reach, 3, 1 / 60);
-    expect(reach).toBeCloseTo(3, 1);
-    expect(settleReach(8, 3, 1 / 60, true)).toBe(3);
-    const out = settleReach(3, 8, 1 / 60);
-    expect(out).toBeGreaterThan(3);
-    expect(out).toBeLessThan(3.5);
-    for (let i = 0; i < 180; i++) reach = settleReach(reach, 8, 1 / 60);
-    expect(reach).toBeCloseTo(8, 1);
-  });
-
-  test('a corner reaching a whisker starts the pull in before it cuts the view', () => {
-    expect(reachGoal(8, 8, 8)).toBe(8);
-    expect(reachGoal(8, 4, 8)).toBe(6);
-    expect(reachGoal(3, 4, 8)).toBe(3);
-  });
-
-  test('the reach along a boom feels with both whiskers', () => {
-    // Only the whisker turned toward +x meets the corner.
-    const look: Vec3 = [0, 2.6, 0];
-    expect(freeLength(corner, look, boomDirection(0, 0, [0, 0, 0]), 8)).toBe(8);
-    const reach = boomReach(corner, look, 0, 0, 8);
-    expect(reach).toBeLessThan(8);
-    expect(reach).toBeGreaterThan(4);
-    expect(boomReach(() => 0, look, 0, 0, 8)).toBe(8);
-  });
 });
 
-/** A street 3 m wide along x, between 12 m houses: a boom at yaw 0 points across it. */
-const lane = (_x: number, z: number) => (Math.abs(z) > 1.5 ? 12 : 0);
-
-describe('tight spots', () => {
-  const look: Vec3 = [0, 2.6, 0];
-  const dir: Vec3 = [0, 0, 0];
-  const freeAt = (map: typeof lane) => (pitch: number) =>
-    freeLength(map, look, boomDirection(0, pitch, dir), SHORT_BOOM);
-
-  test('across a narrow street, the boom rises over the shoulder instead of closing in', () => {
-    expect(freeAt(lane)(PITCH)).toBeLessThan(SHORT_BOOM);
-    const pitch = shoulderPitch(freeAt(lane), PITCH);
-    expect(pitch).toBeGreaterThan(PITCH + 0.2);
-    expect(pitch).toBeLessThanOrEqual(PITCH_RANGE[1]);
-    expect(freeAt(lane)(pitch)).toBeGreaterThanOrEqual(SHORT_BOOM);
-    // Only as high as it must: a little lower, it's short again.
-    expect(freeAt(lane)(pitch - 0.05)).toBeLessThan(SHORT_BOOM);
-  });
-
-  test('with room behind, or none above either, the pitch stays where it was', () => {
-    expect(
-      shoulderPitch(
-        freeAt(() => 0),
-        PITCH,
-      ),
-    ).toBe(PITCH);
-    expect(shoulderPitch(() => 0.5, PITCH)).toBe(PITCH);
-  });
-
-  test('with too little room at every pitch, it takes the roomiest', () => {
-    const roomiest = shoulderPitch((pitch) => 1.5 - Math.abs(pitch - 0.9), PITCH);
-    expect(roomiest).toBeGreaterThan(0.8);
-    expect(roomiest).toBeLessThan(1);
-  });
-
-  test('rises quickly and sinks back gently, the same at any frame rate', () => {
-    const rise = [30, 120].map((hz) => {
-      let floor = PITCH;
-      for (let i = 0; i < hz * 0.3; i++) floor = settleFloor(floor, 1, 1 / hz);
-      return floor;
-    });
-    expect(rise[0]).toBeGreaterThan(0.9);
-    expect(rise[0]).toBeCloseTo(rise[1]!, 5);
-    let floor = 1;
-    for (let i = 0; i < 12; i++) floor = settleFloor(floor, PITCH, 1 / 60);
-    expect(floor).toBeGreaterThan(0.7);
-  });
-
-  test('the figure fades only once the camera is within about a metre of it', () => {
-    expect(figureOpacity(0, 5, 3)).toBe(1);
-    expect(figureOpacity(1.5, 1.2, 0)).toBe(1);
-    // Beside the head, half a metre off it: mostly gone; touching it, gone.
-    const near = figureOpacity(0.4 + 0.6, 2, 0);
-    expect(near).toBeGreaterThan(0);
-    expect(near).toBeLessThan(0.5);
-    expect(figureOpacity(0.2, 2, 0)).toBe(0);
-    // Above the head counts from the top of it, below the feet from the soles.
-    expect(figureOpacity(0, 2.4 + 0.4 + 0.65, 0)).toBeCloseTo(0.5, 1);
-    expect(figureOpacity(0, -0.5, 0)).toBe(0);
-  });
-});
-
-describe('trees', () => {
-  // One tree at (10, 0): a 0.5 m trunk, its crown from 3 to 7 m up and 3 m across each way.
-  const trees = new TreeObstacles([10, 0, 0.5, 5, 3, 2, -400, 300, 0.4, 4, 2, 2]);
-  const away: Vec3 = [0, 2.6, 0];
-
-  test('a trunk and a crown are solid, round them is open', () => {
-    expect(trees.solid(10, 1, 0, away)).toBe(true);
-    expect(trees.solid(10.6, 1, 0, away)).toBe(true); // within the clearance
-    expect(trees.solid(11.5, 1, 0, away)).toBe(false);
-    expect(trees.solid(12.5, 5, 0, away)).toBe(true);
-    expect(trees.solid(10, 7.2, 0, away)).toBe(true);
-    expect(trees.solid(10, 8, 0, away)).toBe(false);
-    expect(trees.solid(-400, 4, 300, away)).toBe(true);
-    // Far from any, and off the edge of where the trees are filed.
-    expect(trees.solid(100, 4, 100, away)).toBe(false);
-    expect(trees.solid(-9000, 4, 9000, away)).toBe(false);
-  });
-
-  test('a tree the boom starts in is left out, so the camera stays put under a low crown', () => {
-    expect(trees.solid(11, 5, 0, [10, 4, 1])).toBe(false);
-    expect(trees.solid(-400, 4, 300, [10, 4, 1])).toBe(true);
-  });
-
-  test('the boom stops short of a tree behind the walker', () => {
-    const free = freeLength(() => 0, [0, 2.6, 0], [1, 0, 0], 20, trees.solid);
-    expect(free).toBeGreaterThan(9 - 2);
-    expect(free).toBeLessThan(10 - 0.5);
-    expect(freeLength(() => 0, [0, 2.6, 0], [-1, 0, 0], 20, trees.solid)).toBe(20);
-    expect(new TreeObstacles([]).solid(0, 0, 0, away)).toBe(false);
-  });
+test('the figure fades only once the camera is within about a metre of it', () => {
+  expect(figureOpacity(0, 5, 3)).toBe(1);
+  expect(figureOpacity(1.5, 1.2, 0)).toBe(1);
+  // Beside the head, half a metre off it: mostly gone; touching it, gone.
+  const near = figureOpacity(0.4 + 0.6, 2, 0);
+  expect(near).toBeGreaterThan(0);
+  expect(near).toBeLessThan(0.5);
+  expect(figureOpacity(0.2, 2, 0)).toBe(0);
+  // Above the head counts from the top of it, below the feet from the soles.
+  expect(figureOpacity(0, 2.4 + 0.4 + 0.65, 0)).toBeCloseTo(0.5, 1);
+  expect(figureOpacity(0, -0.5, 0)).toBe(0);
 });
 
 describe('following', () => {
