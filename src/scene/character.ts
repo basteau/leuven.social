@@ -1,29 +1,23 @@
-import {
-  Bone,
-  BufferAttribute,
-  BufferGeometry,
-  Skeleton,
-  SkinnedMesh,
-  Uint16BufferAttribute,
-} from 'three';
-import type { InterleavedBufferAttribute, Material } from 'three';
+import { Bone, BufferAttribute, Skeleton, SkinnedMesh, Uint16BufferAttribute } from 'three';
+import type { BufferGeometry, Material } from 'three';
 
-import { MeshBuilder, padded } from './mesh-builder.ts';
+import { MeshBuilder } from './mesh-builder.ts';
 import type { V3 } from './mesh-builder.ts';
 import { OUTLINE, WALKER } from './palette.ts';
-import { IDLE_SECONDS, WALK_SPEED, runBlend } from './walker.ts';
+import { IDLE_SECONDS, STRIDE_RUN, STRIDE_WALK, runBlend } from './walker.ts';
 
 /**
- * The walker: a few boxes on a twelve-bone skeleton (knees and elbows included, so it can run),
- * chunky enough to read from the chase camera. Its ink outline is an inverted hull in the same geometry (slightly larger
- * boxes facing inward, so only their far sides show around the silhouette), which keeps the
- * whole figure, shadow included, to one draw call.
+ * The walker: a Leuven student of chunky, bevelled blocks on a fifteen-bone skeleton (knees,
+ * elbows and ankles, so they can run and keep their soles flat, and a bone for the scarf's
+ * tail), readable from the chase camera. Its ink outline is an inverted hull in the same
+ * geometry (each part again, a little larger and facing inward, so only its far side shows round
+ * the silhouette), which keeps the whole figure, shadow included, to one draw call.
  */
 
 /** How much larger than life the figure is drawn: the same as the street furniture. */
 export const CHARACTER_SCALE = 1.3;
 /** Outline thickness, in model metres. */
-const OUTLINE_WIDTH = 0.035;
+export const OUTLINE_WIDTH = 0.035;
 
 export const BONES = [
   'root',
@@ -38,115 +32,317 @@ export const BONES = [
   'legR',
   'shinL',
   'shinR',
+  'footL',
+  'footR',
+  'scarf',
 ] as const;
 export type BoneName = (typeof BONES)[number];
 
-/** Hip to knee, and knee to sole (model metres). */
-const THIGH = 0.37;
-const SHIN = 0.45;
+/** Hip to knee, knee to ankle, and ankle to sole (model metres). */
+export const THIGH = 0.37;
+export const SHIN = 0.36;
+const ANKLE = 0.09;
+/** The hips' height standing straight. */
+const REST_HIPS = THIGH + SHIN + ANKLE;
+/** The ball of the foot, where it rolls onto its toes, ahead of the ankle (model metres). */
+const BALL = 0.12;
+/** The hip joints either side of the middle (model metres). */
+const HIP_X = 0.1;
+/** Shoulder to elbow, and elbow to the middle of the hand (model metres). */
+export const UPPER_ARM = 0.24;
+export const FOREARM = 0.27;
 
-/** Each bone's pivot relative to its parent, in model metres (y up, facing +z). */
-const JOINTS: Record<BoneName, { parent: BoneName | null; at: V3 }> = {
-  root: { parent: null, at: [0, 0, 0] },
-  hips: { parent: 'root', at: [0, 0.82, 0] },
-  torso: { parent: 'hips', at: [0, 0, 0] },
-  head: { parent: 'torso', at: [0, 0.56, 0] },
-  armL: { parent: 'torso', at: [0.27, 0.5, 0] },
-  armR: { parent: 'torso', at: [-0.27, 0.5, 0] },
-  foreL: { parent: 'armL', at: [0, -0.24, 0] },
-  foreR: { parent: 'armR', at: [0, -0.24, 0] },
-  legL: { parent: 'hips', at: [0.1, 0, 0] },
-  legR: { parent: 'hips', at: [-0.1, 0, 0] },
-  shinL: { parent: 'legL', at: [0, -THIGH, 0] },
-  shinR: { parent: 'legR', at: [0, -THIGH, 0] },
+/**
+ * Each bone's parent (none for the root) and its pivot relative to that parent, in model metres
+ * (y up, facing +z).
+ */
+const JOINTS: Record<BoneName, readonly [BoneName | '', number, number, number]> = {
+  root: ['', 0, 0, 0],
+  hips: ['root', 0, REST_HIPS, 0],
+  torso: ['hips', 0, 0, 0],
+  head: ['torso', 0, 0.56, 0],
+  armL: ['torso', 0.27, 0.5, 0],
+  armR: ['torso', -0.27, 0.5, 0],
+  foreL: ['armL', 0, -0.24, 0],
+  foreR: ['armR', 0, -0.24, 0],
+  legL: ['hips', HIP_X, 0, 0],
+  legR: ['hips', -HIP_X, 0, 0],
+  shinL: ['legL', 0, -THIGH, 0],
+  shinR: ['legR', 0, -THIGH, 0],
+  footL: ['shinL', 0, -SHIN, 0],
+  footR: ['shinR', 0, -SHIN, 0],
+  // The scarf's tail hangs from behind the neck.
+  scarf: ['torso', 0.075, 0.58, -0.165],
 };
 
-interface Part {
+/** A closed loop of corners, all in one plane: a cross-section of a part. */
+type Ring = readonly V3[];
+
+/**
+ * A convex part of the figure, lofted through cross-sections (`rings`, each with the same number
+ * of corners) and capped at both ends, on one bone. Faces take `color`, or what `paint` gives a
+ * side face (`band` counts the gaps between rings from the first, `side` the corners round them)
+ * or a cap (band -1 for the first, `rings.length - 1` for the last). Its ink hull follows `hull`
+ * if given (fewer or larger rings), its own rings if not, or none for small parts (`false`).
+ * An end always hidden inside another part is left open (`open`: first, last).
+ */
+interface Solid {
   bone: BoneName;
-  min: V3;
-  max: V3;
+  rings: readonly Ring[];
   color: number;
-  outline?: false;
+  paint?: (band: number, side: number) => number;
+  hull?: readonly Ring[] | false;
+  open?: readonly [boolean, boolean];
 }
 
-const mirror = (p: Part, bone: BoneName): Part => ({
-  ...p,
-  bone,
-  min: [-p.max[0], p.min[1], p.min[2]],
-  max: [-p.min[0], p.max[1], p.max[2]],
-});
+/** The walker's colours that vary from one device to the next; the coat stays accent blue. */
+export interface Outfit {
+  scarf: number;
+  bag: number;
+  hair: number;
+  trousers: number;
+}
 
-// Each limb part hangs from the bone whose pivot is above it: thigh and upper arm from the
-// hip and shoulder, shin and forearm from the knee and elbow.
-const LEG: Part[] = [
-  { bone: 'legL', min: [0.02, 0.47, -0.08], max: [0.18, 0.84, 0.08], color: WALKER.trousers },
-  // The knee: a block round the joint that turns with the shin, so a bent leg stays one piece
-  // instead of two boxes opening a notch.
-  { bone: 'shinL', min: [0.025, 0.39, -0.085], max: [0.175, 0.51, 0.085], color: WALKER.trousers },
-  { bone: 'shinL', min: [0.03, 0.1, -0.075], max: [0.17, 0.42, 0.075], color: WALKER.trousers },
-  { bone: 'shinL', min: [0.02, 0, -0.09], max: [0.19, 0.12, 0.14], color: WALKER.shoes },
-];
-const ARM: Part[] = [
-  { bone: 'armL', min: [0.22, 1.07, -0.07], max: [0.34, 1.36, 0.07], color: WALKER.coat },
-  { bone: 'foreL', min: [0.225, 0.86, -0.065], max: [0.335, 1.1, 0.065], color: WALKER.coat },
-  { bone: 'foreL', min: [0.235, 0.76, -0.055], max: [0.325, 0.87, 0.055], color: WALKER.skin },
-];
-
-/** Model-space boxes, in the bind pose: all bones unrotated, pivots as in JOINTS. */
-export const PARTS: readonly Part[] = [
-  ...LEG,
-  ...LEG.map((p) => mirror(p, 'legR')),
-  { bone: 'torso', min: [-0.22, 0.74, -0.13], max: [0.22, 1.36, 0.13], color: WALKER.coat },
-  { bone: 'torso', min: [-0.2, 1.26, -0.15], max: [0.2, 1.39, 0.15], color: WALKER.scarf },
-  { bone: 'torso', min: [0.05, 1.0, 0.12], max: [0.14, 1.28, 0.17], color: WALKER.scarf },
-  { bone: 'torso', min: [-0.17, 0.88, -0.27], max: [0.17, 1.3, -0.12], color: WALKER.bag },
-  ...ARM,
-  ...ARM.map((p) => mirror(p, 'armR')),
-  { bone: 'head', min: [-0.2, 1.38, -0.19], max: [0.2, 1.78, 0.19], color: WALKER.skin },
-  { bone: 'head', min: [-0.22, 1.72, -0.21], max: [0.22, 1.85, 0.21], color: WALKER.hair },
-  { bone: 'head', min: [-0.22, 1.46, -0.21], max: [0.22, 1.76, -0.06], color: WALKER.hair },
-  // Eyes: dots on the face, too small for an outline.
-  { bone: 'head', min: [0.06, 1.55, 0.18], max: [0.12, 1.63, 0.2], color: OUTLINE, outline: false },
-  {
-    bone: 'head',
-    min: [-0.12, 1.55, 0.18],
-    max: [-0.06, 1.63, 0.2],
-    color: OUTLINE,
-    outline: false,
-  },
-];
-
-const FACES: readonly { axis: 0 | 1 | 2; side: 0 | 1 }[] = [0, 1, 2].flatMap((axis) =>
-  [0, 1].map((side) => ({ axis: axis as 0 | 1 | 2, side: side as 0 | 1 })),
-);
-
-/** A box's six faces, facing out, or in for the outline hull. */
-function addBox(mesh: MeshBuilder, min: V3, max: V3, color: number, inward: boolean): void {
-  const at = (x: 0 | 1, y: 0 | 1, z: 0 | 1): V3 => [
-    (x ? max : min)[0],
-    (y ? max : min)[1],
-    (z ? max : min)[2],
+/**
+ * A level cross-section at `y`: the rectangle `x0`–`x1` by `z0`–`z1`, its corners cut by `bevel`
+ * (eight corners, front-right first and round by the back), or square (four).
+ */
+function level(y: number, x0: number, x1: number, z0: number, z1: number, bevel = 0): Ring {
+  if (!bevel) {
+    return [
+      [x1, y, z1],
+      [x1, y, z0],
+      [x0, y, z0],
+      [x0, y, z1],
+    ];
+  }
+  return [
+    [x1 - bevel, y, z1],
+    [x1, y, z1 - bevel],
+    [x1, y, z0 + bevel],
+    [x1 - bevel, y, z0],
+    [x0 + bevel, y, z0],
+    [x0, y, z0 + bevel],
+    [x0, y, z1 - bevel],
+    [x0 + bevel, y, z1],
   ];
-  for (const { axis, side } of FACES) {
-    const corners = [
-      [0, 0],
-      [1, 0],
-      [1, 1],
-      [0, 1],
-    ].map(([u, v]) => {
-      const c = [0, 0, 0] as [0 | 1, 0 | 1, 0 | 1];
-      c[axis] = side;
-      c[(axis + 1) % 3] = u as 0 | 1;
-      c[(axis + 2) % 3] = v as 0 | 1;
-      return at(...c);
-    }) as [V3, V3, V3, V3];
-    const out = (side ? 1 : -1) * (inward ? -1 : 1);
-    const hint: V3 = [axis === 0 ? out : 0, axis === 1 ? out : 0, axis === 2 ? out : 0];
-    mesh.quad(...corners, color, hint);
+}
+
+/** A box from `min` to `max`: two square levels. */
+const box = (min: V3, max: V3): Ring[] => [
+  level(min[1], min[0], max[0], min[2], max[2]),
+  level(max[1], min[0], max[0], min[2], max[2]),
+];
+
+/** A side profile (z, y) swept across from `x0` to `x1`: a shoe. */
+const profile = (points: readonly (readonly [number, number])[], x0: number, x1: number): Ring[] =>
+  [x0, x1].map((x) => points.map(([z, y]): V3 => [x, y, z]));
+
+/** Sides of the octagonal levels: the middle of the front, and the back three. */
+const FRONT = 7;
+const BACK = new Set([2, 3, 4]);
+
+/** The middle of some points. */
+const centroid = (points: readonly V3[]): V3 =>
+  [0, 1, 2].map((k) => points.reduce((sum, p) => sum + p[k]!, 0) / points.length) as unknown as V3;
+
+/**
+ * The rings of a part's ink hull: each ring offset outward in its own plane by `width`, mitred
+ * at the corners so every side moves out the same, and the end rings pushed out along the part.
+ * A ring is level (offset in x and z, the part running up y) or a profile (offset in z and y,
+ * the part running across x).
+ */
+export function grown(rings: readonly Ring[], width: number): Ring[] {
+  return rings.map((ring, r) => {
+    const [u, v, along] = ring.every((p) => p[1] === ring[0]![1]) ? [0, 2, 1] : [2, 1, 0];
+    const c = centroid(ring);
+    const n = ring.length;
+    const end = r === 0 ? -width : r === rings.length - 1 ? width : 0;
+    const ahead = Math.sign(centroid(rings.at(-1)!)[along]! - centroid(rings[0]!)[along]!);
+    // Each side's outward normal in the ring's plane: across the side, away from the middle.
+    const normals = ring.map((p, i) => {
+      const q = ring[(i + 1) % n]!;
+      const [du, dv] = [q[u]! - p[u]!, q[v]! - p[v]!];
+      const flip = Math.sign(dv * (p[u]! - c[u]!) - du * (p[v]! - c[v]!)) / Math.hypot(du, dv);
+      return [dv * flip, -du * flip];
+    });
+    return ring.map((p, i) => {
+      const [a, b] = [normals[(i + n - 1) % n]!, normals[i]!];
+      // The mitre: as far along the sum of the two normals as moves both sides out by `width`.
+      const k = width / (1 + a[0]! * b[0]! + a[1]! * b[1]!);
+      const out = [...p];
+      out[u] = p[u]! + (a[0]! + b[0]!) * k;
+      out[v] = p[v]! + (a[1]! + b[1]!) * k;
+      out[along] = p[along]! + end * ahead;
+      return out as unknown as V3;
+    });
+  });
+}
+
+/** A part's faces, facing out, or in for its hull, which is all ink, marked with its bone. */
+function addSolid(mesh: MeshBuilder, solid: Solid, rings: readonly Ring[], hull: boolean): void {
+  const middle = centroid(rings.flat());
+  const bone = BONES.indexOf(solid.bone);
+  const colour = (band: number, side: number) =>
+    hull ? OUTLINE : (solid.paint?.(band, side) ?? solid.color);
+  const facing = (points: readonly V3[]) =>
+    centroid(points).map((x, k) => (hull ? middle[k]! - x : x - middle[k]!)) as unknown as V3;
+  for (let band = 0; band + 1 < rings.length; band++) {
+    const [a, b] = [rings[band]!, rings[band + 1]!];
+    for (let i = 0; i < a.length; i++) {
+      const j = (i + 1) % a.length;
+      const quad = [a[i]!, a[j]!, b[j]!, b[i]!] as const;
+      mesh.quad(...quad, colour(band, i), facing(quad), bone);
+    }
+  }
+  for (const [band, ring, open] of [
+    [-1, rings[0]!, solid.open?.[0]],
+    [rings.length - 1, rings.at(-1)!, solid.open?.[1]],
+  ] as const) {
+    if (open) continue;
+    const hint = facing(ring);
+    for (let i = 1; i + 1 < ring.length; i++) {
+      mesh.triangle(ring[0]!, ring[i]!, ring[i + 1]!, colour(band, -1), hint, bone);
+    }
   }
 }
 
-const grow = (v: V3, by: number): V3 => [v[0] + by, v[1] + by, v[2] + by];
+const mirrorRing = (ring: Ring): Ring => ring.map(([x, y, z]): V3 => [-x, y, z]);
+const mirror = (s: Solid): Solid => ({
+  ...s,
+  bone: s.bone.replace('L', 'R') as BoneName,
+  rings: s.rings.map(mirrorRing),
+  hull: s.hull ? s.hull.map(mirrorRing) : s.hull,
+});
+
+/**
+ * The figure, in model metres in the bind pose (bones unrotated, pivots as in JOINTS), dressed
+ * in an outfit. Each part hangs from the bone whose pivot is above it: thigh and upper arm from
+ * hip and shoulder, shin and forearm from knee and elbow, shoe from the ankle.
+ */
+/** A part on a bone: its colour and cross-sections, then anything else about it. */
+const part = (
+  bone: BoneName,
+  color: number,
+  rings: readonly Ring[],
+  more?: Partial<Solid>,
+): Solid => ({
+  bone,
+  color,
+  rings,
+  ...more,
+});
+/** A level cross-section centred on the body, `w` either side of the middle. */
+const across = (y: number, w: number, z0: number, z1: number, bevel: number) =>
+  level(y, -w, w, z0, z1, bevel);
+const NO_HULL = { hull: false } as const;
+
+export function figure(outfit: Outfit): Solid[] {
+  const leg = [
+    part('legL', outfit.trousers, [
+      level(0.47, 0.035, 0.165, -0.07, 0.07),
+      level(0.84, 0.02, 0.18, -0.085, 0.085),
+    ]),
+    // The knee: a block round the joint that turns with the shin, so a bent leg stays one
+    // piece instead of two boxes opening a notch.
+    part('shinL', outfit.trousers, box([0.03, 0.39, -0.08], [0.17, 0.51, 0.08])),
+    part('shinL', outfit.trousers, box([0.04, 0.12, -0.065], [0.16, 0.42, 0.065])),
+    // The shoe: an upper that slopes down to the toe, a pale toe cap and a sole, under one hull
+    // that springs up at the toe as the sole does.
+    part(
+      'footL',
+      WALKER.shoes,
+      profile(
+        [
+          [-0.1, 0.03],
+          [0.17, 0.03],
+          [0.15, 0.1],
+          [-0.09, 0.155],
+        ],
+        0.025,
+        0.175,
+      ),
+      {
+        hull: profile(
+          [
+            [-0.105, 0],
+            [0.125, 0],
+            [0.2, 0.04],
+            [0.2, 0.095],
+            [-0.095, 0.155],
+          ],
+          0.02,
+          0.18,
+        ),
+      },
+    ),
+    part('footL', WALKER.sole, box([0.02, 0.04, 0.12], [0.18, 0.1, 0.2]), NO_HULL),
+    part('footL', WALKER.sole, box([0.02, 0, -0.105], [0.18, 0.035, 0.12]), NO_HULL),
+  ];
+  const arm = [
+    part('armL', WALKER.coat, [
+      level(1.07, 0.22, 0.33, -0.065, 0.065),
+      level(1.37, 0.215, 0.335, -0.075, 0.075),
+    ]),
+    part('foreL', WALKER.coat, box([0.225, 0.86, -0.062], [0.325, 1.1, 0.062])),
+    // A mitten, knitted to match the scarf, with its thumb forward.
+    part('foreL', outfit.scarf, box([0.228, 0.73, -0.064], [0.322, 0.87, 0.07])),
+    part('foreL', outfit.scarf, box([0.245, 0.79, 0.06], [0.3, 0.85, 0.105]), NO_HULL),
+  ];
+  const strap = part('torso', outfit.bag, box([0.075, 0.98, 0.12], [0.125, 1.37, 0.155]), NO_HULL);
+  return [
+    ...leg,
+    ...leg.map(mirror),
+    // The coat: broad at the shoulders, in at the waist, its hem flaring out over the hips.
+    part(
+      'torso',
+      WALKER.coat,
+      [
+        across(0.6, 0.25, -0.17, 0.17, 0.07),
+        across(0.88, 0.2, -0.13, 0.13, 0.05),
+        across(1.38, 0.24, -0.14, 0.14, 0.08),
+      ],
+      { open: [true, false] },
+    ),
+    strap,
+    mirror(strap),
+    part('torso', outfit.bag, box([-0.16, 0.9, -0.27], [0.16, 1.26, -0.13])),
+    part(
+      'torso',
+      outfit.scarf,
+      [across(1.3, 0.19, -0.155, 0.15, 0.06), across(1.45, 0.18, -0.145, 0.14, 0.06)],
+      {
+        open: [true, false],
+      },
+    ),
+    // The scarf's tail, down the back to the top of the bag, on a bone of its own.
+    part('scarf', outfit.scarf, box([0.02, 1.15, -0.19], [0.13, 1.4, -0.14])),
+    part('torso', WALKER.skin, box([-0.07, 1.42, -0.065], [0.07, 1.53, 0.065]), {
+      ...NO_HULL,
+      open: [true, true],
+    }),
+    ...arm,
+    ...arm.map(mirror),
+    // The head: an octagon, broader at the cheeks, bevelled to the crown; hair at the back and on
+    // top, with a fringe above the forehead.
+    part(
+      'head',
+      WALKER.skin,
+      [
+        across(1.5, 0.16, -0.15, 0.16, 0.06),
+        across(1.7, 0.2, -0.19, 0.19, 0.07),
+        across(1.79, 0.205, -0.195, 0.195, 0.075),
+        across(1.9, 0.17, -0.165, 0.165, 0.08),
+      ],
+      {
+        paint: (band: number, side: number) =>
+          band >= 2 || (band === 1 && side !== FRONT) || (band === 0 && BACK.has(side))
+            ? outfit.hair
+            : WALKER.skin,
+      },
+    ),
+  ];
+}
 
 /** A flat octagon under the feet, in model metres: the blob shadow. */
 function addBlob(mesh: MeshBuilder, radius = 0.42): void {
@@ -155,64 +351,61 @@ function addBlob(mesh: MeshBuilder, radius = 0.42): void {
     0.02,
     Math.sin((i * Math.PI) / 4) * radius * 0.8,
   ];
-  for (let i = 1; i < 7; i++) mesh.triangle(at(0), at(i), at(i + 1), OUTLINE, [0, 1, 0]);
+  for (let i = 1; i < 7; i++) mesh.triangle(at(0), at(i), at(i + 1), OUTLINE, [0, 1, 0], -1);
 }
 
 /**
- * The figure's geometry with one bone per vertex: body boxes, their outline hulls, and the
- * blob shadow on the root. A `dither` attribute marks the shadow, which the material draws as
- * a checkerboard of pixels: see-through without blending, so it costs no extra draw call.
+ * The figure's geometry with one bone per vertex: its parts, their outline hulls, and the
+ * blob shadow on the root. The builder's spare `facade` value carries each vertex's bone, -1
+ * for the shadow, which a `dither` attribute marks for the material to draw as a checkerboard
+ * of pixels: see-through without blending, so it costs no extra draw call.
  */
-export function characterGeometry(): BufferGeometry {
-  const pieces: { geometry: BufferGeometry; bone: number; dither: number }[] = [];
-  for (const [bone, name] of BONES.entries()) {
-    const mesh = new MeshBuilder();
-    for (const p of PARTS.filter((part) => part.bone === name)) {
-      addBox(mesh, p.min, p.max, p.color, false);
-      if (p.outline === false) continue;
-      addBox(mesh, grow(p.min, -OUTLINE_WIDTH), grow(p.max, OUTLINE_WIDTH), OUTLINE, true);
+export function characterGeometry(outfit: Outfit = WALKER): BufferGeometry {
+  const mesh = new MeshBuilder();
+  for (const solid of figure(outfit)) {
+    addSolid(mesh, solid, solid.rings, false);
+    if (solid.hull !== false) {
+      addSolid(mesh, solid, grown(solid.hull ?? solid.rings, OUTLINE_WIDTH), true);
     }
-    const geometry = mesh.build();
-    if (geometry.getAttribute('position').count) pieces.push({ geometry, bone, dither: 0 });
   }
-  const blob = new MeshBuilder();
-  addBlob(blob);
-  pieces.push({ geometry: blob.build(), bone: BONES.indexOf('root'), dither: 1 });
-
-  const count = pieces.reduce((n, p) => n + p.geometry.getAttribute('position').count, 0);
-  const position = new Float32Array(count * 3);
-  // Normals and colours as the builder writes them: bytes, padded to four.
-  const normal = new Int8Array(count * 4);
-  const color = new Uint8Array(count * 4);
-  const skinIndex = new Uint16Array(count * 4);
-  const skinWeight = new Float32Array(count * 4);
-  const dither = new Uint8Array(count);
-  const index: number[] = [];
-  let offset = 0;
-  for (const piece of pieces) {
-    const n = piece.geometry.getAttribute('position').count;
-    for (const i of piece.geometry.index!.array) index.push(offset + i);
-    position.set(piece.geometry.getAttribute('position').array, offset * 3);
-    const bytes = (name: string) =>
-      (piece.geometry.getAttribute(name) as InterleavedBufferAttribute).data.array;
-    normal.set(bytes('normal'), offset * 4);
-    color.set(bytes('color'), offset * 4);
-    dither.fill(piece.dither, offset, offset + n);
-    for (let i = offset; i < offset + n; i++) {
-      skinIndex[i * 4] = piece.bone;
-      skinWeight[i * 4] = 1;
-    }
-    offset += n;
+  // Eyes: dots on the face, too small for an outline.
+  for (const x of [0.055, -0.11]) {
+    const [a, b]: [V3, V3] = [
+      [x, 1.6, 0.186],
+      [x + 0.055, 1.67, 0.192],
+    ];
+    mesh.quad(
+      a,
+      [b[0], a[1], a[2]],
+      b,
+      [a[0], b[1], b[2]],
+      OUTLINE,
+      [0, 0, 1],
+      BONES.indexOf('head'),
+    );
   }
-  const geometry = new BufferGeometry();
-  geometry.setAttribute('position', new BufferAttribute(position, 3));
-  geometry.setAttribute('normal', padded(normal));
-  geometry.setAttribute('color', padded(color));
+  addBlob(mesh);
+  const geometry = mesh.build({ facade: true });
+  const bones = geometry.getAttribute('facade');
+  const n = bones.count;
+  const skinIndex = new Uint16Array(n * 4);
+  const skinWeight = new Float32Array(n * 4);
+  const dither = new Uint8Array(n);
+  for (let i = 0; i < n; i++) {
+    const bone = bones.getX(i);
+    skinIndex[i * 4] = Math.max(0, bone);
+    skinWeight[i * 4] = 1;
+    dither[i] = bone < 0 ? 1 : 0;
+  }
+  geometry.deleteAttribute('facade');
+  // The figure keeps its arrays once on the GPU, unlike the city: a skinned mesh reads them for
+  // its bounds, and a lost context needs them again.
+  for (const a of [geometry.index!, ...Object.values(geometry.attributes)]) {
+    ('data' in a ? a.data : a).onUploadCallback = () => {};
+  }
   geometry.setAttribute('skinIndex', new Uint16BufferAttribute(skinIndex, 4));
   geometry.setAttribute('skinWeight', new BufferAttribute(skinWeight, 4));
   geometry.setAttribute('dither', new BufferAttribute(dither, 1));
-  geometry.setIndex(index);
-  geometry.computeBoundingSphere();
   return geometry;
 }
 
@@ -227,18 +420,24 @@ export interface Character {
  * The figure, bound to its skeleton, and its x-ray twin sharing that skeleton. The twin draws
  * after the city but before the figure, wherever something stands in front: two draw calls.
  */
-export function createCharacter(body: Material, xray: Material): Character {
+export function createCharacter(
+  body: Material,
+  xray: Material,
+  outfit: Outfit = WALKER,
+): Character {
   const bones = Object.fromEntries(BONES.map((name) => [name, new Bone()])) as Record<
     BoneName,
     Bone
   >;
   for (const name of BONES) {
-    const { parent, at } = JOINTS[name];
+    const [parent, x, y, z] = JOINTS[name];
     bones[name].name = name;
-    bones[name].position.set(...at);
+    // Undoing the body's roll before their own swing keeps the legs plumb (see applyPose).
+    if (name === 'legL' || name === 'legR') bones[name].rotation.order = 'ZYX';
+    bones[name].position.set(x, y, z);
     if (parent) bones[parent].add(bones[name]);
   }
-  const geometry = characterGeometry();
+  const geometry = characterGeometry(outfit);
   const mesh = new SkinnedMesh(geometry, body);
   mesh.add(bones.root);
   mesh.bind(new Skeleton(BONES.map((name) => bones[name])));
@@ -255,8 +454,14 @@ export function createCharacter(body: Material, xray: Material): Character {
 }
 
 export interface Pose {
-  /** Hip height above the feet, model metres. */
+  /** Hip height above the ground, and how far forward of the root they sit (model metres). */
   hips: number;
+  hipsZ: number;
+  /**
+   * Roll of the body about its forward axis (radians, positive lifts the left hip). The legs
+   * hang plumb whatever the roll, so feet stay put on pedals or the ground.
+   */
+  roll: number;
   /** Forward lean of the torso, its twist with each stride, and its bank into a turn (radians). */
   lean: number;
   twist: number;
@@ -266,53 +471,138 @@ export interface Pose {
   legR: number;
   kneeL: number;
   kneeR: number;
-  /** Swing of the left arm (the right mirrors it), and the bend of both elbows (negative folds forward). */
-  arm: number;
-  elbow: number;
+  /** Each foot's turn at the ankle (positive points the toes down). */
+  footL: number;
+  footR: number;
+  /** Swing of each arm (positive is back), and the bend of each elbow (negative folds forward). */
+  armL: number;
+  armR: number;
+  elbowL: number;
+  elbowR: number;
   /** Head nod and turn. */
   nod: number;
   look: number;
+  /** The scarf's tail, swung back from hanging straight down (radians). */
+  scarf: number;
 }
 
+/** How far out from the body the arms hang (radians). */
+const ARM_SPREAD = 0.07;
+/** The scarf's tail lies back over the top of the bag at rest (radians). */
+const SCARF_REST = 0.25;
 /** Elbows hang a little bent, as arms do. */
 const REST_ELBOW = -0.12;
-
-export const restPose = (): Pose => ({
-  hips: JOINTS.hips.at[1],
-  lean: 0,
-  twist: 0,
-  bank: 0,
-  legL: 0,
-  legR: 0,
-  kneeL: 0,
-  kneeR: 0,
-  arm: 0,
-  elbow: REST_ELBOW,
-  nod: 0,
-  look: 0,
-});
-
-/** How far below the hips a leg reaches, given its thigh swing and knee bend. */
-export const legReach = (thigh: number, knee: number) =>
-  THIGH * Math.cos(thigh) + SHIN * Math.cos(thigh + knee);
-
-/**
- * The knee's give as its foot lands and takes the weight: a smooth bump over the first quarter
- * of the stride after the leg is furthest forward (`swing` and `through` of that leg's phase).
- */
-const loading = (swing: number, through: number) =>
-  (4 * Math.max(0, swing) * Math.max(0, -through)) ** 2 / 4;
-
 /** The furthest the head turns toward where the camera looks (radians). */
 const LOOK_LIMIT = 1.1;
+/** The longest a leg stretches, hip to ankle: never quite straight, so the knee never snaps. */
+const REACH = THIGH + SHIN - 0.004;
+/**
+ * How the gait changes from a walk (first) to a run (second), in model metres and radians: the
+ * share of a cycle each foot is down (under a half is a run, with both feet off the ground in
+ * between), how high a foot lifts, the hips' height and their bounce, where under the hips the
+ * steps centre, how far the heel lifts before the toes push off, and the lean.
+ */
+const DUTY = [0.52, 0.27] as const;
+const LIFT = [0.09, 0.26] as const;
+const HIPS = [0.77, 0.7] as const;
+const CENTRE = [0.03, -0.04] as const;
+const TOES = [0.38, 0.45] as const;
+const LEAN = [0.07, 0.24] as const;
+/** How far the arms swing either way (radians). */
+const ARMS = 0.55;
+/** Below this speed (m/s) steps shorten toward standing still. */
+const STEPPING = 1.5;
+/** Turning on the spot: a full cycle of two steps for each quarter turn. */
+const TURN_STEPS = 4;
+/** Starting and stopping: the acceleration (m/s²) that leans the body most of its furthest. */
+const SURGE = 15;
+const SURGE_LEAN = 0.2;
+const SURGE_HIPS = 0.06;
+
+const lerp = (pair: readonly [number, number], t: number) => pair[0] + (pair[1] - pair[0]) * t;
+const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
+const smoothstep = (x: number) => clamp01(x) ** 2 * (3 - 2 * clamp01(x));
+/** A minimum that rounds the corner where `a` and `b` cross, within `k` of each other. */
+const softMin = (a: number, b: number, k: number) => {
+  const h = Math.max(k - Math.abs(a - b), 0) / k;
+  return Math.min(a, b) - (h * h * k) / 4;
+};
+/** The fraction of the way through a cycle of length `n`, from `start`. */
+const cycle = (p: number, start: number, n = 1) => (((p - start) % n) + n) % n;
+
+/** The gait at this speed: a walk's and a run's, blended (see DUTY and below). */
+const gait = { sweep: 0, duty: 0, centre: 0, lift: 0, toes: 0 };
+
+/** Where a foot is: its ankle forward of the root and above the ground, and its pitch. */
+interface Foot {
+  z: number;
+  y: number;
+  pitch: number;
+}
 
 /**
- * The pose for a moment of walking, running or standing, written into `out` (no allocation
- * per frame). The stride swings legs and arms against each other; each knee folds as its leg
- * swings through, and running adds a longer, higher stride, bent elbows and a forward lean. The
- * hips sit as high as the planted leg reaches, so the soles stay on the ground. The torso banks
- * into turns (`turning`, rad/s) and the head turns toward `look` (radians from straight ahead).
- * For a few seconds after stopping the walker breathes and glances about, then stands still.
+ * How high the ankle is above the ground with the foot on the ball of its foot, pitched toes down
+ * (or flat): as high as it must be for no part of the sole to dip below the ground, since the
+ * toe springs up from the ball further than the toes ever point down.
+ */
+const clearance = (pitch: number) => BALL * Math.sin(pitch) + ANKLE * Math.cos(pitch);
+
+/**
+ * A foot through one gait cycle, `q` from 0 to 1 starting as it lands. While down it slides back
+ * under the body exactly as fast as the body moves on, so it stays where it landed: flat, then
+ * rolling up onto the ball of the foot. Then it lifts and swings forward to land again, leaving
+ * and arriving at the speed it had on the ground, so it neither scuffs off nor skids in.
+ */
+function footAt(out: Foot, q: number): Foot {
+  const { sweep, duty, centre, lift, toes } = gait;
+  // Down, the ball of the foot slides back, and the heel lifts as it rolls over it.
+  const u = Math.min(1, q / duty);
+  const pitch = toes * smoothstep((u - 0.55) / 0.45);
+  out.z = centre + sweep * (0.5 - u) - BALL * Math.cos(pitch) + ANKLE * Math.sin(pitch);
+  out.y = clearance(pitch);
+  out.pitch = pitch;
+  if (q < duty) return out;
+  // Up, it swings from where it left the ground to where it lands next.
+  const s = (q - duty) / (1 - duty);
+  const [z0, y0] = [out.z, out.y];
+  const z1 = centre + sweep / 2 - BALL;
+  // A Hermite curve from lift-off to landing, leaving and arriving at most of the speed the foot
+  // had on the ground: all of it would swing it far back first, out of reach.
+  const m = (-0.6 * sweep * (1 - duty)) / duty;
+  const s2 = s * s;
+  const s3 = s2 * s;
+  out.z = z0 + (z1 - z0) * (3 * s2 - 2 * s3) + m * (s - 3 * s2 + 2 * s3);
+  out.pitch = toes * (1 - s) ** 2;
+  // Highest early in the swing, the heel kicking up behind.
+  const y = y0 + (ANKLE - y0) * s + lift * Math.sin(Math.PI * s ** 0.65);
+  out.y = Math.max(y, clearance(out.pitch));
+  return out;
+}
+
+const footL: Foot = { z: 0, y: 0, pitch: 0 };
+const footR: Foot = { z: 0, y: 0, pitch: 0 };
+const limb: Limb = { root: 0, joint: 0 };
+
+/**
+ * The highest the hips can be with the ankle at `foot` still in reach. A foot well off the ground
+ * doesn't hold them down: out of reach, it just stops short, higher up.
+ */
+function reachAbove(foot: Foot, hipsZ: number): number {
+  const off = smoothstep((foot.y - clearance(foot.pitch)) / 0.06);
+  return foot.y + Math.sqrt(Math.max(0, REACH * REACH - (foot.z - hipsZ) ** 2)) + off;
+}
+
+/**
+ * The pose for a moment of walking, running or standing, written into `out` (no allocation per
+ * frame). Feet first: each foot goes where the gait cycle puts it (`phase`, which the walker turns
+ * at its stride's pace), and the legs reach for them by IK, so a foot on the ground stays where it
+ * landed. The hips ride as high as both legs allow, which bobs a walk; a run sinks onto each step
+ * and springs off it into a moment with both feet in the air. Arms swing against the legs.
+ * Speeding up (`accel`, m/s²) leans the body in and carries the hips ahead of the feet; slowing
+ * down leans it back. Standing, it steps on the spot as it turns (`turning`, rad/s, the steps
+ * keeping time with its `heading`). The torso banks into turns and the head turns toward `look`
+ * (radians from straight ahead). Stopped, for a few seconds it breathes and glances about, and
+ * then stands still.
  */
 export function poseAt(
   out: Pose,
@@ -322,54 +612,143 @@ export function poseAt(
   idle: boolean,
   turning = 0,
   look = 0,
+  accel = 0,
+  heading = 0,
 ): Pose {
-  const walk = Math.min(1, speed / WALK_SPEED);
   const run = runBlend(speed);
+  const step = smoothstep(speed / STEPPING);
+  const duty = lerp(DUTY, run);
+  const stride = (STRIDE_WALK + (STRIDE_RUN - STRIDE_WALK) * run) / CHARACTER_SCALE;
+  gait.duty = duty;
+  gait.sweep = duty * stride;
+  gait.centre = lerp(CENTRE, run);
+  gait.lift = lerp(LIFT, run);
+  gait.toes = lerp(TOES, run);
+  const p = phase / (Math.PI * 2);
+  // The left foot lands a quarter of the way through the cycle, the right at three quarters, as
+  // the footsteps sound.
+  footAt(footL, cycle(p, 0.25));
+  footAt(footR, cycle(p, 0.75));
+  // Standing, the feet come together under the hips, lifting in turn if it turns on the spot.
+  const turn = idle ? (1 - step) * clamp01(Math.abs(turning) / 2.5) : 0;
+  const pivot = heading * TURN_STEPS;
+  for (const [foot, side] of [
+    [footL, 0],
+    [footR, Math.PI],
+  ] as const) {
+    foot.z *= step;
+    foot.y = ANKLE + (foot.y - ANKLE) * step + 0.07 * turn * Math.max(0, Math.sin(pivot + side));
+    foot.pitch *= step;
+  }
+
+  const surge = idle && speed > 0 ? Math.tanh(accel / SURGE) : 0;
+  out.hipsZ = SURGE_HIPS * surge;
+  out.roll = 0; // the walker keeps its hips level; a rider rolls them
+  // A run sinks onto each step and springs off it, highest midway between steps; a walk's bob
+  // comes from the legs' reach alone.
+  const q = cycle(p, 0.25, 0.5);
+  const bounce = 0.035 * run;
+  const flight = 0.5 - duty;
+  let hips = lerp(HIPS, run);
+  if (q < duty) hips -= bounce * Math.sin((Math.PI * q) / duty);
+  else if (flight > 0)
+    hips += ((bounce * flight) / duty) * Math.sin((Math.PI * (q - duty)) / flight);
+  hips = REST_HIPS + (hips - REST_HIPS) * step;
+  hips = softMin(hips, reachAbove(footL, out.hipsZ), 0.04);
+  out.hips = softMin(hips, reachAbove(footR, out.hipsZ), 0.04);
+  for (const [foot, x] of [
+    [footL, HIP_X],
+    [footR, -HIP_X],
+  ] as const) {
+    limbIK(limb, foot.z - out.hipsZ, foot.y - out.hips, THIGH, SHIN, 1);
+    const ankle = foot.pitch - limb.root - limb.joint;
+    if (x > 0) [out.legL, out.kneeL, out.footL] = [limb.root, limb.joint, ankle];
+    else [out.legR, out.kneeR, out.footR] = [limb.root, limb.joint, ankle];
+  }
+
   const swing = Math.sin(phase);
-  const through = Math.cos(phase);
-  const reach = 0.42 * walk + 0.38 * run;
-  // Running carries the thighs a little forward of straight down.
-  out.legL = -reach * swing - 0.12 * run;
-  out.legR = reach * swing - 0.12 * run;
-  // A knee folds while its leg swings through (the left from phase -π/2 to π/2), easing in and
-  // out of it rather than starting with a kink; it gives a little as the foot lands and takes
-  // the weight (the left from π/2 to π), and running keeps both a little bent.
-  const fold = 0.7 * walk + 1.15 * run;
-  const land = 0.22 * walk + 0.15 * run;
-  const give = 0.04 * walk + 0.2 * run;
-  out.kneeL = fold * Math.max(0, through) ** 2 + land * loading(swing, through) + give;
-  out.kneeR = fold * Math.max(0, -through) ** 2 + land * loading(-swing, -through) + give;
-  out.arm = (0.55 * walk + 0.35 * run) * swing;
-  out.elbow = REST_ELBOW - 0.15 * walk - 1.1 * run;
-  out.hips =
-    Math.max(legReach(out.legL, out.kneeL), legReach(out.legR, out.kneeR)) +
-    0.03 * walk * Math.abs(through);
-  out.lean = 0.08 * walk + 0.22 * run;
-  out.twist = (0.16 * walk + 0.06 * run) * swing;
+  const arms = ARMS * step * swing;
+  // A run pumps the arms mostly behind the body.
+  out.armL = 0.3 * run + arms;
+  out.armR = 0.3 * run - arms;
+  // A run holds the elbows bent.
+  out.elbowL = out.elbowR = REST_ELBOW - 0.2 * step - 1.05 * run;
+  out.lean = lerp(LEAN, run) * step + SURGE_LEAN * surge;
+  out.twist = (0.16 - 0.1 * run) * step * swing;
   out.bank = Math.max(-0.3, Math.min(0.3, -0.03 * turning * speed));
   out.nod = -0.6 * out.lean;
+  // The scarf's tail hangs plumb, streams back with speed, kicks back as the walker sets off
+  // and forward as it stops.
+  const trail = Math.min(0.9, speed / 9);
+  out.scarf = SCARF_REST + trail + 0.35 * surge - out.lean;
   out.look = Math.max(-LOOK_LIMIT, Math.min(LOOK_LIMIT, look));
-  if (idle && walk === 0 && still < IDLE_SECONDS) {
+  if (idle && speed === 0 && still < IDLE_SECONDS) {
     const u = still / IDLE_SECONDS;
     const fade = Math.sin(Math.PI * u);
     const breath = 0.5 - 0.5 * Math.cos(Math.PI * 6 * u);
     out.look += 0.5 * Math.sin(Math.PI * 2 * u) * fade;
-    out.hips += 0.015 * breath * fade;
-    out.arm = 0.05 * breath * fade;
+    out.armL = 0.05 * breath * fade;
+    out.armR = -out.armL;
   }
   return out;
 }
 
+/** The figure standing at rest, as `poseAt` stands it. */
+export function restPose(): Pose {
+  const pose = {} as Pose;
+  return poseAt(pose, 0, 0, Infinity, false);
+}
+
 export function applyPose({ bones }: Character, pose: Pose): void {
-  bones.hips.position.y = pose.hips;
+  bones.hips.position.set(0, pose.hips, pose.hipsZ);
+  bones.hips.rotation.z = pose.roll;
   bones.torso.rotation.set(pose.lean, pose.twist, pose.bank);
   bones.head.rotation.set(pose.nod, pose.look - pose.twist, 0);
-  bones.legL.rotation.x = pose.legL;
-  bones.legR.rotation.x = pose.legR;
+  // The legs undo the roll first (they turn Z, then X), so they swing in the root's plane.
+  bones.legL.rotation.set(pose.legL, 0, -pose.roll);
+  bones.legR.rotation.set(pose.legR, 0, -pose.roll);
   bones.shinL.rotation.x = pose.kneeL;
   bones.shinR.rotation.x = pose.kneeR;
-  bones.armL.rotation.x = pose.arm;
-  bones.armR.rotation.x = -pose.arm;
-  bones.foreL.rotation.x = pose.elbow;
-  bones.foreR.rotation.x = pose.elbow;
+  bones.footL.rotation.x = pose.footL;
+  bones.footR.rotation.x = pose.footR;
+  // The arms hang a little out from the body, so the mittens clear the coat's hem.
+  bones.armL.rotation.set(pose.armL, 0, ARM_SPREAD);
+  bones.armR.rotation.set(pose.armR, 0, -ARM_SPREAD);
+  bones.scarf.rotation.x = pose.scarf;
+  bones.foreL.rotation.x = pose.elbowL;
+  bones.foreR.rotation.x = pose.elbowR;
+}
+
+/** Angles for a two-bone limb: its root's swing and its middle joint's bend (radians). */
+export interface Limb {
+  root: number;
+  joint: number;
+}
+
+/**
+ * Two-bone inverse kinematics in a limb's plane: the swing of its root and the bend of its middle
+ * joint that put the end of a limb (`upper` then `lower` long, hanging straight down at rest) at
+ * `z` forward and `y` up from its root, written into `out`. Angles turn about x as the bones do:
+ * a positive swing carries the end back. `bend` 1 bends the joint forward, as a knee does (a
+ * positive bend); -1 back, as an elbow does. Out of reach, the limb points at the target as far
+ * as it goes; too close, it folds as far as it can.
+ */
+export function limbIK(
+  out: Limb,
+  z: number,
+  y: number,
+  upper: number,
+  lower: number,
+  bend: 1 | -1,
+): Limb {
+  const d = Math.min(
+    upper + lower - 1e-6,
+    Math.max(Math.abs(upper - lower) + 1e-6, Math.hypot(z, y)),
+  );
+  const aim = Math.atan2(-z, -y);
+  const atRoot = Math.acos((upper * upper + d * d - lower * lower) / (2 * upper * d));
+  const atJoint = Math.acos((upper * upper + lower * lower - d * d) / (2 * upper * lower));
+  out.root = aim - bend * atRoot;
+  out.joint = bend * (Math.PI - atJoint);
+  return out;
 }

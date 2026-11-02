@@ -210,6 +210,7 @@ export const WALKER = {
   scarf: 0xe8b94a,
   trousers: 0x3d4250,
   shoes: 0x2b2420,
+  sole: 0xf3ead8,
   bag: 0xb84c36,
 } as const;
 
