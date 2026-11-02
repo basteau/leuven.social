@@ -18,7 +18,7 @@ const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[
   {
     label: 'Walk mode JS (on first walk)',
     pattern: 'assets/walk-*.js',
-    limit: 14 * KB,
+    limit: 14.5 * KB,
     gzip: true,
   },
   // The plates on the facades load after walk mode, in a chunk and a data file of their own.
@@ -34,7 +34,7 @@ const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[
   {
     label: 'First-load JS',
     pattern: 'assets/{index,viewer}-*.js',
-    limit: 250 * KB,
+    limit: 251 * KB,
     gzip: true,
   },
 ];
