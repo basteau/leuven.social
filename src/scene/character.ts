@@ -346,7 +346,7 @@ export function poseAt(
     0.03 * walk * Math.abs(through);
   out.lean = 0.08 * walk + 0.22 * run;
   out.twist = (0.16 * walk + 0.06 * run) * swing;
-  out.bank = Math.max(-0.3, Math.min(0.3, -0.045 * turning * speed));
+  out.bank = Math.max(-0.3, Math.min(0.3, -0.03 * turning * speed));
   out.nod = -0.6 * out.lean;
   out.look = Math.max(-LOOK_LIMIT, Math.min(LOOK_LIMIT, look));
   if (idle && walk === 0 && still < IDLE_SECONDS) {
