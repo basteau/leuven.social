@@ -323,6 +323,14 @@ test('lifted, everything rises by one height, which the lift attribute holds in 
   mesh.lift = -1000;
   mesh.triangle([0, 0, 0], [1, 0, 0], [0, 2, 0], 0, [0, 0, 1], 6);
   expect(mesh.build({ facade: true }).getAttribute('lift').getX(3)).toBe(-128);
+  // A house at its exact ground counts its storeys from a whole unit under it.
+  const house = new MeshBuilder();
+  house.lift = 3.7;
+  house.foot = 3.5;
+  house.triangle([0, 0, 0], [1, 0, 0], [0, 2, 0], 0, [0, 0, 1], 6);
+  const h = house.build({ facade: true });
+  expect(h.getAttribute('position').getY(0)).toBeCloseTo(3.7, 6);
+  expect(h.getAttribute('lift').getX(0)).toBe(3.5 / LIFT_UNIT);
 });
 
 test('outlines drape over the terrain, or rise by one height', () => {

@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import type { Building, City } from '../data/city.ts';
-import { footing, partyWalls } from './buildings.ts';
+import { partyWalls } from './buildings.ts';
 import { CELL_SIZE, along, buildCell, groundRange, partition } from './cells.ts';
 import { drawnGround } from './drawn-ground.ts';
 import { buildFurniture, propBase } from './furniture.ts';
@@ -303,7 +303,7 @@ test('along: how far a point on a line lies from its start', () => {
   expect(along([0, 0, 0, 0, 5, 0], 3, 0)).toBe(3);
 });
 
-test('on the terrain, the ground drapes, houses stand at their foot, props on the ground', () => {
+test('on the terrain, the ground drapes, houses stand at their ground, props on the ground', () => {
   // Rising a metre every 10 m to the east, across both cells.
   const slope = new Terrain({
     step: 50,
@@ -317,7 +317,7 @@ test('on the terrain, the ground drapes, houses stand at their foot, props on th
     ),
   });
   const [west, east] = partition(city, [{ x: S + 5, z: 5, ux: 1, uz: 0, color: 0xffffff }]);
-  const walls = partyWalls(city.buildings, (b) => footing(slope, b.ring));
+  const walls = partyWalls(city.buildings, (b) => slope.base(b.ring));
   const { mesh, trunksFrom } = buildCell(west!, city.area, walls, slope);
   // A parasol and a tank stand over the ground east, high up the slope.
   const e = buildCell(east!, city.area, walls, slope).mesh.build();

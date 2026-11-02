@@ -356,6 +356,23 @@ describe('party walls', () => {
     );
   });
 
+  test('a neighbour a few centimetres lower still hides the whole wall', () => {
+    // Standing 4 cm lower down a slope, the right house's equal eaves leave a strip too thin
+    // to draw; at 10 cm lower it shows.
+    const equal = { ...right, height: 10 };
+    const seamAt = (drop: number) => {
+      const walls = partyWalls([left, equal], (b) => (b.id === 2 ? -drop : 0));
+      const mesh = new MeshBuilder();
+      addBuilding(mesh, new LineBuilder(), left, walls, 0);
+      const p = unindexed(mesh.build()).getAttribute('position');
+      return Array.from({ length: p.count / 3 }, (_, t) => [t * 3, t * 3 + 1, t * 3 + 2]).filter(
+        (tri) => tri.every((i) => p.getX(i) === 6),
+      ).length;
+    };
+    expect(seamAt(0.04)).toBe(0);
+    expect(seamAt(0.1)).toBe(2);
+  });
+
   test('a wall shared with a taller neighbour is not drawn at all', () => {
     const together = buildingsGeometry([left, right]).surfaces.getAttribute('position').count;
     const apart =

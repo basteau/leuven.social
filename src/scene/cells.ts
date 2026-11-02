@@ -272,7 +272,7 @@ export interface DetailMarks {
  *
  * On the terrain, what lies on the ground is draped over it: the ground layers, paths, paint, track
  * beds and the rails' and slab's ink, platforms and parapets. Houses and tanks stand on the
- * lowest ground under their corners, trees, parasols and platform roofs on the ground at their
+ * lowest ground under their corners (a house counting its storeys from a half metre under it), trees, parasols and platform roofs on the ground at their
  * point.
  */
 export function buildCell(
@@ -323,8 +323,10 @@ export function buildCell(
     addCanopyBay(mesh, lines, bay);
   }
   for (const b of cell.buildings) {
-    const base = footing(terrain, b.ring);
+    // At its exact lowest ground, its storeys counted from a whole LIFT_UNIT below.
+    const base = terrain.base(b.ring);
     mesh.lift = lines.lift = base;
+    mesh.foot = footing(terrain, b.ring);
     addBuilding(mesh, lines, b, walls, base);
   }
   for (let i = 0; i < trees.length; i += 4) tree(i, ['crown']);

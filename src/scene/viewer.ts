@@ -1151,7 +1151,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   const ready = (async () => {
     await nextTask();
     if (disposed) return;
-    walls = partyWalls(city.buildings, (b) => footing(terrain, b.ring));
+    walls = partyWalls(city.buildings, (b) => terrain.base(b.ring));
     await nextTask();
     if (disposed) return;
     let since = performance.now();

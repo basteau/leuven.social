@@ -310,6 +310,12 @@ function inkOf(lines: LineBuilder): Ink {
  * neighbour: no line along the top, none up the shared corner.
  */
 const PARTY_SLACK = 1.5;
+/**
+ * A neighbour's wall top within this of a wall's (m) hides it all: houses stand at their exact
+ * ground, so the tops of a row of equal houses on a slope differ by a few centimetres, a strip
+ * too thin to see that would cost a quad each.
+ */
+const PARTY_TOLERANCE = 0.05;
 
 /** Wall corners sharper than this get a vertical outline; gentler bends in curved walls don't. */
 const CREASE = Math.cos((35 * Math.PI) / 180);
@@ -379,15 +385,17 @@ const pointKey = (x: number, z: number) =>
   (Math.round(x * 10) + 2 ** 20) * 2 ** 21 + (Math.round(z * 10) + 2 ** 20);
 
 /**
- * Where a house stands: the lowest ground under its corners, down to a whole LIFT_UNIT, so the
- * shader's windows start at its foot (mesh-builder.ts). Its walls run on into the ground uphill.
+ * Where a house's storeys count from: the lowest ground under its corners, where it stands
+ * (`terrain.base`), down to a whole LIFT_UNIT, which the shader reads its windows from
+ * (mesh-builder.ts). Neighbours of nearly the same base share it, so their windows line up;
+ * plates and awnings hang from it too.
  */
 export const footing = (terrain: Terrain, ring: ArrayLike<number>) =>
   Math.floor(terrain.base(ring) / LIFT_UNIT) * LIFT_UNIT;
 
 /**
  * Party walls: for every footprint edge, the building on its other side and its wall-top height
- * above the ground at Grote Markt (its `base`, where it stands, plus its eaves).
+ * above the ground at Grote Markt (its `base`, the exact ground it stands on, plus its eaves).
  * Row houses share most of their walls, and a wall between two houses is never seen below the
  * lower of the two, so `addBuilding` only draws what rises above its neighbour. Edges are keyed
  * by numbers rather than strings, which keeps the lookups out of the startup profile: each corner
@@ -464,7 +472,8 @@ function addWalls(
     // The neighbour across this edge walks it the other way round.
     const [a, b] = [ids[i], ids[(i + 1) % n]];
     const neighbour = against(b, a);
-    const bottom = Math.max(0, Math.min(neighbour ?? 0, top));
+    const covered = neighbour !== undefined && neighbour > top - PARTY_TOLERANCE;
+    const bottom = covered ? top : Math.max(0, Math.min(neighbour ?? 0, top));
     if (bottom < top) {
       mesh.quad(
         [ax, bottom, az],
