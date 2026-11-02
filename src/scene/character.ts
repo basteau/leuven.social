@@ -237,6 +237,17 @@ const NO_HULL = { hull: false } as const;
 const shade = (hex: number, k: number) =>
   [16, 8, 0].reduce((sum, at) => sum + (Math.round(((hex >> at) & 255) * k) << at), 0);
 
+/**
+ * The forearm and hand, from the fingertips up to the elbow inside the sleeve: a mitten, thin
+ * across and broad front to back, its middle where the rider's grip is (limb.ts's FOREARM).
+ */
+const HAND = [
+  level(0.735, 0.258, 0.292, -0.042, 0.05),
+  level(0.86, 0.25, 0.302, -0.056, 0.062),
+  level(0.9, 0.248, 0.302, -0.042, 0.042),
+  level(1.13, 0.24, 0.31, -0.05, 0.05),
+];
+
 /** The shirt's cross-sections from the belt up, and the one tucked into it. */
 const SHIRT = [
   across(0.93, 0.2, -0.128, 0.13, 0.05),
@@ -294,6 +305,25 @@ const mirrorFlat = (f: Flat): Flat => ({
 /** The figure's flat details: the shirt's front, the belt's buckle, the seams, the face. */
 export function details(outfit: Outfit): Flat[] {
   const placket = shade(outfit.shirt, 0.82);
+  // The nose: a little wedge out of the face, its three faces shaded apart by the light.
+  const [top, left, right, tip]: V3[] = [
+    [0, 1.64, 0.181],
+    [-0.022, 1.585, 0.173],
+    [0.022, 1.585, 0.173],
+    [0, 1.594, 0.212],
+  ];
+  const nose = (
+    [
+      [top, left, tip, [-1, 0.2, 0.6]],
+      [top, tip, right, [1, 0.2, 0.6]],
+      [left, right, tip, [0, -1, 0.3]],
+    ] as V3[][]
+  ).map(([a, b, c, normal]): Flat => ({
+    bone: 'head',
+    color: WALKER.skin,
+    points: [a!, b!, c!],
+    normal: normal!,
+  }));
   // A seam down the outside of each leg of the shorts.
   const seam: Flat = {
     bone: 'legL',
@@ -341,8 +371,25 @@ export function details(outfit: Outfit): Flat[] {
     onShirt(shade(outfit.shirt, 0.9), 0.06, 0.16, 1.08, 1.19),
     onShirt(placket, 0.06, 0.16, 1.19, 1.205),
     front('hips', WALKER.buckle, [-0.026, 0.026, 0.874, 0.921], 0.142),
-    // Eyes: dots on the face.
-    ...[0.055, -0.11].map((x) => front('head', OUTLINE, [x, x + 0.055, 1.6, 1.67], 0.186, 0.192)),
+    // The face: eyes with a glint, brows, a nose and a small mouth.
+    ...[0.055, -0.11].flatMap((x) => [
+      front('head', OUTLINE, [x, x + 0.055, 1.6, 1.67], 0.186, 0.192),
+      front('head', WALKER.buttons, [x + 0.03, x + 0.046, 1.645, 1.661], 0.193),
+      front('head', outfit.hair, [x - 0.008, x + 0.063, 1.692, 1.712], 0.196),
+    ]),
+    ...nose,
+    front('head', shade(WALKER.skin, 0.62), [-0.032, 0.032, 1.545, 1.558], 0.172),
+    // A fringe of three locks over the forehead, from the front of the hair.
+    ...[-0.1, -0.02, 0.06].map((x): Flat => ({
+      bone: 'head',
+      color: outfit.hair,
+      points: [
+        [x - 0.045, 1.758, 0.202],
+        [x + 0.045, 1.758, 0.202],
+        [x + 0.012, 1.712, 0.199],
+      ],
+      normal: [0, 0, 1],
+    })),
   ];
 }
 
@@ -426,18 +473,30 @@ export function figure(outfit: Outfit): Solid[] {
       ],
       { paint: (band) => (band ? outfit.shirt : shade(outfit.shirt, 0.85)) },
     ),
-    part('foreL', WALKER.skin, [
-      level(0.74, 0.232, 0.318, -0.06, 0.06),
-      level(1.13, 0.24, 0.31, -0.05, 0.05),
-    ]),
+    // The forearm narrows to the wrist; the hand is a mitten, flat to the thigh, and a thumb.
+    part('foreL', WALKER.skin, HAND, { hull: [HAND[0]!, HAND[1]!, HAND[3]!], open: [false, true] }),
+    part('foreL', WALKER.skin, box([0.243, 0.8, 0.045], [0.266, 0.865, 0.08]), {
+      ...NO_HULL,
+      open: [false, true],
+    }),
   ];
+  const ear = part('head', WALKER.skin, box([0.196, 1.6, -0.02], [0.232, 1.7, 0.035]), {
+    ...NO_HULL,
+    open: [true, false],
+  });
   return [
     ...leg,
     ...leg.map(mirror),
-    // The seat of the shorts, belted, the shirt tucked in.
-    part('hips', outfit.shorts, box([-0.2, 0.68, -0.125], [0.2, 0.92, 0.125]), {
-      open: [false, true],
-    }),
+    // The seat of the shorts, belted, the shirt tucked in. It narrows between the thighs, so the
+    // bottom of its ink hull, seen edge on from the side, stays inside them as they swing.
+    part(
+      'hips',
+      outfit.shorts,
+      [level(0.7, -0.15, 0.15, -0.1, 0.1), across(0.92, 0.2, -0.125, 0.125, 0)],
+      {
+        open: [false, true],
+      },
+    ),
     part(
       'hips',
       WALKER.belt,
@@ -464,8 +523,8 @@ export function figure(outfit: Outfit): Solid[] {
     ),
     ...arm,
     ...arm.map(mirror),
-    // The head: an octagon, broader at the cheeks, bevelled to the crown; hair at the back and on
-    // top, with a fringe above the forehead.
+    // The head: an octagon, broader at the cheeks, bevelled to the crown, with ears; hair at the
+    // back down to the nape.
     part(
       'head',
       WALKER.skin,
@@ -473,7 +532,7 @@ export function figure(outfit: Outfit): Solid[] {
         across(1.5, 0.16, -0.15, 0.16, 0.06),
         across(1.7, 0.2, -0.19, 0.19, 0.07),
         across(1.79, 0.205, -0.195, 0.195, 0.075),
-        across(1.9, 0.17, -0.165, 0.165, 0.08),
+        across(1.86, 0.15, -0.145, 0.145, 0.07),
       ],
       {
         paint: (band: number, side: number) =>
@@ -481,6 +540,19 @@ export function figure(outfit: Outfit): Solid[] {
             ? outfit.hair
             : WALKER.skin,
       },
+    ),
+    ear,
+    mirror(ear),
+    // A mop of hair over the crown, swept forward into a quiff above the fringe.
+    part(
+      'head',
+      outfit.hair,
+      [
+        across(1.755, 0.213, -0.203, 0.2, 0.08),
+        across(1.88, 0.19, -0.185, 0.19, 0.085),
+        across(1.96, 0.12, -0.11, 0.17, 0.06),
+      ],
+      { open: [true, false] },
     ),
   ];
 }
