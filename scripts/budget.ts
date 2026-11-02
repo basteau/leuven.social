@@ -10,7 +10,8 @@ import * as Compress from '@portable/compress';
 const KB = 1024;
 const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[] = [
   { label: 'App shell JS (React + HUD)', pattern: 'assets/index-*.js', limit: 90 * KB, gzip: true },
-  { label: '3D engine JS (three.js)', pattern: 'assets/viewer-*.js', limit: 171 * KB, gzip: true },
+  // 172: the lines of soccer fields, tennis and basketball courts and running tracks (+0.8 KB).
+  { label: '3D engine JS (three.js)', pattern: 'assets/viewer-*.js', limit: 172 * KB, gzip: true },
   { label: 'CSS', pattern: 'assets/*.css', limit: 6 * KB, gzip: true },
   // The whole R23 ring plus Heverlee; the ceiling agreed for the city data is 1 MB.
   { label: 'City data (already gzipped)', pattern: 'data/city.bin', limit: 1024 * KB, gzip: false },
@@ -39,10 +40,11 @@ const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[
   // split the modules walk mode shares with the engine (three's core, mesh-builder, palette,
   // data/props, terrain) into a third first-load chunk this pattern misses: the chunk has to
   // take those from the viewer, as plates.ts takes its kit, or they need reorganising first.
+  // 254: pitch surfaces and their fields' lines (+1.2 KB, 0.8 of it the lines' layout).
   {
     label: 'First-load JS',
     pattern: 'assets/{index,viewer}-*.js',
-    limit: 253 * KB,
+    limit: 254 * KB,
     gzip: true,
   },
 ];
