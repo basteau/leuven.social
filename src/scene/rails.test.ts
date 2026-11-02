@@ -57,6 +57,20 @@ test('a track running on along several ways keeps its rhythm, and skips zero-len
   expect(planRailway(pieces).masts.map((m) => m.tx)).toEqual([30, 90, 130, 190]);
 });
 
+test("a cell's piece of a track goes on from where the last one left off", () => {
+  // Cut at x = 100: the second piece starts 100 m along, so its masts keep the 60 m rhythm.
+  const second = { ...track(0, { line: new Float32Array([100, 0, 200, 0]) }), from: 100 };
+  expect(planRailway([second]).masts.map((m) => m.tx)).toEqual([150]);
+  const mesh = new MeshBuilder();
+  addTracks(mesh, [second]);
+  const facade = unindexed(mesh.build({ facade: true })).getAttribute('facade');
+  const values = Array.from({ length: facade.count }, (_, i) => facade.getX(i)).filter(Boolean);
+  expect([Math.max(...values), Math.min(...values)]).toEqual([
+    -SLEEPER_CODE - 100,
+    -SLEEPER_CODE - 200,
+  ]);
+});
+
 test('bridge parapets line only the sides no other bridge track runs beside', () => {
   const single = planRailway([track(0, { bridge: true, electrified: false }, 40)]).parapets;
   expect(single.map((p) => p.nz).toSorted()).toEqual([-1, 1]);

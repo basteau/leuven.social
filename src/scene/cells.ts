@@ -5,7 +5,6 @@ import type {
   City,
   Path,
   Prop,
-  Rail,
   ShopFront,
   Tank,
 } from '../data/city.ts';
@@ -31,7 +30,7 @@ import {
   canopyBays,
   planRailway,
 } from './rails.ts';
-import type { CanopyBay, Mast, RailParapet } from './rails.ts';
+import type { CanopyBay, Mast, RailParapet, Track } from './rails.ts';
 import { addParapet, addTank } from './structures.ts';
 import { addParasol } from './terraces.ts';
 import type { Parasol } from './terraces.ts';
@@ -65,7 +64,7 @@ export interface Cell {
   tanks: Tank[];
   parapets: Float32Array[];
   /** Track pieces clipped to the cell, and what stands along them. */
-  rails: Rail[];
+  rails: Track[];
   masts: Mast[];
   railParapets: RailParapet[];
   platforms: Float32Array[];
@@ -208,7 +207,9 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
     cutLine(line, (cell, piece) => cell.ground.paths.push({ width, paved, line: piece }));
   }
   for (const rail of city.rails) {
-    cutLine(rail.line, (cell, piece) => cell.rails.push({ ...rail, line: piece }));
+    cutLine(rail.line, (cell, piece) =>
+      cell.rails.push({ ...rail, line: piece, from: along(rail.line, piece[0]!, piece[1]!) }),
+    );
   }
   for (const { kind, line } of city.markings) {
     // A crossing stays whole, in the cell of its start, so its bars keep their rhythm; a lane
