@@ -56,11 +56,14 @@ const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[
   // swinging a racked bike round to the open street and baking the bikes left about the city
   // into one mesh took it to about 8.8. 10: the richer bike asked for (round spoked wheels,
   // mudguards, a chain and its guard, a lamp, a bell, grips, carrier stays, a basket) and the
-  // rider's arms reaching bars turned twice as far took it to about 9.6.
+  // rider's arms reaching bars turned twice as far took it to about 9.6. 12: getting on and off
+  // asked for (about 2.4 KB): rolling a bike out of its rack and walking it round, the keyed
+  // swing of a leg over the carrier with legs that splay to planted feet, the kickstand, stepping
+  // away and handing the camera and the walk back smoothly.
   {
     label: 'Riding JS (near a rack)',
     pattern: 'assets/ride-*.js',
-    limit: 10 * KB,
+    limit: 12 * KB,
     gzip: true,
   },
   // The plates on the facades load after walk mode, in a chunk and a data file of their own.
