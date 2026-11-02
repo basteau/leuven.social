@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { ReactNode, Ref } from 'react';
 
 import { sound } from '../audio/sound.ts';
@@ -78,19 +78,47 @@ export function RoundButton({
   pressed?: boolean;
   /** Big (Run) shows its label, small, under the icon; the rest name themselves in the tip. */
   big?: boolean;
+  /**
+   * It can be held (Turn): a pointer presses it as it goes down, and this says it's let go. A
+   * key or assistive tech still presses it with a click, let go at once.
+   */
+  onRelease?: () => void;
   ref?: Ref<HTMLButtonElement>;
 }) {
   const labelled = props.big;
+  const letGo = props.onRelease;
+  // A pointer pressed it as it went down: the click that follows is that same press.
+  const pointer = useRef(false);
   return (
     <button
       ref={ref}
       type="button"
-      className={props.big ? 'round big' : 'round'}
+      className={`round${props.big ? ' big' : ''}${letGo ? ' hold' : ''}`}
       aria-label={labelled ? undefined : props.label}
       aria-keyshortcuts={shortcutOf(props)}
       aria-pressed={props.pressed}
       disabled={props.disabled}
-      onClick={() => press(props)}
+      onClick={(event) => {
+        if (pointer.current && event.detail) pointer.current = false;
+        else {
+          press(props);
+          letGo?.();
+        }
+      }}
+      onPointerDown={
+        letGo &&
+        ((event) => {
+          if (event.button) return;
+          pointer.current = true;
+          event.currentTarget.setPointerCapture(event.pointerId);
+          press(props);
+        })
+      }
+      onPointerUp={letGo}
+      onPointerCancel={letGo}
+      onLostPointerCapture={letGo}
+      // A long press is a hold, not a call for the context menu.
+      onContextMenu={letGo && ((event) => event.preventDefault())}
     >
       {props.children}
       {labelled && <span className="round-label">{props.label}</span>}

@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import type { RefObject } from 'react';
 
 import type { Viewer, WalkMode } from '../scene/viewer.ts';
+import type { TurnHold } from './input.ts';
 
 /**
  * Keys held while walking, by where they sit rather than what they type, so W A S D and Q E
@@ -18,7 +19,7 @@ const WALK_KEYS: Record<string, readonly [number, number]> = {
   KeyD: [1, 0],
   ArrowRight: [1, 0],
 };
-const LOOK_KEYS: Record<string, number> = { KeyQ: -1, KeyE: 1 };
+const LOOK_KEYS: Record<string, 1 | -1> = { KeyQ: -1, KeyE: 1 };
 const RUN_KEYS = new Set(['ShiftLeft', 'ShiftRight']);
 
 export interface ShortcutTarget {
@@ -31,6 +32,8 @@ export interface ShortcutTarget {
   /** A walking key went down: someone is walking with the keyboard. */
   onWalkKey: () => void;
   toggleSound: () => void;
+  /** Q and E on the map: a tap turns a quarter; held, they keep turning, like the buttons. */
+  turnHold: TurnHold;
 }
 
 /**
@@ -55,6 +58,7 @@ export function useShortcuts(target: ShortcutTarget): void {
       viewer?.run(target.running.current || [...held].some((code) => RUN_KEYS.has(code)));
     };
     const release = () => {
+      target.turnHold.release();
       if (!held.size) return;
       held.clear();
       steer();
@@ -82,9 +86,13 @@ export function useShortcuts(target: ShortcutTarget): void {
       }
       // Turning and walking go by position here too, so a key does the same on the map as on
       // foot; the rest are named for what they do (M mutes, R resets), so they go by letter.
+      // A held key's repeats are no new presses: the hold goes by its keydown and keyup.
+      const turn = LOOK_KEYS[code];
+      if (turn) {
+        if (!event.repeat) target.turnHold.press(code, turn, viewer);
+        return;
+      }
       const byCode: Record<string, () => void> = {
-        KeyQ: () => viewer.rotate(-1),
-        KeyE: () => viewer.rotate(1),
         ...(mode === 'map' && { KeyW: target.startWalk }),
       };
       // Enter on a focused button or link presses that instead.
@@ -105,12 +113,15 @@ export function useShortcuts(target: ShortcutTarget): void {
       // macOS sends no keyup for keys released while ⌘ is down.
       if (event.key === 'Meta') release();
       else if (held.delete(event.code)) steer();
+      else target.turnHold.release(event.code);
     };
     app.addEventListener('keydown', onKeyDown);
     globalThis.addEventListener('keyup', onKeyUp);
     // A key released while the window is in the background never sends its keyup.
     globalThis.addEventListener('blur', release);
+    document.addEventListener('visibilitychange', release);
     return () => {
+      document.removeEventListener('visibilitychange', release);
       app.removeEventListener('keydown', onKeyDown);
       globalThis.removeEventListener('keyup', onKeyUp);
       globalThis.removeEventListener('blur', release);
