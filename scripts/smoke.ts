@@ -223,10 +223,12 @@ async function expectMenu(): Promise<void> {
   );
   await browser('press', 'Control+k');
   await browser('wait', '--fn', menu.closed);
-  // Opened with its button, it still gives focus to the map, not back to the button.
+  // Opened with its button, a command still gives focus to the map, not back to the button.
   await browser('click', 'button.menu-trigger');
   await browser('wait', '--fn', `${menu.open} && document.activeElement?.matches('.menu-search')`);
-  await browser('press', 'Escape');
+  await browser('keyboard', 'type', 'zoom in');
+  await browser('wait', '--fn', `${menu.first} === 'Zoom in'`);
+  await browser('press', 'Enter');
   await browser('wait', '--fn', menu.closed);
   console.log(
     `ok  menu: ${rows.length} rows; searched, ran Mute and Unmute, opened the controls, closed to the map`,

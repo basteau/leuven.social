@@ -177,10 +177,10 @@ export function CommandMenu(props: MenuProps) {
 
   // The dialog's own events, heard natively (React doesn't pass on every `close`): the chord
   // that opened it closes it, so does a click on the backdrop, which lands on the dialog itself
-  // (the panel fills the rest of it), if it began there too (a click ending on the backdrop may be
-  // a drag out of the search, selecting what was typed); Escape steps back from a page to the list first; and the
-  // shell hears of every close at once, however it came (Chrome holds the `close` event for the
-  // next rendering, which a hidden page never reaches).
+  // (the panel fills the rest of it), if it began there too (one that only ends there may be a
+  // drag out of the search, selecting what was typed); Escape steps back from a page to the list
+  // first; and the shell hears of every close at once, however it came (Chrome holds the `close`
+  // event for the next rendering, which a hidden page never reaches).
   const latest = useRef({ page, onPage: props.onPage, onClose: props.onClose });
   useEffect(() => {
     latest.current = { page, onPage: props.onPage, onClose: props.onClose };

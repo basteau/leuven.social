@@ -437,7 +437,7 @@ export function App() {
     bell: () => viewerRef.current?.ride('bell'),
     sound: () => toggleSoundRef.current(),
   }));
-  /** A command from the menu: the menu closes first, and focus goes back to the map for its keys. */
+  /** A command from the menu: the menu closes first, and focus goes to the map for its keys. */
   const run = useCallback(
     (action: ActionId) => {
       if (action === 'help' || action === 'about') return; // pages of the menu itself
