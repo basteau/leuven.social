@@ -285,9 +285,8 @@ export function CommandMenu(props: MenuProps) {
                 aria-controls={`${uid}-list`}
                 aria-autocomplete="list"
                 aria-activedescendant={current ? optionId(current) : undefined}
-                placeholder={
-                  props.places ? 'Search commands, keys, streets…' : 'Search commands and keys…'
-                }
+                // Short enough for a 320px phone; the label says what's searched.
+                placeholder="Search everything…"
                 autoComplete="off"
                 autoCorrect="off"
                 autoCapitalize="none"
