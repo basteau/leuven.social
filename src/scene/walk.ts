@@ -682,7 +682,17 @@ export function createWalk(host: WalkHost): Walk {
       busy ||= Math.abs(goal - head) > 0.01;
       applyPose(
         character,
-        poseAt(pose, walker.speed, phase, walker.still, !reducedMotion, walker.turning, head),
+        poseAt(
+          pose,
+          walker.speed,
+          phase,
+          walker.still,
+          !reducedMotion,
+          walker.turning,
+          head,
+          walker.accel,
+          heading,
+        ),
       );
       if (flown > 0.5 || !flying) appear = Math.min(1, appear + dt / APPEAR);
       // Pops up with a little overshoot.

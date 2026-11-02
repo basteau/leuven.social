@@ -21,8 +21,8 @@ export const RUN_SPEED = 10.6;
 /** The simulation step (s): steps are this long whatever the frame rate. */
 export const STEP = 1 / 120;
 /** Metres covered by one full gait cycle (two steps) walking, and running flat out. */
-const STRIDE_WALK = 2.9;
-const STRIDE_RUN = 5.6;
+export const STRIDE_WALK = 2.1;
+export const STRIDE_RUN = 4.8;
 /** Seconds the idle animation plays after stopping, before the scene can rest. */
 export const IDLE_SECONDS = 4;
 /** Half-lives (s) of the speed easing up, and down; below this speed (m/s) it stands. */
