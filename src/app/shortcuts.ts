@@ -36,6 +36,8 @@ export interface ShortcutTarget {
   /** T steps to the next time of day; P lets the day pass, or holds it. */
   nextTime: () => void;
   togglePassing: () => void;
+  /** C: traffic on or off. */
+  toggleTraffic: () => void;
   /** Q and E on the map: a tap turns a quarter; held, they keep turning. */
   turnHold: TurnHold;
   /** ⌘K, Ctrl+K, ⌘P, Ctrl+P and `/` open the menu at its list; `?` at the controls. */
@@ -49,7 +51,7 @@ export interface ShortcutTarget {
 }
 
 /**
- * The keyboard: arrows pan, + and - zoom, Q and E turn, M mutes, T and P set the time of day, R resets and W walks on the map
+ * The keyboard: arrows pan, + and - zoom, Q and E turn, M mutes, T and P set the time of day, C the traffic, R resets and W walks on the map
  * (Q, E and W by position, like walking's keys); held keys walk, run and look while walking, and
  * ride a bike after F (W pedals, S brakes, A and D steer, Shift sprints, B rings the bell).
  * ⌘K and its kin open the menu. Shortcuts act while focus is anywhere in the app except the
@@ -148,6 +150,7 @@ export function useShortcuts(target: ShortcutTarget): void {
         m: target.toggleSound,
         t: target.nextTime,
         p: target.togglePassing,
+        c: target.toggleTraffic,
         ...(mode !== 'walk' && { r: () => viewer.resetView() }),
         ...(mode === 'map' && !onControl && { enter: target.startWalk }),
         ...(mode !== 'map' && { escape: () => viewer.stopWalking() }),

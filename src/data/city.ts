@@ -126,6 +126,24 @@ export interface Marking {
   line: Float32Array;
 }
 
+/**
+ * A way traffic drives (src/data/traffic.ts): ring and main roads, where buses run too, the
+ * other streets, and cycle tracks and pedestrian streets, for bikes alone. One piece between
+ * two junctions, so the traffic's graph joins them at their ends.
+ */
+export const WAY_KINDS = ['main', 'street', 'cycle'] as const;
+export type WayKind = (typeof WAY_KINDS)[number];
+
+export interface Way {
+  kind: WayKind;
+  /** Traffic runs only the way the line runs. */
+  oneway: boolean;
+  /** A one-way street bikes may ride both ways. */
+  bikesBoth: boolean;
+  /** Centre line as flat [x0, z0, x1, z1, …]. */
+  line: Float32Array;
+}
+
 /** A named road, path or stretch of one, for the street sign: its name and its centre line. */
 export interface Street {
   /** Where its name is in `City.streetNames`. */
@@ -274,6 +292,8 @@ export interface City {
   terrain: TerrainGrid;
   /** Shop fronts, by building, each building's main one first. */
   fronts: ShopFront[];
+  /** The streets traffic drives, split at their junctions (src/data/traffic.ts). */
+  ways: Way[];
 }
 
 const KIND_BY_OSM: Record<string, Kind> = {

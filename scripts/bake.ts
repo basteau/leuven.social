@@ -75,6 +75,8 @@ import { placeBoards } from '../src/data/boards.ts';
 import { fitTerraces, markShopFronts, placeFronts } from '../src/data/shops.ts';
 import { bridgeParapets, tankOutline } from '../src/data/structures.ts';
 import { joinLines, nameTable, streetName } from '../src/data/streets.ts';
+import { splitAtJunctions, wayFromOsm } from '../src/data/traffic.ts';
+import type { Way } from '../src/data/city.ts';
 import { clearCrowns, mergeTrees, trunkRadius } from '../src/data/trees.ts';
 import { DATA } from './data-files.ts';
 
@@ -650,7 +652,45 @@ const city: City = {
   plazaNames,
   terrain: terrainOver(landform, VIEW_AREA),
   fronts: shops.fronts,
+  ways: [],
 };
+
+// The streets traffic drives (src/data/traffic.ts): the driveable ways, turned to run the way
+// their traffic does, split where they meet (on OSM's own shared nodes, before anything moves
+// them), clipped to the area and simplified to 1 m. Pieces of one street meet at their ends.
+const WAY_SIMPLIFY = 1;
+const drivable = osmRoads.features.flatMap((f) => {
+  const style = wayFromOsm(f.properties);
+  if (!style || f.geometry.type !== 'LineString') return [];
+  const line = lineOf(f);
+  if (style.reverse) {
+    const back: number[] = [];
+    for (let i = line.length - 2; i >= 0; i -= 2) back.push(line[i]!, line[i + 1]!);
+    return [{ ...style, line: back }];
+  }
+  return [{ ...style, line }];
+});
+const ways: Way[] = splitAtJunctions(drivable)
+  .flatMap(({ kind, oneway, bikesBoth, line }) =>
+    AREA.flatMap((rect) => clipLine(line, rect)).map((piece) => ({
+      kind,
+      oneway,
+      bikesBoth,
+      line: simplifyLine(piece, WAY_SIMPLIFY),
+    })),
+  )
+  .filter((w) => w.line.length >= 4)
+  .toSorted(
+    (a, b) =>
+      Math.floor(a.line[1]! / STRIP) - Math.floor(b.line[1]! / STRIP) || a.line[0]! - b.line[0]!,
+  )
+  .map(({ kind, oneway, bikesBoth, line }) => ({
+    kind,
+    oneway,
+    bikesBoth,
+    line: new Float32Array(line),
+  }));
+city.ways = ways;
 
 const bytes = await packCity(city);
 await Bun.write(OUT, bytes);
@@ -693,8 +733,8 @@ const houses = placeHouseNumbers(addresses, facades, segments, {
 });
 const streetPlates = placeStreetPlates({
   junctions: junctions(
-    [...waysByName].flatMap(([name, ways]) =>
-      ways.map((way) => ({ name: nameIndex.get(name)!, line: way.line })),
+    [...waysByName].flatMap(([name, list]) =>
+      list.map((way) => ({ name: nameIndex.get(name)!, line: way.line })),
     ),
   ),
   facades,
@@ -729,6 +769,7 @@ const tiers = Object.groupBy(buildings, (b) => b.tier);
 console.log(
   [
     `buildings ${buildings.length} (hero ${tiers.hero?.length ?? 0}, core ${tiers.core?.length ?? 0})`,
+    `ways for traffic ${ways.length} (${ways.filter((w) => w.oneway).length} one-way, ${ways.reduce((n, w) => n + w.line.length / 2, 0)} points)`,
     `roads ${city.roads.length}, carriageways ${carriageways.length} (${Object.entries(
       Object.groupBy(carriageways, (r) => r.kind),
     )

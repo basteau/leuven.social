@@ -40,7 +40,9 @@ const BUDGETS: {
     // 170.5: each house its own style (1.8 KB): arched or tall windows with balcony rails,
     // cornices, string courses, plinths, shutters, front doors, brick courses, shop doors and
     // mullions, windows that light up at night, and chimneys, dormers and roof windows.
-    limit: 170.5 * KB,
+    // 172: the traffic's hooks (1.2 KB): loading its chunk, the live loop that steps it and
+    // the day, keeping it round the view, and counting it in the frame budget.
+    limit: 172 * KB,
     gzip: true,
   },
   // 3.5: just above 3.1 KB.
@@ -100,6 +102,14 @@ const BUDGETS: {
     limit: 12 * KB,
     gzip: true,
   },
+  // The traffic loads once the first frame is drawn: the road graph, the vehicles' driving,
+  // their shapes and the instanced layer that draws them.
+  {
+    label: 'Traffic JS (after first frame)',
+    pattern: 'assets/traffic-*.js',
+    limit: 7 * KB,
+    gzip: true,
+  },
   // The plates on the facades load after walk mode, in a chunk and a data file of their own.
   // 6: the shops' name boards (fitting a name to its front, its paint at 4.5:1, hanging it on
   // the awning's valance or the fascia, and the shader that paints under the letters) took the
@@ -138,11 +148,11 @@ const BUDGETS: {
   // load, menu and key fixes put 0.4 back: 249.2 KB. 251: the livelier facades (1.4 KB).
   // 253.5: each house its own style, and roofs with chimneys and dormers (1.8 KB).
   // 256: a day and a night over the city (1.6 KB): the light's keyframes, the lamps' glow
-  // and the sun that moves the shadows.
+  // and the sun that moves the shadows. 257.5: the traffic's hooks in the engine (1.2 KB).
   {
     label: 'First-load JS',
     pattern: 'assets/{index,viewer}-*.js',
-    limit: 256 * KB,
+    limit: 257.5 * KB,
     gzip: true,
     closure: true,
   },

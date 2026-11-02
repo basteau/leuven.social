@@ -148,3 +148,13 @@ export const ClockIcon = () => (
     <path d="M12 7v5l3 2" />
   </svg>
 );
+
+/** A car seen side on: a body, a cabin, two wheels. */
+export const CarIcon = () => (
+  <svg {...base}>
+    <path d="M3 15v-3l2-5h11l4 5v3h-2" />
+    <path d="M3 15h2M9 15h6" />
+    <circle cx="7" cy="16" r="2" />
+    <circle cx="17" cy="16" r="2" />
+  </svg>
+);

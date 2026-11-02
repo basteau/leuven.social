@@ -1,4 +1,5 @@
 import {
+  BackSide,
   Box3,
   BufferAttribute,
   BufferGeometry,
@@ -9,10 +10,13 @@ import {
   Fog,
   Frustum,
   HemisphereLight,
+  InstancedBufferAttribute,
+  InstancedMesh,
   LineBasicMaterial,
   LineSegments,
   Matrix4,
   Mesh,
+  MeshBasicMaterial,
   MeshToonMaterial,
   NearestFilter,
   OrthographicCamera,
@@ -60,7 +64,13 @@ import type { Daylight, PresetId } from './daylight.ts';
 import { MapControls } from './map-controls.ts';
 import { LAYER_Y, slabBottom } from './ground.ts';
 import { LINE_LOD } from './paint.ts';
-import { LineBuilder, MeshBuilder, corners, geometryBytes } from './mesh-builder.ts';
+import {
+  LineBuilder,
+  MeshBuilder,
+  corners,
+  geometryBytes,
+  linearVertexColors,
+} from './mesh-builder.ts';
 import type { V3 } from './mesh-builder.ts';
 import { OUTLINE, PLATE, SKY } from './palette.ts';
 import {
@@ -79,6 +89,7 @@ import { isTap } from './tap.ts';
 import type { Spin } from './spin.ts';
 import { terraceParasols } from './terraces.ts';
 import type { Plates } from './plates.ts';
+import type { TrafficLayer } from './traffic.ts';
 import type { RideAction, RideState } from './ride.ts';
 import type { Walk, WalkMode } from './walk.ts';
 
@@ -154,6 +165,9 @@ export interface Viewer {
   nextTimeOfDay(): PresetId;
   /** Lets the day pass, an hour every few seconds, or holds it where it is. */
   passTime(on: boolean): void;
+  /** Cars, buses and bikes on the streets, or empty streets. On unless motion is reduced. */
+  traffic(on: boolean): void;
+  trafficOn(): boolean;
   stats(): ViewerStats;
   /** Settles once the first frame is drawn, a few tasks after `createViewer` returns. */
   ready: Promise<void>;
@@ -223,8 +237,8 @@ const LIGHTS_ONLY = 1 << 2;
  * What one frame may draw, as `scripts/smoke.ts` checks it. A shadow redraw that would take its
  * frame past this gets a frame of its own, and the view follows on the next.
  */
-const FRAME_CALLS = 100;
-const FRAME_TRIANGLES = 700_000;
+const FRAME_CALLS = 110;
+const FRAME_TRIANGLES = 750_000;
 /**
  * Zoom from which street furniture shows. Further out a lamp post is a stray pixel, and the
  * frames that show the most city are the ones that can least afford it. It casts shadows only
@@ -232,6 +246,12 @@ const FRAME_TRIANGLES = 700_000;
  * and redrawing the map's square with the city's bikes and lamps took half a million triangles.
  */
 const PROP_ZOOM = 2;
+/**
+ * How far round the view's target the traffic keeps (m): at least this, so a walker sees the
+ * streets round them busy, and at most this, the whole map zoomed out.
+ */
+const TRAFFIC_NEAR = 250;
+const TRAFFIC_REACH = 1100;
 /** Time the idle builder may take per slice before handing the main thread back (ms). */
 const IDLE_SLICE_MS = 8;
 /** Time the first frame's cells may take to build before the page gets a turn (ms). */
@@ -728,6 +748,11 @@ export function createViewer(options: ViewerOptions): Viewer {
         if (mesh.visible && furnitureCasts) draw(mesh);
       }
     }
+    for (const mesh of trafficLayer?.meshes ?? []) {
+      if (!mesh.visible || !mesh.count) continue;
+      calls++;
+      triangles += (corners(mesh.geometry) / 3) * mesh.count;
+    }
     return calls <= FRAME_CALLS && triangles <= FRAME_TRIANGLES;
   }
 
@@ -833,6 +858,8 @@ export function createViewer(options: ViewerOptions): Viewer {
       vertices: held.vertices,
       geometryBytes: held.bytes,
       plates: plates?.shown ?? 0,
+      traffic: trafficShown,
+      trafficSteps,
     });
     if (alone) {
       invalidate();
@@ -1167,7 +1194,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   let hour = leuvenHour();
   let daylight = daylightAt(hour);
   let sunHour = Number.NaN;
-  function applyDaylight(): void {
+  function applyDaylight(draw = true): void {
     daylight = daylightAt(hour);
     sun.color.set(daylight.sun);
     sun.intensity = daylight.sunIntensity;
@@ -1188,31 +1215,92 @@ export function createViewer(options: ViewerOptions): Viewer {
       renderer.shadowMap.needsUpdate = true;
     }
     options.onDaylight?.(daylight);
-    invalidate();
+    if (draw) invalidate();
   }
-  // The day passing: a frame loop of its own while it does, which the walk loop's frames
-  // share when both run (invalidate draws nothing while walk mode is animating).
+  // What moves by itself: the day passing, and the traffic. While either does, a frame loop of
+  // its own steps them and draws (unless walk mode is drawing every frame already); otherwise
+  // the map renders on demand as ever. A hidden tab pauses it with its animation frames.
   let passing = false;
-  let dayFrame = 0;
-  let dayLast = 0;
-  function tickDay(now: number): void {
-    dayFrame = 0;
-    if (!passing) return;
-    const dt = Math.min(0.1, Math.max(0, (now - dayLast) / 1000));
-    dayLast = now;
-    hour = wrapHour(hour + dt * HOURS_PER_SECOND);
-    applyDaylight();
-    dayFrame = requestAnimationFrame(tickDay);
+  let trafficWanted = !reducedMotion;
+  let trafficLayer: TrafficLayer | undefined;
+  let loadingTraffic: Promise<void> | undefined;
+  let trafficShown = 0;
+  /** How many times the traffic has stepped: the smoke test watches it climb. */
+  let trafficSteps = 0;
+  let liveFrame = 0;
+  let liveLast = 0;
+  const alive = () => passing || (trafficWanted && trafficLayer !== undefined);
+  function tickLive(now: number): void {
+    liveFrame = 0;
+    if (!alive()) return;
+    const dt = Math.min(0.1, Math.max(0, (now - liveLast) / 1000));
+    liveLast = now;
+    if (passing) {
+      hour = wrapHour(hour + dt * HOURS_PER_SECOND);
+      applyDaylight(false);
+    }
+    if (trafficLayer && trafficWanted) {
+      // The fleet keeps to the streets round where the view looks: as far as it can see, and
+      // at least a few streets round the walker.
+      const t = controls.target;
+      const radius = Math.min(TRAFFIC_REACH, Math.max(TRAFFIC_NEAR, viewSpan() * 0.9));
+      trafficShown = trafficLayer.update(dt, t.x, t.z, radius);
+      trafficSteps++;
+    }
+    if (!walk?.animating) renderNow();
+    liveFrame = requestAnimationFrame(tickLive);
+  }
+  function wake(): void {
+    if (liveFrame || !alive()) return;
+    liveLast = performance.now();
+    liveFrame = requestAnimationFrame(tickLive);
   }
   function passTime(on: boolean): void {
-    if (passing === on) return;
     passing = on;
-    cancelAnimationFrame(dayFrame);
-    dayFrame = 0;
-    if (on) {
-      dayLast = performance.now();
-      dayFrame = requestAnimationFrame(tickDay);
-    }
+    wake();
+  }
+  /**
+   * The traffic is a chunk of its own, loaded once the first frame is drawn (or when asked for),
+   * taking what it shares with the engine as a kit, like the furniture.
+   */
+  function loadTraffic(): void {
+    loadingTraffic ??= import('./traffic.ts').then(
+      ({ createTrafficLayer }) => {
+        if (disposed) return;
+        trafficLayer = createTrafficLayer({
+          three: {
+            BackSide,
+            InstancedBufferAttribute,
+            InstancedMesh,
+            Matrix4,
+            MeshBasicMaterial,
+            MeshToonMaterial,
+          },
+          MeshBuilder,
+          linearVertexColors,
+          city,
+          ground: (x, z) => terrain.height(x, z) + LAYER_Y.carriageways,
+          gradientMap,
+          night: material.userData.night as { value: number },
+          ink: OUTLINE,
+        });
+        scene.add(...trafficLayer.meshes);
+        showTraffic();
+        wake();
+      },
+      () => {}, // the streets stay empty
+    );
+  }
+  function showTraffic(): void {
+    for (const mesh of trafficLayer?.meshes ?? []) mesh.visible = trafficWanted;
+    if (!trafficWanted) trafficShown = 0;
+    invalidate();
+  }
+  function setTraffic(on: boolean): void {
+    trafficWanted = on;
+    if (on && !trafficLayer) loadTraffic();
+    showTraffic();
+    wake();
   }
   function nextTimeOfDay(): PresetId {
     const next = nextPreset(presetAt(hour));
@@ -1279,6 +1367,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     renderer.shadowMap.needsUpdate = true;
     renderNow();
     idleHandle = idle(buildInBackground);
+    if (trafficWanted) loadTraffic();
   })();
 
   return {
@@ -1301,6 +1390,8 @@ export function createViewer(options: ViewerOptions): Viewer {
     timeOfDay: () => ({ preset: presetAt(hour), passing }),
     nextTimeOfDay,
     passTime,
+    traffic: setTraffic,
+    trafficOn: () => trafficWanted,
     stats: () => ({
       drawCalls: renderer.info.render.calls,
       triangles: renderer.info.render.triangles,
@@ -1308,7 +1399,8 @@ export function createViewer(options: ViewerOptions): Viewer {
     dispose() {
       cancelAnimationFrame(frame);
       cancelAnimationFrame(spin);
-      cancelAnimationFrame(dayFrame);
+      cancelAnimationFrame(liveFrame);
+      trafficLayer?.dispose();
       cancelIdle(idleHandle);
       disposed = true;
       walk?.dispose();

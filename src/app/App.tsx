@@ -170,6 +170,7 @@ export function App() {
   const [time, setTime] = useState<PresetId>('golden');
   const [passing, setPassing] = useState(false);
   const passingRef = useRef(false);
+  const [traffic, setTraffic] = useState(() => !reducedMotion());
   const [said, setSaid] = useState<{ text: string; at: number } | null>(null);
   const say = useCallback((text: string) => setSaid({ text, at: performance.now() }), []);
   useEffect(() => {
@@ -427,6 +428,7 @@ export function App() {
     toggleSound: () => toggleSoundRef.current(),
     nextTime: () => nextTimeRef.current(),
     togglePassing: () => togglePassingRef.current(),
+    toggleTraffic: () => toggleTrafficRef.current(),
     turnHold,
     openMenu,
     menuOpen: menuOpenRef,
@@ -444,6 +446,15 @@ export function App() {
     setPassing(passingRef.current);
     viewerRef.current?.passTime(passingRef.current);
     say(passingRef.current ? 'The day passes' : 'The day stands still');
+  });
+
+  const toggleTrafficRef = useRef(() => {
+    const viewer = viewerRef.current;
+    if (!viewer) return;
+    const on = !viewer.trafficOn();
+    viewer.traffic(on);
+    setTraffic(on);
+    say(on ? 'Traffic on' : 'Traffic off');
   });
 
   const toggleRunRef = useRef(() => {
@@ -483,6 +494,7 @@ export function App() {
     sound: () => toggleSoundRef.current(),
     time: () => nextTimeRef.current(),
     'pass-time': () => togglePassingRef.current(),
+    traffic: () => toggleTrafficRef.current(),
   }));
   /** A command from the menu: the menu closes first, and focus goes to the map for its keys. */
   const run = useCallback(
@@ -497,8 +509,8 @@ export function App() {
   );
   const onPage = useCallback((page: MenuPage) => setMenu((m) => ({ ...m, page })), []);
   const commandState: CommandState = useMemo(
-    () => ({ mode: walkMode, ride, running, soundOn, time, passing, keys, mod }),
-    [walkMode, ride, running, soundOn, time, passing, keys, mod],
+    () => ({ mode: walkMode, ride, running, soundOn, time, passing, traffic, keys, mod }),
+    [walkMode, ride, running, soundOn, time, passing, traffic, keys, mod],
   );
   // Places by name: choosing one starts a walk there, as a click on the map would.
   const places = useMemo(

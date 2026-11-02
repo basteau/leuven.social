@@ -45,6 +45,11 @@ test('public/data/city.bin decodes into a plausible Leuven', async () => {
   expect(city.fronts.filter((f) => f.kind === 'frituur').length).toBeGreaterThanOrEqual(20);
   expect(city.fronts.filter((f) => f.kind === 'pharmacy').length).toBeGreaterThanOrEqual(20);
   expect(city.fronts.some((f) => f.terrace)).toBe(true);
+  // The streets traffic drives: the ring, the centre's one-way streets and the cycle tracks.
+  expect(city.ways.length).toBeGreaterThan(1500);
+  expect(new Set(city.ways.map((w) => w.kind))).toEqual(new Set(['main', 'street', 'cycle']));
+  expect(city.ways.filter((w) => w.oneway).length).toBeGreaterThan(300);
+  expect(city.ways.some((w) => w.bikesBoth)).toBe(true);
 });
 
 const load = async (name: string) =>
