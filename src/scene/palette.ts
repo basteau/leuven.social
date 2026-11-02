@@ -3,7 +3,7 @@
  * terracotta roofs, sandy cobbles. DESIGN.md explains the choices; change them here only.
  */
 
-import type { CarriagewayKind, Kind } from '../data/city.ts';
+import type { CarriagewayKind, Kind, Material } from '../data/city.ts';
 import { fromOklab, toOklab } from '../data/colour.ts';
 
 export const WALLS: Record<Kind, readonly number[]> = {
@@ -38,14 +38,12 @@ export const PARASOLS = [0xf6eedc, 0xd2553f, 0xe8b94a, 0xe07b4f, 0x4a77a8] as co
 
 /**
  * Street furniture: dark lamp posts and shelters that read like the ink outlines, warm wood,
- * pale stone, bronze, and bikes in the colours Leuven actually rides.
+ * and bikes in the colours Leuven actually rides. Monuments take `MATERIAL`.
  */
 export const PROPS = {
   iron: 0x3b4150,
   lantern: 0xf3dfa8,
   wood: 0x9a6a42,
-  stone: 0xd2c6ab,
-  bronze: 0x7a6040,
   glass: 0xa9c4cf,
   roof: 0x4a5161,
   sign: 0xe8b94a,
@@ -55,6 +53,23 @@ export const PROPS = {
   /** Jan Fabre's jewel beetle on the Totem. */
   beetle: 0x2f8a6e,
 } as const;
+/**
+ * What monuments are made of (OSM `material`): dark warm bronze, pale stone and marble, Belgian
+ * bluestone (pumps, and what a pale figure stands on), cool steel, rusty weathering steel,
+ * concrete, wood and brick; a fountain's jet is pale water.
+ */
+export const MATERIAL: Record<Material, number> = {
+  bronze: 0x7a6040,
+  stone: 0xd2c6ab,
+  marble: 0xeee8dc,
+  bluestone: 0x8a8a86,
+  steel: 0x9aa4ad,
+  rust: 0x9a5532,
+  concrete: 0xb5afa4,
+  wood: 0x9a6a42,
+  brick: 0xa8553f,
+  water: 0xbfe2ec,
+};
 /** Brewery tanks and silos in pale aluminium; bridge parapets in the warm stone of the quays. */
 export const STRUCTURES = {
   tank: 0xd4d2c8,

@@ -79,7 +79,17 @@ const city: City = {
   treeHeights: new Float32Array([8, 21.5]),
   props: [
     { kind: 'bikes', x: 12.3, z: -4.5, angle: Math.PI / 2, size: 12 },
-    { kind: 'needle', x: -100, z: 200.7, angle: 0, size: 23 },
+    {
+      kind: 'needle',
+      x: -100,
+      z: 200.7,
+      angle: 0,
+      size: 23,
+      width: 1.6,
+      depth: 1.6,
+      material: 'steel',
+    },
+    { kind: 'statue', x: 4, z: 3, angle: 1, size: 5.9, width: 3.2, depth: 3.1, material: 'bronze' },
   ],
   tanks: [{ height: 14.5, ring: square(500, -1000, 6) }],
   bridges: [square(-60, 0, 10)],
@@ -132,7 +142,11 @@ describe('city format', () => {
     expect(decoded.props.map((p) => [p.kind, p.size])).toEqual([
       ['bikes', 12],
       ['needle', 23],
+      ['statue', 5.9],
     ]);
+    // Monuments keep their plinth and material; furniture carries neither.
+    expect(decoded.props[2]).toMatchObject({ width: 3.2, depth: 3.1, material: 'bronze' });
+    expect(decoded.props[0]!.material).toBeUndefined();
     for (const [i, p] of decoded.props.entries()) {
       const original = city.props[i]!;
       expect(p.x).toBeCloseTo(original.x, 4);
@@ -178,6 +192,13 @@ describe('city format', () => {
     expect(() => decodeCity(badKind(mark('solid'), mark('zebra')))).toThrow(CityFormatError);
     const prop = (kind: 'lamp' | 'bench') => ({ ...city, props: [{ ...city.props[0]!, kind }] });
     expect(() => decodeCity(badKind(prop('lamp'), prop('bench')))).toThrow('Bad prop kind');
+    const made = (material: 'bronze' | 'stone') => ({
+      ...city,
+      props: [{ ...city.props[2]!, material }],
+    });
+    expect(() => decodeCity(badKind(made('bronze'), made('stone')))).toThrow(
+      'Bad monument material',
+    );
     const bytes = encodeCity(city);
     expect(() => decodeCity(bytes.subarray(0, bytes.length - 3))).toThrow();
     const trailing = new Uint8Array(bytes.length + 1);

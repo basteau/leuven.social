@@ -7,7 +7,7 @@ import { GROUND_RINGS } from './ground.ts';
 import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
 import { addFinePaint } from './paint.ts';
 import type { Marking } from './paint.ts';
-import { LARGE_PROPS, addProp } from './props.ts';
+import { addProp, isLarge } from './props.ts';
 import {
   addCanopyBay,
   addMasts,
@@ -252,7 +252,7 @@ export function buildCell(
   for (const p of cell.parasols) addParasol(mesh, lines, p);
   for (const t of cell.tanks) addTank(mesh, lines, t);
   for (const line of cell.parapets) addParapet(mesh, lines, line);
-  for (const p of cell.props) if (LARGE_PROPS.has(p.kind)) addProp(mesh, p);
+  for (const p of cell.props) if (isLarge(p)) addProp(mesh, p);
   const fineVertices = mesh.indices;
   addFinePaint(mesh, cell.ground.markings);
   return { mesh, lines, trunksFrom, shadowFrom, fineVertices, detail };
@@ -264,6 +264,6 @@ export function buildCell(
  */
 export function buildFurniture(cell: Cell): MeshBuilder {
   const props = new MeshBuilder();
-  for (const p of cell.props) if (!LARGE_PROPS.has(p.kind)) addProp(props, p);
+  for (const p of cell.props) if (!isLarge(p)) addProp(props, p);
   return props;
 }

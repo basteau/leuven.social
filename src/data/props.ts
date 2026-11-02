@@ -1,14 +1,17 @@
 /**
- * Street furniture and small monuments from OpenStreetMap points: lamps, benches, bike racks,
- * bus stops, statues, fountains and pumps. They are what makes a street read as a street at
- * zoom 2–4. A point has neither a size nor a direction, so each kind gets a footprint and a rule
- * (`placeProps`): what it may stand on, how much room it keeps, and which way it turns. Benches and
- * racks drawn as ways bring the way they run (`_bearing`) and their length (`_length`), from
+ * Street furniture and monuments from OpenStreetMap points: lamps, benches, bike racks, bus
+ * stops, and the statues, sculptures, memorials, fountains and pumps of src/data/monuments.ts.
+ * They are what makes a street read as a street at zoom 2–4. A point has neither a size nor a
+ * direction, so each kind gets a footprint and a rule (`placeProps`): what it may stand on, how
+ * much room it keeps, and which way it turns. Benches and racks drawn as ways bring the way they
+ * run (`_bearing`) and their length (`_length`), and monuments their plinth, from
  * tools/build_leuven_data.py.
  */
 
-import type { Prop, PropKind } from './city.ts';
+import { isMonument } from './city.ts';
+import type { Material, Prop, PropKind } from './city.ts';
 import { pointInRing } from './geometry.ts';
+import { monumentFromOsm, plinthOf } from './monuments.ts';
 
 type Tags = Record<string, string | undefined>;
 
@@ -19,22 +22,20 @@ export const DEFAULT_STANDS = 6;
 /** Stands per row; bigger racks get a second row, back to back. */
 export const ROW = 12;
 export const STAND_SPACING = 0.7;
-/** Sculptures at least this tall (m) are needles, seen from across the city (Jan Fabre's Totem). */
-export const NEEDLE_HEIGHT = 12;
 /**
- * How much larger than life small props are drawn: at life size a lamp post or a bike is a pixel
- * or two even zoomed in. The needle is seen from across the city as it is.
+ * How much larger than life street furniture is drawn: at life size a lamp post or a bike is a
+ * pixel or two even zoomed in. Monuments are drawn at the size src/data/monuments.ts gives them,
+ * measured where it can, never under a few pixels.
  */
-export const propScale = (kind: PropKind): number => (kind === 'needle' ? 1 : 1.3);
+export const propScale = (kind: PropKind): number => (isMonument(kind) ? 1 : 1.3);
 
-const SCULPTURES = new Set(['statue', 'sculpture', 'bust']);
 /** Racks we can't see from above: in a basement, a building or behind doors. */
 const HIDDEN_RACKS = new Set(['underground', 'indoor']);
 /** Lamps without a post of their own: on a façade, or hung over the street. */
 const POSTLESS_MOUNTS = new Set(['wall', 'suspended', 'wire', 'ceiling']);
 const POSTLESS_SUPPORTS = new Set(['wall_mounted', 'suspended', 'wire', 'ceiling']);
 /** Kinds whose OSM `direction` says which way they face: a bench's sitter, a lamp's light. */
-const DIRECTED = new Set<PropKind>(['bench', 'lamp', 'statue']);
+const DIRECTED = (kind: PropKind) => kind === 'bench' || kind === 'lamp' || isMonument(kind);
 /** Kinds drawn along the way they're mapped as, when they are: a long bench, a row of stands. */
 const RUNS = new Set<PropKind>(['bench', 'bikes']);
 const POINTS = 'N NNE NE ENE E ESE SE SSE S SSW SW WSW W WNW NW NNW'.split(' ');
@@ -53,23 +54,40 @@ export function directionFromOsm(tag: string | undefined): number | null {
   return Math.atan2(-Math.cos(bearing), Math.sin(bearing));
 }
 
+/** What `propFromOsm` reads off a point. */
+export interface PropStyle {
+  kind: PropKind;
+  size: number;
+  /** A tagged direction (a turn), for the kinds that face one way. */
+  facing: number | null;
+  /** The way it runs (a turn): a bench or rack drawn as a way, a monument's mapped plinth. */
+  axis: number | null;
+  width?: number;
+  depth?: number;
+  material?: Material;
+}
+
 /**
- * Which OSM points are props, and how big. A tagged height counts for monuments only; a tagged
- * direction for the kinds that face one way (`facing`, else null). A bench or rack drawn as a
- * way runs along it (`axis`, the turn of `_bearing`, else null), and a bench line's `side` is the
- * one its sitter faces: OSM leaves `side` on benches undefined, and read this way the only ones
- * that have it (Martelarenplein's, round two low blocks) face out onto the square.
+ * Which OSM points are props, and how big. Monuments are read by src/data/monuments.ts first. A
+ * tagged direction counts for the kinds that face one way (`facing`, else null). A bench or rack
+ * drawn as a way runs along it, and a monument along its plinth (`axis`, the turn of
+ * `_bearing`, else null), and a bench line's `side` is the one its sitter faces: OSM leaves
+ * `side` on benches undefined, and read this way the only ones that have it (Martelarenplein's,
+ * round two low blocks) face out onto the square.
  */
-export function propFromOsm(
-  tags: Tags,
-): { kind: PropKind; size: number; facing: number | null; axis: number | null } | null {
-  const style = styleFromOsm(tags);
+export function propFromOsm(tags: Tags): PropStyle | null {
+  const monument = monumentFromOsm(tags);
+  const style = monument ?? styleFromOsm(tags);
   if (!style) return null;
-  const axis = RUNS.has(style.kind) ? directionFromOsm(tags['_bearing']) : null;
+  const axis = directionFromOsm(
+    monument ? monument.bearing : RUNS.has(style.kind) ? tags['_bearing'] : undefined,
+  );
   const facing =
-    (DIRECTED.has(style.kind) ? directionFromOsm(tags.direction) : null) ??
+    (DIRECTED(style.kind) ? directionFromOsm(tags.direction) : null) ??
     (style.kind === 'bench' && axis !== null ? sideOf(axis, tags.side) : null);
-  return { ...style, facing, axis };
+  if (!monument) return { ...style, facing, axis };
+  const { kind, size, width, depth, material } = monument;
+  return { kind, size, facing, axis, width, depth, material };
 }
 
 /** The turn to the left or right of a run (the map's turn is clockwise seen from above). */
@@ -88,16 +106,6 @@ export function standsAlong(length: number): number {
 }
 
 function styleFromOsm(tags: Tags): { kind: PropKind; size: number } | null {
-  const tagged = Number.parseFloat(tags.height ?? '');
-  const height = tagged > 0 && tagged < 60 ? tagged : 0;
-  // A fountain that is also a sculpture (Fonske) is still a fountain: it gets a basin.
-  if (tags.amenity === 'fountain') return { kind: 'fountain', size: 0 };
-  const sculpture =
-    tags.tourism === 'artwork'
-      ? SCULPTURES.has(tags.artwork_type ?? '')
-      : tags.memorial === 'statue';
-  if (sculpture) return { kind: height >= NEEDLE_HEIGHT ? 'needle' : 'statue', size: height };
-  if (tags.man_made === 'water_well') return { kind: 'pump', size: 0 };
   if (tags.amenity === 'bench') return { kind: 'bench', size: 0 };
   if (tags.amenity === 'bicycle_parking') {
     if (HIDDEN_RACKS.has(tags.location ?? '') || tags.bicycle_parking === 'building') return null;
@@ -136,15 +144,11 @@ export interface Footprint {
  * it (v, + is the way it faces). A bench keeps room for the legs in front of its seat; a lamp's
  * lantern hangs above it all. src/scene/props.test.ts checks every model stays inside.
  */
-const EXTENT: Record<Exclude<PropKind, 'bikes'>, readonly [number, number, number, number]> = {
+const EXTENT: Record<'lamp' | 'bench' | 'shelter' | 'busstop', [number, number, number, number]> = {
   lamp: [-0.12, 0.12, -0.12, 0.12],
   bench: [-0.9, 0.9, -0.25, 0.7],
   shelter: [-1.6, 1.6, -0.75, 0.75],
   busstop: [-0.1, 0.1, -0.3, 0.3],
-  statue: [-0.6, 0.6, -0.6, 0.6],
-  fountain: [-2, 2, -2, 2],
-  pump: [-0.42, 0.42, -0.42, 0.42],
-  needle: [-0.8, 0.8, -0.8, 0.8],
 };
 /** A bike is this long from wheel to wheel, and may be parked this far off its stand (m). */
 const BIKE_HALF_LENGTH = 0.88;
@@ -160,13 +164,18 @@ export function rackRows(stands: number): { rows: number; perRow: number } {
   return { rows, perRow: Math.ceil(stands / rows) };
 }
 
-/** Where a prop stands and what it covers, drawn to scale. */
+/** Where a prop stands and what it covers, drawn to scale: a monument its plinth or basin. */
 export function propFootprint(p: Prop): Footprint {
-  let [u0, u1, v0, v1] =
-    p.kind === 'bikes' ? rackExtent(p.size) : (EXTENT[p.kind] as [number, number, number, number]);
+  let [u0, u1, v0, v1] = p.kind === 'bikes' ? rackExtent(p.size) : extent(p);
   const s = propScale(p.kind);
   [u0, u1, v0, v1] = [u0 * s, u1 * s, v0 * s, v1 * s];
   return { x: p.x, z: p.z, fx: Math.cos(p.angle), fz: Math.sin(p.angle), u0, u1, v0, v1 };
+}
+
+function extent(p: Prop): [number, number, number, number] {
+  if (!isMonument(p.kind)) return EXTENT[p.kind as keyof typeof EXTENT];
+  const [w, d] = p.width && p.depth ? [p.width, p.depth] : plinthOf(p.kind, p.size);
+  return [-w / 2, w / 2, -d / 2, d / 2];
 }
 
 function rackExtent(stands: number): [number, number, number, number] {
@@ -433,26 +442,29 @@ export interface Surroundings {
   trunks: readonly (readonly [number, number, number])[];
 }
 
-/** The order props claim their ground: monuments first, then what the street needs most. */
+/** The order props claim their ground: monuments first, the largest first, then what the street needs most. */
 const PRIORITY: readonly PropKind[] = [
   'needle',
+  'column',
   'fountain',
-  'statue',
   'pump',
+  'group',
+  'statue',
+  'bust',
+  'sculpture',
+  'stone',
   'shelter',
   'busstop',
   'lamp',
   'bench',
   'bikes',
 ];
-/** Sculptures and wells: they stand in their basin or pond, and trees give way to them. */
-const MONUMENTS = new Set<PropKind>(['needle', 'fountain', 'statue', 'pump']);
-/** How far a mapped prop may be moved off something it collides with (m); further, it goes. */
-const NUDGE: Record<PropKind, number> = {
+/**
+ * How far a mapped prop may be moved off something it collides with (m); further, it goes. A
+ * monument moves a metre at most (the needle half that).
+ */
+const NUDGE: Partial<Record<PropKind, number>> = {
   needle: 0.5,
-  fountain: 1,
-  statue: 1,
-  pump: 1,
   shelter: 2,
   busstop: 1.5,
   lamp: 1.5,
@@ -533,16 +545,20 @@ export function placeProps(points: readonly PropPoint[], around: Surroundings): 
   for (const c of candidates) {
     const angle = c.facing ?? turnOf(c.kind, c.x, c.z, around, c.axis);
     const prop: Prop = { kind: c.kind, x: c.x, z: c.z, angle, size: c.size };
+    if (c.material) Object.assign(prop, { width: c.width, depth: c.depth, material: c.material });
     const body = { kind: c.kind, f: propFootprint(prop) };
+    // Monuments are twins whatever their kind: one sculpture mapped twice, at a pump and as it.
+    const monument = isMonument(c.kind);
     const twin = [...near(placed, PROP_CELL, body.f, widest)].some(
-      (other) => other.kind === c.kind && discInFootprint(grow(other.f, CLEARANCE), c.x, c.z, 0),
+      (other) =>
+        (other.kind === c.kind || (monument && isMonument(other.kind))) &&
+        discInFootprint(grow(other.f, CLEARANCE), c.x, c.z, 0),
     );
     if (twin) {
       result.dropped++;
       continue;
     }
     const onRoad = around.roads.contains(c.x, c.z);
-    const monument = MONUMENTS.has(c.kind);
     const clear = (f: Footprint, strict: boolean) => {
       const room = grow(f, CLEARANCE);
       const reach = radius(room);
@@ -560,7 +576,7 @@ export function placeProps(points: readonly PropPoint[], around: Surroundings): 
       if (strict) return !around.roads.touches(room);
       return onRoad || !around.roads.contains(f.x, f.z);
     };
-    const spot = settle(body.f, NUDGE[c.kind], clear);
+    const spot = settle(body.f, NUDGE[c.kind] ?? 1, clear);
     if (!spot) {
       result.dropped++;
       continue;
