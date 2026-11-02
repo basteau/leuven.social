@@ -529,45 +529,12 @@ export function createViewer(options: ViewerOptions): Viewer {
     for (const entry of cells) {
       if (!entry.objects.length && frustum.intersectsBox(entry.box)) build(entry);
     }
-
-    // The ground under the screen's corners, as far as shadows can reach into the view. From
-    // the street that's the haze, all round the walker, so looking about never redraws them.
-    camera.getWorldDirection(forward);
-    const span = viewSpan();
-    const t = controls.target;
-    const reach = Math.max(WALK_SHADOW, walk?.flightSpan ?? span);
-    if (view === camera) {
-      for (const [i, [x, y]] of SCREEN_CORNERS.entries()) {
-        corner.set(x, y, -1).unproject(camera);
-        corner.addScaledVector(forward, (t.y - corner.y) / forward.y);
-        [ground[i]![0], ground[i]![2]] = [corner.x, corner.z];
-      }
-    }
-    const need = shadowNeeds(light, view === camera ? ground : around(t.x, t.z, reach));
-    need.half += view === camera ? Math.min(SHADOW_REACH, span / 4) : WALK_SHADOW_REACH;
-    propsShown = span <= VIEW_HEIGHT / PROP_ZOOM;
-    const fromStreet = view !== camera && walk?.flightSpan === undefined;
-    const coarser = view === camera ? SHADOW_COARSER : WALK_SHADOW_COARSER;
-    const refit = !shadow || !shadowCovers(shadow, need, coarser);
-    if (refit) fitShadowTo(need);
+    const refit = fitShadowToView();
     // What casts into the view has to exist before the shadow pass draws: build it now, and
     // redraw if that adds to a square already drawn. The rest of the square, its room to pan,
     // waits for the idle builder (see `buildInBackground`).
-    const [dx, dy] = [need.x - shadow!.x, need.y - shadow!.y];
-    const { near: front, far: back, matrixWorldInverse } = sun.shadow.camera;
-    needFrustum.setFromProjectionMatrix(
-      needProjection
-        .makeOrthographic(
-          dx - need.half,
-          dx + need.half,
-          dy + need.half,
-          dy - need.half,
-          front,
-          back,
-        )
-        .multiply(matrixWorldInverse),
-    );
     let added = false;
+    const fromStreet = view !== camera && walk?.flightSpan === undefined;
     for (const entry of cells) {
       if (!entry.objects.length && needFrustum.intersectsBox(entry.box)) {
         build(entry);
@@ -586,6 +553,47 @@ export function createViewer(options: ViewerOptions): Viewer {
       }
     }
     if (refit || added) renderer.shadowMap.needsUpdate = true;
+  }
+
+  /**
+   * Fits the shadow map to what the view needs, if it doesn't cover it yet (returns whether it
+   * moved), and aims `needFrustum` at the part of it that casts into the view.
+   */
+  function fitShadowToView(): boolean {
+    // The ground under the screen's corners, as far as shadows can reach into the view. From
+    // the street that's the haze, all round the walker, so looking about never redraws them.
+    camera.getWorldDirection(forward);
+    const span = viewSpan();
+    const t = controls.target;
+    const reach = Math.max(WALK_SHADOW, walk?.flightSpan ?? span);
+    if (view === camera) {
+      for (const [i, [x, y]] of SCREEN_CORNERS.entries()) {
+        corner.set(x, y, -1).unproject(camera);
+        corner.addScaledVector(forward, (t.y - corner.y) / forward.y);
+        [ground[i]![0], ground[i]![2]] = [corner.x, corner.z];
+      }
+    }
+    const need = shadowNeeds(light, view === camera ? ground : around(t.x, t.z, reach));
+    need.half += view === camera ? Math.min(SHADOW_REACH, span / 4) : WALK_SHADOW_REACH;
+    propsShown = span <= VIEW_HEIGHT / PROP_ZOOM;
+    const coarser = view === camera ? SHADOW_COARSER : WALK_SHADOW_COARSER;
+    const refit = !shadow || !shadowCovers(shadow, need, coarser);
+    if (refit) fitShadowTo(need);
+    const [dx, dy] = [need.x - shadow!.x, need.y - shadow!.y];
+    const { near: front, far: back, matrixWorldInverse } = sun.shadow.camera;
+    needFrustum.setFromProjectionMatrix(
+      needProjection
+        .makeOrthographic(
+          dx - need.half,
+          dx + need.half,
+          dy + need.half,
+          dy - need.half,
+          front,
+          back,
+        )
+        .multiply(matrixWorldInverse),
+    );
+    return refit;
   }
 
   /** Moves the shadow map to a square fitted to what the view needs. */
@@ -1129,15 +1137,22 @@ export function createViewer(options: ViewerOptions): Viewer {
     let since = performance.now();
     cut();
     aim();
-    for (const entry of cells) {
-      if (performance.now() - since > STEP_MS) {
-        // eslint-disable-next-line no-await-in-loop -- taking turns with the page is the point
-        await nextTask();
-        if (disposed) return;
-        since = performance.now();
-        aim(); // the view may have moved meanwhile
+    // The cells in view, then those casting into it, which the first frame would otherwise build
+    // in one long task.
+    for (const casting of [false, true]) {
+      if (casting) fitShadowToView();
+      for (const entry of cells) {
+        if (performance.now() - since > STEP_MS) {
+          // eslint-disable-next-line no-await-in-loop -- taking turns with the page is the point
+          await nextTask();
+          if (disposed) return;
+          since = performance.now();
+          aim(); // the view may have moved meanwhile
+          if (casting) fitShadowToView();
+        }
+        const needed = casting ? needFrustum : frustum;
+        if (!entry.objects.length && needed.intersectsBox(entry.box)) build(entry);
       }
-      if (!entry.objects.length && frustum.intersectsBox(entry.box)) build(entry);
     }
     await nextTask();
     if (disposed) return;
