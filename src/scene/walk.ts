@@ -25,7 +25,14 @@ import { walkSolids } from './solids.ts';
 import { TAP_MS, TAP_SLOP } from './tap.ts';
 import { createCharacterMaterial, createXrayMaterial } from './character-material.ts';
 import type { Fade } from './character-material.ts';
-import { CHARACTER_SCALE, applyPose, createCharacter, poseAt, restPose } from './character.ts';
+import {
+  ARM_SPREAD,
+  CHARACTER_SCALE,
+  applyPose,
+  createCharacter,
+  poseAt,
+  restPose,
+} from './character.ts';
 import type { Character } from './character.ts';
 import {
   CHASE_FOV,
@@ -363,6 +370,8 @@ export function createWalk(host: WalkHost): Walk {
           host,
           grid: ensureGrid(),
           character: character!,
+          poseAt,
+          armSpread: ARM_SPREAD,
           body,
           xray,
           boom,

@@ -13,8 +13,7 @@ import { createRideSounds } from '../audio/riding.ts';
 import type { WalkGrid } from '../data/walkable.ts';
 import { BIKE_BONES, BIKE_JOINTS, BIKE_MOST, bakeBike, bikeArrays } from './bike-rig.ts';
 import type { BikeArrays, Stand } from './bike-rig.ts';
-import { ARM_SPREAD, poseAt } from './character.ts';
-import type { Character, Pose } from './character.ts';
+import type { Character, Pose, poseAt } from './character.ts';
 import type { Boom, Follow } from './chase.ts';
 import { loose, overlap } from './collide.ts';
 import { decay, decayAngle } from './motion.ts';
@@ -78,6 +77,12 @@ export interface RideKit {
   host: WalkHost;
   grid: WalkGrid;
   character: Character;
+  /**
+   * The walker's gait, and how far its arms hang out, for walking a bike: handed over, as three
+   * is, so this chunk doesn't import the figure's module and split the engine off the first load.
+   */
+  poseAt: typeof poseAt;
+  armSpread: number;
   body: Material;
   xray: Material;
   boom: Boom;
@@ -889,9 +894,19 @@ export function createRide(kit: RideKit): Ride {
       // On foot: taking the bike, letting go of it, or walking off.
       const w = walker0!;
       character.mesh.rotation.z = 0;
-      poseAt(out, w.speed, w.phase, w.still, !reducedMotion, w.turning, head, w.surge, w.heading);
+      kit.poseAt(
+        out,
+        w.speed,
+        w.phase,
+        w.still,
+        !reducedMotion,
+        w.turning,
+        head,
+        w.surge,
+        w.heading,
+      );
       out.splayL = out.splayR = 0;
-      out.spreadL = out.spreadR = ARM_SPREAD;
+      out.spreadL = out.spreadR = kit.armSpread;
       if (phase === 'release') return blendPose(out, before, out, smooth(t / RELEASE));
       if (phase !== 'pull') return out;
       // Hands on the bars, wherever the bike is from the walker.
