@@ -499,6 +499,82 @@ const MODELS: Record<Furniture, (mesh: MeshBuilder, f: Frame) => void> = {
   },
 };
 
+/** A lamp's pool of light on the street at night: its radius (m) and how far off the ground. */
+const POOL = { radius: 4.2, sides: 12, lift: 0.07 } as const;
+
+/**
+ * What a lamp gives off at night, for the glow mesh (createGlowMaterial): its lantern, lit, a
+ * hair larger than the one in the furniture mesh so it covers it, and a pool of light on the
+ * ground round its foot, full at the middle and fading to nothing at the rim (the `facade`
+ * value each corner carries). 12 triangles a pool, 10 a lantern.
+ */
+export function addLampGlow(mesh: MeshBuilder, p: Prop): void {
+  const f = {
+    x: p.x,
+    z: p.z,
+    fx: Math.cos(p.angle),
+    fz: Math.sin(p.angle),
+    scale: propScale('lamp'),
+  };
+  const [u, v, y] = [0.32, [-0.07, 0.57] as const, [4.13, 4.62] as const];
+  const corner = (cu: number, cv: number, cy: number) => at(f, cu, cv, cy);
+  const one: V3 = [1, 1, 1];
+  const quad = (a: V3, b: V3, c: V3, d: V3, hint: V3) => {
+    mesh.triangle(a, b, c, PROPS.lamplight, hint, one);
+    mesh.triangle(a, c, d, PROPS.lamplight, hint, one);
+  };
+  quad(
+    corner(-u, v[0], y[0]),
+    corner(u, v[0], y[0]),
+    corner(u, v[1], y[0]),
+    corner(-u, v[1], y[0]),
+    [0, -1, 0],
+  );
+  quad(
+    corner(-u, v[0], y[1]),
+    corner(u, v[0], y[1]),
+    corner(u, v[1], y[1]),
+    corner(-u, v[1], y[1]),
+    [0, 1, 0],
+  );
+  quad(
+    corner(-u, v[0], y[0]),
+    corner(u, v[0], y[0]),
+    corner(u, v[0], y[1]),
+    corner(-u, v[0], y[1]),
+    away(f, 0, -1),
+  );
+  quad(
+    corner(-u, v[1], y[0]),
+    corner(u, v[1], y[0]),
+    corner(u, v[1], y[1]),
+    corner(-u, v[1], y[1]),
+    away(f, 0, 1),
+  );
+  quad(
+    corner(u, v[0], y[0]),
+    corner(u, v[1], y[0]),
+    corner(u, v[1], y[1]),
+    corner(u, v[0], y[1]),
+    away(f, 1, 0),
+  );
+  quad(
+    corner(-u, v[0], y[0]),
+    corner(-u, v[1], y[0]),
+    corner(-u, v[1], y[1]),
+    corner(-u, v[0], y[1]),
+    away(f, -1, 0),
+  );
+  const centre: V3 = [p.x, POOL.lift, p.z];
+  const rim = (i: number): V3 => {
+    const t = (i / POOL.sides) * Math.PI * 2;
+    return [p.x + Math.cos(t) * POOL.radius, POOL.lift, p.z + Math.sin(t) * POOL.radius];
+  };
+  for (let i = 0; i < POOL.sides; i++) {
+    mesh.triangle(centre, rim(i), rim(i + 1), PROPS.pool, [0, 1, 0], [1, 0, 0]);
+  }
+}
+
 /**
  * One prop, in its own frame, written into `mesh`; a rack notes its bikes in `parked`, and stands
  * its rails and bikes on `ground` when given.

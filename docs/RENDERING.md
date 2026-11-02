@@ -26,7 +26,8 @@ The aim is a city that opens instantly and costs nothing while you look at it, o
 - **Pitches by what they're made of, their lines as paint.** A pitch's surface (grass, turf, clay, tartan, hard court, sand, gravel) is only its colour; running tracks lie a few millimetres under the other pitches, so a field mapped on an infield, or a stadium's whole oval, shows on top. The 30 fields the data gives (12 soccer pitches, 8 tennis parks, 9 basketball courts, a track) are laid out by `fieldLines` in `paint.ts` from a centre, a direction and a size, and drawn as lane lines are: 10–12 cm marks that the vertex shader widens to a pixel, with the fine paint at the end of the cell's mesh, so they cost a zoomed-out frame nothing. A field stays whole in the cell of its centre, draped like the rest. Arcs take as many chords as keep each within 20 cm of its curve. All of them are 3.0k triangles and 9.1k vertices.
 - **Railways ride along for free.** A track is stored as a centre line and drawn as two flat ribbons in its cell's mesh: a ballast bed, and a sleeper band whose `facade` attribute holds the distance along the track (as a negative code past `SLEEPER_CODE`), so the facade shader draws the sleepers (and fades them to a tint when they get smaller than a pixel). Both rails and the catenary masts are ink lines at the start of the cell's outlines. A track cut at a cell border carries how far along the whole track its piece starts (`from`, the `Track` type in `rails.ts`), so the sleepers and the masts, every 60 m, run on across the border. Zoomed out they'd merge into a dark hatch, so the viewer skips them with the outlines' draw range: masts show once a screen pixel is under 0.9 m, rails under 0.5 m (from about zoom 0.8 and 1.4 in an 800 px tall window on a standard screen, half that on a 2× one). Bridge parapets and platforms are a few quads more; platforms are cut at cell borders like the ground, so they never stretch a cell's culling box. Railway land is one more flat ground layer, the lowest, so grass and copses mapped on the embankments show, and Leuven's wave roof is four vaulted bays of 16 triangles, each in the cell of its centre. The whole railway costs about 2.6k triangles and no draw call (`rails.ts`).
 - **Map controls of our own.** Panning and zooming the map is `map-controls.ts`: a drag keeps the ground under the finger, two fingers pinch about their middle and drag, the wheel zooms about the cursor (a notch of 100 px by 5%, lines and pages counted as pixels) and the arrow keys pan as a 7 px drag. three's `MapControls` did this with rotation turned off, for 4.4 KB of the first load where these take about 1 KB.
-- **Render on demand.** Nothing renders unless the camera or the view changes, so an idle map uses no GPU.
+- **Render on demand.** Nothing renders unless the camera or the view changes, so an idle map uses no GPU. The one exception is asked for: with the day passing (P), a frame loop of its own advances the clock and draws every frame, and stops with it.
+- **Day and night cost nothing but a redraw of the shadows.** The light at an hour (\`daylight.ts\`, pure, tested) sets the sun's and the hemisphere light's colours and intensities, the fog, the walking sky's two uniforms, the page's sky tokens through \`onDaylight\`, and one \`uNight\` uniform the facade shader reads: how many windows and shop fronts are lit, as emissive light the toon shading leaves alone. The shadow map's sun moves in quarter-hour steps (\`sunStep\`), each a refit and a redraw of the static shadow map, so a passing day redraws it every two seconds rather than every frame. The lamps' light is a mesh per cell built with the furniture (\`addLampGlow\`: a lit lantern and a 12-sided pool on the street, 22 triangles a lamp), drawn by an unlit material that discards fragments in the ordered dither by how far on the lamps are (\`createGlowMaterial\`): no blending, no sorting, one draw call a cell at night at every zoom, nothing by day.
 - **Hard shadows with a soft rim, four lookups.** Shadows use three's PCF map, with its five-tap disc that turns per pixel swapped for four hardware-filtered taps in a fixed square about a texel across (`shadow-filter.ts`): a shadow's edge becomes a ramp of about three texels instead of a stair-step, still with no penumbra, and nothing shimmers as the view moves. Each lookup starts one and a half shadow texels off its surface on the sun's side, whichever way the face is turned (three would push a face turned from the sun into itself, and the map holds back faces), and only 5 cm nearer the sun. The offset is set whenever the square is fitted (`shadowBias` in `shadow-fit.ts`), so it is 19 cm from the street and 38 cm at zoom 4: benches and statues keep their shadows, and walls in grazing light don't break into stripes. Before, a fixed 0.6 m offset and a 1.4 m depth bias lifted every lookup above anything under about 1.4 m.
 - **Static shadows, fitted to the view.** The city doesn't move, so the shadow map renders only on load and when the view leaves the square it covers (or zooms in far enough to deserve sharper shadows). The square is fitted to what's on screen, with 30% room to pan, a size stepped in 19% increments and a centre snapped to whole texels, so shadow edges don't swim when it moves (`shadow-fit.ts`). Its texels stay as small as the old whole-map shadows were at zoom 1 and get sharper zoomed in: the map redraws the square once it is 2× coarser than the view needs, with min(60 m, a quarter of the view's height) of room round it, 21 cm a texel at zoom 4. On a frame that redraws it, the casting cells show a shadow-only mesh on the shadow camera's layer, so the shadow pass draws only them and the view only what's in view. That mesh shares its cell's buffers, index included, and its draw range starts past the flat ground and the tree trunks, which each cell writes first: the ground can't shade anything, and from above a trunk's shadow hides in its crown's. From the street, where it doesn't, the trunks cast too. While the camera flies between the map and the street, the shadow square spans the map view and neither trunks nor furniture cast: their shadows would be thinner than a texel, and landing refits the square round the walker with them.
 - **No hidden walls, no idle vertices.** A wall between two touching buildings is drawn only above the lower one (`partyWalls`). The bake drops footprint vertices within 0.25 m (0.5 m on the fringe) of the line through their neighbours; hero footprints keep theirs, as landmark models are fitted to them. Trees are a 4-sided open trunk and a 20-face crown, 28 triangles.
@@ -104,27 +105,27 @@ How third-person games and map apps handle the camera and movement, and the simp
 
 The size and render budgets are enforced by `bun run verify`; if one is exceeded, the run fails:
 
-| What                                            | Limit   | Checked by          |
-| ----------------------------------------------- | ------- | ------------------- |
-| App shell JS (React + the shell), gzipped       | 84 KB   | `scripts/budget.ts` |
-| 3D engine JS (three.js chunk, palette), gzipped | 168 KB  | `scripts/budget.ts` |
-| Furniture JS (after the first frame)            | 8 KB    | `scripts/budget.ts` |
-| Walk mode JS (loaded on first walk)             | 20.5 KB | `scripts/budget.ts` |
-| Street names JS (loaded with walk mode)         | 1.5 KB  | `scripts/budget.ts` |
-| Riding JS (loaded near a rack)                  | 12 KB   | `scripts/budget.ts` |
-| Facade plates JS (after walk mode)              | 5.8 KB  | `scripts/budget.ts` |
-| Plates data (`walk.bin`), gzipped               | 96 KB   | `scripts/budget.ts` |
-| First-load JS (shell + engine)                  | 251 KB  | `scripts/budget.ts` |
-| CSS, gzipped                                    | 3.5 KB  | `scripts/budget.ts` |
-| HTML, with the loading screen inline, gzipped   | 7 KB    | `scripts/budget.ts` |
-| Menu JS (loaded while the city is built)        | 6 KB    | `scripts/budget.ts` |
-| City data                                       | 1 MB    | `scripts/budget.ts` |
-| Draw calls per frame                            | 100     | `scripts/smoke.ts`  |
-| Triangles per frame                             | 600k    | `scripts/smoke.ts`  |
-| Vertices, every cell built                      | 2.85M   | `scripts/smoke.ts`  |
-| Geometry on the GPU, every cell built           | 68 MB   | `scripts/smoke.ts`  |
-| Longest main-thread task while loading          | 150 ms  | `scripts/smoke.ts`  |
-| Console errors and warnings                     | 0       | `scripts/smoke.ts`  |
+| What                                            | Limit    | Checked by          |
+| ----------------------------------------------- | -------- | ------------------- |
+| App shell JS (React + the shell), gzipped       | 85 KB    | `scripts/budget.ts` |
+| 3D engine JS (three.js chunk, palette), gzipped | 170.5 KB | `scripts/budget.ts` |
+| Furniture JS (after the first frame)            | 8 KB     | `scripts/budget.ts` |
+| Walk mode JS (loaded on first walk)             | 20.5 KB  | `scripts/budget.ts` |
+| Street names JS (loaded with walk mode)         | 1.5 KB   | `scripts/budget.ts` |
+| Riding JS (loaded near a rack)                  | 12 KB    | `scripts/budget.ts` |
+| Facade plates JS (after walk mode)              | 5.8 KB   | `scripts/budget.ts` |
+| Plates data (`walk.bin`), gzipped               | 96 KB    | `scripts/budget.ts` |
+| First-load JS (shell + engine)                  | 256 KB   | `scripts/budget.ts` |
+| CSS, gzipped                                    | 3.5 KB   | `scripts/budget.ts` |
+| HTML, with the loading screen inline, gzipped   | 7 KB     | `scripts/budget.ts` |
+| Menu JS (loaded while the city is built)        | 6.5 KB   | `scripts/budget.ts` |
+| City data                                       | 1 MB     | `scripts/budget.ts` |
+| Draw calls per frame                            | 100      | `scripts/smoke.ts`  |
+| Triangles per frame                             | 600k     | `scripts/smoke.ts`  |
+| Vertices, every cell built                      | 3.2M     | `scripts/smoke.ts`  |
+| Geometry on the GPU, every cell built           | 76 MB    | `scripts/smoke.ts`  |
+| Longest main-thread task while loading          | 150 ms   | `scripts/smoke.ts`  |
+| Console errors and warnings                     | 0        | `scripts/smoke.ts`  |
 
 Every frame keeps the same cap, shadow redraws included. A redraw draws the casting cells a second time, so when the view and the redraw together would pass the cap, the redraw gets a frame of its own: it draws only the shadow map, the screen keeps showing the last frame, and the view follows on the next one (`FRAME_CALLS`, `FRAME_TRIANGLES` in `viewer.ts`). Smaller redraws, such as those while walking, share their frame with the view as before.
 

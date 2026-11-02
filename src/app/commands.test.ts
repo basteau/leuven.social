@@ -9,6 +9,8 @@ const state = (over: Partial<CommandState> = {}): CommandState => ({
   ride: '',
   running: false,
   soundOn: true,
+  time: 'golden',
+  passing: false,
   keys: KEYCAPS,
   mod: '⌘',
   ...over,
@@ -25,6 +27,8 @@ describe('commandsFor', () => {
       'turn-left',
       'turn-right',
       'reset',
+      'time',
+      'pass-time',
       'sound',
       'help',
       'about',
@@ -44,6 +48,8 @@ describe('commandsFor', () => {
       'zoom-out',
       'turn-left',
       'turn-right',
+      'time',
+      'pass-time',
       'sound',
       'help',
       'about',
@@ -61,6 +67,20 @@ describe('commandsFor', () => {
     expect(byId(riding, 'ride')?.label).toBe('Get off the bike');
     expect(byId(riding, 'run')).toMatchObject({ label: 'Sprint', on: true });
     expect(byId(riding, 'bell')?.keys).toEqual([['B']]);
+  });
+
+  test('the time of day says where the day is and where T takes it; passing is a toggle', () => {
+    expect(byId(state(), 'time')).toMatchObject({
+      detail: 'Golden hour now; next, dusk',
+      icon: 'sun',
+      keys: [['T']],
+    });
+    expect(byId(state({ time: 'night' }), 'time')).toMatchObject({
+      detail: 'Night now; next, morning',
+      icon: 'moon',
+    });
+    expect(byId(state(), 'pass-time')).toMatchObject({ on: false, keys: [['P']] });
+    expect(byId(state({ passing: true }), 'pass-time')?.on).toBe(true);
   });
 
   test('sound says what pressing it will do', () => {

@@ -212,6 +212,21 @@ test('props are built apart from the cell: small ones up close, tall ones at eve
   expect(height(e.mesh)).toBeLessThan(20);
 });
 
+test("the lamps' glow is built with the furniture, only where a cell has a lamp", () => {
+  const [west] = partition(city);
+  expect(buildFurniture(west!, kit).glow).toBeNull();
+  const lamp = {
+    kind: 'lamp',
+    x: west!.bounds.minX + 20,
+    z: west!.bounds.minZ + 20,
+    angle: 0,
+    size: 0,
+  } as const;
+  const lit = buildFurniture({ ...west!, props: [...west!.props, lamp] }, kit);
+  expect(lit.glow).not.toBeNull();
+  expect(height(lit.glow!)).toBeGreaterThan(4);
+});
+
 test('each parked bike stands on the ground drawn under its wheels: a slope, a pavement, a square', () => {
   const [west] = partition(city);
   const rack = { kind: 'bikes' as const, x: 30, z: 40, angle: 0.3, size: 12, fill: 0.5 };

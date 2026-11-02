@@ -17,11 +17,13 @@ import { menuKey } from './input.ts';
 import {
   BackIcon,
   BellIcon,
+  ClockIcon,
   CloseIcon,
   CompassIcon,
   InfoIcon,
   KeysIcon,
   MinusIcon,
+  MoonIcon,
   PinIcon,
   PlaceIcon,
   PlusIcon,
@@ -30,6 +32,7 @@ import {
   RunIcon,
   SearchIcon,
   SoundIcon,
+  SunIcon,
   WalkIcon,
 } from './menu-icons.tsx';
 import { search } from './search.ts';
@@ -73,6 +76,9 @@ const ICONS: Record<IconName, () => ReactNode> = {
   compass: CompassIcon,
   'sound-on': () => <SoundIcon on />,
   'sound-off': () => <SoundIcon on={false} />,
+  sun: SunIcon,
+  moon: MoonIcon,
+  clock: ClockIcon,
   keys: KeysIcon,
   info: InfoIcon,
   place: PlaceIcon,

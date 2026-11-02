@@ -3,6 +3,8 @@
  * hand, the keys that do the same, and what it runs. Pure, so the menu stays a thin view of it.
  */
 
+import { PRESETS, nextPreset } from '../scene/daylight.ts';
+import type { PresetId } from '../scene/daylight.ts';
 import type { RideState, WalkMode } from '../scene/viewer.ts';
 import type { Keycaps } from './input.ts';
 
@@ -19,6 +21,8 @@ export type ActionId =
   | 'ride'
   | 'bell'
   | 'sound'
+  | 'time'
+  | 'pass-time'
   | 'help'
   | 'about';
 
@@ -47,6 +51,9 @@ export type IconName =
   | 'compass'
   | 'sound-on'
   | 'sound-off'
+  | 'sun'
+  | 'moon'
+  | 'clock'
   | 'keys'
   | 'info'
   | 'place';
@@ -77,6 +84,9 @@ export interface CommandState {
   ride: RideState;
   running: boolean;
   soundOn: boolean;
+  /** The time of day on the map, and whether the day is passing by itself. */
+  time: PresetId;
+  passing: boolean;
   keys: Keycaps;
   /** The menu's chord on this platform: ⌘ or Ctrl. */
   mod: string;
@@ -209,7 +219,31 @@ const modeCommands = (s: CommandState): Command[] => {
   ];
 };
 
+/** A preset's name, for the menu. */
+const timeLabel = (id: PresetId) => PRESETS.find((p) => p.id === id)!.label;
+
 const general = (s: CommandState): Command[] => [
+  {
+    id: 'time',
+    group: 'general',
+    label: 'Time of day',
+    detail: `${timeLabel(s.time)} now; next, ${timeLabel(nextPreset(s.time)).toLowerCase()}`,
+    keywords: 'time day night light sun moon dusk dawn morning midday golden hour evening dark',
+    keys: [['T']],
+    icon: s.time === 'night' || s.time === 'dusk' ? 'moon' : 'sun',
+    action: 'time',
+  },
+  {
+    id: 'pass-time',
+    group: 'general',
+    label: 'Let the day pass',
+    detail: s.passing ? 'A day every three minutes' : 'The light stands still',
+    keywords: 'time pass day cycle animate clock sunset sunrise play pause',
+    keys: [['P']],
+    icon: 'clock',
+    on: s.passing,
+    action: 'pass-time',
+  },
   {
     id: 'sound',
     group: 'general',
@@ -314,6 +348,8 @@ export function keySheet(k: Keycaps, mod: string): KeySection[] {
         { what: 'Open this menu', keys: [[mod, 'K'], ['/']], touch: 'The menu button' },
         { what: 'Controls and keys', keys: [['?']] },
         { what: 'Mute or unmute', keys: [['M']] },
+        { what: 'Next time of day', keys: [['T']] },
+        { what: 'Let the day pass, or hold it', keys: [['P']] },
       ],
     },
   ];

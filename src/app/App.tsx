@@ -15,6 +15,8 @@ import { sound } from '../audio/sound.ts';
 import type { City } from '../data/city.ts';
 import { CITY_URL, loadCity } from '../data/load.ts';
 import type { Place } from '../data/places.ts';
+import { presetAt } from '../scene/daylight.ts';
+import type { Daylight, PresetId } from '../scene/daylight.ts';
 import type { RideState, Viewer, WalkMode } from '../scene/viewer.ts';
 import type { ActionId, CommandState } from './commands.ts';
 import type { MenuPage } from './command-menu.tsx';
@@ -83,6 +85,16 @@ const RIDE_COACHED_KEY = 'leuven-ride-coached';
 const RIDE_COACH_MS = 7_000;
 /** What a command did, where nothing else on screen shows it (sound, running), for a moment. */
 const SAID_MS = 2_000;
+/** What the hint says of each time of day as T steps to it. */
+const TIME_SAID: Record<PresetId, string> = {
+  morning: 'Morning',
+  midday: 'Midday',
+  golden: 'Golden hour',
+  dusk: 'Dusk',
+  night: 'Night',
+};
+/** A colour as CSS, for the sky tokens. */
+const hex = (colour: number) => `#${colour.toString(16).padStart(6, '0')}`;
 
 type WalkLoad = 'idle' | 'loading' | 'failed';
 
@@ -154,6 +166,10 @@ export function App() {
   const walkLoadTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [street, setStreet] = useState<string | null>(null);
   const [soundOn, setSoundOn] = useState(sound.on);
+  /** The time of day, as the menu names it, and whether the day passes by itself. */
+  const [time, setTime] = useState<PresetId>('golden');
+  const [passing, setPassing] = useState(false);
+  const passingRef = useRef(false);
   const [said, setSaid] = useState<{ text: string; at: number } | null>(null);
   const say = useCallback((text: string) => setSaid({ text, at: performance.now() }), []);
   useEffect(() => {
@@ -335,6 +351,21 @@ export function App() {
             setWalkLoad('failed');
           },
           onStreetChange: setStreet,
+          // The sky behind the canvas and the page's tokens follow the light; the menu's
+          // state only when the hour reaches another preset (not every frame of a passing day).
+          onDaylight: (light: Daylight) => {
+            const app = appRef.current;
+            if (app) {
+              app.style.setProperty('--sky-top', hex(light.top));
+              app.style.setProperty('--sky-horizon', hex(light.horizon));
+            }
+            document.documentElement.dataset.night = light.night > 0.5 ? '1' : '0';
+            const preset = presetAt(light.hour);
+            if (document.documentElement.dataset.time !== preset) {
+              document.documentElement.dataset.time = preset;
+              setTime(preset);
+            }
+          },
           onRideChange: (state) => {
             rideRef.current = state;
             setRide(state);
@@ -394,11 +425,25 @@ export function App() {
     startWalk: () => startWalkRef.current(),
     onWalkKey: () => steppedRef.current(),
     toggleSound: () => toggleSoundRef.current(),
+    nextTime: () => nextTimeRef.current(),
+    togglePassing: () => togglePassingRef.current(),
     turnHold,
     openMenu,
     menuOpen: menuOpenRef,
     closeMenu,
     typeAhead: (key) => (typedRef.current += key),
+  });
+
+  /** The next time of day, said by name; the day passing or standing still, said too. */
+  const nextTimeRef = useRef(() => {
+    const next = viewerRef.current?.nextTimeOfDay();
+    if (next) say(TIME_SAID[next]);
+  });
+  const togglePassingRef = useRef(() => {
+    passingRef.current = !passingRef.current;
+    setPassing(passingRef.current);
+    viewerRef.current?.passTime(passingRef.current);
+    say(passingRef.current ? 'The day passes' : 'The day stands still');
   });
 
   const toggleRunRef = useRef(() => {
@@ -436,6 +481,8 @@ export function App() {
     ride: () => viewerRef.current?.ride('toggle'),
     bell: () => viewerRef.current?.ride('bell'),
     sound: () => toggleSoundRef.current(),
+    time: () => nextTimeRef.current(),
+    'pass-time': () => togglePassingRef.current(),
   }));
   /** A command from the menu: the menu closes first, and focus goes to the map for its keys. */
   const run = useCallback(
@@ -450,8 +497,8 @@ export function App() {
   );
   const onPage = useCallback((page: MenuPage) => setMenu((m) => ({ ...m, page })), []);
   const commandState: CommandState = useMemo(
-    () => ({ mode: walkMode, ride, running, soundOn, keys, mod }),
-    [walkMode, ride, running, soundOn, keys, mod],
+    () => ({ mode: walkMode, ride, running, soundOn, time, passing, keys, mod }),
+    [walkMode, ride, running, soundOn, time, passing, keys, mod],
   );
   // Places by name: choosing one starts a walk there, as a click on the map would.
   const places = useMemo(

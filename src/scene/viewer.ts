@@ -3,6 +3,7 @@ import {
   BufferAttribute,
   BufferGeometry,
   CanvasTexture,
+  Color,
   DataTexture,
   DirectionalLight,
   Fog,
@@ -38,17 +39,30 @@ import type { DrawnGround } from './drawn-ground.ts';
 import type { buildFurniture, drawnGround } from './furniture.ts';
 import {
   createFacadeMaterial,
+  createGlowMaterial,
   fadeInkNearCamera,
   fadeNearCamera,
+  setNight,
   setPixelSize,
 } from './facade-material.ts';
-import { LIGHT } from './lighting.ts';
+import {
+  HOURS_PER_SECOND,
+  LAMPS_ON,
+  PRESETS,
+  daylightAt,
+  leuvenHour,
+  nextPreset,
+  presetAt,
+  sunStep,
+  wrapHour,
+} from './daylight.ts';
+import type { Daylight, PresetId } from './daylight.ts';
 import { MapControls } from './map-controls.ts';
 import { LAYER_Y, slabBottom } from './ground.ts';
 import { LINE_LOD } from './paint.ts';
 import { LineBuilder, MeshBuilder, corners, geometryBytes } from './mesh-builder.ts';
 import type { V3 } from './mesh-builder.ts';
-import { BOUNCE_LIGHT, OUTLINE, PLATE, SKY, SKY_LIGHT, SUN } from './palette.ts';
+import { OUTLINE, PLATE, SKY } from './palette.ts';
 import {
   depthRange,
   fitShadow,
@@ -94,6 +108,8 @@ export interface ViewerOptions {
   onRideChange?: (state: RideState) => void;
   /** Which way the view looks, clockwise from north (radians), whenever it turns. */
   onHeading?: (heading: number) => void;
+  /** The light changed: a new time of day, or the day passing. The app paints the sky from it. */
+  onDaylight?: (light: Daylight) => void;
 }
 
 export interface ViewerStats {
@@ -132,6 +148,12 @@ export interface Viewer {
   look(direction: number): void;
   /** Gets on or off the nearest bike, rings its bell, or gets riding ready (`warm`). */
   ride(action: RideAction | 'warm'): void;
+  /** The time of day: the preset nearest the hour, and whether the day is passing. */
+  timeOfDay(): { preset: PresetId; passing: boolean };
+  /** Steps to the next time of day (morning, midday, golden hour, dusk, night) and names it. */
+  nextTimeOfDay(): PresetId;
+  /** Lets the day pass, an hour every few seconds, or holds it where it is. */
+  passTime(on: boolean): void;
   stats(): ViewerStats;
   /** Settles once the first frame is drawn, a few tasks after `createViewer` returns. */
   ready: Promise<void>;
@@ -164,6 +186,8 @@ interface CellEntry {
   tall: Mesh | null;
   /** Its shop fronts' awnings, shown with the furniture, if it has any. */
   awnings: Mesh | null;
+  /** Its lamps' light, shown at night at every zoom, if it has a lamp. */
+  glow: Mesh | null;
   /** Where the rails and the catenary masts end in its outlines, which only show zoomed in. */
   detail: DetailMarks;
   /** Its ground as drawn, read the first time something stands on it there. */
@@ -174,8 +198,6 @@ interface CellEntry {
   fineVertices: number;
 }
 
-/** Golden hour from the south-west, low enough for long shadows. */
-const SUN_DIRECTION: V3 = [-0.55, 0.62, 0.56];
 const SHADOW_MAP = 2048;
 /**
  * Tallest thing in the city (m), and the margin kept around the view for tall roofs: at most a
@@ -202,7 +224,7 @@ const LIGHTS_ONLY = 1 << 2;
  * frame past this gets a frame of its own, and the view follows on the next.
  */
 const FRAME_CALLS = 100;
-const FRAME_TRIANGLES = 600_000;
+const FRAME_TRIANGLES = 700_000;
 /**
  * Zoom from which street furniture shows. Further out a lamp post is a stray pixel, and the
  * frames that show the most city are the ones that can least afford it. It casts shadows only
@@ -282,6 +304,9 @@ export function createViewer(options: ViewerOptions): Viewer {
   Object.assign(material, { defaultAttributeValues: { facade: [0], lift: [0] } });
   const ink = new LineBasicMaterial({ color: OUTLINE });
   fadeInkNearCamera(ink);
+  // The lamps' light at night: the same night uniform as the windows.
+  const lamps = { value: 0 };
+  const glowMaterial = createGlowMaterial(lamps);
 
   const terrain = new Terrain(city.terrain);
 
@@ -305,6 +330,7 @@ export function createViewer(options: ViewerOptions): Viewer {
         furniture: undefined,
         tall: null,
         awnings: null,
+        glow: null,
         detail: { rails: 0, masts: 0 },
         trunksFrom: 0,
         shadowFrom: 0,
@@ -390,12 +416,16 @@ export function createViewer(options: ViewerOptions): Viewer {
     return lastCell.drawn.height(x, z);
   }
 
-  /** Makes a mesh of furniture, sharing the city's material, culled by `cull`. */
-  function furnitureMesh(builder: MeshBuilder, striped = false): Mesh {
+  /** Makes a mesh of furniture, sharing the city's material (or the glow's), culled by `cull`. */
+  function furnitureMesh(
+    builder: MeshBuilder,
+    striped = false,
+    drawnWith: Material = material,
+  ): Mesh {
     // No windows: it leaves out the facade attribute and the shader reads its default, but
-    // awnings need it for their stripes.
-    const mesh = new Mesh(builder.build({ facade: striped }), material);
-    mesh.castShadow = true;
+    // awnings need it for their stripes, and the glow for its fade.
+    const mesh = new Mesh(builder.build({ facade: striped }), drawnWith);
+    mesh.castShadow = drawnWith === material;
     mesh.receiveShadow = true;
     mesh.frustumCulled = false;
     mesh.visible = false; // until `cull` says otherwise
@@ -410,7 +440,7 @@ export function createViewer(options: ViewerOptions): Viewer {
    */
   function furnish(entry: CellEntry): void {
     if (!furnishing) return loadFurniture();
-    const { near, bikes, awnings, tall } = furnishing.buildFurniture(entry.cell, {
+    const { near, bikes, awnings, tall, glow } = furnishing.buildFurniture(entry.cell, {
       MeshBuilder,
       terrain,
       awning: AWNING,
@@ -425,6 +455,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     if (bikes.length) entry.furniture.geometry.index!.onUpload(() => {});
     entry.box.union(entry.furniture.geometry.boundingBox!);
     entry.awnings = awnings && furnitureMesh(awnings, true);
+    entry.glow = glow && furnitureMesh(glow, true, glowMaterial);
     entry.tall = tall && furnitureMesh(tall);
     if (entry.tall) {
       entry.box.union(entry.tall.geometry.boundingBox!);
@@ -439,27 +470,26 @@ export function createViewer(options: ViewerOptions): Viewer {
     }
   }
 
-  const sky = new HemisphereLight(SKY_LIGHT, BOUNCE_LIGHT, LIGHT.sky);
-  const sun = new DirectionalLight(SUN, LIGHT.sun);
+  const sky = new HemisphereLight();
+  const sun = new DirectionalLight();
   for (const l of [sky, sun]) l.layers.enableAll();
   scene.add(sky);
-  const light = lightFrame(SUN_DIRECTION);
+  // The sun's frame for the shadow map: golden hour's until the daylight is applied below.
+  let light = lightFrame(daylightAt(18).sunDirection);
   sun.castShadow = true;
   sun.shadow.mapSize.set(SHADOW_MAP, SHADOW_MAP);
   sun.shadow.camera.layers.mask = SHADOW_LAYER;
   scene.add(sun, sun.target);
   // The shadow camera's depth spans the whole area, from the slab's underside to the rooftops.
-  const [nearest, farthest] = depthRange(
-    light,
-    city.area.flatMap((a) =>
-      [slabBottom(terrain), terrain.highest + MAX_HEIGHT].flatMap((y): V3[] => [
-        [a.minX, y, a.minZ],
-        [a.maxX, y, a.minZ],
-        [a.minX, y, a.maxZ],
-        [a.maxX, y, a.maxZ],
-      ]),
-    ),
+  const cityCorners = city.area.flatMap((a) =>
+    [slabBottom(terrain), terrain.highest + MAX_HEIGHT].flatMap((y): V3[] => [
+      [a.minX, y, a.minZ],
+      [a.maxX, y, a.minZ],
+      [a.minX, y, a.maxZ],
+      [a.maxX, y, a.maxZ],
+    ]),
   );
+  let [nearest, farthest] = depthRange(light, cityCorners);
   let shadow: ShadowSquare | undefined;
   let propsShown = false;
   const shadowFrustum = new Frustum();
@@ -676,7 +706,12 @@ export function createViewer(options: ViewerOptions): Viewer {
         calls++; // its outlines
       }
       if (casts) draw(casters);
-      const { furniture, tall } = entry;
+      const { furniture, tall, glow } = entry;
+      // At night the lamps' light shows at every zoom, as what reads of a city from above.
+      if (glow) {
+        glow.visible = inView && daylight.night > LAMPS_ON;
+        if (glow.visible) draw(glow);
+      }
       if (tall) {
         tall.layers.mask = (inView ? VIEW_LAYER : 0) | (casts ? SHADOW_LAYER : 0);
         tall.visible = inView || casts;
@@ -858,6 +893,7 @@ export function createViewer(options: ViewerOptions): Viewer {
           groundAt: drawnAt,
           gradientMap,
           fog,
+          sky: skyColours,
           reducedMotion,
           yaw: () => yaw,
           setYaw: (to) => {
@@ -1109,10 +1145,12 @@ export function createViewer(options: ViewerOptions): Viewer {
       if (entry.furniture) scene.remove(entry.furniture);
       if (entry.tall) scene.remove(entry.tall);
       if (entry.awnings) scene.remove(entry.awnings);
+      if (entry.glow) scene.remove(entry.glow);
       entry.objects = [];
       entry.furniture = undefined;
       entry.tall = null;
       entry.awnings = null;
+      entry.glow = null;
     }
     [held.vertices, held.bytes] = [0, 0];
     shadow = undefined;
@@ -1121,6 +1159,68 @@ export function createViewer(options: ViewerOptions): Viewer {
     if (!idleHandle) idleHandle = idle(buildInBackground);
   };
   canvas.addEventListener('webglcontextrestored', onRestored);
+
+  // The time of day: Leuven's own clock when the map opens, then whatever is asked for. The
+  // lights, the fog, the walking sky's colours and the night uniform all follow it; the sun
+  // the shadow map sees moves in quarter-hour steps, each a redraw of the static shadows.
+  const skyColours = { horizon: { value: new Color() }, top: { value: new Color() } };
+  let hour = leuvenHour();
+  let daylight = daylightAt(hour);
+  let sunHour = Number.NaN;
+  function applyDaylight(): void {
+    daylight = daylightAt(hour);
+    sun.color.set(daylight.sun);
+    sun.intensity = daylight.sunIntensity;
+    sky.color.set(daylight.sky);
+    sky.groundColor.set(daylight.bounce);
+    sky.intensity = daylight.skyIntensity;
+    fog.color.set(daylight.horizon);
+    skyColours.horizon.value.set(daylight.horizon);
+    skyColours.top.value.set(daylight.top);
+    setNight(material, daylight.night);
+    lamps.value = Math.max(0, (daylight.night - LAMPS_ON) / (1 - LAMPS_ON));
+    const step = sunStep(hour);
+    if (step !== sunHour) {
+      sunHour = step;
+      light = lightFrame(daylightAt(step).sunDirection);
+      [nearest, farthest] = depthRange(light, cityCorners);
+      shadow = undefined; // fitted again, to the new sun, before the next frame
+      renderer.shadowMap.needsUpdate = true;
+    }
+    options.onDaylight?.(daylight);
+    invalidate();
+  }
+  // The day passing: a frame loop of its own while it does, which the walk loop's frames
+  // share when both run (invalidate draws nothing while walk mode is animating).
+  let passing = false;
+  let dayFrame = 0;
+  let dayLast = 0;
+  function tickDay(now: number): void {
+    dayFrame = 0;
+    if (!passing) return;
+    const dt = Math.min(0.1, Math.max(0, (now - dayLast) / 1000));
+    dayLast = now;
+    hour = wrapHour(hour + dt * HOURS_PER_SECOND);
+    applyDaylight();
+    dayFrame = requestAnimationFrame(tickDay);
+  }
+  function passTime(on: boolean): void {
+    if (passing === on) return;
+    passing = on;
+    cancelAnimationFrame(dayFrame);
+    dayFrame = 0;
+    if (on) {
+      dayLast = performance.now();
+      dayFrame = requestAnimationFrame(tickDay);
+    }
+  }
+  function nextTimeOfDay(): PresetId {
+    const next = nextPreset(presetAt(hour));
+    hour = PRESETS.find((p) => p.id === next)!.hour;
+    applyDaylight();
+    return next;
+  }
+  applyDaylight();
 
   resize();
   resetView();
@@ -1198,6 +1298,9 @@ export function createViewer(options: ViewerOptions): Viewer {
     ride: (action) => walk?.ride(action),
     look,
     spin: spinMap,
+    timeOfDay: () => ({ preset: presetAt(hour), passing }),
+    nextTimeOfDay,
+    passTime,
     stats: () => ({
       drawCalls: renderer.info.render.calls,
       triangles: renderer.info.render.triangles,
@@ -1205,6 +1308,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     dispose() {
       cancelAnimationFrame(frame);
       cancelAnimationFrame(spin);
+      cancelAnimationFrame(dayFrame);
       cancelIdle(idleHandle);
       disposed = true;
       walk?.dispose();

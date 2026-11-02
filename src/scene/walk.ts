@@ -3,7 +3,6 @@ import {
   Bone,
   BufferAttribute,
   BufferGeometry,
-  Color,
   Mesh,
   MeshBasicMaterial,
   PerspectiveCamera,
@@ -13,7 +12,7 @@ import {
   SphereGeometry,
   Vector2,
 } from 'three';
-import type { Fog, OrthographicCamera, Scene, Texture, WebGLRenderer } from 'three';
+import type { Fog, OrthographicCamera, Scene, Texture, WebGLRenderer, Color } from 'three';
 import type { MapControls } from './map-controls.ts';
 
 import { createWalkSounds } from '../audio/walking.ts';
@@ -85,7 +84,6 @@ import {
 } from './spawn.ts';
 import { loose } from './collide.ts';
 import { clock, decay, spring, springTo, ticks } from './motion.ts';
-import { SKY } from './palette.ts';
 import { DROPPED_KEY, nearestParked } from './parked.ts';
 import { passedVertices, routeMarker } from './route-marker.ts';
 import type { RouteMarker } from './route-marker.ts';
@@ -167,6 +165,12 @@ const LIFT_FULL = 200;
 /** Wheel events closer together than this (ms) are one gesture: a swipe stays a swipe. */
 const GESTURE_GAP_MS = 150;
 
+/** Uniforms the sky dome reads: the viewer sets them as the day passes. */
+export interface SkyColours {
+  horizon: { value: Color };
+  top: { value: Color };
+}
+
 export interface WalkHost {
   scene: Scene;
   /** The map's camera; walking brings its own. */
@@ -183,6 +187,8 @@ export interface WalkHost {
   gradientMap: Texture;
   /** The scene's fog, kept far off on the map: walking draws it in to the haze. */
   fog: Fog;
+  /** The sky's colours now, horizon and overhead, which the viewer keeps with the daylight. */
+  sky: SkyColours;
   reducedMotion: boolean;
   /** The map camera's yaw, read and set. */
   yaw(): number;
@@ -238,28 +244,36 @@ export interface Walk {
   dispose(): void;
 }
 
-/** A sky dome, horizon haze to blue overhead, drawn behind the city while walking. */
-function createSky(): Mesh {
+/**
+ * A sky dome, horizon haze to the sky overhead, drawn behind the city while walking, in the
+ * colours the viewer's daylight keeps in `sky` (they change through the day).
+ */
+function createSky(colours: SkyColours): Mesh {
   const geometry = new SphereGeometry(1, 24, 12);
-  const position = geometry.getAttribute('position');
-  const colors = new Float32Array(position.count * 3);
-  const [low, high] = [new Color(SKY.horizon), new Color(SKY.top)];
-  const color = new Color();
-  for (let i = 0; i < position.count; i++) {
-    const up = Math.min(1, Math.max(0, position.getY(i) / 0.45));
-    color.lerpColors(low, high, up * up * (3 - 2 * up)).toArray(colors, i * 3);
-  }
-  geometry.setAttribute('color', new BufferAttribute(colors, 3));
-  const sky = new Mesh(
-    geometry,
-    new MeshBasicMaterial({
-      vertexColors: true,
-      side: BackSide,
-      fog: false,
-      depthWrite: false,
-      transparent: true,
-    }),
-  );
+  const material = new MeshBasicMaterial({
+    side: BackSide,
+    fog: false,
+    depthWrite: false,
+    transparent: true,
+  });
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uHorizon = colours.horizon;
+    shader.uniforms.uTop = colours.top;
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying float vUp;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvUp = position.y;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        '#include <common>\nuniform vec3 uHorizon;\nuniform vec3 uTop;\nvarying float vUp;',
+      )
+      .replace(
+        '#include <color_fragment>',
+        '#include <color_fragment>\ndiffuseColor.rgb = mix(uHorizon, uTop, smoothstep(0.0, 0.45, vUp));',
+      );
+  };
+  material.customProgramCacheKey = () => 'sky-v2';
+  const sky = new Mesh(geometry, material);
   sky.frustumCulled = false;
   sky.visible = false;
   sky.renderOrder = -1;
@@ -286,7 +300,7 @@ export function createWalk(host: WalkHost): Walk {
 
   const view = new PerspectiveCamera(CHASE_FOV, 1, 0.1, 1000);
   const { fog } = host;
-  const sky = createSky();
+  const sky = createSky(host.sky);
   scene.add(sky);
 
   let character: Character | undefined;

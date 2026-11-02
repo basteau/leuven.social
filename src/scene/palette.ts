@@ -45,6 +45,9 @@ export const PARASOLS = [0xf6eedc, 0xd2553f, 0xe8b94a, 0xe07b4f, 0x4a77a8] as co
 export const PROPS = {
   iron: 0x3b4150,
   lantern: 0xf3dfa8,
+  /** A lantern lit at night, and the pool of light it throws on the street. */
+  lamplight: 0xfff2c4,
+  pool: 0xe0bc74,
   wood: 0x9a6a42,
   glass: 0xa9c4cf,
   roof: 0x4a5161,

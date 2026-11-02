@@ -1,4 +1,4 @@
-import { Color, MeshToonMaterial, Vector4 } from 'three';
+import { Color, MeshBasicMaterial, MeshToonMaterial, Vector4 } from 'three';
 import type { LineBasicMaterial, Material, Texture } from 'three';
 
 import { SHOP_KINDS } from '../data/shop-kinds.ts';
@@ -464,4 +464,34 @@ export function setPixelSize(material: MeshToonMaterial, metres: number): void {
 /** How far into the night it is, 0 (day) to 1: how many windows and shop fronts are lit. */
 export function setNight(material: MeshToonMaterial, night: number): void {
   (material.userData.night as { value: number }).value = night;
+}
+
+/**
+ * The lamps' light at night (furniture.ts, `addLampGlow`): unlit, in its own colour, drawn only
+ * where a 4×4 ordered dither lets it through, by each vertex's `facade` (1 at a lantern and a
+ * pool's middle, 0 at a pool's rim) times how far into the night it is. No blending, no sorting:
+ * a pool of light on the street fades out in the same pixel pattern as everything else here.
+ */
+export function createGlowMaterial(lamps: { value: number }): MeshBasicMaterial {
+  const material = new MeshBasicMaterial({ vertexColors: true });
+  material.onBeforeCompile = (shader) => {
+    shader.uniforms.uNight = lamps;
+    shader.vertexShader = linearVertexColors(shader.vertexShader)
+      .replace(
+        '#include <common>',
+        '#include <common>\nattribute float facade;\nvarying float vGlow;',
+      )
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGlow = facade;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>\nuniform float uNight;\nvarying float vGlow;\n${BAYER}`,
+      )
+      .replace(
+        '#include <clipping_planes_fragment>',
+        '#include <clipping_planes_fragment>\nif (bayer4(gl_FragCoord.xy) >= vGlow * uNight) discard;',
+      );
+  };
+  material.customProgramCacheKey = () => 'glow-v1';
+  return material;
 }

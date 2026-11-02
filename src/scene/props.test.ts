@@ -11,6 +11,7 @@ import {
   STEER,
   YAW,
   addBike,
+  addLampGlow,
   addProp,
   handlebar,
   isLarge,
@@ -333,4 +334,26 @@ test('every model stays inside the footprint the bake keeps clear, below head he
 test('the sign of a bus stop stands across the kerb it faces', () => {
   const { box } = built(prop('busstop'));
   expect(box.max.x - box.min.x).toBeGreaterThan(box.max.z - box.min.z); // facing +x
+});
+
+test("a lamp's glow is a lit lantern over the furniture's and a pool fading out to its rim", () => {
+  const mesh = new MeshBuilder();
+  const lamp = prop('lamp', { angle: 0.4 });
+  addLampGlow(mesh, lamp);
+  const g = unindexed(mesh.build({ facade: true }));
+  g.computeBoundingBox();
+  expect(g.getAttribute('position').count / 3).toBe(12 + 12);
+  const fade = g.getAttribute('facade');
+  const y = g.getAttribute('position');
+  for (let i = 0; i < fade.count; i++) {
+    // Lantern corners glow full; a pool's middle glows full and its rim not at all.
+    const onGround = y.getY(i) < 0.1;
+    const atMiddle = Math.hypot(y.getX(i) - lamp.x, y.getZ(i) - lamp.z) < 1e-6;
+    expect(fade.getX(i)).toBe(!onGround || atMiddle ? 1 : 0);
+  }
+  // The lantern stands where the furniture's does, a hair larger, over the pool.
+  const { box } = built(lamp);
+  expect(g.boundingBox!.max.y).toBeGreaterThan(box.max.y);
+  expect(g.boundingBox!.max.y - box.max.y).toBeLessThan(0.1);
+  expect(g.boundingBox!.max.x - g.boundingBox!.min.x).toBeGreaterThan(8);
 });

@@ -12,7 +12,7 @@ import type { Cell } from './cells.ts';
 import { drawnGround } from './drawn-ground.ts';
 import type { LayerHeights } from './ground.ts';
 import type { MeshBuilder } from './mesh-builder.ts';
-import { addProp, isLarge } from './props.ts';
+import { addLampGlow, addProp, isLarge } from './props.ts';
 import { addCafeTable, addStorefronts } from './storefronts.ts';
 import type { StorefrontKit } from './storefronts.ts';
 import { PARASOLS, PROPS } from './palette.ts';
@@ -42,6 +42,8 @@ export interface Furniture {
   awnings: MeshBuilder | null;
   /** What shows at every zoom, or null where nothing in the cell is that tall. */
   tall: MeshBuilder | null;
+  /** The lamps' light at night (lanterns and pools, `addLampGlow`), or null without a lamp. */
+  glow: MeshBuilder | null;
 }
 
 /**
@@ -65,10 +67,16 @@ export function buildFurniture(cell: Cell, kit: FurnitureKit): Furniture {
   const bikes: number[] = [];
   const drawn = drawnGround(terrain, cell, kit.layers);
   let tall: MeshBuilder | null = null;
+  let glow: MeshBuilder | null = null;
   for (const p of cell.props) {
     const mesh = isLarge(p) ? (tall ??= new MeshBuilder()) : near;
     mesh.lift = propBase(drawn, p);
     addProp(mesh, p, mesh === near ? bikes : undefined, drawn.height);
+    if (p.kind === 'lamp') {
+      glow ??= new MeshBuilder();
+      glow.lift = mesh.lift;
+      addLampGlow(glow, p);
+    }
   }
   // A table under each café parasol, its chairs in the café's colour (wood under cream).
   for (const p of cell.parasols) {
@@ -79,7 +87,7 @@ export function buildFurniture(cell: Cell, kit: FurnitureKit): Furniture {
   }
   const awnings = cell.fronts.length > 0 ? new MeshBuilder() : null;
   if (awnings) addStorefronts(near, awnings, cell.fronts, kit, drawn.height);
-  return { near, bikes: new Float32Array(bikes), awnings, tall };
+  return { near, bikes: new Float32Array(bikes), awnings, tall, glow };
 }
 
 // Walk mode and riding stand the walker and the bikes on the ground as drawn too, through the

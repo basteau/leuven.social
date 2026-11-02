@@ -23,7 +23,9 @@ Leuven as a tiny city you could hold in your hands: a warm, crisp, low-poly dior
 
 ### Light
 
-- Golden hour: a warm sun (`#ffe2b8`) from the south-west, long shadows.
+- **A day passes over the city.** The light follows a 24-hour clock (\`src/scene/daylight.ts\`): a cool blue night under a faint moon, a pink dawn from the east, a pale morning, a white midday from the south with short shadows, golden hour, a red dusk, night again. Between its keyframes the colours blend in Oklab, so a sunset goes through orange. The map opens at Leuven's own time of day; **Time of day** (T) steps to the next of morning, midday, golden hour, dusk and night, and **Let the day pass** (P) runs the clock at an hour every eight seconds, a day in about three minutes.
+- **Night is lit from inside.** A share of the windows light up (most warm, a few cool), three shop fronts in four (a café's warm), and every street lamp glows and throws a pool of light on the street, drawn in the same pixel dither as everything else, at every zoom: from above, a city at night is its lamps. Nothing else changes: the same ink, the same toon ramp, only less sun and more lamp.
+- Golden hour: a warm sun (\`#ffe2b8\`) from the south-west, long shadows. It is the keyframe the rest of the day is drawn round, and stays the palette's reference.
 - A cool sky fill (`#cfe3ff`) and a warm ground bounce.
 - Shade keeps its colour: a shadow is a darker, slightly richer version of the surface's own hue, not the sky's blue-grey, so sand in shadow still reads as sand next to sunlit asphalt (`src/scene/lighting.ts`; a test holds every ground colour to it).
 

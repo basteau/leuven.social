@@ -23,7 +23,9 @@ const BUDGETS: {
     pattern: 'assets/index-*.js',
     // 84: just above 83.2 KB, with a stall-watching load, a menu that fails without blanking the
     // map, and one press for a held key. It had 7 KB of slack nothing asked for.
-    limit: 84 * KB,
+    // 85: the time of day (1.5 KB): its keyframes and clock (daylight.ts, which the shell and
+    // the engine share, so the bundler keeps it with the shell), the sky tokens, T and P.
+    limit: 85 * KB,
     gzip: true,
   },
   // The engine, and the palette it shares with the chunks it loads later (vite.config.ts).
@@ -51,8 +53,8 @@ const BUDGETS: {
   {
     label: 'Menu JS (while building)',
     pattern: 'assets/command-menu-*.js',
-    // 6: just above 5.8 KB.
-    limit: 6 * KB,
+    // 6: just above 5.8 KB. 6.5: Time of day and Let the day pass, with their icons (0.4 KB).
+    limit: 6.5 * KB,
     gzip: true,
   },
   // The whole R23 ring plus Heverlee; the ceiling agreed for the city data is 1 MB.
@@ -135,10 +137,12 @@ const BUDGETS: {
   // 250: panning and zooming with our own map controls (map-controls.ts) took 4.4 KB off; the
   // load, menu and key fixes put 0.4 back: 249.2 KB. 251: the livelier facades (1.4 KB).
   // 253.5: each house its own style, and roofs with chimneys and dormers (1.8 KB).
+  // 256: a day and a night over the city (1.6 KB): the light's keyframes, the lamps' glow
+  // and the sun that moves the shadows.
   {
     label: 'First-load JS',
     pattern: 'assets/{index,viewer}-*.js',
-    limit: 253.5 * KB,
+    limit: 256 * KB,
     gzip: true,
     closure: true,
   },

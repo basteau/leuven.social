@@ -25,7 +25,8 @@ const BIN = Bun.fileURLToPath(new URL('../node_modules/.bin/', import.meta.url))
  * map alone when both wouldn't fit (`FRAME_CALLS` and `FRAME_TRIANGLES` in viewer.ts).
  */
 const MAX_DRAW_CALLS = 100;
-const MAX_TRIANGLES = 600_000;
+// 700k: the roofs' chimneys and dormers took the zoomed-out view from 582k to 637k.
+const MAX_TRIANGLES = 700_000;
 /**
  * What the whole city hands the GPU once every cell is built: 2.40M vertices and 57.7 MB since
  * racks park fewer bikes (it was 2.69M and 64.1 MB), 2.45M and 58.7 MB with what came since.
@@ -33,10 +34,12 @@ const MAX_TRIANGLES = 600_000;
  * parked bikes (83 triangles each where they were 43, asked for so they read up close) took it
  * to 2.72M and 64.9 MB (2,723,825 vertices). Houses at their exact ground: 2.73M. Café tables,
  * chairs and guests under Oude Markt's parasols, guests at the terraces and bay trees by café
- * doors, asked for to liven the city: 2.84M and 67.7 MB. Just above, so nothing grows unnoticed.
+ * doors, asked for to liven the city: 2.84M and 67.7 MB. Chimney stacks, dormers and roof
+ * windows on the centre's houses, and the lamps' lanterns and pools of light at night, asked
+ * for too: 3.13M and 74.9 MB. Just above, so nothing grows unnoticed.
  */
-const MAX_VERTICES = 2_850_000;
-const MAX_GEOMETRY_MB = 68;
+const MAX_VERTICES = 3_200_000;
+const MAX_GEOMETRY_MB = 76;
 /**
  * The longest the main thread may be busy at once while the page loads (ms). About 60 on a
  * laptop since the roofs are planned lazily and the cells casting into the first frame are built
@@ -238,6 +241,46 @@ async function expectMenu(): Promise<void> {
   await browser('wait', '--fn', menu.closed);
   console.log(
     `ok  menu: ${rows.length} rows; searched, ran Mute and Unmute, opened the controls, closed to the map`,
+  );
+}
+
+/**
+ * The time of day: T steps round to night, where windows and lamps are lit and the lamps'
+ * light shows at every zoom; P lets the day pass (a frame loop) and holds it again.
+ */
+/** The time of day the app publishes on <html>, as the menu names it. */
+const time = () => evalJson<string>('JSON.stringify(document.documentElement.dataset.time)');
+
+async function expectNight(): Promise<void> {
+  for (let i = 0; i < 6 && (await time()) !== 'night'; i++) {
+    await browser('press', 't');
+    await browser('wait', '300');
+  }
+  if ((await time()) !== 'night') throw new Error('T did not bring the night round');
+  await browser('wait', '600');
+  await expectHealthyPage('desktop at night');
+  await browser('screenshot', `${ARTIFACTS}smoke-night.png`);
+  await browser('press', 'p');
+  await browser(
+    'wait',
+    '--fn',
+    `document.querySelector('.hint')?.textContent === 'The day passes'`,
+  );
+  await browser('wait', '1500');
+  await browser('press', 'p');
+  await browser(
+    'wait',
+    '--fn',
+    `document.querySelector('.hint')?.textContent === 'The day stands still'`,
+  );
+  await expectHealthyPage('desktop after the day passed a while');
+  // Back to golden hour, the look the rest of the test is measured in.
+  for (let i = 0; i < 6 && (await time()) !== 'golden'; i++) {
+    await browser('press', 't');
+    await browser('wait', '300');
+  }
+  console.log(
+    'ok  night: lit windows and lamps, the day passed and stood still, golden hour again',
   );
 }
 
@@ -446,6 +489,7 @@ try {
   await browser('wait', '200');
   await expectHealthyPage('desktop zoomed in');
   await browser('screenshot', `${ARTIFACTS}smoke-detail.png`);
+  await expectNight();
   // All the way out is the most city on screen at once: the heaviest steady frame.
   for (let i = 0; i < 12; i++) await browser('press', '-');
   await browser('wait', '400');
