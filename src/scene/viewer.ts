@@ -34,7 +34,8 @@ import { AWNING } from './facade-codes.ts';
 import type { PartyWalls } from './buildings.ts';
 import { buildCell, groundRange, partition } from './cells.ts';
 import type { Cell, DetailMarks } from './cells.ts';
-import type { buildFurniture } from './furniture.ts';
+import type { DrawnGround } from './drawn-ground.ts';
+import type { buildFurniture, drawnGround } from './furniture.ts';
 import {
   createFacadeMaterial,
   fadeInkNearCamera,
@@ -165,6 +166,8 @@ interface CellEntry {
   awnings: Mesh | null;
   /** Where the rails and the catenary masts end in its outlines, which only show zoomed in. */
   detail: DetailMarks;
+  /** Its ground as drawn, read the first time something stands on it there. */
+  drawn?: DrawnGround;
   /** Where the trunks, what else casts shadows and the fine road paint start in its mesh. */
   trunksFrom: number;
   shadowFrom: number;
@@ -349,7 +352,8 @@ export function createViewer(options: ViewerOptions): Viewer {
    * once the first frame is drawn, or as soon as the view gets close. If it fails to load, the
    * map goes on without them.
    */
-  let furnishing: { buildFurniture: typeof buildFurniture } | undefined;
+  let furnishing:
+    { buildFurniture: typeof buildFurniture; drawnGround: typeof drawnGround } | undefined;
   let loadingFurniture: Promise<void> | undefined;
   function loadFurniture(): void {
     loadingFurniture ??= import('./furniture.ts').then(
@@ -362,6 +366,28 @@ export function createViewer(options: ViewerOptions): Viewer {
       },
       () => {},
     );
+  }
+
+  /**
+   * The ground as its cell draws it under a spot (drawn-ground.ts), for the walker and the bikes
+   * to stand on. Read by the furniture chunk; till that loads, the pavement's height.
+   */
+  let lastCell: CellEntry | undefined;
+  function drawnAt(x: number, z: number): number {
+    if (!furnishing) {
+      loadFurniture();
+      return terrain.height(x, z) + LAYER_Y.roads;
+    }
+    const inside = (e: CellEntry | undefined) =>
+      e &&
+      x >= e.cell.bounds.minX &&
+      x < e.cell.bounds.maxX &&
+      z >= e.cell.bounds.minZ &&
+      z < e.cell.bounds.maxZ;
+    if (!inside(lastCell)) lastCell = cells.find(inside);
+    if (!lastCell) return terrain.height(x, z);
+    lastCell.drawn ??= furnishing.drawnGround(terrain, lastCell.cell, LAYER_Y);
+    return lastCell.drawn.height(x, z);
   }
 
   /** Makes a mesh of furniture, sharing the city's material, culled by `cull`. */
@@ -830,6 +856,7 @@ export function createViewer(options: ViewerOptions): Viewer {
           overlay,
           city,
           terrain,
+          groundAt: drawnAt,
           gradientMap,
           fog,
           reducedMotion,

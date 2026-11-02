@@ -66,8 +66,8 @@ export interface RideKit {
   boom: Boom;
   follow: Follow;
   view: PerspectiveCamera;
-  /** How high over the terrain the walker's feet are (m). */
-  lift: number;
+  /** Where the wheels stand at a spot: the ground as drawn, and a hair for the tyres' ink. */
+  floor(x: number, z: number): number;
   /** Walks to a spot along a route (or says it can't). */
   walkTo(x: number, z: number): void;
   wake(): void;
@@ -367,7 +367,7 @@ export function createRide(kit: RideKit): Ride {
       hide(x, z);
     } else dropped = dropped.filter((other) => other !== d);
     current = d!;
-    d!.y = terrain.height(d!.x, d!.z) + kit.lift;
+    d!.y = kit.floor(d!.x, d!.z);
     rider = createRider(d!.x, d!.z, d!.heading);
     [rider.lean, rider.steer] = [d!.lean, d!.steer];
     // A bike parked nose to a wall, or across a lane, is swung round as the rider gets on: to
@@ -393,7 +393,7 @@ export function createRide(kit: RideKit): Ride {
   /** Off the bike: it stays where it is on its kickstand, and the rider beside it. */
   function drop(): void {
     if (!current) return;
-    const ground = terrain.height(rider.x, rider.z) + kit.lift;
+    const ground = kit.floor(rider.x, rider.z);
     const d: Dropped = {
       ...current,
       x: rider.x,
@@ -589,7 +589,7 @@ export function createRide(kit: RideKit): Ride {
         aside();
         // Off the figure: the bike stays standing where it is while the rider steps away.
         scene.add(bike);
-        bike.position.set(rider.x, terrain.height(rider.x, rider.z) + kit.lift, rider.z);
+        bike.position.set(rider.x, kit.floor(rider.x, rider.z), rider.z);
         bike.rotation.set(0, rider.heading, -rider.lean);
         bike.scale.setScalar(SCALE);
         twin.visible = false;
