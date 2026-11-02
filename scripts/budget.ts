@@ -9,7 +9,12 @@ import * as Compress from '@portable/compress';
 
 const KB = 1024;
 const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[] = [
-  { label: 'App shell JS (React + HUD)', pattern: 'assets/index-*.js', limit: 90 * KB, gzip: true },
+  {
+    label: 'App shell JS (React + the shell)',
+    pattern: 'assets/index-*.js',
+    limit: 90 * KB,
+    gzip: true,
+  },
   // The engine, and the palette it shares with the chunks it loads later (vite.config.ts).
   {
     label: '3D engine JS (three.js)',
