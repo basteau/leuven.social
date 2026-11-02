@@ -38,7 +38,7 @@ import {
   streetSegments,
 } from '../src/data/plate-placement.ts';
 import type { Address, Door } from '../src/data/plate-placement.ts';
-import { STREET_PLATE_HEIGHT, packWalk } from '../src/data/plates.ts';
+import { PROUD, STREET_PLATE_HEIGHT, packWalk } from '../src/data/plates.ts';
 import {
   areaIndex,
   clipLine,
@@ -71,6 +71,7 @@ import { carriagewayKind, crossingMarking } from '../src/data/roads.ts';
 import type { RoadRole } from '../src/data/roads.ts';
 import { correctRoofColours } from '../src/data/roof-colours.ts';
 import { capShedsUnderTrees } from '../src/data/sheds.ts';
+import { placeBoards } from '../src/data/boards.ts';
 import { fitTerraces, markShopFronts, placeFronts } from '../src/data/shops.ts';
 import { bridgeParapets, tankOutline } from '../src/data/structures.ts';
 import { joinLines, nameTable, streetName } from '../src/data/streets.ts';
@@ -704,11 +705,19 @@ const streetPlates = placeStreetPlates({
   height: STREET_PLATE_HEIGHT,
   skip: landmarks,
 });
+// Each shop front's name, on a board over its window or on its awning (src/data/boards.ts).
+const boards = placeBoards(
+  shops.fronts,
+  buildings.map((b) => b.ring),
+  shops.tags,
+  PROUD,
+);
 const strips = <T extends { x: number; z: number }>(list: T[]) =>
   list.toSorted((a, b) => Math.floor(a.z / STRIP) - Math.floor(b.z / STRIP) || a.x - b.x);
 const walkBytes = await packWalk({
   houses: strips(houses.plates),
   streets: strips(streetPlates.plates),
+  boards: strips(boards.boards),
 });
 await Bun.write(WALK_OUT, walkBytes);
 const reasons = (skipped: Record<string, number>) =>
@@ -758,6 +767,7 @@ console.log(
     `public/data/city.bin ${(bytes.length / 1024).toFixed(0)} KB gzipped`,
     `house numbers ${houses.plates.length} of ${addresses.length} addresses: ${reasons(houses.placed)} (skipped ${reasons(houses.skipped)})`,
     `street plates ${streetPlates.plates.length}: ${reasons(streetPlates.placed)} (skipped ${reasons(streetPlates.skipped)})`,
-    `public/data/walk.bin ${(walkBytes.length / 1024).toFixed(0)} KB gzipped`,
+    `name boards ${boards.boards.length} of ${shops.fronts.length} fronts, ${new Set(boards.boards.map((b) => b.name)).size} names, ${boards.boards.filter((b) => b.name.endsWith('…')).length} cut (skipped ${reasons(boards.skipped)})`,
+    `public/data/walk.bin ${(walkBytes.length / 1024).toFixed(1)} KB gzipped`,
   ].join('\n'),
 );

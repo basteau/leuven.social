@@ -57,7 +57,8 @@ const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[
     limit: 6 * KB,
     gzip: true,
   },
-  // About 11k house numbers and 1.3k street plates are 64 KB; room for the map to grow by half.
+  // About 11.6k house numbers and 1.8k street plates are 67 KB, and 1.1k shop name boards 17 KB
+  // more; room for the map to grow.
   { label: 'Plates data (already gzipped)', pattern: 'data/walk.bin', limit: 96 * KB, gzip: false },
   // What the first visit downloads: the shell and the engine, not the chunks loaded later.
   // 252: land use from relations, data-chosen monuments and hold-to-turn together passed 250.

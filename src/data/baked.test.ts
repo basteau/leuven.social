@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { AREA, VIEW_AREA } from './area.ts';
+import { MAX_NAME, latinOnly } from './boards.ts';
 import { areaIndex, ringInArea } from './geometry.ts';
 import { unpackCity } from './format.ts';
 import { unpackWalk } from './plates.ts';
@@ -67,4 +68,11 @@ test('public/data/walk.bin decodes into plates that belong to city.bin', async (
   expect(named).toContain('Naamsestraat');
   expect(named).toContain('Tiensestraat');
   expect(walk.houses.some((h) => h.text === '1')).toBe(true);
+  // A name board on most shop fronts, inside its front and with a name a board can show.
+  expect(walk.boards.length).toBeGreaterThan(city.fronts.length * 0.8);
+  expect(walk.boards.every(inArea)).toBe(true);
+  expect(walk.boards.every((b) => b.width > 0.8 && b.width <= 5)).toBe(true);
+  expect(
+    walk.boards.every((b) => [...b.name].length <= MAX_NAME && latinOnly(b.name) === b.name),
+  ).toBe(true);
 });
