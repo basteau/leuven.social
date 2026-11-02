@@ -1,7 +1,14 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { Way } from './city.ts';
-import { alongEdge, roadGraph, splitAtJunctions, turnBetween, wayFromOsm } from './traffic.ts';
+import {
+  alongEdge,
+  roadGraph,
+  roadRouter,
+  splitAtJunctions,
+  turnBetween,
+  wayFromOsm,
+} from './traffic.ts';
 
 describe('wayFromOsm', () => {
   test('main roads, streets and cycle tracks, with links counted with their road', () => {
@@ -14,10 +21,17 @@ describe('wayFromOsm', () => {
     expect(wayFromOsm({ highway: 'pedestrian' })?.kind).toBe('cycle');
   });
 
-  test('service roads, paths, tunnels and closed streets carry no traffic', () => {
+  test('paths of their own carry people, not sidewalks and crossings on the road', () => {
+    expect(wayFromOsm({ highway: 'footway' })?.kind).toBe('path');
+    expect(wayFromOsm({ highway: 'path', access: 'private' })?.kind).toBe('path');
+    expect(wayFromOsm({ highway: 'steps' })?.kind).toBe('path');
+    expect(wayFromOsm({ highway: 'footway', footway: 'sidewalk' })).toBeNull();
+    expect(wayFromOsm({ highway: 'footway', footway: 'crossing' })).toBeNull();
+  });
+
+  test('service roads, tunnels and closed streets carry no traffic', () => {
     expect(wayFromOsm({ highway: 'service' })).toBeNull();
-    expect(wayFromOsm({ highway: 'footway' })).toBeNull();
-    expect(wayFromOsm({ highway: 'track' })).toBeNull();
+    expect(wayFromOsm({ highway: 'corridor' })).toBeNull();
     expect(wayFromOsm({ highway: 'primary', tunnel: 'yes' })).toBeNull();
     expect(wayFromOsm({ highway: 'residential', layer: '-1' })).toBeNull();
     expect(wayFromOsm({ highway: 'residential', motor_vehicle: 'no' })).toBeNull();
@@ -45,6 +59,11 @@ describe('wayFromOsm', () => {
       wayFromOsm({ highway: 'residential', oneway: 'yes', 'oneway:bicycle': 'no' })?.bikesBoth,
     ).toBe(true);
     expect(wayFromOsm({ highway: 'residential', 'oneway:bicycle': 'no' })?.bikesBoth).toBe(false);
+    // A roundabout is one way round unless it says otherwise.
+    expect(wayFromOsm({ highway: 'tertiary', junction: 'roundabout' })?.oneway).toBe(true);
+    expect(wayFromOsm({ highway: 'tertiary', junction: 'circular', oneway: 'no' })?.oneway).toBe(
+      false,
+    );
   });
 });
 
@@ -80,12 +99,16 @@ const way = (over: Partial<Omit<Way, 'line'>> & { line: number[] }): Way => ({
   kind: 'street',
   oneway: false,
   bikesBoth: false,
+  halfWidth: 4,
   ...over,
   line: new Float32Array(over.line),
 });
 
+/** Who may go along each edge of a graph: cars, bikes, feet. */
+const who = (ways: Way[]) => roadGraph(ways).edges.map((e) => [e.cars, e.bikes, e.feet]);
+
 describe('roadGraph', () => {
-  test('a two-way street is two edges between two nodes; one-way, one for cars', () => {
+  test('a street is two edges between two nodes: who may go each way depends on the way', () => {
     const both = roadGraph([way({ line: [0, 0, 100, 0] })]);
     expect(both.nodes).toHaveLength(2);
     expect(both.edges).toHaveLength(2);
@@ -94,16 +117,50 @@ describe('roadGraph', () => {
       [1, 0],
     ]);
     expect(both.nodes[0]!.out).toEqual([0]);
-    expect(both.edges.every((e) => e.cars && e.bikes && e.length === 100)).toBe(true);
-    const one = roadGraph([way({ line: [0, 0, 100, 0], oneway: true })]);
-    expect(one.edges).toHaveLength(1);
-    const cycleStreet = roadGraph([way({ line: [0, 0, 100, 0], oneway: true, bikesBoth: true })]);
-    expect(cycleStreet.edges.map((e) => [e.cars, e.bikes])).toEqual([
-      [true, true],
-      [false, true],
+    expect(both.edges.every((e) => e.cars && e.bikes && e.feet && e.length === 100)).toBe(true);
+    expect(both.edges[0]!.halfWidth).toBe(4);
+    // One way: cars and bikes forward only; people walk back along the pavement.
+    expect(who([way({ line: [0, 0, 100, 0], oneway: true })])).toEqual([
+      [true, true, true],
+      [false, false, true],
     ]);
-    const track = roadGraph([way({ line: [0, 0, 50, 0], kind: 'cycle' })]);
-    expect(track.edges.every((e) => !e.cars && e.bikes)).toBe(true);
+    // A cycle street lets bikes back too.
+    expect(who([way({ line: [0, 0, 100, 0], oneway: true, bikesBoth: true })])).toEqual([
+      [true, true, true],
+      [false, true, true],
+    ]);
+    expect(who([way({ line: [0, 0, 50, 0], kind: 'cycle' })])).toEqual([
+      [false, true, true],
+      [false, true, true],
+    ]);
+    expect(who([way({ line: [0, 0, 50, 0], kind: 'path' })])).toEqual([
+      [false, false, true],
+      [false, false, true],
+    ]);
+  });
+
+  test('routes the shortest way for a class, or none where it may not go', () => {
+    // A square block with a path cutting the corner: cars round it, people across.
+    const g = roadGraph([
+      way({ line: [0, 0, 100, 0] }),
+      way({ line: [100, 0, 100, 100] }),
+      way({ line: [0, 0, 0, 100], oneway: true }),
+      way({ line: [0, 100, 100, 100] }),
+      way({ line: [0, 0, 100, 100], kind: 'path' }),
+    ]);
+    const router = roadRouter(g);
+    const at = (x: number, z: number) => g.nodes.findIndex((n) => n.x === x && n.z === z);
+    const cars = router.route(at(0, 0), at(100, 100), (e) => g.edges[e]!.cars)!;
+    expect(cars.map((e) => g.edges[e]!.to)).toEqual([at(100, 0), at(100, 100)]);
+    const feet = router.route(at(0, 0), at(100, 100), (e) => g.edges[e]!.feet)!;
+    expect(feet).toHaveLength(1);
+    expect(g.edges[feet[0]!]!.kind).toBe('path');
+    // Back down the one-way street is no route for a car, and a route for anyone on foot.
+    expect(router.route(at(0, 100), at(0, 0), (e) => g.edges[e]!.cars)!.length).toBe(3);
+    expect(router.route(at(0, 100), at(0, 0), (e) => g.edges[e]!.feet)).toHaveLength(1);
+    expect(router.route(at(0, 0), at(0, 0), () => true)).toEqual([]);
+    expect(router.route(at(0, 0), at(100, 100), () => false)).toBeNull();
+    expect(router.route(at(0, 0), at(100, 100), (e) => g.edges[e]!.cars, 150)).toBeNull();
   });
 
   test('pieces meet at their ends, to the decimetre, and a stub too short to drive is dropped', () => {

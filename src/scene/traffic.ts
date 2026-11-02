@@ -1,48 +1,63 @@
-import type { City, Way, WayKind } from '../data/city.ts';
-import { alongEdge, roadGraph, turnBetween } from '../data/traffic.ts';
+import type { Way, WayKind } from '../data/city.ts';
+import type { GraphRouter } from '../data/graph-route.ts';
+import { alongEdge, roadGraph, roadRouter, turnBetween } from '../data/traffic.ts';
 import type { RoadEdge, RoadGraph } from '../data/traffic.ts';
-import type {
-  BackSide,
-  InstancedBufferAttribute,
-  InstancedMesh,
-  Matrix4,
-  MeshBasicMaterial,
-  MeshToonMaterial,
-  Texture,
-} from 'three';
-
-import type { MeshBuilder, V3 } from './mesh-builder.ts';
-import { BUS, CARS, GUESTS, PROPS, WINDOW } from './palette.ts';
+import { BUS, CARS, GUESTS } from './palette.ts';
 
 /**
- * Traffic: cars, buses and bikes driving the streets (src/data/traffic.ts builds the graph). A
- * chunk of its own, loaded once the first frame is drawn, that takes what it shares with the
- * engine as a `kit` (three's classes, `MeshBuilder`) like the furniture. Each vehicle follows
- * the edge it is on at a cruise it can hold, keeps its distance from the one ahead (a trimmed
- * intelligent-driver model), slows for the corner it has chosen next and picks the next edge
- * at random, straight on three times as often as a turn. Nothing is routed, nothing is simulated
- * off the graph, and a vehicle that runs off the map's edge comes back somewhere else.
+ * Traffic: cars, buses, bikes and people moving along the streets (src/data/traffic.ts builds
+ * the graph). Each vehicle drives the shortest route to a destination it picked (the A* of
+ * src/data/graph-route.ts), keeps its distance from the one ahead in its lane (a trimmed
+ * intelligent-driver model), slows for the corner it has chosen next and rounds it on a curve,
+ * and waits its turn at a junction another is crossing. The fleet keeps to a circle round the
+ * view (`focus`), at a density its area deserves. Nothing is simulated off the graph, and a
+ * vehicle that drives off the edge of it comes back somewhere in the circle, out of sight.
+ * The drawing is vehicles.ts; this file knows nothing of three.js.
  */
 
-export type VehicleKind = 'car' | 'bus' | 'bike';
-export const VEHICLE_KINDS = ['car', 'bus', 'bike'] as const;
+export type VehicleKind = 'car' | 'bus' | 'bike' | 'person';
+export const VEHICLE_KINDS = ['car', 'bus', 'bike', 'person'] as const;
+
+/** Who shares a lane and a junction with whom: motor vehicles, bikes, people on foot. */
+export const CLASS: Record<VehicleKind, 0 | 1 | 2> = { car: 0, bus: 0, bike: 1, person: 2 };
+const CLASSES = 3;
 
 export interface Vehicle {
   kind: VehicleKind;
+  /** On the streets, or parked out of sight until the view has room for it. */
+  active: boolean;
   /** The edge it is on and how far along it (m), its speed (m/s) and the cruise it aims for. */
   edge: number;
   s: number;
   speed: number;
   cruise: number;
-  /** The edge it will take next, or -1 at a dead end, and the turn into it (radians). */
+  /** The edge it came from (-1: none) and the edge it will take next (-1: a dead end). */
+  prev: number;
   next: number;
+  /** The turn into the next edge (radians, 0 straight on), and which way (-1 left, 1 right). */
   turn: number;
-  /** Its lane: how far right of the edge's line it drives (m). */
+  signal: -1 | 0 | 1;
+  /** The corner behind and the corner ahead: how far from the node the curve starts (m). */
+  rIn: number;
+  rOut: number;
+  /** The edges still to take to its destination, last first; the node it is bound for (-1: none). */
+  route: number[];
+  goal: number;
+  /** Its lane: how far right of the edge's line it keeps (m), here and on the next edge. */
   lane: number;
-  /** Its paint (a shirt, on a bike), as linear RGB for the shader. */
+  laneNext: number;
+  /** Its own place across the lane, -1 to 1: no two walk the same line. */
+  jitter: number;
+  /** Its paint (a shirt, on a bike or on foot), as sRGB, 0 to 1. */
   paint: [number, number, number];
-  /** On the streets, or parked out of sight until the view has room for it. */
-  active: boolean;
+  /** The heading it is drawn at (radians): eased after the path, so corners aren't instant. */
+  yaw: number;
+  /** Its brake lights, 0 to 1; its stride or pedal cycle (radians); a blink offset, 0 to 1. */
+  brake: number;
+  phase: number;
+  blink: number;
+  /** The junction node it holds (-1: none): nobody else of its class crosses it meanwhile. */
+  hold: number;
 }
 
 /**
@@ -50,10 +65,10 @@ export interface Vehicle {
  * (`focus`): as many as its area deserves at the density below, no fewer than the floor, and
  * one that drives off beyond it comes back on a street inside it, out of sight.
  */
-export const COUNTS: Record<VehicleKind, number> = { car: 220, bus: 14, bike: 300 };
+export const COUNTS: Record<VehicleKind, number> = { car: 220, bus: 14, bike: 300, person: 300 };
 /** Vehicles per km² of the focus's circle, and the fewest of each kind, however small it is. */
-export const DENSITY: Record<VehicleKind, number> = { car: 150, bus: 10, bike: 220 };
-export const FLOOR: Record<VehicleKind, number> = { car: 30, bus: 3, bike: 50 };
+export const DENSITY: Record<VehicleKind, number> = { car: 150, bus: 10, bike: 220, person: 260 };
+export const FLOOR: Record<VehicleKind, number> = { car: 30, bus: 3, bike: 50, person: 60 };
 /**
  * Spawning keeps this share of the radius away from the focus (out of the view), and a vehicle
  * beyond this many radii is recycled. The focus is refitted once it moves this far.
@@ -63,34 +78,44 @@ const RECYCLE_AT = 1.3;
 const REFOCUS_AT = 40;
 /** Respawns a step, so nothing stalls a frame: the fleet fills in over a second or so. */
 const RESPAWN_BUDGET = 12;
+/** Steps a fill (after a jump) may spawn in view before it goes back to out of sight. */
+const FILL_STEPS = 120;
+/** Routes found a step: a search is a fraction of a millisecond, and nobody waits long. */
+const ROUTE_BUDGET = 4;
 /** Length (m), from bumper to bumper, that the gap to the one ahead is measured from. */
-export const LENGTH: Record<VehicleKind, number> = { car: 4.2, bus: 12, bike: 1.8 };
-/** Cruising speed (m/s) by kind of way; 0 where it may not drive. */
+export const LENGTH: Record<VehicleKind, number> = { car: 4.2, bus: 12, bike: 1.8, person: 0.5 };
+/** Cruising speed (m/s) by kind of way; 0 where it may not go. */
 const CRUISE: Record<VehicleKind, Record<WayKind, number>> = {
-  car: { main: 12, street: 8, cycle: 0 },
-  bus: { main: 10, street: 7, cycle: 0 },
-  bike: { main: 5, street: 4.5, cycle: 4.5 },
+  car: { main: 12, street: 8, cycle: 0, path: 0 },
+  bus: { main: 10, street: 7, cycle: 0, path: 0 },
+  bike: { main: 5, street: 4.5, cycle: 4.5, path: 0 },
+  person: { main: 1.4, street: 1.4, cycle: 1.3, path: 1.3 },
 };
 /** Standing gap (m), time headway (s), acceleration and comfortable braking (m/s²). */
-const GAP: Record<VehicleKind, number> = { car: 2.5, bus: 4, bike: 1 };
+const GAP: Record<VehicleKind, number> = { car: 2.5, bus: 4, bike: 1, person: 0.5 };
 const HEADWAY = 1.2;
-const ACCEL: Record<VehicleKind, number> = { car: 2, bus: 1.2, bike: 1.2 };
+const ACCEL: Record<VehicleKind, number> = { car: 2, bus: 1.2, bike: 1.2, person: 1.5 };
 const BRAKE = 3;
 /** The speed (m/s) a sharp corner is taken at, and what counts as one (radians). */
-const TURN_SPEED = 3.5;
+const TURN_SPEED: Record<VehicleKind, number> = { car: 3.5, bus: 2.5, bike: 2.5, person: 1.2 };
 const SHARP = 0.35;
-/** Straight on is this many times as likely as a turn. */
+/** How far before a node the curve round it starts (m), at most; less on short edges. */
+const CORNER: Record<VehicleKind, number> = { car: 5, bus: 8, bike: 2.5, person: 1 };
+/** How fast the drawn heading may turn (rad/s): a bus swings round slower than a cyclist. */
+export const TURN_RATE: Record<VehicleKind, number> = { car: 2.2, bus: 1.4, bike: 3.5, person: 6 };
+/** Metres per stride (on foot) or pedal turn (on a bike): what one cycle of the legs covers. */
+const STRIDE: Record<VehicleKind, number> = { car: 1, bus: 1, bike: 5, person: 1.4 };
+/** Where the indicators come on before a turn (m), and how far into the junction one may hold. */
+const SIGNAL_AT = 30;
+const CLAIM_AHEAD = 2;
+/** Straight on is this many times as likely as a turn, when there is no route to follow. */
 const STRAIGHT_WEIGHT = 3;
-/** The lane each kind keeps, right of the line, on a two-way street and on a one-way one (m). */
-const LANES: Record<VehicleKind, [twoWay: number, oneWay: number]> = {
-  car: [1.6, 0.2],
-  bus: [1.7, 0.2],
-  bike: [2.6, 1.4],
-};
-/** Spawning keeps this clear (m) of anyone else on the edge. */
-const SPAWN_GAP = 12;
+/** Spawning keeps this clear (m) of anyone else of the class on the edge. */
+const SPAWN_GAP: Record<VehicleKind, number> = { car: 12, bus: 16, bike: 6, person: 3 };
+/** Routes go at most this far round the focus (m), on top of its radius. */
+const ROUTE_REACH = 400;
 
-const motor = (kind: VehicleKind) => kind !== 'bike';
+export const motor = (kind: VehicleKind) => CLASS[kind] === 0;
 
 /** A small deterministic generator, so tests and a reload see the same traffic. */
 export function mulberry32(seed: number): () => number {
@@ -104,60 +129,100 @@ export function mulberry32(seed: number): () => number {
   };
 }
 
-/** One sRGB channel, 0 to 255, as linear light. */
-const channel = (v: number): number => {
-  const u = v / 255;
-  return u <= 0.04045 ? u / 12.92 : ((u + 0.055) / 1.055) ** 2.4;
-};
-const hexToLinear = (hex: number): [number, number, number] => [
-  channel((hex >> 16) & 255),
-  channel((hex >> 8) & 255),
-  channel(hex & 255),
+const srgb = (hex: number): [number, number, number] => [
+  ((hex >> 16) & 255) / 255,
+  ((hex >> 8) & 255) / 255,
+  (hex & 255) / 255,
 ];
+
+/**
+ * The lane a kind keeps right of a way's line (m), inside the street's half-width: cars near
+ * the middle of a two-way street and on the line of a one-way one, bikes further right, people
+ * on the pavement by the facade; on a pedestrian street people spread across it, on a path
+ * they keep near its line. Each one's `jitter` strays a little either side.
+ */
+export function laneFor(kind: VehicleKind, e: RoadEdge, twoWay: boolean, jitter: number): number {
+  const w = e.halfWidth;
+  switch (kind) {
+    case 'car':
+    case 'bus':
+      return twoWay ? Math.min(1.7, Math.max(0.3, w * 0.45)) : Math.min(0.3, w * 0.1);
+    case 'bike':
+      if (e.kind === 'cycle') return (twoWay ? Math.min(0.8, w * 0.3) : 0) + 0.2 * jitter;
+      return (twoWay ? Math.min(2.8, w * 0.7) : Math.min(1.5, w * 0.5)) + 0.25 * jitter;
+    default:
+      if (e.kind === 'path') return 0.4 * jitter;
+      if (e.kind === 'cycle') return w * 0.5 * jitter;
+      return Math.max(0.6, Math.min(4, w - 1)) + 0.4 * jitter;
+  }
+}
+
+/** A pool of edges to spawn on, each with its cumulative length, for picking one by length. */
+interface Pool {
+  edges: number[];
+  cum: number[];
+}
 
 export class Traffic {
   readonly graph: RoadGraph;
   readonly vehicles: Vehicle[] = [];
-  /** Edges a motor vehicle may take, and a bike, each with its cumulative length for spawning. */
-  readonly #lanes: Record<'motor' | 'bike', { edges: number[]; cum: number[] }>;
-  /** Whether each edge has a twin running the other way: where the lane is kept right. */
+  readonly #router: GraphRouter;
+  /** Which edges each class may take. */
+  readonly #allowed: ((edge: number) => boolean)[];
+  /** The edges each class may use anywhere, and those near the focus. */
+  readonly #pools: Pool[];
+  #near: Pool[] | null = null;
+  /** Whether each edge has a twin the class may use the other way: where the lane is kept right. */
   readonly #twoWay: Uint8Array;
   readonly #random: () => number;
   /** Vehicles sorted by edge, class and distance along, rebuilt each step for the leader search. */
   readonly #order: number[] = [];
   /** The first vehicle of each class on each edge, after a sort (-1: none). */
   readonly #first: Int32Array;
-  /** Where the view looks and how far round it the traffic keeps; the edges within. */
+  /** Who holds each junction for each class (-1: nobody), and the edge they came by. */
+  readonly #claim: Int32Array;
+  readonly #claimFrom: Int32Array;
+  /** Where the view looks and how far round it the traffic keeps. */
   readonly #focus = { x: Number.NaN, z: Number.NaN, radius: 0 };
-  #near: Record<'motor' | 'bike', { edges: number[]; cum: number[] }> | null = null;
   readonly #mid: Float32Array;
   #want: Record<VehicleKind, number> = { ...COUNTS };
-  /** Where the round-robin scan for vehicles to recycle got to. */
+  /** Where the round-robin scans for recycling and routing got to. */
   #scan = 0;
+  #routeScan = 0;
   /** Filling the circle after a jump (or at the start): spawns land anywhere in it, in view too. */
-  #filling = true;
+  #filling = FILL_STEPS;
 
   constructor(ways: readonly Way[], seed = 1, counts: Record<VehicleKind, number> = COUNTS) {
     this.graph = roadGraph(ways);
+    this.#router = roadRouter(this.graph);
     const { edges, nodes } = this.graph;
     this.#random = mulberry32(seed);
+    this.#allowed = [(i) => edges[i]!.cars, (i) => edges[i]!.bikes, (i) => edges[i]!.feet];
+    // A twin running the other way, for each class: the way is two-way for it.
+    const byEnds = new Map(edges.map((e, i) => [`${e.from}>${e.to}`, i]));
     this.#twoWay = new Uint8Array(edges.length);
-    const twin = new Set(edges.map((e) => `${e.from}>${e.to}`));
-    for (const [i, e] of edges.entries()) this.#twoWay[i] = twin.has(`${e.to}>${e.from}`) ? 1 : 0;
-    const lanes = (allowed: (e: RoadEdge) => boolean) => {
+    for (const [i, e] of edges.entries()) {
+      const twin = byEnds.get(`${e.to}>${e.from}`);
+      if (twin === undefined) continue;
+      for (let cls = 0; cls < CLASSES; cls++) {
+        if (this.#allowed[cls]!(twin)) this.#twoWay[i]! |= 1 << cls;
+      }
+    }
+    this.#pools = this.#allowed.map((allowed) => {
       const list: number[] = [];
       const cum: number[] = [];
       let total = 0;
       for (const [i, e] of edges.entries()) {
         // A dead end spawns nobody: they would drive off at once.
-        if (!allowed(e) || nodes[e.to]!.out.length === 0) continue;
+        if (!allowed(i) || nodes[e.to]!.out.length === 0) continue;
         list.push(i);
         cum.push((total += e.length));
       }
       return { edges: list, cum };
-    };
-    this.#lanes = { motor: lanes((e) => e.cars), bike: lanes((e) => e.bikes) };
-    this.#first = new Int32Array(edges.length * 2);
+    });
+    this.#first = new Int32Array(edges.length * CLASSES);
+    this.#claim = new Int32Array(nodes.length * CLASSES).fill(-1);
+    this.#claimFrom = new Int32Array(nodes.length * CLASSES).fill(-1);
     this.#mid = new Float32Array(edges.length * 2);
     const mid: [number, number, number, number] = [0, 0, 0, 0];
     for (const [i, e] of edges.entries()) {
@@ -170,15 +235,28 @@ export class Traffic {
       for (let i = 0; i < counts[kind]; i++) {
         this.vehicles.push({
           kind,
+          active: false,
           edge: 0,
           s: 0,
           speed: 0,
           cruise: 1,
+          prev: -1,
           next: -1,
           turn: 0,
+          signal: 0,
+          rIn: 0,
+          rOut: 0,
+          route: [],
+          goal: -1,
           lane: 0,
+          laneNext: 0,
+          jitter: this.#random() * 2 - 1,
           paint: this.#paint(kind),
-          active: false,
+          yaw: 0,
+          brake: 0,
+          phase: this.#random() * Math.PI * 2,
+          blink: this.#random(),
+          hold: -1,
         });
       }
     }
@@ -186,10 +264,11 @@ export class Traffic {
   }
 
   /**
-   * Keeps the traffic round a spot: the edges within `radius` of it are where vehicles spawn,
-   * and how many are out is what that circle's area deserves. Called with the view's target
-   * every frame; it does the work only once the spot has moved a few dozen metres or the
-   * radius has changed. A jump (a reset, a flight) re-places the whole fleet at once.
+   * Keeps the traffic round a spot: the edges within `radius` of it are where vehicles spawn
+   * and head for, and how many are out is what that circle's area deserves. Called with the
+   * view's target every frame; it does the work only once the spot has moved a few dozen
+   * metres or the radius has changed. A jump (a reset, a flight) parks the whole fleet, which
+   * then fills the new circle over the next second.
    */
   focus(x: number, z: number, radius: number): void {
     const f = this.#focus;
@@ -199,7 +278,7 @@ export class Traffic {
     [f.x, f.z, f.radius] = [x, z, radius];
     const within = (i: number) =>
       Math.hypot(this.#mid[i * 2]! - x, this.#mid[i * 2 + 1]! - z) <= radius;
-    const near = (pool: { edges: number[]; cum: number[] }) => {
+    this.#near = this.#pools.map((pool) => {
       const edges: number[] = [];
       const cum: number[] = [];
       let total = 0;
@@ -209,8 +288,7 @@ export class Traffic {
         cum.push((total += pool.cum[k]! - (pool.cum[k - 1] ?? 0)));
       }
       return { edges, cum };
-    };
-    this.#near = { motor: near(this.#lanes.motor), bike: near(this.#lanes.bike) };
+    });
     const area = (Math.PI * radius * radius) / 1e6;
     for (const kind of VEHICLE_KINDS) {
       this.#want[kind] = Math.min(
@@ -219,10 +297,8 @@ export class Traffic {
       );
     }
     if (jump) {
-      // Everyone parks and comes out again over the next second, all over the circle, the view
-      // included: nothing would reach it for minutes otherwise.
-      for (const v of this.vehicles) v.active = false;
-      this.#filling = true;
+      for (const v of this.vehicles) this.#park(v);
+      this.#filling = FILL_STEPS;
     }
   }
 
@@ -231,28 +307,40 @@ export class Traffic {
     return Number.isNaN(this.#focus.x) ? 0 : Math.hypot(x - this.#focus.x, z - this.#focus.z);
   }
 
+  /** Takes a vehicle off the streets, letting go of any junction it holds. */
+  #park(v: Vehicle): void {
+    this.#release(v);
+    v.active = false;
+    v.route.length = 0;
+    v.goal = -1;
+  }
+
+  /** A random edge of a pool, by length. */
+  #pick(pool: Pool): number {
+    const total = pool.cum.at(-1) ?? 0;
+    const at = this.#random() * total;
+    let lo = 0;
+    let hi = pool.cum.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (pool.cum[mid]! < at) lo = mid + 1;
+      else hi = mid;
+    }
+    return pool.edges[lo]!;
+  }
+
   /**
-   * A random edge of the class, by length, near the focus (where there is one) and out of its
-   * view (unless `anywhere`), and a spot on it clear of the others.
+   * Puts a parked vehicle on a random edge of its class, by length, near the focus (where there
+   * is one) and out of its view (unless `anywhere`), at a spot clear of the others. Whether it
+   * found one.
    */
-  #spawn(kind: VehicleKind, anywhere = false): Vehicle | null {
-    const cls = motor(kind) ? 'motor' : 'bike';
-    const { edges: pool, cum } = this.#near?.[cls].edges.length
-      ? this.#near[cls]
-      : this.#lanes[cls];
-    const total = cum.at(-1) ?? 0;
-    if (!total) return null;
+  #spawn(v: Vehicle, anywhere = false): boolean {
+    const cls = CLASS[v.kind];
+    const pool = this.#near?.[cls]!.edges.length ? this.#near[cls]! : this.#pools[cls]!;
+    if (!pool.edges.length) return false;
     const spot: [number, number, number, number] = [0, 0, 0, 0];
     for (let tries = 0; tries < 12; tries++) {
-      const pick = this.#random() * total;
-      let lo = 0;
-      let hi = cum.length - 1;
-      while (lo < hi) {
-        const mid = (lo + hi) >> 1;
-        if (cum[mid]! < pick) lo = mid + 1;
-        else hi = mid;
-      }
-      const edge = pool[lo]!;
+      const edge = this.#pick(pool);
       const e = this.graph.edges[edge]!;
       const s = e.length * (0.1 + 0.8 * this.#random());
       // Out of the view, unless no try finds a spot there.
@@ -265,69 +353,121 @@ export class Traffic {
         (o) =>
           !o.active ||
           o.edge !== edge ||
-          motor(o.kind) !== motor(kind) ||
-          Math.abs(o.s - s) > SPAWN_GAP,
+          CLASS[o.kind] !== cls ||
+          Math.abs(o.s - s) > SPAWN_GAP[v.kind],
       );
       if (!clear) continue;
-      const cruise = this.#cruise(kind, e);
-      const v: Vehicle = {
-        kind,
-        edge,
-        s,
-        speed: cruise * (0.5 + 0.5 * this.#random()),
-        cruise,
-        next: -1,
-        turn: 0,
-        lane: this.#lane(kind, edge),
-        paint: this.#paint(kind),
-        active: true,
-      };
+      this.#release(v);
+      v.active = true;
+      v.edge = edge;
+      v.prev = -1;
+      v.s = s;
+      v.cruise = this.#cruise(v.kind, e);
+      v.speed = v.cruise * (0.5 + 0.5 * this.#random());
+      v.lane = this.#lane(v, edge);
+      v.rIn = 0;
+      v.route.length = 0;
+      v.goal = -1;
+      v.brake = 0;
+      v.signal = 0;
       this.#choose(v);
-      return v;
+      // Facing the way it goes, from the start.
+      alongEdge(e, s, spot);
+      v.yaw = Math.atan2(-spot[3], spot[2]);
+      return true;
     }
-    return null;
+    return false;
   }
 
   #paint(kind: VehicleKind): [number, number, number] {
     const list = kind === 'car' ? CARS : kind === 'bus' ? [BUS.body] : GUESTS.shirts;
-    return hexToLinear(list[Math.floor(this.#random() * list.length)]!);
+    return srgb(list[Math.floor(this.#random() * list.length)]!);
   }
 
-  /** The cruise on an edge: slower on a bend-ridden short edge too, so corners aren't cut. */
+  /** The cruise on an edge, each driver a little faster or slower. */
   #cruise(kind: VehicleKind, e: RoadEdge): number {
     return CRUISE[kind][e.kind] * (0.9 + 0.2 * this.#random());
   }
 
-  #lane(kind: VehicleKind, edge: number): number {
-    return LANES[kind][this.#twoWay[edge] ? 0 : 1];
+  #lane(v: Vehicle, edge: number): number {
+    const e = this.graph.edges[edge]!;
+    const twoWay = (this.#twoWay[edge]! & (1 << CLASS[v.kind])) !== 0;
+    return laneFor(v.kind, e, twoWay, v.jitter);
   }
 
-  /** Picks where a vehicle goes after its edge: straight on, mostly; never back unless it must. */
+  /** How far before a node the curve between two edges starts: short edges get short curves. */
+  #corner(v: Vehicle, a: RoadEdge, b: RoadEdge): number {
+    return Math.min(CORNER[v.kind], 0.45 * a.length, 0.45 * b.length);
+  }
+
+  /**
+   * Finds a vehicle its way: a destination among the edges near the focus and the shortest
+   * route there for its class, or nothing when none is within reach (it then turns at random).
+   */
+  #route(v: Vehicle): void {
+    const cls = CLASS[v.kind];
+    const pool = this.#near?.[cls]!.edges.length ? this.#near[cls]! : this.#pools[cls]!;
+    if (!pool.edges.length) return;
+    const { edges } = this.graph;
+    const from = edges[v.edge]!.to;
+    const goal = edges[this.#pick(pool)]!.to;
+    if (goal === from) return;
+    const most = this.#focus.radius > 0 ? 2 * this.#focus.radius + ROUTE_REACH : Infinity;
+    const route = this.#router.route(from, goal, this.#allowed[cls]!, most);
+    if (!route) return;
+    v.goal = goal;
+    v.route = route.toReversed();
+    // Whatever it had chosen for the node ahead, the route decides now.
+    this.#choose(v);
+  }
+
+  /**
+   * Picks where a vehicle goes after its edge: the next edge of its route, or without one
+   * straight on, mostly, and never back unless it must. Sets the turn, the corner and the lane
+   * on the next edge.
+   */
   #choose(v: Vehicle): void {
     const { edges, nodes } = this.graph;
     const e = edges[v.edge]!;
-    const allowed = nodes[e.to]!.out.filter((i) =>
-      motor(v.kind) ? edges[i]!.cars : edges[i]!.bikes,
-    );
-    const onward = allowed.filter((i) => edges[i]!.to !== e.from);
-    const options = onward.length ? onward : allowed;
-    if (!options.length) {
-      v.next = -1;
-      v.turn = 0;
-      return;
-    }
-    const turns = options.map((i) => turnBetween(e, edges[i]!));
-    const weights = turns.map((t) => (t < SHARP ? STRAIGHT_WEIGHT : 1));
-    let pick = this.#random() * weights.reduce((a, b) => a + b, 0);
-    let chosen = options.length - 1;
-    for (const [i, w] of weights.entries()) {
-      if ((pick -= w) <= 0) {
-        chosen = i;
+    let next = -1;
+    while (v.route.length) {
+      const candidate = v.route.pop()!;
+      if (edges[candidate]!.from === e.to) {
+        next = candidate;
         break;
       }
+      // The route no longer starts here (a respawn, a detour): drop it and ask for another.
+      v.route.length = 0;
+      v.goal = -1;
     }
-    v.next = options[chosen]!;
-    v.turn = turns[chosen]!;
+    if (next < 0) {
+      const allowed = nodes[e.to]!.out.filter(this.#allowed[CLASS[v.kind]]!);
+      const onward = allowed.filter((i) => edges[i]!.to !== e.from);
+      const options = onward.length ? onward : allowed;
+      if (options.length) {
+        const turns = options.map((i) => turnBetween(e, edges[i]!));
+        const weights = turns.map((t) => (t < SHARP ? STRAIGHT_WEIGHT : 1));
+        let pick = this.#random() * weights.reduce((a, b) => a + b, 0);
+        next = options.at(-1)!;
+        for (const [i, w] of weights.entries()) {
+          if ((pick -= w) <= 0) {
+            next = options[i]!;
+            break;
+          }
+        }
+      }
+    }
+    v.next = next;
+    if (next < 0) {
+      v.turn = 0;
+      v.rOut = 0;
+      v.laneNext = v.lane;
+      return;
+    }
+    const onto = edges[next]!;
+    v.turn = turnBetween(e, onto);
+    v.rOut = this.#corner(v, e, onto);
+    v.laneNext = this.#lane(v, next);
   }
 
   /** Sorts the vehicles so each one's leader is the next in its edge and class. */
@@ -336,7 +476,7 @@ export class Traffic {
     // Parked vehicles sort last, past every edge, and claim no place on one.
     const key = (i: number) => {
       const v = vehicles[i]!;
-      return v.active ? v.edge * 2 + (motor(v.kind) ? 0 : 1) : this.#first.length;
+      return v.active ? v.edge * CLASSES + CLASS[v.kind] : this.#first.length;
     };
     this.#order.sort((a, b) => key(a) - key(b) || vehicles[a]!.s - vehicles[b]!.s);
     this.#first.fill(-1);
@@ -355,9 +495,9 @@ export class Traffic {
     const { vehicles } = this;
     const { radius } = this.#focus;
     if (!(radius > 0) || !vehicles.length) return;
-    const out: Record<VehicleKind, number> = { car: 0, bus: 0, bike: 0 };
+    const out: Record<VehicleKind, number> = { car: 0, bus: 0, bike: 0, person: 0 };
     for (const v of vehicles) if (v.active) out[v.kind]++;
-    if (VEHICLE_KINDS.every((k) => out[k] >= this.#want[k])) this.#filling = false;
+    if (this.#filling > 0) this.#filling--;
     const spot: [number, number, number, number] = [0, 0, 0, 0];
     for (let n = 0, done = 0; n < vehicles.length && done < RESPAWN_BUDGET; n++) {
       const v = vehicles[(this.#scan = (this.#scan + 1) % vehicles.length)]!;
@@ -366,21 +506,66 @@ export class Traffic {
         this.place(v, spot);
         if (this.#fromFocus(spot[0], spot[1]) <= RECYCLE_AT * radius) continue;
         if (out[v.kind] > want) {
-          v.active = false;
+          this.#park(v);
           out[v.kind]--;
-        } else {
-          const fresh = this.#spawn(v.kind);
-          if (fresh) Object.assign(v, fresh);
-        }
+        } else this.#spawn(v);
         done++;
       } else if (out[v.kind] < want) {
-        const fresh = this.#spawn(v.kind, this.#filling);
-        if (!fresh) continue;
-        Object.assign(v, fresh);
-        out[v.kind]++;
+        if (this.#spawn(v, this.#filling > 0)) out[v.kind]++;
         done++;
       }
     }
+  }
+
+  /** Finds routes for a few of the vehicles without one, round-robin. */
+  #plan(): void {
+    const { vehicles } = this;
+    for (let n = 0, done = 0; n < vehicles.length && done < ROUTE_BUDGET; n++) {
+      const v = vehicles[(this.#routeScan = (this.#routeScan + 1) % vehicles.length)]!;
+      if (!v.active || v.goal >= 0) continue;
+      this.#route(v);
+      done++;
+    }
+  }
+
+  /** The junction claim slot of a node for a class. */
+  #slot(node: number, cls: number): number {
+    return node * CLASSES + cls;
+  }
+
+  /** Lets go of the junction a vehicle holds, if any. */
+  #release(v: Vehicle): void {
+    if (v.hold < 0) return;
+    const slot = this.#slot(v.hold, CLASS[v.kind]);
+    if (this.#claim[slot] === this.vehicles.indexOf(v)) this.#claim[slot] = -1;
+    v.hold = -1;
+  }
+
+  /**
+   * Whether a vehicle about to cross the junction ahead may: it holds it already, nobody of
+   * its class does, the holder came the same way (a queue crossing together), or the holder has
+   * gone (parked, or driven on without letting go). Takes the junction when it may, if there is
+   * room beyond it; people on foot cross freely.
+   */
+  #mayCross(i: number, v: Vehicle, e: RoadEdge, roomBeyond: boolean): boolean {
+    const cls = CLASS[v.kind];
+    if (cls === 2) return true;
+    const node = e.to;
+    const slot = this.#slot(node, cls);
+    const holder = this.#claim[slot]!;
+    if (holder === i) return true;
+    if (holder >= 0) {
+      const h = this.vehicles[holder]!;
+      const stale = !h.active || h.hold !== node;
+      if (!stale && this.#claimFrom[slot] === v.edge) return true;
+      if (!stale) return false;
+    }
+    if (!roomBeyond) return false;
+    this.#release(v);
+    this.#claim[slot] = i;
+    this.#claimFrom[slot] = v.edge;
+    v.hold = node;
+    return true;
   }
 
   /** Advances every vehicle by `dt` seconds (clamped by the caller to a few hundredths). */
@@ -388,6 +573,7 @@ export class Traffic {
     const { vehicles } = this;
     const { edges } = this.graph;
     this.#recycle();
+    this.#plan();
     this.#sort();
     const order = this.#order;
     for (let k = 0; k < order.length; k++) {
@@ -395,20 +581,26 @@ export class Traffic {
       const v = vehicles[i]!;
       if (!v.active) break; // the parked ones sort last
       const e = edges[v.edge]!;
+      const cls = CLASS[v.kind];
       // The one ahead: next in the order on the same edge and class, else first on the next edge.
       let gap = Infinity;
       let ahead = 0;
+      let gapBeyond = Infinity;
       const after = order[k + 1];
       const peer = after === undefined ? undefined : vehicles[after];
-      if (peer && peer.edge === v.edge && motor(peer.kind) === motor(v.kind)) {
+      if (peer && peer.edge === v.edge && CLASS[peer.kind] === cls) {
         gap = peer.s - LENGTH[peer.kind] / 2 - (v.s + LENGTH[v.kind] / 2);
         ahead = peer.speed;
-      } else if (v.next >= 0) {
-        const first = this.#first[v.next * 2 + (motor(v.kind) ? 0 : 1)]!;
+      }
+      if (v.next >= 0) {
+        const first = this.#first[this.#slot(v.next, cls)]!;
         if (first >= 0) {
           const o = vehicles[first]!;
-          gap = e.length - v.s + o.s - LENGTH[o.kind] / 2 - LENGTH[v.kind] / 2;
-          ahead = o.speed;
+          gapBeyond = e.length - v.s + o.s - LENGTH[o.kind] / 2 - LENGTH[v.kind] / 2;
+          if (gap === Infinity) {
+            gap = gapBeyond;
+            ahead = o.speed;
+          }
         }
       }
       // The intelligent driver model: free acceleration towards the cruise, held back by the
@@ -425,358 +617,131 @@ export class Traffic {
           (gap < Infinity ? (Math.max(want, 0) / Math.max(gap, 0.1)) ** 2 : 0));
       if (gap < 0.3) acc = -BRAKE * 3;
       // Slow for the corner ahead, or the dead end: never faster than it can brake from.
-      const end = v.next < 0 ? 0 : v.turn > SHARP ? TURN_SPEED : v.cruise;
+      const end = v.next < 0 ? 0 : v.turn > SHARP ? TURN_SPEED[v.kind] : v.cruise;
       const room = Math.max(0, e.length - v.s);
-      const cap = Math.sqrt(end * end + 2 * BRAKE * room);
+      let cap = Math.sqrt(end * end + 2 * BRAKE * room);
+      // The junction: take it if free and there is room beyond, else stop before it.
+      const toLine = e.length - v.rOut - CLAIM_AHEAD - v.s;
+      if (v.next >= 0 && toLine < v.speed * 1.5 + 2) {
+        const roomBeyond = gapBeyond > LENGTH[v.kind] + GAP[v.kind];
+        if (!this.#mayCross(i, v, e, roomBeyond)) {
+          cap = Math.min(cap, Math.sqrt(2 * BRAKE * Math.max(0, toLine)));
+        }
+      }
+      // Indicators come on for a turn ahead, and the brake lights with the braking.
+      v.signal = room < SIGNAL_AT && v.turn > SHARP && v.next >= 0 ? this.#side(e, v.next) : 0;
+      const braking = acc < -0.8 || v.speed > cap + 0.1;
+      v.brake = braking ? 1 : Math.max(0, v.brake - 4 * dt);
       v.speed = Math.max(0, Math.min(v.speed + acc * dt, cap));
       v.s += v.speed * dt;
+      v.phase += (v.speed * dt * Math.PI * 2) / STRIDE[v.kind];
+      // Past the corner behind, the junction is free for the next one.
+      if (v.hold >= 0 && v.hold !== e.to && v.s > v.rIn + 0.5) this.#release(v);
       if (v.s >= e.length) {
         if (v.next < 0) {
           // Off the map's edge or into a cul-de-sac: back in somewhere else.
-          const fresh = this.#spawn(v.kind);
-          if (fresh) Object.assign(v, fresh);
-          else v.s = e.length;
+          if (!this.#spawn(v)) v.s = e.length;
           continue;
         }
         v.s -= e.length;
+        v.prev = v.edge;
         v.edge = v.next;
+        v.rIn = v.rOut;
+        v.lane = v.laneNext;
         const onto = edges[v.edge]!;
         v.cruise = this.#cruise(v.kind, onto);
         v.speed = Math.min(v.speed, v.cruise);
-        v.lane = this.#lane(v.kind, v.edge);
+        if (onto.to === v.goal) v.goal = -1; // arriving: a new destination next
         this.#choose(v);
       }
     }
   }
 
-  /** Where a vehicle is: its spot, in its lane, and the way it heads (unit). */
+  /** Which way the turn from an edge into another goes: -1 left, 1 right (0 straight). */
+  #side(e: RoadEdge, next: number): -1 | 0 | 1 {
+    const onto = this.graph.edges[next]!;
+    const n = e.points.length;
+    const [ax, az] = [e.points[n - 2]! - e.points[n - 4]!, e.points[n - 1]! - e.points[n - 3]!];
+    const [bx, bz] = [onto.points[2]! - onto.points[0]!, onto.points[3]! - onto.points[1]!];
+    // In (x east, z south) a clockwise turn (to the right) has a positive cross product.
+    const cross = ax * bz - az * bx;
+    return cross > 1e-6 ? 1 : cross < -1e-6 ? -1 : 0;
+  }
+
+  /**
+   * Where a vehicle is: its spot, in its lane, and the way it heads (unit). Round a junction
+   * it follows a curve from the corner's start on the edge behind, through the node, to the
+   * corner's end on the edge ahead, the lane blending from one edge's to the other's.
+   */
   place(
     v: Vehicle,
     out: [number, number, number, number] = [0, 0, 0, 0],
   ): [number, number, number, number] {
-    alongEdge(this.graph.edges[v.edge]!, v.s, out);
+    const { edges } = this.graph;
+    const e = edges[v.edge]!;
+    let lane = v.lane;
+    if (v.rIn > 0 && v.s < v.rIn && v.prev >= 0) {
+      // The second half of the corner behind.
+      const t = 0.5 + v.s / (2 * v.rIn);
+      this.#curve(edges[v.prev]!, e, v.rIn, t, out);
+      lane = edges[v.prev]!.length ? laneBlend(this.#lane(v, v.prev), v.lane, t) : lane;
+    } else if (v.rOut > 0 && v.s > e.length - v.rOut && v.next >= 0) {
+      // The first half of the corner ahead.
+      const t = (v.s - (e.length - v.rOut)) / (2 * v.rOut);
+      this.#curve(e, edges[v.next]!, v.rOut, t, out);
+      lane = laneBlend(v.lane, v.laneNext, t);
+    } else alongEdge(e, v.s, out);
     const [dx, dz] = [out[2], out[3]];
     // Right-hand traffic: right of the heading in (x east, z south) is (-dz, dx).
-    out[0] += -dz * v.lane;
-    out[1] += dx * v.lane;
+    out[0] += -dz * lane;
+    out[1] += dx * lane;
     return out;
   }
-}
 
-/**
- * The vehicles' shapes, in their own frame: x ahead, y up, z to the right, drawn once each and
- * instanced. Vertex colours carry what doesn't change; the `facade` attribute says what does:
- * PAINT takes the instance's colour, HEAD and TAIL glow at night.
- */
-export const PART = { plain: 0, head: 1, tail: 2, paint: 3 } as const;
-
-type Builder = Pick<MeshBuilder, 'quad' | 'triangle'>;
-
-const corner = (x: number, y: number, z: number): V3 => [x, y, z];
-
-/** An axis-aligned box: five or six faces, in one colour, with one `facade` part code. */
-function boxOf(
-  mesh: Builder,
-  [x0, x1]: readonly [number, number],
-  [y0, y1]: readonly [number, number],
-  [z0, z1]: readonly [number, number],
-  color: number,
-  part: number = PART.plain,
-  bottom = false,
-): void {
-  mesh.quad(
-    corner(x0, y1, z0),
-    corner(x1, y1, z0),
-    corner(x1, y1, z1),
-    corner(x0, y1, z1),
-    color,
-    [0, 1, 0],
-    part,
-  );
-  mesh.quad(
-    corner(x1, y0, z0),
-    corner(x1, y0, z1),
-    corner(x1, y1, z1),
-    corner(x1, y1, z0),
-    color,
-    [1, 0, 0],
-    part,
-  );
-  mesh.quad(
-    corner(x0, y0, z1),
-    corner(x0, y0, z0),
-    corner(x0, y1, z0),
-    corner(x0, y1, z1),
-    color,
-    [-1, 0, 0],
-    part,
-  );
-  mesh.quad(
-    corner(x0, y0, z1),
-    corner(x1, y0, z1),
-    corner(x1, y1, z1),
-    corner(x0, y1, z1),
-    color,
-    [0, 0, 1],
-    part,
-  );
-  mesh.quad(
-    corner(x1, y0, z0),
-    corner(x0, y0, z0),
-    corner(x0, y1, z0),
-    corner(x1, y1, z0),
-    color,
-    [0, 0, -1],
-    part,
-  );
-  if (bottom)
-    mesh.quad(
-      corner(x0, y0, z1),
-      corner(x0, y0, z0),
-      corner(x1, y0, z0),
-      corner(x1, y0, z1),
-      color,
-      [0, -1, 0],
-      part,
-    );
-}
-
-/** A lamp: a small quad on the front (ahead) or back face, glowing at night. */
-function lamp(mesh: Builder, x: number, y: number, z: number, head: boolean): void {
-  const dir = head ? 1 : -1;
-  const [c, part] = head ? [BUS.headlamp, PART.head] : [BUS.taillamp, PART.tail];
-  const p = (dy: number, dz: number): V3 => [x + dir * 0.01, y + dy, z + dz];
-  if (head)
-    mesh.quad(p(-0.1, -0.16), p(-0.1, 0.16), p(0.1, 0.16), p(0.1, -0.16), c, [dir, 0, 0], part);
-  else mesh.quad(p(-0.1, 0.16), p(-0.1, -0.16), p(0.1, -0.16), p(0.1, 0.16), c, [dir, 0, 0], part);
-}
-
-/** A hatchback: a painted body and cabin, glass round the cabin, four wheels, lamps. */
-export function addCar(mesh: Builder, grow = 1): void {
-  const g = grow;
-  boxOf(mesh, [-2.1 * g, 2.1 * g], [0.35, 0.95 * g], [-0.88 * g, 0.88 * g], 0xffffff, PART.paint);
-  boxOf(mesh, [-1.1 * g, 0.8 * g], [0.95 * g, 1.5 * g], [-0.78 * g, 0.78 * g], WINDOW.glass);
-  boxOf(
-    mesh,
-    [-1.05 * g, 0.75 * g],
-    [1.5 * g, 1.56 * g],
-    [-0.74 * g, 0.74 * g],
-    0xffffff,
-    PART.paint,
-  );
-  for (const x of [-1.35, 1.35]) {
-    for (const z of [-0.8, 0.8]) {
-      boxOf(
-        mesh,
-        [x - 0.33 * g, x + 0.33 * g],
-        [0, 0.66 * g],
-        [z - 0.12 * g, z + 0.12 * g],
-        PROPS.wheel,
-        PART.plain,
-        true,
-      );
-    }
-  }
-  if (g === 1) {
-    for (const z of [-0.58, 0.58]) {
-      lamp(mesh, 2.1, 0.72, z, true);
-      lamp(mesh, -2.1, 0.72, z, false);
-    }
+  /**
+   * A point on the curve round the node between two edges: a quadratic Bézier from `r` before
+   * the node on the first to `r` after it on the second, with its tangent, at `t` (0 to 1).
+   */
+  #curve(
+    a: RoadEdge,
+    b: RoadEdge,
+    r: number,
+    t: number,
+    out: [number, number, number, number],
+  ): void {
+    const p0 = alongEdge(a, a.length - r, CURVE_A);
+    const p2 = alongEdge(b, r, CURVE_B);
+    const [nx, nz] = [this.graph.nodes[a.to]!.x, this.graph.nodes[a.to]!.z];
+    const u = 1 - t;
+    out[0] = u * u * p0[0] + 2 * u * t * nx + t * t * p2[0];
+    out[1] = u * u * p0[1] + 2 * u * t * nz + t * t * p2[1];
+    let tx = 2 * u * (nx - p0[0]) + 2 * t * (p2[0] - nx);
+    let tz = 2 * u * (nz - p0[1]) + 2 * t * (p2[1] - nz);
+    const len = Math.hypot(tx, tz);
+    // A hairpin's curve has no tangent at its tip: keep the heading of the edge it is on.
+    if (len < 1e-6) [tx, tz] = t < 0.5 ? [p0[2], p0[3]] : [p2[2], p2[3]];
+    else [tx, tz] = [tx / len, tz / len];
+    out[2] = tx;
+    out[3] = tz;
   }
 }
 
-/** A city bus: a long cream body with a band of windows, a coloured stripe, wheels and lamps. */
-export function addBus(mesh: Builder, grow = 1): void {
-  const g = grow;
-  boxOf(mesh, [-6 * g, 6 * g], [0.5, 3.2 * g], [-1.25 * g, 1.25 * g], 0xffffff, PART.paint);
-  if (g === 1) {
-    for (const side of [-1, 1]) {
-      const z: [number, number] = side < 0 ? [-1.27, -1.25] : [1.25, 1.27];
-      boxOf(mesh, [-5.6, 5.6], [1.7, 2.7], z, WINDOW.glass);
-      boxOf(mesh, [-6.01, 6.01], [1.2, 1.5], z, BUS.band);
-    }
-    boxOf(mesh, [5.99, 6.02], [1.5, 2.9], [-1.1, 1.1], WINDOW.glass);
-    for (const z of [-0.85, 0.85]) {
-      lamp(mesh, 6, 0.9, z, true);
-      lamp(mesh, -6, 0.9, z, false);
-    }
-  }
-  for (const x of [-4, 4]) {
-    for (const z of [-1.1, 1.1]) {
-      boxOf(
-        mesh,
-        [x - 0.5 * g, x + 0.5 * g],
-        [0, 1 * g],
-        [z - 0.15 * g, z + 0.15 * g],
-        PROPS.wheel,
-        PART.plain,
-        true,
-      );
-    }
-  }
-}
+const CURVE_A: [number, number, number, number] = [0, 0, 0, 0];
+const CURVE_B: [number, number, number, number] = [0, 0, 0, 0];
 
-/** A cyclist: two wheels, a frame, legs, a shirt in the instance's colour, a head and hair. */
-export function addBike(mesh: Builder, grow = 1): void {
-  const g = grow;
-  for (const x of [-0.55, 0.55]) {
-    boxOf(
-      mesh,
-      [x - 0.34 * g, x + 0.34 * g],
-      [0, 0.68 * g],
-      [-0.04 * g, 0.04 * g],
-      PROPS.wheel,
-      PART.plain,
-      true,
-    );
-  }
-  boxOf(mesh, [-0.5 * g, 0.55 * g], [0.55, 0.64 * g], [-0.04 * g, 0.04 * g], PROPS.iron);
-  boxOf(mesh, [0.45 * g, 0.55 * g], [0.64, 1.05 * g], [-0.3 * g, 0.3 * g], PROPS.iron);
-  boxOf(mesh, [-0.12 * g, 0.2 * g], [0.45, 0.95 * g], [-0.16 * g, 0.16 * g], GUESTS.legs[0]!);
-  boxOf(mesh, [-0.14 * g, 0.26 * g], [0.95, 1.52 * g], [-0.22 * g, 0.22 * g], 0xffffff, PART.paint);
-  boxOf(mesh, [0.05 * g, 0.33 * g], [1.52, 1.8 * g], [-0.13 * g, 0.13 * g], GUESTS.skin[1]!);
-  boxOf(mesh, [0.03 * g, 0.35 * g], [1.74, 1.86 * g], [-0.15 * g, 0.15 * g], GUESTS.hair[1]!);
-}
-
-export const SHAPES: Record<VehicleKind, (mesh: Builder, grow?: number) => void> = {
-  car: addCar,
-  bus: addBus,
-  bike: addBike,
+/** The lane eased from one edge's to the next's across a corner. */
+const laneBlend = (from: number, to: number, t: number) => {
+  const s = t * t * (3 - 2 * t);
+  return from + (to - from) * s;
 };
 
-/** Each shape's ink hull: the same boxes grown a little, drawn inside out behind it. */
-export const HULL_GROW = 1.06;
-
-/** How far over the carriageway's surface the wheels ride, so they never sink in it (m). */
-export const RIDE_HEIGHT = 0.03;
-
-/** The three.js classes the layer takes from the engine, so this chunk imports none itself. */
-export interface TrafficThree {
-  InstancedMesh: typeof InstancedMesh;
-  InstancedBufferAttribute: typeof InstancedBufferAttribute;
-  Matrix4: typeof Matrix4;
-  MeshToonMaterial: typeof MeshToonMaterial;
-  MeshBasicMaterial: typeof MeshBasicMaterial;
-  BackSide: typeof BackSide;
-}
-
-/** What the chunk takes from the engine rather than importing it, as the furniture does. */
-export interface TrafficKit {
-  three: TrafficThree;
-  MeshBuilder: typeof MeshBuilder;
-  linearVertexColors: (vertexShader: string) => string;
-  city: Pick<City, 'ways'>;
-  /** The ground a vehicle rides on at a spot: the carriageway as drawn (m). */
-  ground: (x: number, z: number) => number;
-  gradientMap: Texture;
-  /** How far into the night it is, for the lamps (the facade material's uniform). */
-  night: { value: number };
-  ink: number;
-}
-
-export interface TrafficLayer {
-  /** The meshes to add to the scene: a body and an ink hull per kind. */
-  meshes: InstancedMesh[];
-  traffic: Traffic;
-  /**
-   * Keeps the fleet round a spot (the view's target) within `radius`, steps the traffic and
-   * moves every instance; returns how many vehicles are on the streets.
-   */
-  update(dt: number, x: number, z: number, radius: number): number;
-  dispose(): void;
-}
-
 /**
- * The traffic on the streets, drawn: one instanced mesh per kind, with an inverted hull in ink
- * behind it sharing its matrices, two draw calls a kind. Bodies take the city's toon shading
- * and its shadows; the `paint` attribute colours the painted parts, and the lamps glow at night.
+ * Turns a drawn heading towards where the path heads, at most `rate` radians a second: what
+ * makes a corner a swing rather than a snap. Returns the new heading (radians).
  */
-export function createTrafficLayer(kit: TrafficKit, seed = 1): TrafficLayer {
-  const { three, MeshBuilder, linearVertexColors, gradientMap, night } = kit;
-  const traffic = new Traffic(kit.city.ways, seed);
-  const byKind = Object.fromEntries(
-    VEHICLE_KINDS.map((k) => [k, traffic.vehicles.filter((v) => v.kind === k)]),
-  ) as Record<VehicleKind, Vehicle[]>;
-  const material = new three.MeshToonMaterial({ vertexColors: true, gradientMap });
-  material.onBeforeCompile = (shader) => {
-    shader.uniforms.uNight = night;
-    shader.vertexShader = linearVertexColors(shader.vertexShader)
-      .replace(
-        '#include <common>',
-        '#include <common>\nattribute float facade;\nattribute vec3 paint;\nvarying float vPart;',
-      )
-      .replace(
-        '#include <color_vertex>',
-        '#include <color_vertex>\nvPart = facade;\nif (facade > 2.5) vColor.rgb = paint;',
-      );
-    shader.fragmentShader = shader.fragmentShader
-      .replace(
-        '#include <common>',
-        '#include <common>\nuniform float uNight;\nvarying float vPart;',
-      )
-      .replace(
-        '#include <emissivemap_fragment>',
-        `#include <emissivemap_fragment>
-        if (vPart > 0.5 && vPart < 2.5) {
-          totalEmissiveRadiance += (vPart < 1.5 ? vec3(1.0, 0.92, 0.7) : vec3(0.9, 0.08, 0.04)) * uNight;
-        }`,
-      );
-  };
-  material.customProgramCacheKey = () => 'vehicle-v1';
-  const inkMaterial = new three.MeshBasicMaterial({ color: kit.ink, side: three.BackSide });
-  const meshes: InstancedMesh[] = [];
-  const matrix = new three.Matrix4();
-  const groups: { mesh: InstancedMesh; vehicles: Vehicle[] }[] = [];
-  for (const kind of VEHICLE_KINDS) {
-    const vehicles = byKind[kind];
-    const body = new MeshBuilder();
-    SHAPES[kind](body);
-    const hull = new MeshBuilder();
-    SHAPES[kind](hull, HULL_GROW);
-    const geometry = body.build({ facade: true, keep: true });
-    const paint = new Float32Array(vehicles.length * 3);
-    for (const [i, v] of vehicles.entries()) paint.set(v.paint, i * 3);
-    geometry.setAttribute('paint', new three.InstancedBufferAttribute(paint, 3));
-    const mesh = new three.InstancedMesh(geometry, material, vehicles.length);
-    mesh.receiveShadow = true;
-    mesh.frustumCulled = false;
-    const ink = new three.InstancedMesh(hull.build({ keep: true }), inkMaterial, vehicles.length);
-    ink.instanceMatrix = mesh.instanceMatrix;
-    ink.frustumCulled = false;
-    meshes.push(mesh, ink);
-    groups.push({ mesh, vehicles });
-  }
-  const spot: [number, number, number, number] = [0, 0, 0, 0];
-  return {
-    meshes,
-    traffic,
-    update(dt, fx, fz, radius) {
-      traffic.focus(fx, fz, radius);
-      traffic.step(dt);
-      let drawn = 0;
-      for (const { mesh, vehicles } of groups) {
-        for (const [i, v] of vehicles.entries()) {
-          if (!v.active) {
-            // Parked out of sight: nothing of it, until it is let out again.
-            mesh.setMatrixAt(i, matrix.makeScale(0, 0, 0));
-            continue;
-          }
-          drawn++;
-          traffic.place(v, spot);
-          const [x, z, dx, dz] = spot;
-          // Local x ahead: a turn about y by atan2(-dz, dx) takes it to (dx, dz).
-          matrix.makeRotationY(Math.atan2(-dz, dx));
-          matrix.setPosition(x, kit.ground(x, z) + RIDE_HEIGHT, z);
-          mesh.setMatrixAt(i, matrix);
-        }
-        mesh.instanceMatrix.needsUpdate = true;
-      }
-      return drawn;
-    },
-    dispose() {
-      for (const m of meshes) m.geometry.dispose();
-      material.dispose();
-      inkMaterial.dispose();
-    },
-  };
+export function turnTowards(yaw: number, goal: number, rate: number, dt: number): number {
+  let d = goal - yaw;
+  d -= Math.round(d / (Math.PI * 2)) * Math.PI * 2;
+  const most = rate * dt;
+  return yaw + Math.max(-most, Math.min(most, d));
 }

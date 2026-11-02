@@ -24,11 +24,13 @@ const BIN = Bun.fileURLToPath(new URL('../node_modules/.bin/', import.meta.url))
  * outlines); a frame that redraws the shadow map adds one per casting cell, or draws the shadow
  * map alone when both wouldn't fit (`FRAME_CALLS` and `FRAME_TRIANGLES` in viewer.ts).
  */
-// 110 calls, 750k triangles: the traffic adds six calls (a body and its ink hull for cars,
-// buses and bikes) and about 30k triangles to every frame, on top of the roofs' chimneys and
-// dormers, which took the zoomed-out view from 582k to 637k.
-const MAX_DRAW_CALLS = 110;
-const MAX_TRIANGLES = 750_000;
+// 160 calls, 950k triangles: the traffic adds eight calls (a body and its ink hull for cars,
+// buses, bikes and people) and up to 170k triangles to a frame (the whole fleet, zoomed out),
+// on top of the roofs' chimneys and dormers, which took the zoomed-out view from 582k to 637k;
+// at night every lit cell in view adds a glow call, 150 in all zoomed out. Calls are cheap here
+// (one program for the city, one for the glow), so the triangles are what the cap watches.
+const MAX_DRAW_CALLS = 160;
+const MAX_TRIANGLES = 950_000;
 /**
  * What the whole city hands the GPU once every cell is built: 2.40M vertices and 57.7 MB since
  * racks park fewer bikes (it was 2.69M and 64.1 MB), 2.45M and 58.7 MB with what came since.
@@ -514,6 +516,19 @@ try {
   await browser('wait', '400');
   await expectHealthyPage('desktop zoomed out');
   await browser('screenshot', `${ARTIFACTS}smoke-overview.png`);
+  // At night the lamps' glow is a draw call more per cell in view, at every zoom: the most
+  // calls a frame ever has.
+  for (let i = 0; i < 6 && (await time()) !== 'night'; i++) {
+    await browser('press', 't');
+    await browser('wait', '300');
+  }
+  await browser('wait', '600');
+  await expectHealthyPage('desktop zoomed out at night');
+  await browser('screenshot', `${ARTIFACTS}smoke-overview-night.png`);
+  for (let i = 0; i < 6 && (await time()) !== 'golden'; i++) {
+    await browser('press', 't');
+    await browser('wait', '300');
+  }
   // Panning out there redraws the shadow map for the most city at once: the heaviest frames.
   for (const [dx, dy] of [
     [-500, -250],

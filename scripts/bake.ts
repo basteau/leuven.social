@@ -42,6 +42,7 @@ import { PROUD, STREET_PLATE_HEIGHT, packWalk } from '../src/data/plates.ts';
 import {
   areaIndex,
   clipLine,
+  pointAlong,
   uncoveredPieces,
   clipRingToArea,
   joinRings,
@@ -289,8 +290,7 @@ const closedPedestrianArea = (p: Props) =>
 const osmTrees = osmPoints.features
   .filter((f) => f.properties.natural === 'tree')
   .map((f) => toLocal(...(f.geometry.coordinates as [number, number])))
-  .filter(([x, z]) => areaIndex(AREA, x, z) >= 0)
-  .flat();
+  .filter(([x, z]) => areaIndex(AREA, x, z) >= 0);
 const paths: Path[] = osmRoads.features.flatMap((f) => {
   const style = pathFromOsm(f.properties);
   if (!style || f.geometry.type !== 'LineString') return [];
@@ -414,8 +414,14 @@ const markings: Marking[] = [
   }),
 ];
 
+// Footprints and carriageways, for keeping trees and traffic out of houses and off the road.
+const footprints = new RingIndex();
+for (const b of buildings) footprints.add(b.ring);
+const carriagewayGround = new RingIndex();
+for (const c of carriageways) carriagewayGround.add(c.ring);
+// A mapped tree inside a footprint is in the wrong place: the house is surveyed, the tree typed.
 const allTrees = mergeTrees(
-  osmTrees,
+  osmTrees.filter(([x, z]) => !footprints.contains(x, z)).flat(),
   crowns.trees.filter(([x, z]) => areaIndex(AREA, x, z) >= 0 && !underRoof(x, z)),
 );
 
@@ -530,19 +536,25 @@ for (const [i, { p }] of racks.entries()) {
 const props = placed.props.toSorted(
   (a, b) => Math.floor(a.z / STRIP) - Math.floor(b.z / STRIP) || a.x - b.x,
 );
-// LiDAR crowns give way to mapped furniture: the Totem's needle is no tree.
+// LiDAR crowns give way to mapped furniture (the Totem's needle is no tree), and a crown
+// whose trunk would stand on a carriageway or in a house leans over it from a trunk elsewhere.
 const near = Map.groupBy(
   props.map(propFootprint),
   (f) => `${Math.round(f.x / 16)},${Math.round(f.z / 16)}`,
 );
-const trees = clearCrowns(allTrees, mappedTrees, (x, z, r) =>
-  [-1, 0, 1].some((i) =>
-    [-1, 0, 1].some((j) =>
-      (near.get(`${Math.round(x / 16) + i},${Math.round(z / 16) + j}`) ?? []).some((f) =>
-        discInFootprint(f, x, z, r),
+const trees = clearCrowns(
+  allTrees,
+  mappedTrees,
+  (x, z, r) =>
+    carriagewayGround.contains(x, z) ||
+    footprints.contains(x, z) ||
+    [-1, 0, 1].some((i) =>
+      [-1, 0, 1].some((j) =>
+        (near.get(`${Math.round(x / 16) + i},${Math.round(z / 16) + j}`) ?? []).some((f) =>
+          discInFootprint(f, x, z, r),
+        ),
       ),
     ),
-  ),
 );
 
 // The street sign: every named road and path as a centre line, and every named square, sharing
@@ -655,10 +667,40 @@ const city: City = {
   ways: [],
 };
 
-// The streets traffic drives (src/data/traffic.ts): the driveable ways, turned to run the way
-// their traffic does, split where they meet (on OSM's own shared nodes, before anything moves
-// them), clipped to the area and simplified to 1 m. Pieces of one street meet at their ends.
+// The ways traffic moves along (src/data/traffic.ts): the driveable roads, cycle tracks,
+// pedestrian streets and paths, turned to run the way their traffic does, split where they
+// meet (on OSM's own shared nodes, before anything moves them), clipped to the area,
+// simplified to 1 m, and cut wherever they would run through a building (an archway the GRB
+// draws solid, a misdrawn way), so nothing drives through a house. Each piece measures how
+// far the open ground reaches either side of its line, to the nearer facade, so lanes and
+// pavements keep inside the street however narrow it is.
 const WAY_SIMPLIFY = 1;
+/** How far out from a way's line the ground is probed for a facade (m), and how finely. */
+const WAY_PROBE = 12;
+const WAY_PROBE_STEP = 0.5;
+/** Whether a spot is open ground: the road surface or a square, and not inside a house. */
+const openGround = (x: number, z: number) =>
+  publicGround.contains(x, z) && !footprints.contains(x, z);
+const halfWidthOf = (line: readonly number[]): number => {
+  let narrowest = WAY_PROBE;
+  for (const t of [0.15, 0.5, 0.85]) {
+    const [x, z, dx, dz] = pointAlong(line, t);
+    for (const side of [1, -1]) {
+      let reach = 0;
+      while (
+        reach < narrowest &&
+        openGround(
+          x - dz * side * (reach + WAY_PROBE_STEP),
+          z + dx * side * (reach + WAY_PROBE_STEP),
+        )
+      ) {
+        reach += WAY_PROBE_STEP;
+      }
+      narrowest = Math.min(narrowest, reach);
+    }
+  }
+  return narrowest;
+};
 const drivable = osmRoads.features.flatMap((f) => {
   const style = wayFromOsm(f.properties);
   if (!style || f.geometry.type !== 'LineString') return [];
@@ -672,22 +714,29 @@ const drivable = osmRoads.features.flatMap((f) => {
 });
 const ways: Way[] = splitAtJunctions(drivable)
   .flatMap(({ kind, oneway, bikesBoth, line }) =>
-    AREA.flatMap((rect) => clipLine(line, rect)).map((piece) => ({
-      kind,
-      oneway,
-      bikesBoth,
-      line: simplifyLine(piece, WAY_SIMPLIFY),
-    })),
+    AREA.flatMap((rect) => clipLine(line, rect))
+      .flatMap((piece) => uncoveredPieces(piece, (x, z) => footprints.contains(x, z), 1))
+      .map((piece) => {
+        const simplified = simplifyLine(piece, WAY_SIMPLIFY);
+        return {
+          kind,
+          oneway,
+          bikesBoth,
+          halfWidth: kind === 'path' ? 1 : halfWidthOf(simplified),
+          line: simplified,
+        };
+      }),
   )
   .filter((w) => w.line.length >= 4)
   .toSorted(
     (a, b) =>
       Math.floor(a.line[1]! / STRIP) - Math.floor(b.line[1]! / STRIP) || a.line[0]! - b.line[0]!,
   )
-  .map(({ kind, oneway, bikesBoth, line }) => ({
+  .map(({ kind, oneway, bikesBoth, halfWidth, line }) => ({
     kind,
     oneway,
     bikesBoth,
+    halfWidth,
     line: new Float32Array(line),
   }));
 city.ways = ways;

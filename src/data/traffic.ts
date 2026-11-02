@@ -1,4 +1,5 @@
 import type { Way, WayKind } from './city.ts';
+import { GraphRouter } from './graph-route.ts';
 
 /**
  * The streets as a road graph for the traffic (src/scene/traffic.ts): the driveable OpenStreetMap
@@ -12,6 +13,8 @@ type Tags = Record<string, string | undefined>;
 const MAIN = new Set(['motorway', 'trunk', 'primary', 'secondary']);
 /** The rest of what cars drive on. */
 const STREET = new Set(['tertiary', 'residential', 'unclassified', 'living_street']);
+/** Paths of their own, for people on foot. */
+const PATH = new Set(['footway', 'path', 'steps', 'track', 'bridleway']);
 /** Where only bikes go: cycle tracks and pedestrian streets (open to bikes in Leuven). */
 const CYCLE = new Set(['cycleway', 'pedestrian']);
 const CLOSED = new Set(['no', 'private']);
@@ -40,12 +43,19 @@ export function wayFromOsm(tags: Tags): WayStyle | null {
       ? 'street'
       : CYCLE.has(highway)
         ? 'cycle'
-        : null;
+        : PATH.has(highway)
+          ? 'path'
+          : null;
   if (!kind) return null;
-  if (kind !== 'cycle' && (CLOSED.has(tags.motor_vehicle ?? '') || CLOSED.has(tags.access ?? ''))) {
+  // Only paths of their own: not sidewalks and crossings, which lie on the road surface.
+  if (kind === 'path' && (tags.footway === 'sidewalk' || tags.footway === 'crossing')) {
     return null;
   }
-  const oneway = tags.oneway === 'yes' || tags.oneway === '-1';
+  const closed = CLOSED.has(tags.motor_vehicle ?? '') || CLOSED.has(tags.access ?? '');
+  if (closed && (kind === 'main' || kind === 'street')) return null;
+  // A roundabout is one way round, whether or not it says so.
+  const round = tags.junction === 'roundabout' || tags.junction === 'circular';
+  const oneway = tags.oneway === 'yes' || tags.oneway === '-1' || (round && !tags.oneway);
   return {
     kind,
     oneway,
@@ -110,9 +120,12 @@ export interface RoadEdge {
   /** Distance along the edge at each point; the last is its length. */
   cum: Float32Array;
   length: number;
-  /** Who may drive it this way: cars (and buses), bikes. */
+  /** Who may go this way: cars (and buses), bikes, people on foot. */
   cars: boolean;
   bikes: boolean;
+  feet: boolean;
+  /** Half the open ground across it (m): how far out lanes and pavements may lie. */
+  halfWidth: number;
 }
 
 export interface RoadGraph {
@@ -124,9 +137,10 @@ export interface RoadGraph {
 const nodeKey = (x: number, z: number) => `${Math.round(x * 10)},${Math.round(z * 10)}`;
 
 /**
- * Joins the ways into a graph of directed edges: every way forward, and backward where traffic
- * runs both ways (for bikes alone on a cycle street). Nodes are the ways' ends, met to the
- * decimetre.
+ * Joins the ways into a graph of directed edges: every way forward and backward, with who may
+ * go that way: cars both ways on a two-way street and one way on a one-way one, bikes the same
+ * (both ways on a cycle street, and on cycle tracks), people on foot every way on everything,
+ * paths included. Nodes are the ways' ends, met to the decimetre.
  */
 export function roadGraph(ways: readonly Way[]): RoadGraph {
   const nodes: RoadNode[] = [];
@@ -141,7 +155,7 @@ export function roadGraph(ways: readonly Way[]): RoadGraph {
     }
     return id;
   };
-  const add = (points: Float32Array, kind: WayKind, cars: boolean, bikes: boolean): void => {
+  const add = (points: Float32Array, way: Way, cars: boolean, bikes: boolean): void => {
     const n = points.length / 2;
     if (n < 2) return;
     const cum = new Float32Array(n);
@@ -155,19 +169,19 @@ export function roadGraph(ways: readonly Way[]): RoadGraph {
     const from = nodeAt(points[0]!, points[1]!);
     const to = nodeAt(points[n * 2 - 2]!, points[n * 2 - 1]!);
     nodes[from]!.out.push(edges.length);
-    edges.push({ from, to, kind, points, cum, length, cars, bikes });
+    const { kind, halfWidth } = way;
+    edges.push({ from, to, kind, points, cum, length, cars, bikes, feet: true, halfWidth });
   };
   for (const way of ways) {
-    const cars = way.kind !== 'cycle';
-    add(way.line, way.kind, cars, true);
-    if (!way.oneway || way.bikesBoth) {
-      const back = new Float32Array(way.line.length);
-      for (let i = 0; i < way.line.length; i += 2) {
-        back[i] = way.line[way.line.length - 2 - i]!;
-        back[i + 1] = way.line[way.line.length - 1 - i]!;
-      }
-      add(back, way.kind, cars && !way.oneway, true);
+    const cars = way.kind === 'main' || way.kind === 'street';
+    const bikes = way.kind !== 'path';
+    add(way.line, way, cars, bikes);
+    const back = new Float32Array(way.line.length);
+    for (let i = 0; i < way.line.length; i += 2) {
+      back[i] = way.line[way.line.length - 2 - i]!;
+      back[i + 1] = way.line[way.line.length - 1 - i]!;
     }
+    add(back, way, cars && !way.oneway, bikes && (!way.oneway || way.bikesBoth));
   }
   return { nodes, edges };
 }
@@ -210,4 +224,19 @@ export function turnBetween(a: RoadEdge, b: RoadEdge): number {
   const [bx, bz] = [b.points[2]! - b.points[0]!, b.points[3]! - b.points[1]!];
   const dot = (ax * bx + az * bz) / ((Math.hypot(ax, az) || 1) * (Math.hypot(bx, bz) || 1));
   return Math.acos(Math.min(1, Math.max(-1, dot)));
+}
+
+/**
+ * A router over the road graph for one class of traffic: the shortest way from a node to a
+ * node along the edges it may take, by length, with the straight-line distance as its guess.
+ */
+export function roadRouter(graph: RoadGraph): GraphRouter {
+  const { nodes, edges } = graph;
+  return new GraphRouter({
+    nodes: nodes.length,
+    out: (node) => nodes[node]!.out,
+    to: (edge) => edges[edge]!.to,
+    cost: (edge) => edges[edge]!.length,
+    estimate: (a, b) => Math.hypot(nodes[a]!.x - nodes[b]!.x, nodes[a]!.z - nodes[b]!.z),
+  });
 }

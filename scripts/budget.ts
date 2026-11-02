@@ -102,12 +102,14 @@ const BUDGETS: {
     limit: 12 * KB,
     gzip: true,
   },
-  // The traffic loads once the first frame is drawn: the road graph, the vehicles' driving,
-  // their shapes and the instanced layer that draws them.
+  // The traffic loads once the first frame is drawn: the road graph and its router, the
+  // vehicles' driving (routes, lanes, corners, junctions), their shapes and the instanced layer
+  // that draws them. 9: routes, corners, junctions, people, the richer models and their lights
+  // and limbs took it from 4.7 to 8.2 KB.
   {
     label: 'Traffic JS (after first frame)',
-    pattern: 'assets/traffic-*.js',
-    limit: 7 * KB,
+    pattern: 'assets/vehicles-*.js',
+    limit: 9 * KB,
     gzip: true,
   },
   // The plates on the facades load after walk mode, in a chunk and a data file of their own.

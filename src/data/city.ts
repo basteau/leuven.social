@@ -127,11 +127,12 @@ export interface Marking {
 }
 
 /**
- * A way traffic drives (src/data/traffic.ts): ring and main roads, where buses run too, the
- * other streets, and cycle tracks and pedestrian streets, for bikes alone. One piece between
- * two junctions, so the traffic's graph joins them at their ends.
+ * A way traffic moves along (src/data/traffic.ts): ring and main roads, where buses run too,
+ * the other streets, cycle tracks and pedestrian streets (bikes and people), and paths of
+ * their own (people alone). One piece between two junctions, so the traffic's graph joins
+ * them at their ends, cut where it would run through a building.
  */
-export const WAY_KINDS = ['main', 'street', 'cycle'] as const;
+export const WAY_KINDS = ['main', 'street', 'cycle', 'path'] as const;
 export type WayKind = (typeof WAY_KINDS)[number];
 
 export interface Way {
@@ -140,6 +141,11 @@ export interface Way {
   oneway: boolean;
   /** A one-way street bikes may ride both ways. */
   bikesBoth: boolean;
+  /**
+   * Half the open ground across the way (m), measured from its line to the nearest facade on
+   * either side (the narrower one): how far out lanes and pavements may lie.
+   */
+  halfWidth: number;
   /** Centre line as flat [x0, z0, x1, z1, …]. */
   line: Float32Array;
 }

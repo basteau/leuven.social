@@ -37,8 +37,9 @@
  * from the front before), the edge of its ring it is on, how far along it (decimetres), and its
  * kind's place in SHOP_KINDS with the top bit set for a terrace. A building's first front is its
  * main one: the decoder hangs it on the building as `front`.
- * The ways traffic drives (v19) come last: each a byte (its kind in WAY_KINDS, then a one-way
- * bit and a bikes-both-ways bit) and a centre line, delta-coded like the streets.
+ * The ways traffic moves along (v19) come last: each a byte (its kind in WAY_KINDS, then a
+ * one-way bit and a bikes-both-ways bit), its half-width in decimetres (v20) and a centre
+ * line, delta-coded like the streets.
  */
 
 import * as Binary from '@portable/binary';
@@ -75,7 +76,7 @@ import { SHOP_KINDS } from './shop-kinds.ts';
 const MAGIC = 'LVN1';
 // v16: a byte per bike rack, its fill (`Prop.fill`). v17: the shop fronts. v18: pitch surfaces
 // and the fields painted on them, after the polygon layers. Bump the cache in public/sw.js with it.
-const VERSION = 19;
+const VERSION = 20;
 const DM = 10; // units per metre
 const GROUND = 20; // terrain heights per metre: 5 cm
 const ZIGZAG = { encoding: 'zigzag' } as const;
@@ -338,6 +339,7 @@ export function encodeCity(city: City): Uint8Array {
   at = origin();
   for (const way of city.ways) {
     w.uint8(WAY_KINDS.indexOf(way.kind) | (way.oneway ? 4 : 0) | (way.bikesBoth ? 8 : 0));
+    w.varint(Math.round(way.halfWidth * DM));
     writeRing(w, way.line, at);
   }
   return w.toBytes();
@@ -507,9 +509,15 @@ export function decodeCity(bytes: Uint8Array): City {
   const fronts = readFronts(r, buildings);
   const ways = list((from) => {
     const flags = r.uint8();
-    const kind = WAY_KINDS[flags & 3];
-    if (!kind) throw new CityFormatError(`Bad way kind ${flags & 3}.`);
-    return { kind, oneway: !!(flags & 4), bikesBoth: !!(flags & 8), line: readRing(r, from) };
+    const kind = WAY_KINDS[flags & 3]!; // two bits, four kinds: every value is one
+    const halfWidth = r.varint() / DM;
+    return {
+      kind,
+      oneway: !!(flags & 4),
+      bikesBoth: !!(flags & 8),
+      halfWidth,
+      line: readRing(r, from),
+    };
   });
   if (r.remaining !== 0) throw new CityFormatError(`${r.remaining} trailing bytes.`);
   return {

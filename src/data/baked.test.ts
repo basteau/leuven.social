@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 
 import { AREA, VIEW_AREA } from './area.ts';
 import { MAX_NAME, latinOnly } from './boards.ts';
-import { areaIndex, ringInArea } from './geometry.ts';
+import { areaIndex, pointInRing, ringInArea } from './geometry.ts';
 import { unpackCity } from './format.ts';
 import { unpackWalk } from './plates.ts';
 import { bikesIn } from './props.ts';
@@ -47,7 +47,19 @@ test('public/data/city.bin decodes into a plausible Leuven', async () => {
   expect(city.fronts.some((f) => f.terrace)).toBe(true);
   // The streets traffic drives: the ring, the centre's one-way streets and the cycle tracks.
   expect(city.ways.length).toBeGreaterThan(1500);
-  expect(new Set(city.ways.map((w) => w.kind))).toEqual(new Set(['main', 'street', 'cycle']));
+  expect(new Set(city.ways.map((w) => w.kind))).toEqual(
+    new Set(['main', 'street', 'cycle', 'path']),
+  );
+  // Measured half-widths: most streets are a few metres wide either side of their line.
+  const driven = city.ways.filter((w) => w.kind === 'street' || w.kind === 'main');
+  expect(driven.filter((w) => w.halfWidth >= 2 && w.halfWidth <= 12).length).toBeGreaterThan(
+    driven.length * 0.6,
+  );
+  // No way runs through a house: every point of every way is outside every footprint.
+  const inHouse = (x: number, z: number) =>
+    city.buildings.some((b) => Math.abs(b.ring[0]! - x) < 80 && pointInRing(b.ring, x, z));
+  const sample = city.ways.filter((_, i) => i % 7 === 0);
+  expect(sample.some((w) => inHouse(w.line[0]!, w.line[1]!))).toBe(false);
   expect(city.ways.filter((w) => w.oneway).length).toBeGreaterThan(300);
   expect(city.ways.some((w) => w.bikesBoth)).toBe(true);
 });

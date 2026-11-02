@@ -42,6 +42,7 @@ import type { Cell, DetailMarks } from './cells.ts';
 import type { DrawnGround } from './drawn-ground.ts';
 import type { buildFurniture, drawnGround } from './furniture.ts';
 import {
+  BAYER,
   createFacadeMaterial,
   createGlowMaterial,
   fadeInkNearCamera,
@@ -89,7 +90,7 @@ import { isTap } from './tap.ts';
 import type { Spin } from './spin.ts';
 import { terraceParasols } from './terraces.ts';
 import type { Plates } from './plates.ts';
-import type { TrafficLayer } from './traffic.ts';
+import type { TrafficLayer } from './vehicles.ts';
 import type { RideAction, RideState } from './ride.ts';
 import type { Walk, WalkMode } from './walk.ts';
 
@@ -237,8 +238,8 @@ const LIGHTS_ONLY = 1 << 2;
  * What one frame may draw, as `scripts/smoke.ts` checks it. A shadow redraw that would take its
  * frame past this gets a frame of its own, and the view follows on the next.
  */
-const FRAME_CALLS = 110;
-const FRAME_TRIANGLES = 750_000;
+const FRAME_CALLS = 160;
+const FRAME_TRIANGLES = 950_000;
 /**
  * Zoom from which street furniture shows. Further out a lamp post is a stray pixel, and the
  * frames that show the most city are the ones that can least afford it. It casts shadows only
@@ -1272,7 +1273,7 @@ export function createViewer(options: ViewerOptions): Viewer {
    * taking what it shares with the engine as a kit, like the furniture.
    */
   function loadTraffic(): void {
-    loadingTraffic ??= import('./traffic.ts').then(
+    loadingTraffic ??= import('./vehicles.ts').then(
       ({ createTrafficLayer }) => {
         if (disposed) return;
         trafficLayer = createTrafficLayer({
@@ -1286,15 +1287,26 @@ export function createViewer(options: ViewerOptions): Viewer {
           },
           MeshBuilder,
           linearVertexColors,
+          bayer: BAYER,
           city,
           ground: (x, z) => terrain.height(x, z) + LAYER_Y.carriageways,
           gradientMap,
           night: material.userData.night as { value: number },
           ink: OUTLINE,
         });
-        scene.add(...trafficLayer.meshes);
-        showTraffic();
-        wake();
+        // Its shaders compile on the GPU's own threads before the fleet is in the scene: a
+        // first draw would compile them in one long task.
+        const standIns = new Scene();
+        standIns.add(...trafficLayer.meshes);
+        return renderer
+          .compileAsync(standIns, view, scene)
+          .catch(() => {}) // the first frame compiles anyway
+          .then(() => {
+            if (disposed || !trafficLayer) return;
+            scene.add(...trafficLayer.meshes);
+            showTraffic();
+            wake();
+          });
       },
       () => {}, // the streets stay empty
     );

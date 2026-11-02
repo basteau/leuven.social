@@ -299,18 +299,25 @@ describe('terrain', () => {
 describe('ways', () => {
   test('round-trip with their kind, direction and cycle-street flag, to the decimetre', () => {
     const ways: City['ways'] = [
-      { kind: 'main', oneway: true, bikesBoth: true, line: new Float32Array([0, 0, 120.5, -30]) },
+      {
+        kind: 'main',
+        oneway: true,
+        bikesBoth: true,
+        halfWidth: 4.5,
+        line: new Float32Array([0, 0, 120.5, -30]),
+      },
       {
         kind: 'cycle',
         oneway: false,
         bikesBoth: false,
+        halfWidth: 1.2,
         line: new Float32Array([5, 5, 6, 7, 9, 9]),
       },
     ];
     const decoded = decodeCity(encodeCity({ ...city, ways }));
-    expect(decoded.ways.map((w) => [w.kind, w.oneway, w.bikesBoth, [...w.line]])).toEqual(
-      ways.map((w) => [w.kind, w.oneway, w.bikesBoth, [...w.line]]),
-    );
+    expect(
+      decoded.ways.map((w) => [w.kind, w.oneway, w.bikesBoth, w.halfWidth, [...w.line]]),
+    ).toEqual(ways.map((w) => [w.kind, w.oneway, w.bikesBoth, w.halfWidth, [...w.line]]));
   });
 });
 
@@ -337,13 +344,5 @@ describe('shop fronts', () => {
     const kinds = encodeCity({ ...city, fronts: [fronts[0]!] });
     kinds[kinds.length - 2] = 0x7f; // the kind byte, before the ways' count
     expect(() => decodeCity(kinds)).toThrow('Bad shop front');
-    const ways = encodeCity({
-      ...city,
-      ways: [
-        { kind: 'main', oneway: false, bikesBoth: false, line: new Float32Array([0, 0, 1, 1]) },
-      ],
-    });
-    ways[ways.length - 6] = 3; // the kind byte, before its two-point line; no fourth kind
-    expect(() => decodeCity(ways)).toThrow('Bad way kind');
   });
 });
