@@ -54,7 +54,7 @@ export function menuKey(event: Chord): 'chord' | 'key' | null {
 }
 
 /** The keys whose auto-repeat does something: zoom goes on while + or - is held. */
-const REPEATING = new Set(['+', '=', '-']);
+const REPEATING = /^[-+=]$/;
 
 /**
  * Whether a keydown is a held key's auto-repeat that does nothing. Everything but zoom is one
@@ -63,7 +63,7 @@ const REPEATING = new Set(['+', '=', '-']);
  * bike it just got on, M muting and unmuting).
  */
 export function idleRepeat(event: { key: string; repeat: boolean }): boolean {
-  return event.repeat && !REPEATING.has(event.key);
+  return event.repeat && !REPEATING.test(event.key);
 }
 
 /** The menu's chord as this platform writes it: ⌘ on Apple's, Ctrl everywhere else. */

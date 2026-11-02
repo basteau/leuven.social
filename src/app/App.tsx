@@ -47,13 +47,13 @@ const lazyMenu = () => lazy(() => loadMenu().then((m) => ({ default: m.CommandMe
  * The menu's chunk can fail to download (a flaky link). Without this, React would take the whole
  * app down with it, map and all; instead the menu stays shut and the shell says so.
  */
-class MenuGuard extends Component<{ onError: (error: unknown) => void; children: ReactNode }> {
+class MenuGuard extends Component<{ onError: () => void; children: ReactNode }> {
   override state = { failed: false };
   static getDerivedStateFromError() {
     return { failed: true };
   }
-  override componentDidCatch(error: unknown) {
-    this.props.onError(error);
+  override componentDidCatch() {
+    this.props.onError();
   }
   override render() {
     return this.state.failed ? null : this.props.children;
@@ -217,8 +217,8 @@ export function App() {
     setMenu({ open: true, page, used: true });
   }, []);
   /** Its chunk didn't come: shut, out of the page, and a fresh download on the next try. */
-  const onMenuError = useCallback((error: unknown) => {
-    console.error(error);
+  // (React logs the error itself.)
+  const onMenuError = useCallback(() => {
     menuOpenRef.current = false;
     setMenu({ open: false, page: 'list', used: false });
     setCommandMenu(() => lazyMenu());
