@@ -1,5 +1,5 @@
 import type * as Three from 'three';
-import type { BufferAttribute, Object3D, Scene, Texture } from 'three';
+import type { BufferAttribute, Material, Object3D, Scene, Texture } from 'three';
 
 import type { City } from '../data/city.ts';
 import {
@@ -235,6 +235,8 @@ export interface PlatesHost {
   compile(object: Object3D): Promise<unknown>;
   /** Asks for a frame: the plates are ready to show. */
   changed(): void;
+  /** Lets a plate dither away near the walking camera with the wall it's on. */
+  fadeNearCamera(material: Material): void;
 }
 
 export interface Plates {
@@ -263,6 +265,7 @@ export function createPlates(host: PlatesHost, data: WalkData): Plates {
   texture.colorSpace = host.kit.three.SRGBColorSpace;
   texture.anisotropy = host.anisotropy;
   const material = new MeshToonMaterial({ map: texture, gradientMap: host.gradientMap });
+  host.fadeNearCamera(material);
   const geometry = new BufferGeometry();
   const mesh = new Mesh(geometry, material);
   // Rebuilt round the walker, so it's always near the view: no bounds to keep up to date.

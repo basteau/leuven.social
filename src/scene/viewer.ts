@@ -33,7 +33,12 @@ import { partyWalls } from './buildings.ts';
 import type { PartyWalls } from './buildings.ts';
 import { buildCell, buildFurniture, partition } from './cells.ts';
 import type { Cell, DetailMarks } from './cells.ts';
-import { createFacadeMaterial, fadeInkNearCamera, setPixelSize } from './facade-material.ts';
+import {
+  createFacadeMaterial,
+  fadeInkNearCamera,
+  fadeNearCamera,
+  setPixelSize,
+} from './facade-material.ts';
 import { LIGHT } from './lighting.ts';
 import { SLAB_DEPTH } from './ground.ts';
 import { LINE_LOD } from './paint.ts';
@@ -770,6 +775,7 @@ export function createViewer(options: ViewerOptions): Viewer {
           anisotropy: Math.min(8, renderer.capabilities.getMaxAnisotropy()),
           compile: (object) => renderer.compileAsync(object, view, scene),
           changed: invalidate,
+          fadeNearCamera: (plate) => fadeNearCamera(plate, 'plates-v1'),
         }),
       )
       .then(

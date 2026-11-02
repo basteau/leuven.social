@@ -1,5 +1,5 @@
 import { Color, MeshToonMaterial } from 'three';
-import type { LineBasicMaterial, Texture } from 'three';
+import type { LineBasicMaterial, Material, Texture } from 'three';
 
 import { SHOP_FRONT } from './buildings.ts';
 import { LANCETS } from './landmarks.ts';
@@ -39,9 +39,12 @@ const nearDiscard = (world: string, keep: string) =>
   `if (uNearFade > 0.0 && !(${keep}) &&
     bayer4(gl_FragCoord.xy) >= smoothstep(0.45 * uNearFade, uNearFade, distance(${world}, cameraPosition))) discard;`;
 
-/** The city's ink lines dither away near the walking camera too, all but those on the ground. */
-export function fadeInkNearCamera(ink: LineBasicMaterial): void {
-  ink.onBeforeCompile = (shader) => {
+/**
+ * A plain three.js material dithers away near the walking camera like the city's walls, all but
+ * what `keep` spares (GLSL on `vNearWorld`, the fragment's world position).
+ */
+export function fadeNearCamera(material: Material, key: string, keep = 'false'): void {
+  material.onBeforeCompile = (shader) => {
     shader.uniforms.uNearFade = nearFade;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vNearWorld;')
@@ -53,10 +56,15 @@ export function fadeInkNearCamera(ink: LineBasicMaterial): void {
       .replace('#include <common>', `#include <common>\nvarying vec3 vNearWorld;\n${NEAR_FADE}`)
       .replace(
         '#include <clipping_planes_fragment>',
-        `#include <clipping_planes_fragment>\n${nearDiscard('vNearWorld', 'vNearWorld.y < 0.45')}`,
+        `#include <clipping_planes_fragment>\n${nearDiscard('vNearWorld', keep)}`,
       );
   };
-  ink.customProgramCacheKey = () => 'ink-v1';
+  material.customProgramCacheKey = () => key;
+}
+
+/** The city's ink lines dither away near the walking camera too, all but those on the ground. */
+export function fadeInkNearCamera(ink: LineBasicMaterial): void {
+  fadeNearCamera(ink, 'ink-v1', 'vNearWorld.y < 0.45');
 }
 
 /**
