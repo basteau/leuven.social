@@ -5,7 +5,8 @@ import {
   HOLD_MS,
   KEYCAPS,
   layoutKeycaps,
-  movesMap,
+  menuKey,
+  modKey,
   SETTLE_MS,
   strayPress,
 } from './input.ts';
@@ -50,33 +51,41 @@ describe('layoutKeycaps', () => {
   });
 });
 
-describe('movesMap', () => {
-  test('arrows, zoom, turn and reset move the map', () => {
-    for (const [code, key] of [
-      ['ArrowLeft', 'ArrowLeft'],
-      ['ArrowUp', 'ArrowUp'],
-      ['Equal', '+'],
-      ['Equal', '='],
-      ['Minus', '-'],
-      ['Digit6', '-'], // AZERTY's minus
-      ['KeyQ', 'a'], // AZERTY's A turns left, by position
-      ['KeyE', 'e'],
-      ['KeyR', 'r'],
-    ] as const) {
-      expect(movesMap({ code, key })).toBe(true);
-    }
+describe('menuKey', () => {
+  type Mods = Partial<Record<'metaKey' | 'ctrlKey' | 'altKey', boolean>>;
+  const press = (key: string, mods: Mods = {}) =>
+    menuKey({ key, metaKey: false, ctrlKey: false, altKey: false, ...mods });
+
+  test('⌘K, Ctrl+K, ⌘P and Ctrl+P are chords that open and close it', () => {
+    expect(press('k', { metaKey: true })).toBe('chord');
+    expect(press('K', { ctrlKey: true })).toBe('chord');
+    expect(press('p', { metaKey: true })).toBe('chord');
+    expect(press('p', { ctrlKey: true })).toBe('chord');
   });
 
-  test('Tab, Enter, Shift and Mute leave it be', () => {
-    for (const [code, key] of [
-      ['Tab', 'Tab'],
-      ['Enter', 'Enter'],
-      ['ShiftLeft', 'Shift'],
-      ['KeyM', 'm'],
-      ['KeyA', 'q'], // AZERTY's Q is QWERTY's A: no map key
-    ] as const) {
-      expect(movesMap({ code, key })).toBe(false);
-    }
+  test('/ and ? open it on their own', () => {
+    expect(press('/')).toBe('key');
+    expect(press('?')).toBe('key');
+  });
+
+  test('other keys and chords leave it be', () => {
+    expect(press('k')).toBeNull();
+    expect(press('p')).toBeNull();
+    expect(press('c', { metaKey: true })).toBeNull();
+    expect(press('/', { ctrlKey: true })).toBeNull();
+    expect(press('k', { metaKey: true, altKey: true })).toBeNull();
+    expect(press('?', { altKey: true })).toBeNull();
+  });
+});
+
+describe('modKey', () => {
+  test('⌘ on Apple’s platforms, Ctrl elsewhere', () => {
+    expect(modKey('MacIntel')).toBe('⌘');
+    expect(modKey('macOS')).toBe('⌘');
+    expect(modKey('iPhone')).toBe('⌘');
+    expect(modKey('Win32')).toBe('Ctrl');
+    expect(modKey('Linux x86_64')).toBe('Ctrl');
+    expect(modKey('')).toBe('Ctrl');
   });
 });
 
