@@ -21,9 +21,13 @@
  * Tanks are a height in decimetres and a footprint each; parapets are open lines.
  * Street names are a table of strings, then each street as its name's place in the table and a
  * centre line, then one number per plaza: 0 for none, else its name's place plus one.
- * Church towers (v13) come last, as few as there are churches with one: each is its building's
+ * Church towers (v13) come next, as few as there are churches with one: each is its building's
  * place in the list (the change from the tower before), its centre (zigzag decimetres), radius,
  * wall top and tip (decimetres). The decoder hangs each on its building as `tower`.
+ * The terrain (v15) closes the file: its grid step (decimetres), its first node in whole steps
+ * from the origin (zigzag), columns and rows, then each height in 5 cm as its difference from the
+ * plane through its neighbours to the west, north and north-west (zigzag): the land is smooth,
+ * so most of those take a byte.
  */
 
 import * as Binary from '@portable/binary';
@@ -40,12 +44,22 @@ import {
   TIERS,
   isMonument,
 } from './city.ts';
-import type { Bounds, Building, Carriageway, City, Marking, Prop, Rail } from './city.ts';
+import type {
+  Bounds,
+  Building,
+  Carriageway,
+  City,
+  Marking,
+  Prop,
+  Rail,
+  TerrainGrid,
+} from './city.ts';
 import { boundsOf } from './geometry.ts';
 
 const MAGIC = 'LVN1';
-const VERSION = 14;
+const VERSION = 15;
 const DM = 10; // units per metre
+const GROUND = 20; // terrain heights per metre: 5 cm
 const ZIGZAG = { encoding: 'zigzag' } as const;
 const TURN = Math.PI * 2;
 /** Refuse anything larger after decompression: the whole city must stay small. */
@@ -92,6 +106,39 @@ function readRing(r: Binary.Reader, from = origin()): Float32Array {
     ring[i + 1] = z / DM;
   }
   return ring;
+}
+
+/** A height's guess from the ones before it: west + north - north-west, or along the edges. */
+function guess(q: Int32Array, k: number, i: number, j: number, cols: number): number {
+  if (i > 0 && j > 0) return q[k - 1]! + q[k - cols]! - q[k - cols - 1]!;
+  return i > 0 ? q[k - 1]! : j > 0 ? q[k - cols]! : 0;
+}
+
+function writeTerrain(w: Binary.Writer, t: TerrainGrid): void {
+  w.varint(Math.round(t.step * DM));
+  w.varint(Math.round(t.minX / t.step), ZIGZAG);
+  w.varint(Math.round(t.minZ / t.step), ZIGZAG);
+  w.varint(t.cols);
+  w.varint(t.rows);
+  const q = Int32Array.from(t.heights, (h) => Math.round(h * GROUND));
+  for (let k = 0; k < q.length; k++) {
+    w.varint(q[k]! - guess(q, k, k % t.cols, Math.floor(k / t.cols), t.cols), ZIGZAG);
+  }
+}
+
+function readTerrain(r: Binary.Reader): TerrainGrid {
+  const step = r.varint() / DM;
+  const [minX, minZ] = [r.varint(ZIGZAG) * step, r.varint(ZIGZAG) * step];
+  const [cols, rows] = [r.varint(), r.varint()];
+  // Every height takes at least a byte: a grid larger than what's left is a broken file.
+  if (step <= 0 || cols < 2 || rows < 2 || cols * rows > r.remaining) {
+    throw new CityFormatError(`Bad terrain grid ${cols} × ${rows}.`);
+  }
+  const q = new Int32Array(cols * rows);
+  for (let k = 0; k < q.length; k++) {
+    q[k] = r.varint(ZIGZAG) + guess(q, k, k % cols, Math.floor(k / cols), cols);
+  }
+  return { step, minX, minZ, cols, rows, heights: Float32Array.from(q, (v) => v / GROUND) };
 }
 
 function writeString(w: Binary.Writer, text: string): void {
@@ -221,6 +268,7 @@ export function encodeCity(city: City): Uint8Array {
     w.varint(Math.round(t.z * DM), ZIGZAG);
     for (const v of [t.radius, t.top, t.tip]) w.varint(Math.round(v * DM));
   }
+  writeTerrain(w, city.terrain);
   return w.toBytes();
 }
 
@@ -370,6 +418,7 @@ export function decodeCity(bytes: Uint8Array): City {
     const [radius, top, tip] = [r.varint() / DM, r.varint() / DM, r.varint() / DM];
     b.tower = { x, z, radius, top, tip };
   }
+  const terrain = readTerrain(r);
   if (r.remaining !== 0) throw new CityFormatError(`${r.remaining} trailing bytes.`);
   return {
     area,
@@ -398,6 +447,7 @@ export function decodeCity(bytes: Uint8Array): City {
     streetNames,
     streets,
     plazaNames,
+    terrain,
   };
 }
 

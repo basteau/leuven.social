@@ -29,9 +29,10 @@ import { MapControls } from 'three/addons/controls/MapControls.js';
 import type { City } from '../data/city.ts';
 import { clampToArea } from '../data/geometry.ts';
 import type { StreetIndex } from '../data/streets.ts';
-import { partyWalls } from './buildings.ts';
+import { Terrain } from '../data/terrain.ts';
+import { footing, partyWalls } from './buildings.ts';
 import type { PartyWalls } from './buildings.ts';
-import { buildCell, buildFurniture, partition } from './cells.ts';
+import { buildCell, buildFurniture, groundRange, partition } from './cells.ts';
 import type { Cell, DetailMarks } from './cells.ts';
 import {
   createFacadeMaterial,
@@ -40,7 +41,7 @@ import {
   setPixelSize,
 } from './facade-material.ts';
 import { LIGHT } from './lighting.ts';
-import { SLAB_DEPTH } from './ground.ts';
+import { slabBottom } from './ground.ts';
 import { LINE_LOD } from './paint.ts';
 import { LineBuilder, MeshBuilder, corners, geometryBytes } from './mesh-builder.ts';
 import type { V3 } from './mesh-builder.ts';
@@ -152,9 +153,17 @@ interface CellEntry {
 /** Golden hour from the south-west, low enough for long shadows. */
 const SUN_DIRECTION: V3 = [-0.55, 0.62, 0.56];
 const SHADOW_MAP = 2048;
-/** Tallest thing in the city (m), and the margin kept around the view for tall roofs. */
+/**
+ * Tallest thing in the city (m), and the margin kept around the view for tall roofs: at most a
+ * quarter of the view's height, so zoomed in the square stays tight and its texels fine.
+ */
 const MAX_HEIGHT = 90;
 const SHADOW_REACH = 60;
+/**
+ * From the map, the shadow square is drawn again once its texels are this much coarser than
+ * the view needs: 21 cm a texel at zoom 4, where 4× kept the default view's 70 cm.
+ */
+const SHADOW_COARSER = 2;
 /**
  * Layer masks: the view draws layer 0, the shadow pass layer 1. A cell's shadow casters are only
  * on the shadow layer; its furniture joins whichever pass needs it (see `cull`). The lights are
@@ -172,7 +181,9 @@ const FRAME_CALLS = 100;
 const FRAME_TRIANGLES = 600_000;
 /**
  * Zoom from which street furniture shows. Further out a lamp post is a stray pixel, and the
- * frames that show the most city are the ones that can least afford it.
+ * frames that show the most city are the ones that can least afford it. It casts shadows only
+ * from the street: on the map a bench's shadow is a texel or two under the shadow lookup's lift,
+ * and redrawing the map's square with the city's bikes and lamps took half a million triangles.
  */
 const PROP_ZOOM = 2;
 /** Time the idle builder may take per slice before handing the main thread back (ms). */
@@ -244,9 +255,11 @@ export function createViewer(options: ViewerOptions): Viewer {
   // One material for every cell: walls get windows, roads their texture and paint (paint.ts).
   const material = createFacadeMaterial(gradientMap);
   // A mesh without a `facade` attribute (street furniture) reads 0: a plain surface.
-  Object.assign(material, { defaultAttributeValues: { facade: [0] } });
+  Object.assign(material, { defaultAttributeValues: { facade: [0], lift: [0] } });
   const ink = new LineBasicMaterial({ color: OUTLINE });
   fadeInkNearCamera(ink);
+
+  const terrain = new Terrain(city.terrain);
 
   // Cells are built when they first come into view, and the rest while the page is idle, so
   // the first frame costs what the visible part of the city costs. The city is cut into them
@@ -255,13 +268,14 @@ export function createViewer(options: ViewerOptions): Viewer {
   const cells: CellEntry[] = [];
   function cut(): void {
     for (const cell of partition(city, terraceParasols(city))) {
+      const [low, high] = groundRange(cell, city.area, terrain, 60);
       cells.push({
         cell,
         // Until it's built, a guess: buildings belong to the cell of their first corner and can
-        // overhang it a little.
+        // overhang it a little, standing on its own ground.
         box: new Box3(
-          new Vector3(cell.bounds.minX - 60, -SLAB_DEPTH, cell.bounds.minZ - 60),
-          new Vector3(cell.bounds.maxX + 60, MAX_HEIGHT, cell.bounds.maxZ + 60),
+          new Vector3(cell.bounds.minX - 60, low, cell.bounds.minZ - 60),
+          new Vector3(cell.bounds.maxX + 60, high + MAX_HEIGHT, cell.bounds.maxZ + 60),
         ),
         objects: [],
         furniture: undefined,
@@ -280,6 +294,7 @@ export function createViewer(options: ViewerOptions): Viewer {
       entry.cell,
       city.area,
       walls,
+      terrain,
     );
     Object.assign(entry, { detail, trunksFrom, shadowFrom, fineVertices });
     const surfaces = new Mesh(mesh.build({ facade: true }), material);
@@ -313,7 +328,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   function furnish(entry: CellEntry): void {
     // It shares the material and its program: one more draw call, only up close. It has no
     // windows, so it leaves out the facade attribute and the shader reads its default.
-    const furniture = new Mesh(buildFurniture(entry.cell).build(), material);
+    const furniture = new Mesh(buildFurniture(entry.cell, terrain).build(), material);
     furniture.castShadow = true;
     furniture.receiveShadow = true;
     furniture.frustumCulled = false;
@@ -344,7 +359,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   const [nearest, farthest] = depthRange(
     light,
     city.area.flatMap((a) =>
-      [-SLAB_DEPTH, MAX_HEIGHT].flatMap((y): V3[] => [
+      [slabBottom(terrain), terrain.highest + MAX_HEIGHT].flatMap((y): V3[] => [
         [a.minX, y, a.minZ],
         [a.maxX, y, a.minZ],
         [a.minX, y, a.maxZ],
@@ -456,18 +471,16 @@ export function createViewer(options: ViewerOptions): Viewer {
     if (view === camera) {
       for (const [i, [x, y]] of SCREEN_CORNERS.entries()) {
         corner.set(x, y, -1).unproject(camera);
-        corner.addScaledVector(forward, -corner.y / forward.y);
+        corner.addScaledVector(forward, (t.y - corner.y) / forward.y);
         [ground[i]![0], ground[i]![2]] = [corner.x, corner.z];
       }
     }
     const need = shadowNeeds(light, view === camera ? ground : around(t.x, t.z, reach));
-    need.half += view === camera ? SHADOW_REACH : WALK_SHADOW_REACH;
-    // Furniture appearing or hiding changes what casts shadows: refit the square to the view,
-    // which is close up when it appears, so the redraw stays small.
-    const near = span <= VIEW_HEIGHT / PROP_ZOOM;
-    if (near !== propsShown) shadow = undefined;
-    propsShown = near;
-    const refit = !shadow || !shadowCovers(shadow, need, view === camera ? 4 : WALK_SHADOW_COARSER);
+    need.half += view === camera ? Math.min(SHADOW_REACH, span / 4) : WALK_SHADOW_REACH;
+    propsShown = span <= VIEW_HEIGHT / PROP_ZOOM;
+    const fromStreet = view !== camera && walk?.flightSpan === undefined;
+    const coarser = view === camera ? SHADOW_COARSER : WALK_SHADOW_COARSER;
+    const refit = !shadow || !shadowCovers(shadow, need, coarser);
     if (refit) fitShadowTo(need);
     // What casts into the view has to exist before the shadow pass draws: build it now, and
     // redraw if that adds to a square already drawn. The rest of the square, its room to pan,
@@ -492,15 +505,16 @@ export function createViewer(options: ViewerOptions): Viewer {
         build(entry);
         added = true;
       }
-      // Up close, no cell shows or casts without its furniture.
+      // Up close, no cell shows without its furniture, nor casts without it from the street.
+      const casts = fromStreet && shadowFrustum.intersectsBox(entry.box);
       if (
         propsShown &&
         entry.objects.length &&
         !entry.furniture &&
-        (frustum.intersectsBox(entry.box) || shadowFrustum.intersectsBox(entry.box))
+        (frustum.intersectsBox(entry.box) || casts)
       ) {
         furnish(entry);
-        added ||= shadowFrustum.intersectsBox(entry.box);
+        added ||= casts;
       }
     }
     if (refit || added) renderer.shadowMap.needsUpdate = true;
@@ -570,7 +584,7 @@ export function createViewer(options: ViewerOptions): Viewer {
       // Up close, `prepare` has built it for every cell in view or casting.
       const { furniture } = entry;
       if (!furniture) continue;
-      const furnitureCasts = casts && !flying;
+      const furnitureCasts = casts && fromStreet;
       furniture.layers.mask = (inView ? VIEW_LAYER : 0) | (furnitureCasts ? SHADOW_LAYER : 0);
       furniture.visible = (inView || furnitureCasts) && propsShown && cell.props.length > 0;
       if (furniture.visible && inView) draw(furniture);
@@ -730,6 +744,7 @@ export function createViewer(options: ViewerOptions): Viewer {
           canvas,
           overlay,
           city,
+          terrain,
           gradientMap,
           fog,
           reducedMotion,
@@ -780,6 +795,10 @@ export function createViewer(options: ViewerOptions): Viewer {
           },
           scene,
           city,
+          ground: {
+            footing: (ring) => footing(terrain, ring),
+            height: (x, z) => terrain.height(x, z),
+          },
           gradientMap,
           anisotropy: Math.min(8, renderer.capabilities.getMaxAnisotropy()),
           compile: (object) => renderer.compileAsync(object, view, scene),
@@ -822,13 +841,16 @@ export function createViewer(options: ViewerOptions): Viewer {
     });
   }
 
+  /** Keeps the target inside the area and on its ground, so the view turns about the street. */
   function clampTarget(): void {
     const t = controls.target;
     const [cx, cz] = clampToArea(city.area, t.x, t.z);
-    if (cx !== t.x || cz !== t.z) {
+    const cy = terrain.height(cx, cz);
+    if (cx !== t.x || cy !== t.y || cz !== t.z) {
       camera.position.x += cx - t.x;
+      camera.position.y += cy - t.y;
       camera.position.z += cz - t.z;
-      t.set(cx, t.y, cz);
+      t.set(cx, cy, cz);
     }
   }
   const onChange = () => {
@@ -986,7 +1008,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   const ready = (async () => {
     await nextTask();
     if (disposed) return;
-    walls = partyWalls(city.buildings);
+    walls = partyWalls(city.buildings, (b) => footing(terrain, b.ring));
     await nextTask();
     if (disposed) return;
     let since = performance.now();

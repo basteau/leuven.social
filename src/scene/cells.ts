@@ -1,8 +1,11 @@
 import type { Bounds, Building, Carriageway, City, Path, Prop, Rail, Tank } from '../data/city.ts';
-import { clipLine, clipRing } from '../data/geometry.ts';
-import { addBuilding } from './buildings.ts';
+import { areaOutline, clipLine, clipRing } from '../data/geometry.ts';
+import { propFootprint } from '../data/props.ts';
+import { FLAT } from '../data/terrain.ts';
+import type { Terrain } from '../data/terrain.ts';
+import { addBuilding, footing } from './buildings.ts';
 import type { PartyWalls } from './buildings.ts';
-import { addGround, addSlabInk } from './ground.ts';
+import { addGround, addSlabInk, slabBottom } from './ground.ts';
 import { GROUND_RINGS } from './ground.ts';
 import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
 import { addFinePaint } from './paint.ts';
@@ -196,6 +199,33 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
 }
 
 /**
+ * How low and high the ground goes within `margin` of a cell, before anything is built on it: its
+ * own terrain's lowest and highest, or down to the slab's underside where the area's edge runs
+ * through. What the culling box guesses from: one sized for the whole map's hills would make
+ * cells far off look visible, and the first frame build them.
+ */
+export function groundRange(
+  cell: Cell,
+  area: readonly Bounds[],
+  terrain: Terrain,
+  margin: number,
+): [number, number] {
+  const b = cell.bounds;
+  const [minX, minZ, maxX, maxZ] = [
+    b.minX - margin,
+    b.minZ - margin,
+    b.maxX + margin,
+    b.maxZ + margin,
+  ];
+  const [low, high] = terrain.range({ minX, minZ, maxX, maxZ });
+  const edge = areaOutline(area).some(
+    (e) =>
+      Math.max(e.x0, minX) <= Math.min(e.x1, maxX) && Math.max(e.z0, minZ) <= Math.min(e.z1, maxZ),
+  );
+  return [edge ? slabBottom(terrain) : low, high];
+}
+
+/**
  * Where the zoom-dependent detail ends in a cell's outlines, in segments: the rails come first,
  * then the catenary masts, then everything that always shows. A zoomed-out view starts drawing
  * past them (see `setDrawRange`), so they cost no extra draw call.
@@ -212,11 +242,17 @@ export interface DetailMarks {
  * the shadow pass can skip them: the ground can't shade anything, and seen from above a trunk's
  * shadow hides in its crown's. The fine road paint comes last (from `fineVertices`), so a
  * zoomed-out view can skip that. The marks count indices, as draw ranges do.
+ *
+ * On the terrain, what lies on the ground is draped over it: the ground layers, paths, paint, track
+ * beds and the rails' and slab's ink, platforms and parapets. Houses and tanks stand on the
+ * lowest ground under their corners, trees, parasols, platform roofs and props on the ground at
+ * their point.
  */
 export function buildCell(
   cell: Cell,
   area: readonly Bounds[],
   walls: PartyWalls,
+  terrain: Terrain = FLAT,
 ): {
   mesh: MeshBuilder;
   lines: LineBuilder;
@@ -228,13 +264,21 @@ export function buildCell(
   const mesh = new MeshBuilder();
   const lines = new LineBuilder();
   const { trees } = cell;
+  const at = (x: number, z: number) => {
+    mesh.lift = lines.lift = terrain.height(x, z);
+  };
+  const tree = (i: number, parts: Parameters<typeof addTree>[5]) => {
+    at(trees[i]!, trees[i + 1]!);
+    addTree(mesh, trees[i]!, trees[i + 1]!, trees[i + 2]!, trees[i + 3]!, parts);
+  };
+  mesh.drape = lines.drape = terrain;
   addGround(mesh, area, cell.bounds, cell.ground);
   // Track beds are flat ground too, so they join it before the shadow pass's start.
   addTracks(mesh, cell.rails);
+  mesh.drape = null;
   const trunksFrom = mesh.indices;
-  for (let i = 0; i < trees.length; i += 4) {
-    addTree(mesh, trees[i]!, trees[i + 1]!, trees[i + 2]!, trees[i + 3]!, ['trunk']);
-  }
+  for (let i = 0; i < trees.length; i += 4) tree(i, ['trunk']);
+  mesh.lift = lines.lift = 0;
   const shadowFrom = mesh.indices;
   addRailLines(lines, cell.rails);
   const rails = lines.segments;
@@ -242,28 +286,64 @@ export function buildCell(
   const detail = { rails, masts: lines.segments };
   // Every other outline follows the rails and masts, which the view leaves out from afar.
   addSlabInk(lines, area, cell.bounds);
+  mesh.drape = terrain;
   for (const p of cell.railParapets) addRailParapet(mesh, lines, p);
   for (const ring of cell.platforms) addPlatform(mesh, lines, ring, cell.bounds);
-  for (const bay of cell.canopies) addCanopyBay(mesh, lines, bay);
-  for (const b of cell.buildings) addBuilding(mesh, lines, b, walls);
-  for (let i = 0; i < trees.length; i += 4) {
-    addTree(mesh, trees[i]!, trees[i + 1]!, trees[i + 2]!, trees[i + 3]!, ['crown']);
-  }
-  for (const p of cell.parasols) addParasol(mesh, lines, p);
-  for (const t of cell.tanks) addTank(mesh, lines, t);
   for (const line of cell.parapets) addParapet(mesh, lines, line);
-  for (const p of cell.props) if (isLarge(p)) addProp(mesh, p);
+  mesh.drape = lines.drape = null;
+  for (const bay of cell.canopies) {
+    at(bay.cx, bay.cz);
+    addCanopyBay(mesh, lines, bay);
+  }
+  for (const b of cell.buildings) {
+    const base = footing(terrain, b.ring);
+    mesh.lift = lines.lift = base;
+    addBuilding(mesh, lines, b, walls, base);
+  }
+  for (let i = 0; i < trees.length; i += 4) tree(i, ['crown']);
+  for (const p of cell.parasols) {
+    at(p.x, p.z);
+    addParasol(mesh, lines, p);
+  }
+  for (const t of cell.tanks) {
+    mesh.lift = lines.lift = terrain.base(t.ring);
+    addTank(mesh, lines, t);
+  }
+  for (const p of cell.props) {
+    if (!isLarge(p)) continue;
+    mesh.lift = propBase(terrain, p);
+    addProp(mesh, p);
+  }
+  mesh.lift = lines.lift = 0;
   const fineVertices = mesh.indices;
+  mesh.drape = terrain;
   addFinePaint(mesh, cell.ground.markings);
   return { mesh, lines, trunksFrom, shadowFrom, fineVertices, detail };
 }
 
 /**
- * A cell's small street furniture, as a mesh of its own that hides when zoomed out. It only
- * shows up close, so it's built apart from the rest, after the first frame.
+ * Where a prop stands: the lowest ground under its footprint's corners, so a bench or a
+ * monument's plinth runs into a slope rather than over it.
  */
-export function buildFurniture(cell: Cell): MeshBuilder {
+export function propBase(terrain: Terrain, p: Prop): number {
+  const { x, z, fx, fz, u0, u1, v0, v1 } = propFootprint(p);
+  const ring = [u0, u1].flatMap((u) =>
+    [v0, v1].flatMap((v) => [x - fz * u + fx * v, z + fx * u + fz * v]),
+  );
+  return terrain.base(ring);
+}
+
+/**
+ * A cell's small street furniture, as a mesh of its own that hides when zoomed out. It only
+ * shows up close, so it's built apart from the rest, after the first frame. Each piece stands
+ * on the ground under it (`propBase`).
+ */
+export function buildFurniture(cell: Cell, terrain: Terrain = FLAT): MeshBuilder {
   const props = new MeshBuilder();
-  for (const p of cell.props) if (!isLarge(p)) addProp(props, p);
+  for (const p of cell.props) {
+    if (isLarge(p)) continue;
+    props.lift = propBase(terrain, p);
+    addProp(props, p);
+  }
   return props;
 }

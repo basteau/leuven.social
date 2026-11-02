@@ -55,3 +55,14 @@ test('dots drop off as the walker passes them', () => {
   expect(passedVertices(marker, 1.2)).toBe(DOT_VERTICES);
   expect(passedVertices(marker, 100)).toBe(marker.dots.length * DOT_VERTICES);
 });
+
+const tilted = (x: number, z: number) => 0.2 * x - 0.1 * z;
+
+test('on a slope, every dot and the ring lie on the ground', () => {
+  const marker = routeMarker(Float32Array.of(0, 0, 10, 0, 10, 10), tilted);
+  const position = unindexed(marker.geometry).getAttribute('position');
+  for (let i = 0; i < position.count; i++) {
+    expect(position.getY(i) - tilted(position.getX(i), position.getZ(i))).toBeCloseTo(0.23);
+  }
+  expect(position.count).toBe(marker.dots.length * DOT_VERTICES + TARGET_VERTICES);
+});

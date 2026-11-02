@@ -4,11 +4,22 @@ import {
   BufferGeometry,
   InterleavedBuffer,
   InterleavedBufferAttribute,
+  ShapeUtils,
   Sphere,
+  Vector2,
   Vector3,
 } from 'three';
 
+import type { Corner, Polygon, Terrain } from '../data/terrain.ts';
+
 export type V3 = readonly [number, number, number];
+
+/**
+ * A lifted object's height reaches the shaders in this unit (m), in the spare fourth byte of
+ * each normal (the `lift` attribute): the walls' windows count their storeys from it. Lift a
+ * house by whole steps of it and they start exactly at its foot.
+ */
+export const LIFT_UNIT = 0.5;
 
 /**
  * Patches a material's vertex shader for the colours `MeshBuilder` writes: sRGB bytes, as in the
@@ -138,6 +149,19 @@ class Bounds {
  * four, a polygon's ring. Draw ranges count indices, three per triangle.
  */
 export class MeshBuilder {
+  /**
+   * Where what's written next stands. With `drape`, flat ground follows the terrain: each
+   * polygon is cut along the terrain's triangles (`Terrain.clip`) and every corner lifted by the
+   * ground under it, and faces turned up keep an upward normal, so a slope is lit like level
+   * ground and its pieces share their vertices. Otherwise everything is raised by `lift`: a
+   * rigid thing, such as a house, standing at one height.
+   */
+  drape: Terrain | null = null;
+  #lift = 0;
+  /** The lift in LIFT_UNITs, as written into each normal's fourth byte. */
+  #liftCode = 0;
+  /** Whether the face being written is draped ground facing up, whose normal is straight up. */
+  #up = false;
   #capacity = 1 << 14;
   #count = 0;
   #positions = new Float32Array(this.#capacity * 3);
@@ -170,6 +194,15 @@ export class MeshBuilder {
     return this.#indices.count;
   }
 
+  get lift(): number {
+    return this.#lift;
+  }
+
+  set lift(y: number) {
+    this.#lift = y;
+    this.#liftCode = Math.max(-128, Math.min(127, Math.round(y / LIFT_UNIT)));
+  }
+
   /**
    * Makes the normal of the triangle a, b, c, turned to face `hint`, the face being written.
    * Returns -1 if its corners go in as a, c, b to face that way, 1 if as a, b, c, and 0 for a
@@ -188,6 +221,10 @@ export class MeshBuilder {
     const len = Math.hypot(nx, ny, nz);
     if (len < 1e-9) return 0;
     const flip = nx * hint[0] + ny * hint[1] + nz * hint[2] < 0 ? -1 : 1;
+    if (this.#up) {
+      [this.#nx, this.#ny, this.#nz] = [0, 127, 0];
+      return flip;
+    }
     nx = (nx / len) * flip;
     ny = (ny / len) * flip;
     nz = (nz / len) * flip;
@@ -210,7 +247,7 @@ export class MeshBuilder {
     if (this.#count === this.#capacity) this.#grow();
     const i = this.#count * 3;
     this.#positions[i] = v[0];
-    this.#positions[i + 1] = v[1];
+    this.#positions[i + 1] = v[1] + this.#lift;
     this.#positions[i + 2] = v[2];
     // As stored, so the bounds match what three would compute from the buffer.
     this.#bounds.add(this.#positions[i]!, this.#positions[i + 1]!, this.#positions[i + 2]!);
@@ -218,6 +255,7 @@ export class MeshBuilder {
     this.#normals[j] = this.#nx;
     this.#normals[j + 1] = this.#ny;
     this.#normals[j + 2] = this.#nz;
+    this.#normals[j + 3] = this.#liftCode;
     const color = this.#color;
     this.#colors[j] = color >> 16;
     this.#colors[j + 1] = (color >> 8) & 255;
@@ -237,10 +275,19 @@ export class MeshBuilder {
    * or paint code (see paint.ts); paint gives each vertex its own.
    */
   triangle(a: V3, b: V3, c: V3, color: number, hint: V3, facade: number | V3 = 0): void {
+    const [fa, fb, fc] = typeof facade === 'number' ? [facade, facade, facade] : facade;
+    if (this.drape) {
+      const ring = [
+        [...a, fa],
+        [...b, fb],
+        [...c, fc],
+      ];
+      this.#drape(ring, color, hint, typeof facade === 'number' ? facade : undefined);
+      return;
+    }
     const flip = this.#face(a, b, c, hint);
     if (!flip) return;
     this.#color = color;
-    const [fa, fb, fc] = typeof facade === 'number' ? [facade, facade, facade] : facade;
     this.#triangle(this.#vertex(a, fa), this.#vertex(b, fb), this.#vertex(c, fc), flip);
   }
 
@@ -258,6 +305,16 @@ export class MeshBuilder {
     facade: number | readonly [number, number, number, number] = 0,
   ): void {
     const [fa, fb, fc, fd] = typeof facade === 'number' ? [facade, facade, facade, facade] : facade;
+    if (this.drape) {
+      const ring = [
+        [...a, fa],
+        [...b, fb],
+        [...c, fc],
+        [...d, fd],
+      ];
+      this.#drape(ring, color, hint, typeof facade === 'number' ? facade : undefined);
+      return;
+    }
     const first = this.#face(a, b, c, hint);
     const nx = this.#nx;
     const ny = this.#ny;
@@ -280,7 +337,8 @@ export class MeshBuilder {
   /**
    * A polygon, as the triangles `faces` lists by corner (as `ShapeUtils.triangulateShape` gives
    * them), each turned to face `hint`. Triangles share a corner's vertex where they get the same
-   * normal: on a flat polygon, there's one vertex per corner.
+   * normal: on a flat polygon, there's one vertex per corner. Draped, `points` must be a ring
+   * lying flat, in order: each piece of it is triangulated again.
    */
   polygon(
     points: readonly V3[],
@@ -289,6 +347,10 @@ export class MeshBuilder {
     hint: V3,
     facade = 0,
   ): void {
+    if (this.drape) {
+      this.#drape(points, color, hint, facade, true);
+      return;
+    }
     this.#color = color;
     const written = new Int32Array(points.length).fill(-1);
     const vertex = (corner: number) => {
@@ -303,8 +365,58 @@ export class MeshBuilder {
   }
 
   /**
-   * `facade` adds the wall-top attribute the window shader reads; only buildings need it. The
-   * arrays are let go once uploaded: after that only the GPU needs them.
+   * A polygon (convex, or with `ring` any flat ring) draped on the terrain: cut along its
+   * triangles, each corner lifted by the ground under it. With one `facade` for all of it, the
+   * pieces are written as one polygon, so a cut point is one vertex wherever the normals agree;
+   * otherwise each corner carries its own (the fourth value) and every piece is a fan.
+   */
+  #drape(polygon: Polygon, color: number, hint: V3, facade?: number, ring = false): void {
+    const [terrain, lift] = [this.drape!, this.#lift];
+    const onGround = (p: Corner): V3 => [p[0]!, p[1]! + terrain.height(p[0]!, p[2]!), p[2]!];
+    [this.drape, this.lift] = [null, 0];
+    this.#up = hint[0] === 0 && hint[2] === 0 && hint[1] > 0;
+    const pieces = terrain.clip(polygon);
+    if (facade === undefined) {
+      for (const piece of pieces) {
+        const [p, ...rest] = piece;
+        for (let i = 0; i + 1 < rest.length; i++) {
+          const [q, r] = [rest[i]!, rest[i + 1]!];
+          this.triangle(onGround(p!), onGround(q), onGround(r), color, hint, [
+            p![3]!,
+            q[3]!,
+            r[3]!,
+          ]);
+        }
+      }
+    } else {
+      const index = new Map<string, number>();
+      const points: V3[] = [];
+      const faces: number[][] = [];
+      for (const piece of pieces) {
+        const ids = piece.map((p) => {
+          const key = `${p[0]},${p[1]},${p[2]}`;
+          let id = index.get(key);
+          if (id === undefined) index.set(key, (id = points.push(onGround(p)) - 1));
+          return id;
+        });
+        const triangles = ring
+          ? ShapeUtils.triangulateShape(
+              piece.map((p) => new Vector2(p[0], p[2])),
+              [],
+            )
+          : ids.slice(2).map((_, i) => [0, i + 1, i + 2]);
+        for (const [a, b, c] of triangles) faces.push([ids[a!]!, ids[b!]!, ids[c!]!]);
+      }
+      this.polygon(points, faces, color, hint, facade);
+    }
+    this.#up = false;
+    [this.drape, this.lift] = [terrain, lift];
+  }
+
+  /**
+   * `facade` adds the wall-top attribute the window shader reads, and the lift its storeys
+   * count from; only buildings need them. The arrays are let go once uploaded: after that only
+   * the GPU needs them.
    */
   build({ facade = false } = {}): BufferGeometry {
     const n = this.#count;
@@ -320,6 +432,8 @@ export class MeshBuilder {
     if (facade) {
       const value = new BufferAttribute(this.#facades.slice(0, n), 1);
       geometry.setAttribute('facade', value.onUpload(release));
+      // The normal's spare byte: no more memory, on the GPU or off it.
+      geometry.setAttribute('lift', new InterleavedBufferAttribute(normal.data, 1, 3, false));
     }
     geometry.setIndex(indexAttribute(this.#indices.array, this.#indices.count, n));
     this.#bounds.applyTo(geometry);
@@ -340,6 +454,9 @@ export class LineBuilder {
   /** Open addressing, kept under half full: a point's index plus one, or 0 for an empty slot. */
   #slots = new Int32Array(1 << 13);
   #bounds = new Bounds();
+  /** As for `MeshBuilder`: a line draped on the terrain, or lifted by one height. */
+  drape: Terrain | null = null;
+  lift = 0;
 
   /** Segments so far: a mark for drawing only part of the outlines (see `setDrawRange`). */
   get segments(): number {
@@ -368,7 +485,7 @@ export class LineBuilder {
     const end = this.#count * 3;
     // Rounded to floats as stored, so equal points compare equal.
     p[end] = v[0];
-    p[end + 1] = v[1];
+    p[end + 1] = v[1] + this.lift;
     p[end + 2] = v[2];
     const x = p[end]!;
     const y = p[end + 1]!;
@@ -401,8 +518,20 @@ export class LineBuilder {
   }
 
   segment(a: V3, b: V3): void {
-    const i = this.#point(a);
-    this.#indices.push(i, this.#point(b));
+    if (!this.drape) {
+      const i = this.#point(a);
+      this.#indices.push(i, this.#point(b));
+      return;
+    }
+    const [terrain, lift] = [this.drape, this.lift];
+    this.lift = 0;
+    let last = -1;
+    for (const p of terrain.cut(a, b)) {
+      const i = this.#point([p[0]!, p[1]! + terrain.height(p[0]!, p[2]!), p[2]!]);
+      if (last >= 0) this.#indices.push(last, i);
+      last = i;
+    }
+    this.lift = lift;
   }
 
   build(): BufferGeometry {

@@ -3,12 +3,16 @@ import { ShapeUtils, Vector2 } from 'three';
 import type { Bounds, Carriageway, Path } from '../data/city.ts';
 import { areaOutline } from '../data/geometry.ts';
 import type { OutlineEdge } from '../data/geometry.ts';
-import type { LineBuilder, MeshBuilder } from './mesh-builder.ts';
+import type { Terrain } from '../data/terrain.ts';
+import type { LineBuilder, MeshBuilder, V3 } from './mesh-builder.ts';
 import { SURFACE, SURFACE_OF, addPaint } from './paint.ts';
 import type { Marking } from './paint.ts';
 import { CARRIAGEWAYS, GROUND } from './palette.ts';
 
-/** How far the diorama slab drops below street level, in metres. */
+/**
+ * How far the diorama slab drops below street level, in metres: below the lowest ground, as its
+ * underside is flat.
+ */
 export const SLAB_DEPTH = 12;
 const UP = [0, 1, 0] as const;
 /** The slab's ink lip sits on top of the highest ground layer (squares, 0.2 m). */
@@ -89,14 +93,20 @@ function edgeIn(e: OutlineEdge, within: Bounds): [number, number, number, number
   return [x0, z0, x1, z1];
 }
 
+/** Where the slab's flat underside is, under the lowest ground of `terrain` (or level ground). */
+export const slabBottom = (terrain: Terrain | null) => (terrain?.lowest ?? 0) - SLAB_DEPTH;
+
 /**
  * An ink lip along the slab's top and bottom edges and down its corners, inside `within`: it
  * frames the diorama as one object, like the buildings on it. The top line sits on the highest
- * ground layer. Points where the outline runs straight on get no corner line.
+ * ground layer, draped over the terrain if `lines` is. Points where the outline runs straight on
+ * get no corner line.
  */
 export function addSlabInk(lines: LineBuilder, area: readonly Bounds[], within: Bounds): void {
   const outline = areaOutline(area);
-  const d = -SLAB_DEPTH;
+  const terrain = lines.drape;
+  const d = slabBottom(terrain);
+  const top = (x: number, z: number) => LIP + (terrain?.height(x, z) ?? 0);
   // The outline's corners: points where edges facing different ways meet.
   const facing = new Map<string, Set<string>>();
   for (const e of outline) {
@@ -107,18 +117,46 @@ export function addSlabInk(lines: LineBuilder, area: readonly Bounds[], within: 
     if (!edge) continue;
     const [x0, z0, x1, z1] = edge;
     lines.segment([x0, LIP, z0], [x1, LIP, z1]);
+    lines.drape = null;
     lines.segment([x0, d, z0], [x1, d, z1]);
+    lines.drape = terrain;
   }
+  lines.drape = null;
   for (const [key, normals] of facing) {
     const [x, z] = key.split(',').map(Number) as [number, number];
     const inside = x >= within.minX && x <= within.maxX && z >= within.minZ && z <= within.maxZ;
-    if (normals.size > 1 && inside) lines.segment([x, d, z], [x, LIP, z]);
+    if (normals.size > 1 && inside) lines.segment([x, d, z], [x, top(x, z), z]);
   }
+  lines.drape = terrain;
 }
 
 /**
- * The diorama inside `within` (one cell): the earth slab's top and the sides hanging from the
- * area's outline, then water, paths, the road surface and its paint, and squares on top. Layers come
+ * One side of the slab, under the outline from (x0, z0) to (x1, z1): from the ground, draped if
+ * `mesh` is, down to the flat underside.
+ */
+function addSide(mesh: MeshBuilder, [x0, z0, x1, z1]: readonly number[], hint: V3): void {
+  const terrain = mesh.drape;
+  const d = slabBottom(terrain);
+  const tops = terrain?.cut([x0!, 0, z0!], [x1!, 0, z1!]) ?? [
+    [x0!, 0, z0!],
+    [x1!, 0, z1!],
+  ];
+  const points = tops.flatMap(([x, , z]): V3[] => [
+    [x!, d, z!],
+    [x!, terrain?.height(x!, z!) ?? 0, z!],
+  ]);
+  const faces = tops.slice(1).flatMap((_, i) => [
+    [i * 2, i * 2 + 2, i * 2 + 3],
+    [i * 2, i * 2 + 3, i * 2 + 1],
+  ]);
+  mesh.drape = null;
+  mesh.polygon(points, faces, GROUND.earth, hint);
+  mesh.drape = terrain;
+}
+
+/**
+ * The diorama inside `within` (one cell), draped over the terrain if `mesh` is: the earth slab's
+ * top and the sides hanging from the area's outline to its flat underside, then water, paths, the road surface and its paint, and squares on top. Layers come
  * already clipped to the cell.
  */
 export function addGround(
@@ -133,13 +171,9 @@ export function addGround(
     if (x0 < x1 && z0 < z1)
       mesh.quad([x0, 0, z0], [x1, 0, z0], [x1, 0, z1], [x0, 0, z1], GROUND.base, UP);
   }
-  const d = -SLAB_DEPTH;
   for (const e of areaOutline(area)) {
     const edge = edgeIn(e, within);
-    if (!edge) continue;
-    const [x0, z0, x1, z1] = edge;
-    const hint = [e.nx, 0, e.nz] as const;
-    mesh.quad([x0, d, z0], [x1, d, z1], [x1, 0, z1], [x0, 0, z0], GROUND.earth, hint);
+    if (edge) addSide(mesh, edge, [e.nx, 0, e.nz]);
   }
   // Layers stack a few millimetres apart, from the most generic land to the most specific, so
   // what is mapped inside something else shows: railway land is the land a railway owns, with

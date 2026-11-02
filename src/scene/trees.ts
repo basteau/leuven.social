@@ -1,27 +1,61 @@
-import { CylinderGeometry, IcosahedronGeometry } from 'three';
-import type { BufferGeometry } from 'three';
-
 import type { MeshBuilder, V3 } from './mesh-builder.ts';
 import { fromOklab, toOklab } from '../data/colour.ts';
 import { MAX_TRUNK, treeScale } from '../data/trees.ts';
 import { TREE, pick } from './palette.ts';
 
-/** Flat triangle soup of a three.js shape, so trees can join the cell meshes. */
-function triangles(geometry: BufferGeometry): V3[] {
-  const flat = geometry.index ? geometry.toNonIndexed() : geometry;
-  const p = flat.getAttribute('position');
-  const out = Array.from({ length: p.count }, (_, i): V3 => [p.getX(i), p.getY(i), p.getZ(i)]);
-  geometry.dispose();
-  flat.dispose();
-  return out;
-}
-
 // A four-sided open trunk is all a pixel can show: its caps hide in the crown and the ground.
 const TRUNK_BASE = 0.4;
 const CROWN_RADIUS = 2.6;
 const CROWN_Y = 4.6;
-const TRUNK = triangles(new CylinderGeometry(0.3, TRUNK_BASE, 3, 4, 1, true).translate(0, 1.5, 0));
-const CROWN = triangles(new IcosahedronGeometry(CROWN_RADIUS, 0).translate(0, CROWN_Y, 0));
+
+/**
+ * An open, tapering trunk as triangle soup, each side written (a, b, d), (b, c, d) from its top
+ * and bottom corners, as three's open CylinderGeometry would. Written out here, so the engine
+ * doesn't carry three's cylinder and polyhedron for two small shapes.
+ */
+function trunk(top: number, bottom: number, height: number, sides: number): V3[] {
+  const at = (r: number, y: number, k: number): V3 => {
+    const turn = (k / sides) * Math.PI * 2;
+    return [r * Math.sin(turn), y, r * Math.cos(turn)];
+  };
+  return Array.from({ length: sides }, (_, k) => {
+    const [a, b, c, d] = [
+      at(top, height, k),
+      at(bottom, 0, k),
+      at(bottom, 0, k + 1),
+      at(top, height, k + 1),
+    ];
+    return [a, b, d, b, c, d];
+  }).flat();
+}
+
+/** An icosahedron of `radius` round (0, y, 0) as triangle soup: three's, without its code. */
+function icosahedron(radius: number, y: number): V3[] {
+  const t = (1 + Math.sqrt(5)) / 2;
+  const s = radius / Math.hypot(1, t);
+  const corners = [
+    [-1, t, 0],
+    [1, t, 0],
+    [-1, -t, 0],
+    [1, -t, 0],
+    [0, -1, t],
+    [0, 1, t],
+    [0, -1, -t],
+    [0, 1, -t],
+    [t, 0, -1],
+    [t, 0, 1],
+    [-t, 0, -1],
+    [-t, 0, 1],
+  ].map(([cx, cy, cz]): V3 => [cx! * s, cy! * s + y, cz! * s]);
+  const faces = [
+    0, 11, 5, 0, 5, 1, 0, 1, 7, 0, 7, 10, 0, 10, 11, 1, 5, 9, 5, 11, 4, 11, 10, 2, 10, 7, 6, 7, 1,
+    8, 3, 9, 4, 3, 4, 2, 3, 2, 6, 3, 6, 8, 3, 8, 9, 4, 9, 5, 2, 4, 11, 6, 2, 10, 8, 6, 7, 9, 8, 1,
+  ];
+  return faces.map((i) => corners[i]!);
+}
+
+const TRUNK = trunk(0.3, TRUNK_BASE, 3, 4);
+const CROWN = icosahedron(CROWN_RADIUS, CROWN_Y);
 /** Height of the model at scale 1, from the ground to the crown's top vertex (m). */
 export const MODEL_HEIGHT = 6.8;
 /** Triangles per tree, for budgets and tests. */
