@@ -122,7 +122,7 @@ const FOG_FAR = 330;
  * where it goes (s of travel), so it trails a hair setting off and leads a hair at a run.
  */
 const FOLLOW_EASE = 0.09;
-const LOOK_AHEAD = 0.2;
+const LOOK_AHEAD = 0.15;
 /** Holding a turn key turns the view up to this fast (rad/s), easing in and out (half-life, s). */
 const LOOK_KEY_RATE = 1.9;
 const LOOK_KEY_EASE = 0.08;
@@ -871,6 +871,8 @@ export function createWalk(host: WalkHost): Walk {
       const goal = headLook(heading, boom.yaw) * (1 - 0.6 * sprint);
       head += (goal - head) * (reducedMotion ? 1 : 1 - Math.exp(-6 * dt));
       busy ||= Math.abs(goal - head) > 0.01;
+      // Landed, the figure lands into its pose: knees giving, arms forward, a small rebound.
+      const settle = landed >= 0 && landed < SETTLE ? landed / SETTLE : 1;
       const posed = ridden
         ? riding!.pose(pose, head)
         : poseAt(
@@ -881,20 +883,26 @@ export function createWalk(host: WalkHost): Walk {
             !reducedMotion,
             walker.turning,
             head,
-            walker.accel,
+            walker.surge,
             heading,
+            settle,
           );
-      // Dropping in, its arms are thrown up; landed, they come down as it settles (a crouch
-      // can follow `settling(landed)` once the figure's pose has one).
+      // Dropping in, its arms are thrown up; landed, they come down into the landing.
       const thrown = dropping ? 1 : settling(landed);
       posed.armL += (ARMS_UP - posed.armL) * thrown;
       posed.armR += (ARMS_UP - posed.armR) * thrown;
       const waving = wave(leaving);
-      if (waving) [posed.armR, posed.elbowR] = waving;
+      if (waving) {
+        // The body leans away from the waving arm and the head tips up to the camera.
+        const raised = waving[0] / -2.7;
+        [posed.armR, posed.elbowR] = waving;
+        posed.bank -= 0.14 * raised;
+        posed.nod -= 0.2 * raised;
+      }
       applyPose(character, posed);
-      // Out of sight until its fall, then stretched by it, squashed landing, and settling.
+      // Out of sight until its fall, then stretched by it; the landing itself is in the pose.
       const height = fallHeight(-landed);
-      const stretch = bodyStretch(landed);
+      const stretch = dropping ? bodyStretch(landed) : 1;
       const wide = CHARACTER_SCALE / Math.sqrt(stretch);
       character.mesh.visible = height < Infinity;
       character.mesh.scale.set(wide, CHARACTER_SCALE * stretch, wide);
