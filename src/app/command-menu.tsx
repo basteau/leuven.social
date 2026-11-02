@@ -161,7 +161,8 @@ export function CommandMenu(props: MenuProps) {
   const current = flat[Math.min(active, flat.length - 1)];
   const optionId = (row: Row) => `${uid}-${row.id}`;
 
-  // Open and close the native dialog, which traps focus, closes on Escape and gives focus back.
+  // Open and close the native dialog, which traps focus and closes on Escape. It would give focus
+  // back to what opened it; the shell gives it to the map instead.
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;

@@ -185,6 +185,15 @@ export function App() {
     menuOpenRef.current = false;
     setMenu((m) => ({ ...m, open: false }));
   }, []);
+  // Closed, however it closed, the menu gives focus to the map, not back to its button (where the
+  // dialog would put it), so the arrows pan and Enter walks at once.
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (wasOpen.current && !menu.open) {
+      mapRef.current?.focus({ focusVisible: false } as FocusOptions);
+    }
+    wasOpen.current = menu.open;
+  }, [menu.open]);
   const takeTyped = useCallback(() => {
     const typed = typedRef.current;
     typedRef.current = '';
@@ -374,7 +383,7 @@ export function App() {
     bell: () => viewerRef.current?.ride('bell'),
     sound: () => toggleSoundRef.current(),
   }));
-  /** A command from the menu: the menu closes first, so focus is back on the map for its keys. */
+  /** A command from the menu: the menu closes first, and focus goes back to the map for its keys. */
   const run = useCallback(
     (action: ActionId) => {
       if (action === 'help' || action === 'about') return; // pages of the menu itself
