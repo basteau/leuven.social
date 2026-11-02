@@ -5,6 +5,7 @@ import type { City } from '../data/city.ts';
 import {
   HOUSE_PLATE_HEIGHT,
   PLATE_BUCKET,
+  PROUD,
   PlateIndex,
   STREET_PLATE_HEIGHT,
   plateBucket,
@@ -12,19 +13,26 @@ import {
 } from '../data/plates.ts';
 import type { WalkData } from '../data/plates.ts';
 import {
+  AWNING_REACH,
+  PLATE_DEPTH,
   PlateBuffers,
   Walls,
   addPlate,
+  boardColour,
+  fitBoard,
+  linearRgb,
   packCells,
   plateHeights,
   plateWidth,
 } from './plate-mesh.ts';
 import type { Facade, PlateStyle, Slice } from './plate-mesh.ts';
+import { FRONTS } from './palette.ts';
 import type { PLATE } from './palette.ts';
 
 /**
- * The enamel plates on the facades while walking: house numbers beside the doors and street
- * names on the corners, real geometry in the scene, lit and hidden by buildings like the rest.
+ * The enamel plates on the facades while walking: house numbers beside the doors, street names
+ * on the corners and the shops' name boards, real geometry in the scene, lit and hidden by
+ * buildings like the rest.
  * One mesh and one draw call for every plate near the walker, built again only when the walker
  * steps into another square; nothing per frame. Their letters come from one atlas, drawn once
  * by the browser from the letters the plates use. This module and walk.bin load with the first
@@ -33,14 +41,24 @@ import type { PLATE } from './palette.ts';
 
 export const WALK_URL = `${import.meta.env.BASE_URL}data/walk.bin`;
 
-/** Plates within this distance (m) of the walker are in the mesh: numbers, and street names. */
+/** Plates within this distance (m) of the walker are in the mesh: numbers, street names, boards. */
 const HOUSE_REACH = 40;
 const STREET_REACH = 60;
+const BOARD_REACH = 50;
 /** The mesh is built round the middle of the walker's square, so it covers the whole square. */
 const SLACK = PLATE_BUCKET * Math.SQRT1_2;
 /** At most this many of each, nearest first: the densest square in the city has about 86 and 33. */
 const MAX_HOUSES = 200;
 const MAX_STREETS = 64;
+const MAX_BOARDS = 96;
+/**
+ * A name board's height (m), least and most: on a fascia, the band the facade paints over a shop
+ * window; on an awning, a little deeper than its 0.2 m valance. A long name makes it shorter.
+ */
+const FASCIA: [number, number] = [0.3, 0.45];
+const VALANCE: [number, number] = [0.24, 0.34];
+/** A board stops this far (m) short of its front's ends, so two side by side don't touch. */
+const BOARD_INSET = 0.1;
 
 const ATLAS_WIDTH = 1024;
 /** Texels between the atlas's cells, and how far each cell's enamel reaches into them. */
@@ -60,10 +78,15 @@ interface Design {
   radius: number;
   cap: number;
   minWidth: number;
+  /**
+   * A name board's cells are clear where a plate's are enamel: the board's own paint (its
+   * kind's) shows through, so one set of letters serves every colour of board.
+   */
+  clear?: boolean;
 }
 /**
- * Every kind of plate, drawn into one atlas for one draw call. Another kind (a shop's name board)
- * is another row: its letters go into the same atlas.
+ * Every kind of plate, drawn into one atlas for one draw call: house numbers, street names and
+ * the shops' name boards. Another kind is another row: its letters go into the same atlas.
  */
 const STYLES = {
   /** House numbers: a small plate, big bold digits. */
@@ -90,6 +113,18 @@ const STYLES = {
     radius: 0.16,
     cap: 0.3,
     minWidth: 2.4,
+  },
+  /** Shop names: bold paper letters painted on a board, under a thin paper line. */
+  board: {
+    height: VALANCE[1],
+    texels: 56,
+    weight: 700,
+    size: 0.56,
+    spacing: 0.04,
+    radius: 0.1,
+    cap: 0.16,
+    minWidth: 1,
+    clear: true,
   },
 } satisfies Record<string, Design>;
 type Kind = keyof typeof STYLES;
@@ -150,17 +185,20 @@ function drawAtlas(texts: Record<Kind, Iterable<string>>, colours: typeof PLATE)
   /** Enamel from x0 to x1 (texels), rounded at either end, `h` texels tall from y. */
   const enamel = (x0: number, x1: number, y: number, d: Design, left: boolean, right: boolean) => {
     const h = d.texels;
-    const layers: [number, number][] = [
+    const paint = d.clear ? null : colours.enamel;
+    const layers: [number, number | null][] = [
       [0, colours.ink],
-      [INK_EDGE, colours.enamel],
+      [INK_EDGE, paint],
       [RIM_INSET, colours.paper],
-      [RIM_INSET + RIM, colours.enamel],
+      [RIM_INSET + RIM, paint],
     ];
     for (const [inset, colour] of layers) {
       const i = inset * h;
       const r = Math.max(0, d.radius * h - i);
       const [a, b] = [left ? x0 + i : x0, right ? x1 - i : x1];
-      ctx.fillStyle = hex(colour);
+      // A board's paint: no colour here, only no alpha.
+      ctx.globalCompositeOperation = colour === null ? 'destination-out' : 'source-over';
+      ctx.fillStyle = hex(colour ?? 0);
       ctx.beginPath();
       ctx.roundRect(a, y + i, b - a, h - 2 * i, [
         left ? r : 0,
@@ -170,6 +208,7 @@ function drawAtlas(texts: Record<Kind, Iterable<string>>, colours: typeof PLATE)
       ]);
       ctx.fill();
     }
+    ctx.globalCompositeOperation = 'source-over';
   };
   const slice = (x: number, y: number, width: number, d: Design): Slice => ({
     u0: x / ATLAS_WIDTH,
@@ -224,9 +263,10 @@ function drawAtlas(texts: Record<Kind, Iterable<string>>, colours: typeof PLATE)
 }
 
 /**
- * What the plates build with, from the viewer's chunk: imported here, three.js and the palette
- * would be shared by two lazy chunks (walk mode's and this one), and the bundler would split them
- * out of the viewer into one more file that every first visit loads.
+ * What the plates build with, from the viewer's chunk: imported here, three.js would be shared by
+ * two lazy chunks (walk mode's and this one), and the bundler would split it out of the viewer
+ * into one more file that every first visit loads. The palette is a chunk of its own, loaded with
+ * the engine (vite.config.ts), so the boards' `FRONTS` come from it directly.
  */
 export interface PlateKit {
   three: Pick<
@@ -276,14 +316,35 @@ export function createPlates(host: PlatesHost, data: WalkData): Plates {
     {
       house: data.houses.flatMap((h) => [...h.text]),
       street: data.streets.flatMap((s) => [...(names[s.name] ?? '')]),
+      board: ['…', ...data.boards.flatMap((b) => [...b.name])],
     },
     host.kit.colours,
   );
   const texture = new CanvasTexture(atlas.canvas);
   texture.colorSpace = host.kit.three.SRGBColorSpace;
   texture.anisotropy = host.anisotropy;
-  const material = new MeshToonMaterial({ map: texture, gradientMap: host.gradientMap });
+  const material = new MeshToonMaterial({
+    map: texture,
+    gradientMap: host.gradientMap,
+    vertexColors: true,
+  });
   host.fadeNearCamera(material);
+  // Where the atlas is clear (a board's), its paint: the vertex colour, under paper letters.
+  const fade = material.onBeforeCompile;
+  material.onBeforeCompile = (shader, renderer) => {
+    fade.call(material, shader, renderer);
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <color_fragment>',
+      'diffuseColor = vec4(mix(vColor.rgb, diffuseColor.rgb, diffuseColor.a), 1.0);',
+    );
+  };
+  /** Each kind's board paint, in linear light, as the vertex colours carry it. */
+  const paint = Object.fromEntries(
+    Object.entries(FRONTS).map(([kind, front]) => [
+      kind,
+      linearRgb(boardColour(front, host.kit.colours.paper)),
+    ]),
+  );
   const geometry = new BufferGeometry();
   const mesh = new Mesh(geometry, material);
   // Rebuilt round the walker, so it's always near the view: no bounds to keep up to date.
@@ -303,6 +364,7 @@ export function createPlates(host: PlatesHost, data: WalkData): Plates {
 
   const houses = new PlateIndex(data.houses);
   const streets = new PlateIndex(data.streets);
+  const boards = new PlateIndex(data.boards);
   const buffers = new PlateBuffers();
   let walls: Walls | undefined;
   let built = Number.NaN;
@@ -314,13 +376,18 @@ export function createPlates(host: PlatesHost, data: WalkData): Plates {
     buffers.reset();
     const nearHouses = houses.near(cx, cz, HOUSE_REACH + SLACK, MAX_HOUSES);
     const nearStreets = streets.near(cx, cz, STREET_REACH + SLACK, MAX_STREETS);
+    const nearBoards = boards.near(cx, cz, BOARD_REACH + SLACK, MAX_BOARDS);
     const { buildings } = host.city;
     walls ??= new Walls(
       buildings.map((b) => b.ring),
       { facade: (b) => host.facade(buildings[b]!), height: host.height },
     );
     /** Settled onto its drawn wall, at its kind's height over the foot of its house. */
-    const hang = (kind: Kind, plate: { x: number; z: number; angle: number }, text: string) => {
+    const hang = (
+      kind: 'house' | 'street',
+      plate: { x: number; z: number; angle: number },
+      text: string,
+    ) => {
       const style = atlas.styles[kind];
       const half = (plateWidth(text, style) * style.height) / 2;
       const at = walls!.hang(plate.x, plate.z, plate.angle, half);
@@ -332,7 +399,27 @@ export function createPlates(host: PlatesHost, data: WalkData): Plates {
       const s = data.streets[i]!;
       hang('street', s, names[s.name] ?? '');
     }
-    shown = nearHouses.length + nearStreets.length;
+    // A shop's name: on its awning's valance where it has one, else on the fascia over its window.
+    for (const i of nearBoards) {
+      const b = data.boards[i]!;
+      const valance = b.awning && FRONTS[b.kind].awning;
+      const [low, high] = valance ? VALANCE : FASCIA;
+      const width = b.width - 2 * BOARD_INSET;
+      const fit = fitBoard(b.name, atlas.styles.board, width, low, high);
+      if (!fit) continue;
+      const style = { ...atlas.styles.board, height: fit.height, minWidth: width / fit.height };
+      const at = walls!.hang(b.x, b.z, b.angle, width / 2);
+      const heights = plateHeights(at.top, at.shop);
+      // The awning hangs off the surveyed wall, where the bake put the board, not the drawn one.
+      const out = AWNING_REACH + PLATE_DEPTH - 0.01 - PROUD;
+      const place = valance
+        ? { x: b.x + Math.cos(b.angle) * out, z: b.z + Math.sin(b.angle) * out, angle: b.angle }
+        : at;
+      buffers.tint = paint[b.kind]!;
+      const y = at.foot + (valance ? heights.valance : heights.fascia);
+      addPlate(buffers, { ...place, y, text: fit.text, style }, atlas.ink);
+    }
+    shown = nearHouses.length + nearStreets.length + nearBoards.length;
     const fill = (name: string, array: Float32Array, size: number) => {
       const current = geometry.getAttribute(name) as BufferAttribute | undefined;
       if (current?.array === array) {
@@ -344,6 +431,7 @@ export function createPlates(host: PlatesHost, data: WalkData): Plates {
     fill('position', buffers.positions, 3);
     fill('normal', buffers.normals, 3);
     fill('uv', buffers.uvs, 2);
+    fill('color', buffers.colors, 3);
     const index = geometry.getIndex();
     if (index?.array === buffers.indices) {
       index.clearUpdateRanges();

@@ -42,10 +42,13 @@ const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[
     gzip: true,
   },
   // The plates on the facades load after walk mode, in a chunk and a data file of their own.
+  // 6: the shops' name boards (fitting a name to its front, its paint at 4.5:1, hanging it on
+  // the awning's valance or the fascia, and the shader that paints under the letters) took the
+  // chunk from 4.6 to 5.6 KB.
   {
     label: 'Facade plates JS (on first walk)',
     pattern: 'assets/plates-*.js',
-    limit: 5 * KB,
+    limit: 6 * KB,
     gzip: true,
   },
   // Street furniture, monuments and the shop fronts' awnings, signs and terraces load once the
