@@ -2,7 +2,6 @@ import { describe, expect, test } from 'bun:test';
 
 import type { Building } from '../data/city.ts';
 import {
-  SHOP_FRONT,
   addBuilding,
   buildingsGeometry as indexed,
   cutAt,
@@ -11,7 +10,7 @@ import {
   planRoof,
 } from './buildings.ts';
 import { LANDMARK_MODELS } from './landmark-models.ts';
-import { LANCETS } from './landmarks.ts';
+import { LANCETS, shopFront } from './facade-codes.ts';
 import { Terrain } from '../data/terrain.ts';
 import { LIFT_UNIT, LineBuilder, MeshBuilder, unindexed } from './mesh-builder.ts';
 import { pick } from './palette.ts';
@@ -161,11 +160,19 @@ describe('buildingsGeometry', () => {
     expect(values).toEqual(new Set([Math.fround(plan.eave), 0]));
   });
 
-  test('shops, cafés and offices mark their walls for a shop front', () => {
-    const b = building({ kind: 'retail' });
-    const facade = buildingsGeometry([b]).surfaces.getAttribute('facade');
-    const values = new Set(Array.from({ length: facade.count }, (_, i) => facade.getX(i)));
-    expect(values).toEqual(new Set([Math.fround(planRoof(b).eave + SHOP_FRONT), 0]));
+  test('a shop front marks the walls that face its street with its kind; the back stays plain', () => {
+    const front = { building: 0, edge: 0, along: 3, kind: 'bakery' as const, terrace: false };
+    const b = building({ kind: 'retail', roof: 'flat', front });
+    const g = buildingsGeometry([b]).surfaces;
+    const [facade, position] = [g.getAttribute('facade'), g.getAttribute('position')];
+    const bakery = shopFront(5, 10);
+    expect(facades(b)).toEqual(new Set([bakery, 10, 0]));
+    // Only the wall along z = 0, whose normal is the front's, carries it.
+    for (let i = 0; i < facade.count; i++) {
+      if (facade.getX(i) === bakery) expect(position.getZ(i)).toBe(0);
+    }
+    // A building tagged retail with no shop mapped in it has plain windows.
+    expect(facades(building({ kind: 'retail', roof: 'flat' }))).toEqual(new Set([10, 0]));
   });
 
   test('churches mark their walls for lancets; sheds get no windows', () => {

@@ -5,6 +5,7 @@
 
 import type { CarriagewayKind, Kind, Material } from '../data/city.ts';
 import { fromOklab, toOklab } from '../data/colour.ts';
+import type { ShopKind } from '../data/shop-kinds.ts';
 
 export const WALLS: Record<Kind, readonly number[]> = {
   // Red and dark brown brick, yellow brick, whitewash, cream and sand plaster.
@@ -196,8 +197,38 @@ export const TREE = {
   age: 0.05,
 } as const;
 
-/** Shop awnings over the ground-floor windows: one canvas per bay. */
-export const AWNINGS = [0xd2553f, 0x2f6b4f, 0x4a77a8, 0xe8b94a, 0x7a3e31, 0xf6eedc] as const;
+/**
+ * Shop fronts by what they sell (src/data/shop-kinds.ts): the canvas of the awning, or of the
+ * fascia board where there's none (a pharmacy's green, a bank's blue), and a second colour it is
+ * striped with where that's the trade's (a frituur's red and yellow, a bakery's cream and brown).
+ * Cafés, bars and restaurants have warm panes, open into the evening; shops goods in the window.
+ */
+export interface FrontStyle {
+  canvas: number;
+  stripe?: number;
+  /** A canvas awning over the front (else only the board). */
+  awning: boolean;
+  lit?: boolean;
+  goods?: boolean;
+}
+const PAPER = 0xf6eedc;
+export const FRONTS: Record<ShopKind, FrontStyle> = {
+  frituur: { canvas: 0xe8b94a, stripe: 0xd2553f, awning: true, lit: true },
+  cafe: { canvas: 0x2f6b4f, awning: true, lit: true },
+  bar: { canvas: 0x7a3e31, awning: true, lit: true },
+  restaurant: { canvas: 0x8c2f3a, stripe: PAPER, awning: true, lit: true },
+  snack: { canvas: 0xe07b4f, awning: true, lit: true },
+  bakery: { canvas: PAPER, stripe: 0xb07a3e, awning: true, goods: true },
+  icecream: { canvas: 0xf0b3c0, stripe: PAPER, awning: true, goods: true },
+  food: { canvas: 0x2f6b4f, stripe: PAPER, awning: true, goods: true },
+  pharmacy: { canvas: 0x3e9a5a, awning: false, goods: true },
+  bank: { canvas: 0x4a77a8, awning: false },
+  books: { canvas: 0x2c4a6e, awning: true, goods: true },
+  fashion: { canvas: 0x3d4250, awning: true, goods: true },
+  bicycle: { canvas: 0x4a77a8, awning: true, goods: true },
+  service: { canvas: 0x6c707a, awning: false },
+  shop: { canvas: 0xd2553f, awning: true, goods: true },
+};
 
 /**
  * The walker: a Leuven student in a coat of the HUD's accent blue, with a mustard scarf and a
