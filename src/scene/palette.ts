@@ -210,7 +210,7 @@ export const AWNINGS = [0xd2553f, 0x2f6b4f, 0x4a77a8, 0xe8b94a, 0x7a3e31, 0xf6ee
 export const WALKER = {
   skin: 0xf0c49c,
   hair: 0x7a4a2c,
-  shirt: 0xf0705a,
+  shirt: 0xfa8064,
   shorts: 0xe9dcbf,
   sneakers: 0xf6f1e6,
   xray: 0x2f62a8,
