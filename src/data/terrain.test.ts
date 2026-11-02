@@ -22,14 +22,6 @@ const area = (polygon: readonly Corner[]) =>
   }, 0);
 
 describe('Terrain', () => {
-  test('refuses a grid without a square in it', () => {
-    expect(() => new Terrain({ ...hill, cols: 1, heights: new Float32Array(3) })).toThrow(
-      RangeError,
-    );
-    expect(() => new Terrain({ ...hill, heights: new Float32Array(4) })).toThrow(RangeError);
-    expect(() => new Terrain({ ...hill, step: 0 })).toThrow(RangeError);
-  });
-
   test('knows its lowest and highest ground', () => {
     expect([hill.lowest, hill.highest]).toEqual([0, 4]);
     expect([FLAT.lowest, FLAT.highest]).toEqual([0, 0]);
@@ -50,25 +42,6 @@ describe('Terrain', () => {
   test('holds the edge height off the grid', () => {
     expect(hill.height(50, 0)).toBe(2);
     expect(hill.height(-50, -50)).toBe(0);
-  });
-
-  test('gives the plane of the triangle under a point', () => {
-    for (const [x, z] of [
-      [-2, -8],
-      [-8, -2],
-      [3, 7],
-      [7, 3],
-    ] as const) {
-      const [a, b, c] = hill.plane(x, z);
-      // Anywhere in the same triangle, the plane is the ground.
-      for (const [dx, dz] of [
-        [0, 0],
-        [0.5, 0],
-        [0, -0.5],
-      ] as const) {
-        expect(a + b * (x + dx) + c * (z + dz)).toBeCloseTo(hill.height(x + dx, z + dz));
-      }
-    }
   });
 
   test('stands a ring on its lowest corner', () => {
@@ -102,9 +75,13 @@ describe('clip', () => {
         piece.reduce((s, p) => s + p[0]!, 0) / piece.length,
         piece.reduce((s, p) => s + p[2]!, 0) / piece.length,
       ];
-      const [a, b, c] = hill.plane(cx, cz);
-      for (const p of piece)
-        expect(a + b * p[0]! + c * p[2]!).toBeCloseTo(hill.height(p[0]!, p[2]!));
+      // The ground is one plane over the piece: its slope at the middle reaches every corner.
+      const h = hill.height(cx, cz);
+      const [sx, sz] = [hill.height(cx + 0.01, cz) - h, hill.height(cx, cz + 0.01) - h];
+      for (const p of piece) {
+        const plane = h + ((p[0]! - cx) * sx + (p[2]! - cz) * sz) / 0.01;
+        expect(plane).toBeCloseTo(hill.height(p[0]!, p[2]!), 3);
+      }
     }
     expect(total).toBeCloseTo(area(square));
   });

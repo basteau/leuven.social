@@ -778,7 +778,14 @@ export function createWalk(host: WalkHost): Walk {
     // anything nearer than NEAR_FADE dithers away.
     const eye = view.position;
     nearFade.value = NEAR_FADE;
-    terrain.plane(eye.x, eye.z, nearGround.value as [number, number, number]);
+    // The ground round the camera as a plane, from its slope there.
+    const floor = ground(eye.x, eye.z);
+    const [sx, sz] = [ground(eye.x + 1, eye.z) - floor, ground(eye.x, eye.z + 1) - floor];
+    [nearGround.value[0], nearGround.value[1], nearGround.value[2]] = [
+      floor - sx * eye.x - sz * eye.z,
+      sx,
+      sz,
+    ];
     const near = Math.min(d, Math.hypot(eye.x - lookAt[0], eye.y - lookAt[1], eye.z - lookAt[2]));
     const high = (1 - flown) * 4000;
     view.fov = lens.fov;

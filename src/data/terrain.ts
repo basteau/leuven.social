@@ -32,10 +32,8 @@ export class Terrain {
   /** All one height: nothing to cut. */
   readonly #flat: boolean;
 
+  /** A grid of 2 × 2 nodes or more, as the city file holds (format.ts checks it). */
   constructor({ step, minX, minZ, cols, rows, heights }: TerrainGrid) {
-    if (cols < 2 || rows < 2 || heights.length !== cols * rows || !(step > 0)) {
-      throw new RangeError(`A terrain needs a grid of 2 × 2 nodes or more, not ${cols} × ${rows}.`);
-    }
     this.step = step;
     this.minX = minX;
     this.minZ = minZ;
@@ -63,20 +61,6 @@ export class Terrain {
     const [i, j, u, v] = this.#locate(x, z);
     const [a, b, c, d] = this.#square(i, j);
     return u >= v ? a + (b - a) * u + (d - b) * v : a + (d - c) * u + (c - a) * v;
-  }
-
-  /**
-   * The plane of the triangle under (x, z), as y = out[0] + out[1] · x + out[2] · z: the ground
-   * there exactly, and near it within a few centimetres.
-   */
-  plane(x: number, z: number, out: [number, number, number] = [0, 0, 0]): [number, number, number] {
-    const [i, j, u, v] = this.#locate(x, z);
-    const [a, b, c, d] = this.#square(i, j);
-    const [sx, sz] = u >= v ? [b - a, d - b] : [d - c, c - a];
-    out[1] = sx / this.step;
-    out[2] = sz / this.step;
-    out[0] = a - out[1] * (this.minX + i * this.step) - out[2] * (this.minZ + j * this.step);
-    return out;
   }
 
   /** Heights at the square's corners (i, j), (i + 1, j), (i, j + 1), (i + 1, j + 1). */

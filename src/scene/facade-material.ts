@@ -26,7 +26,7 @@ float bayer4(vec2 a) { return bayer2(0.5 * a) * 0.25 + bayer2(a); }`;
  */
 export const nearFade = { value: 0 };
 /**
- * The ground round the walking camera, as y = a + b · x + c · z (`Terrain.plane`), for the street
+ * The ground round the walking camera, as y = a + b · x + c · z, for the street
  * the dither spares. Set by walk mode with `nearFade`.
  */
 export const nearGround = { value: [0, 0, 0] };
