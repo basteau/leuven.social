@@ -20,20 +20,36 @@ import type { Spring } from './motion.ts';
 const SCALE = 1.3;
 export const WHEELBASE = 1.1 * SCALE;
 export const WHEEL = 0.34 * SCALE;
-/** Pedalling and sprinting speeds (m/s): 31 and 47 km/h, a cartoon past a city bike's 18. */
-export const CRUISE = 8.5;
-export const SPRINT = 13;
-/** Pedalling force as acceleration from a standstill (m/s²), fading toward the speed it aims at. */
-const PUSH = 5;
+/**
+ * Pedalling and sprinting speeds (m/s): 41 and 63 km/h, a cartoon past a city bike's 18, and 35%
+ * up from 8.5 and 13, as walking is, so the city's long streets go by.
+ */
+export const CRUISE = 11.5;
+export const SPRINT = 17.5;
+/**
+ * Pedalling force as acceleration from a standstill (m/s²), fading toward the speed it aims at:
+ * 95% of a cruise in 3.1 s, as it was at 8.5 m/s.
+ */
+const PUSH = 6.8;
 /** Coasting: rolling drag plus a little air (m/s²), about 0.3 at a cruise. */
 const ROLL = 0.22;
 const AIR = 0.0015;
-/** Braking (m/s²): firmer than a real bike's 2.4–3, a cartoon that stops when asked. */
-export const BRAKE = 5;
+/**
+ * Braking (m/s²): firmer than a real bike's 2.4–3, a cartoon that stops when asked: from a
+ * cruise in 1.8 s and 10 m.
+ */
+export const BRAKE = 6.5;
 /** Let go below this pace (m/s), it slows at 1.5 m/s² to a stop. */
-const DAWDLE = 2.5;
+const DAWDLE = 3.4;
 /** Off a sprint it eases back to a cruise (m/s²) rather than braking. */
-const EASE_BACK = 1.5;
+const EASE_BACK = 2;
+/**
+ * Turning as hard as it can (the keys held, or a heading well round) faster than this (m/s), the
+ * rider eases off at SCRUB (m/s²): the tightest turn grows with v², 16.5 m round at a cruise, so
+ * a street corner taken at speed slows to where it fits (5.3 m round at 6.5 m/s).
+ */
+export const CORNER = 6.5;
+const SCRUB = 5;
 /** The tightest turn at a crawl (m), and the most sideways grip (m/s²): a lean of at most 39°. */
 const MIN_RADIUS = 1.7;
 const GRIP = 8;
@@ -45,14 +61,17 @@ const LEAN_EASE = 0.1;
 export const CRAWL = 1.2;
 const PIVOT = 2.2;
 /** Backing up (m/s), and how quickly it gets there (m/s²). */
-export const BACK = 1.1;
+export const BACK = 1.5;
 const BACK_ACCEL = 2;
 /** A target more than this far behind (radians, 135°) brakes rather than turning at speed. */
 export const BEHIND = (3 * Math.PI) / 4;
 /** Steering toward a heading closes the gap in about this long (s). */
 const AIM = 0.35;
-/** Crank turns per wheel turn: a city bike's 38/16 rolls 2.4 wheel turns a crank turn. */
-export const GEAR = 1 / 2.4;
+/**
+ * Crank turns per wheel turn: 3.2 wheel turns a crank turn (a 51/16), so the crank keeps a city
+ * cadence, 78 rpm at a cruise and 118 flat out, rather than spinning 35% faster with the wheel.
+ */
+export const GEAR = 1 / 3.2;
 /** Coasting, the pedals come level with this half-life (s): ready to push again. */
 const LEVEL_EASE = 0.15;
 /** The body circle (m), and the probe round the front wheel: its radius and how far ahead. */
@@ -186,6 +205,9 @@ export function stepRider(r: Rider, dt: number, input: RideInput, ground: Ground
   // Let go at a walking pace, the rider drags a foot and stops rather than rolling on and on.
   else if (!r.pedalling && v0 < DAWDLE) accel = Math.min(accel, -1.5);
   if (v0 > top + 0.2) accel = Math.min(accel, v0 > input.limit + 0.2 ? -0.7 * BRAKE : -EASE_BACK);
+  // Turning as hard as it can at speed, it eases off until the turn fits.
+  if (v0 > CORNER && (Math.abs(input.turn) > 0.9 || Math.abs(want) > 2 * most))
+    accel = Math.min(accel, -SCRUB);
   let v = Math.max(-BACK, v0 + accel * dt);
   // Coasting or braking doesn't roll it the other way.
   if (throttle >= -0.05 && Math.sign(v) !== Math.sign(v0) && v0 !== 0) v = 0;
@@ -289,8 +311,8 @@ export interface Path {
 }
 
 /** Slowing for a corner or the end of a route (m/s²), and the slowest round a hairpin (m/s). */
-const ROUTE_DECEL = 3;
-const HAIRPIN = 2.5;
+const ROUTE_DECEL = 4;
+const HAIRPIN = 3.4;
 /** Within this of the end (m), the route is ridden. */
 const ARRIVE = 0.6;
 

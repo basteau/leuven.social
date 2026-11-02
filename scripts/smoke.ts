@@ -289,7 +289,8 @@ async function expectRiding(): Promise<void> {
   await browser('wait', '400');
   await browser('screenshot', `${ARTIFACTS}smoke-ride.png`);
   await browser('eval', `${key('keyup', 'KeyD')};${key('keyup', 'KeyW')}`);
-  if (!(speed > 5)) throw new Error(`riding: ${speed} m/s at most pedalling 3 s (more than 5)`);
+  // A cruise is 11.5 m/s, 95% of it in 3.1 s (rider.ts); the street may end sooner.
+  if (!(speed > 7)) throw new Error(`riding: ${speed} m/s at most pedalling 3 s (more than 7)`);
   console.log(`ok  riding: ${speed} m/s pedalling 3 s`);
   await expectHealthyPage('desktop riding');
   await browser('eval', `${key('keydown', 'KeyF')};${key('keyup', 'KeyF')}`);
