@@ -9,21 +9,27 @@ import type { Prop } from '../data/city.ts';
 import { propFootprint } from '../data/props.ts';
 import type { Terrain } from '../data/terrain.ts';
 import type { Cell } from './cells.ts';
+import { DrawnGround } from './drawn-ground.ts';
+import type { LayerHeights } from './ground.ts';
 import type { MeshBuilder } from './mesh-builder.ts';
 import { addProp, isLarge } from './props.ts';
 import { addStorefronts } from './storefronts.ts';
 import type { StorefrontKit } from './storefronts.ts';
 
 /**
- * Where a prop stands: the lowest ground under its footprint's corners, so a bench or a
- * monument's plinth runs into a slope rather than over it.
+ * Where a prop stands: the lowest ground under its footprint's corners, as drawn (the terrain
+ * and the layer on it, `DrawnGround`), so a bench or a monument's plinth runs into a slope rather
+ * than over it, and stands on a square's setts rather than in them.
  */
-export function propBase(terrain: Terrain, p: Prop): number {
+export function propBase(ground: Pick<Terrain, 'height'>, p: Prop): number {
   const { x, z, fx, fz, u0, u1, v0, v1 } = propFootprint(p);
-  const ring = [u0, u1].flatMap((u) =>
-    [v0, v1].flatMap((v) => [x - fz * u + fx * v, z + fx * u + fz * v]),
-  );
-  return terrain.base(ring);
+  let lowest = Infinity;
+  for (const u of [u0, u1]) {
+    for (const v of [v0, v1]) {
+      lowest = Math.min(lowest, ground.height(x - fz * u + fx * v, z + fx * u + fz * v));
+    }
+  }
+  return lowest;
 }
 
 export interface Furniture {
@@ -44,18 +50,25 @@ export interface Furniture {
 export interface FurnitureKit extends StorefrontKit {
   MeshBuilder: typeof MeshBuilder;
   terrain: Terrain;
+  /** How high each ground layer is drawn (`LAYER_Y` in ground.ts). */
+  layers: LayerHeights;
 }
 
-/** A cell's furniture, each piece standing on the ground under it (`propBase`). */
+/**
+ * A cell's furniture, each piece standing on the ground drawn under it (`propBase`), and each
+ * parked bike on the ground under its own wheels.
+ */
 export function buildFurniture(cell: Cell, kit: FurnitureKit): Furniture {
   const { MeshBuilder, terrain } = kit;
   const near = new MeshBuilder();
   const bikes: number[] = [];
+  const drawn = new DrawnGround(terrain, cell, kit.layers);
+  const ground = (x: number, z: number) => drawn.height(x, z);
   let tall: MeshBuilder | null = null;
   for (const p of cell.props) {
     const mesh = isLarge(p) ? (tall ??= new MeshBuilder()) : near;
-    mesh.lift = propBase(terrain, p);
-    addProp(mesh, p, mesh === near ? bikes : undefined);
+    mesh.lift = propBase(drawn, p);
+    addProp(mesh, p, mesh === near ? bikes : undefined, ground);
   }
   const awnings = cell.fronts.length > 0 ? new MeshBuilder() : null;
   if (awnings) addStorefronts(near, awnings, cell.fronts, kit);

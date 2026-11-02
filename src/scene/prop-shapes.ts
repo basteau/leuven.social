@@ -11,13 +11,44 @@ export interface Frame {
   fx: number;
   fz: number;
   scale: number;
+  /**
+   * The ground it stands on, if not level at the mesh's lift: a plane `y` over the lift at
+   * (x, z), rising `dx` and `dz` a metre along x and z. A bike stands on it sheared, its wheels
+   * upright, so both touch a slope or the kerb between a pavement and a square.
+   */
+  slope?: Slope;
 }
 
-export const at = (f: Frame, u: number, v: number, y: number): V3 => [
-  f.x + (-f.fz * u + f.fx * v) * f.scale,
-  y * f.scale,
-  f.z + (f.fx * u + f.fz * v) * f.scale,
-];
+export interface Slope {
+  x: number;
+  z: number;
+  y: number;
+  dx: number;
+  dz: number;
+}
+
+export const at = (f: Frame, u: number, v: number, y: number): V3 => {
+  const x = f.x + (-f.fz * u + f.fx * v) * f.scale;
+  const z = f.z + (f.fx * u + f.fz * v) * f.scale;
+  const s = f.slope;
+  return [x, y * f.scale + (s ? s.y + s.dx * (x - s.x) + s.dz * (z - s.z) : 0), z];
+};
+
+/**
+ * The plane through the ground at a and b (x, z), as a `Slope` over `lift`: level across the
+ * line from a to b, so a bike standing along it touches the ground under both wheels.
+ */
+export function slopeThrough(
+  ground: (x: number, z: number) => number,
+  lift: number,
+  [ax, az]: readonly [number, number],
+  [bx, bz]: readonly [number, number],
+): Slope {
+  const [ya, yb] = [ground(ax, az), ground(bx, bz)];
+  const [dx, dz] = [bx - ax, bz - az];
+  const k = (yb - ya) / (dx * dx + dz * dz || 1);
+  return { x: ax, z: az, y: ya - lift, dx: dx * k, dz: dz * k };
+}
 export const away = (f: Frame, u: number, v: number, y = 0): V3 => [
   -f.fz * u + f.fx * v,
   y,

@@ -13,7 +13,7 @@ import {
 import { BIKES, PROPS } from './palette.ts';
 import type { MeshBuilder } from './mesh-builder.ts';
 import { addMonument } from './monuments.ts';
-import { at, away, box, panel } from './prop-shapes.ts';
+import { at, away, box, panel, slopeThrough } from './prop-shapes.ts';
 import type { Frame } from './prop-shapes.ts';
 
 /**
@@ -63,7 +63,20 @@ export const PARKED = { from: 0, to: 1, x: 2, y: 3, z: 4, heading: 5, look: 6, s
 function steered(f: Frame, by: number): Frame {
   const [c, s] = [Math.cos(by), Math.sin(by)];
   const [x, , z] = at(f, 0, STEERING, 0);
-  return { x, z, fx: f.fx * c - f.fz * s, fz: f.fz * c + f.fx * s, scale: f.scale };
+  return { ...f, x, z, fx: f.fx * c - f.fz * s, fz: f.fz * c + f.fx * s };
+}
+
+/** Where something stands, as `buildFurniture` sees it: the drawn ground's height at (x, z). */
+export type Ground = (x: number, z: number) => number;
+
+/**
+ * A bike's frame stood on the drawn ground: sheared onto the plane through the ground under its
+ * two wheels (`slopeThrough`), so both tyres touch it on a slope or across a kerb.
+ */
+export function standBike(f: Frame, steer: number, ground: Ground, lift: number): Frame {
+  const [rx, , rz] = at(f, 0, -AXLE, 0);
+  const [fx, , fz] = at(steered(f, steer), 0, AXLE - STEERING, 0);
+  return { ...f, slope: slopeThrough(ground, lift, [rx, rz], [fx, fz]) };
 }
 
 /** A tube in a frame's v-y plane, from (v, y) to (v, y), as a thin two-sided strip `w` thick. */
@@ -247,23 +260,38 @@ export function rackSlots(p: Prop, seed: number): number[] {
 
 /**
  * A rack: a low rail along each row on a leg at either end, so a half-empty rack still reads as
- * one (12 triangles a row), then its bikes, each noted in `parked` (see `PARKED`).
+ * one (12 triangles a row), then its bikes, each noted in `parked` (see `PARKED`). With `ground`,
+ * each rail runs from leg to leg on the drawn ground and each bike stands on it under its wheels;
+ * without, all stand on the mesh's lift.
  */
-function addRack(mesh: MeshBuilder, f: Frame, p: Prop, seed: number, parked?: number[]): void {
+function addRack(
+  mesh: MeshBuilder,
+  f: Frame,
+  p: Prop,
+  seed: number,
+  parked?: number[],
+  ground?: Ground,
+): void {
   const { rows, perRow } = rackRows(p.size);
   const half = ((perRow - 1) / 2) * STAND_SPACING;
   for (let row = 0; row < rows; row++) {
     // The row's own frame, turned a quarter, so the rail runs along its v.
     const [x, , z] = at(f, 0, rows === 1 ? 0 : row === 0 ? ROW_GAP : -ROW_GAP, 0);
-    const r = { x, z, fx: -f.fz, fz: f.fx, scale: f.scale };
+    let r: Frame = { x, z, fx: -f.fz, fz: f.fx, scale: f.scale };
+    if (ground) {
+      const [[ax, , az], [bx, , bz]] = [at(r, 0, -half, 0), at(r, 0, half, 0)];
+      r = { ...r, slope: slopeThrough(ground, mesh.lift, [ax, az], [bx, bz]) };
+    }
     tube(mesh, r, -half, RAIL, half, RAIL, PROPS.iron, RAIL_BAR);
     for (const e of [-half, half]) tube(mesh, r, e, 0, e, RAIL + RAIL_BAR, PROPS.iron, RAIL_BAR);
   }
   for (const slot of rackSlots(p, seed)) {
-    const { f: b, steer, look } = parkedBike(p, slot, seed);
+    const { f: placed, steer, look } = parkedBike(p, slot, seed);
+    const b = ground ? standBike(placed, steer, ground, mesh.lift) : placed;
     const from = mesh.indices;
     addBike(mesh, b, steer, look);
-    parked?.push(from, mesh.indices, b.x, mesh.lift, b.z, Math.atan2(b.fz, b.fx), look);
+    const y = mesh.lift + at(b, 0, 0, 0)[1];
+    parked?.push(from, mesh.indices, b.x, y, b.z, Math.atan2(b.fz, b.fx), look);
   }
 }
 
@@ -316,8 +344,11 @@ const MODELS: Record<Furniture, (mesh: MeshBuilder, f: Frame) => void> = {
   },
 };
 
-/** One prop, in its own frame, written into `mesh`; a rack notes its bikes in `parked`. */
-export function addProp(mesh: MeshBuilder, p: Prop, parked?: number[]): void {
+/**
+ * One prop, in its own frame, written into `mesh`; a rack notes its bikes in `parked`, and stands
+ * its rails and bikes on `ground` when given.
+ */
+export function addProp(mesh: MeshBuilder, p: Prop, parked?: number[], ground?: Ground): void {
   const f = {
     x: p.x,
     z: p.z,
@@ -327,6 +358,6 @@ export function addProp(mesh: MeshBuilder, p: Prop, parked?: number[]): void {
   };
   const seed = propSeed(p.x, p.z);
   if (isMonument(p.kind)) addMonument(mesh, f, p.kind, p, seed);
-  else if (p.kind === 'bikes') addRack(mesh, f, p, seed, parked);
+  else if (p.kind === 'bikes') addRack(mesh, f, p, seed, parked, ground);
   else MODELS[p.kind as Furniture](mesh, f);
 }
