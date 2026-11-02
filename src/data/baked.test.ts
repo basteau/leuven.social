@@ -62,7 +62,7 @@ test('public/data/walk.bin decodes into plates that belong to city.bin', async (
   expect(walk.streets.length).toBeGreaterThan(500);
   expect(walk.houses.every(inArea)).toBe(true);
   expect(walk.streets.every(inArea)).toBe(true);
-  expect(walk.streets.every((s) => s.name < city.streetNames.length && s.y >= 2)).toBe(true);
+  expect(walk.streets.every((s) => s.name < city.streetNames.length)).toBe(true);
   const named = new Set(walk.streets.map((s) => city.streetNames[s.name]));
   expect(named).toContain('Naamsestraat');
   expect(named).toContain('Tiensestraat');

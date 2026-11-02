@@ -8,6 +8,7 @@ import {
   placeHouseNumbers,
   placeStreetPlates,
   plateText,
+  housePlateWidth,
   streetPlateWidth,
   streetSegments,
 } from './plate-placement.ts';
@@ -34,6 +35,8 @@ const rings = [
   box(20, 5, 30, 15),
   box(-60, 10, -40, 20),
   box(290, 205, 310, 215),
+  // Across street A from house 0: the corner's north side.
+  box(5, -15, 15, -5),
 ];
 const facades = new Facades(rings);
 const segments = streetSegments(streets);
@@ -63,9 +66,11 @@ describe('plateText', () => {
   });
 });
 
-test('a street plate is as wide as its name needs', () => {
+test('a plate is as wide as its name or number needs', () => {
   expect(streetPlateWidth('Naamsestraat', 1)).toBeCloseTo(4.2);
   expect(streetPlateWidth('A', 2)).toBeGreaterThan(1);
+  expect(housePlateWidth('1', 1)).toBe(1.45);
+  expect(housePlateWidth('12–14', 1)).toBeCloseTo(2.36);
 });
 
 describe('Facades', () => {
@@ -103,7 +108,7 @@ describe('Facades', () => {
   });
 
   test('sees past open ground but not through a building', () => {
-    expect(facades.clear(10, 4, 10, -10)).toBe(true);
+    expect(facades.clear(18, 4, 18, -10)).toBe(true);
     expect(facades.clear(10, 19, 10, -10)).toBe(false);
     expect(facades.clear(3, 3, 3, 3)).toBe(true);
   });
@@ -161,6 +166,38 @@ describe('placeHouseNumbers', () => {
     expect(Math.abs(plates[0]!.angle)).toBeCloseTo(Math.PI);
   });
 
+  test('hangs a number over its door, where OSM maps one in its front wall', () => {
+    const doors = [
+      { x: 12.5, z: 5.3, number: null },
+      // Too far off the wall, too far along it, and on another wall.
+      { x: 8, z: 7, number: null },
+      { x: 14.9, z: 5, number: '4' },
+      { x: 5, z: 9, number: null },
+    ];
+    const one = placeHouseNumbers([{ x: 9, z: 10, street: A, number: '3' }], facades, segments, {
+      doors,
+    });
+    expect(one.plates[0]!.x).toBeCloseTo(12.5);
+    expect(one.placed).toEqual({ 'facing its street': 1, 'over a mapped door': 1 });
+    // A door that carries the number wins over a nearer one; each door takes one number.
+    const two = placeHouseNumbers(
+      [
+        { x: 9, z: 10, street: A, number: '3' },
+        { x: 9, z: 10, street: A, number: '4' },
+        { x: 9, z: 10, street: A, number: '5' },
+      ],
+      facades,
+      segments,
+      { doors },
+    );
+    expect(two.plates.map((p) => Number(p.x.toFixed(2)))).toEqual([12.5, 14.5, 9]);
+    // Out of reach along the wall, the door is not this number's.
+    const far = placeHouseNumbers([{ x: 5.5, z: 10, street: A, number: '7' }], facades, segments, {
+      doors: [{ x: 14, z: 5, number: null }],
+    });
+    expect(far.plates[0]!.x).toBeCloseTo(5.5);
+  });
+
   test('takes the nearest footprint for an address just outside one', () => {
     const { plates } = placeHouseNumbers(
       [{ x: 16.5, z: 10, street: A, number: '5' }],
@@ -199,6 +236,8 @@ describe('placeHouseNumbers', () => {
         { x: 9, z: 10, street: A, number: '3' },
         { x: 9, z: 10, street: A, number: '3' },
         { x: 9.2, z: 10, street: A, number: '3B' },
+        { x: 9, z: 10, street: A, number: '3C' },
+        { x: 9, z: 10, street: A, number: '3D' },
         { x: 9, z: 10, street: A, number: ';' },
         { x: 100, z: 100, street: A, number: '4' },
         { x: 25, z: 10, street: A, number: '6' },
@@ -208,7 +247,10 @@ describe('placeHouseNumbers', () => {
       segments,
       { skip: new Set([2]) },
     );
-    expect(plates.map((p) => p.text)).toEqual(['3']);
+    // 3B and 3C move along the wall to clear 3; 3D finds no room within a metre.
+    expect(plates.map((p) => p.text)).toEqual(['3', '3B', '3C']);
+    expect(plates[1]!.x).toBeCloseTo(9.7);
+    expect(plates[2]!.x).toBeCloseTo(8.25);
     expect(skipped).toEqual({
       duplicate: 1,
       crowded: 1,
@@ -245,22 +287,28 @@ describe('placeStreetPlates', () => {
     streets: segments,
     lines: streets,
     names,
-    eaves: [10, 10, 10, 2.5, 8],
+    eaves: [10, 10, 10, 2.5, 8, 10],
     height: 0.4,
   };
 
-  test('hangs one plate for each street on the corner, facing it', () => {
+  test('hangs plates for each street on the corners, facing it, from both sides', () => {
     const { plates, placed, skipped } = placeStreetPlates(input);
-    const [a, b] = plates;
-    expect(a).toMatchObject({ name: A, y: 3 });
+    const [a, across, b] = plates;
+    expect(a).toMatchObject({ name: A });
     expect(a!.z).toBeCloseTo(5 - PROUD);
     expect(a!.x).toBeLessThan(7);
     expect(a!.angle).toBeCloseTo(-Math.PI / 2);
+    // The same name on the house across the street, facing the other way.
+    expect(across).toMatchObject({ name: A });
+    expect(across!.z).toBeCloseTo(-5 + PROUD);
+    expect(across!.angle).toBeCloseTo(Math.PI / 2);
+    // B's west side has no house: one plate, on the corner house's west wall.
     expect(b).toMatchObject({ name: B });
     expect(b!.x).toBeCloseTo(5 - PROUD);
+    expect(plates.filter((p) => p.name === B)).toHaveLength(1);
     // The square has no centre line, so no plate: there is no wall to say it faces.
     expect(skipped).toEqual({ 'no corner wall': 1 });
-    expect(placed).toEqual({ 'at junctions': 2, 'along stretches': 1 });
+    expect(placed).toEqual({ 'at junctions': 3, 'along stretches': 1 });
   });
 
   test('hangs one along a long street without junctions', () => {
@@ -268,14 +316,11 @@ describe('placeStreetPlates', () => {
     const long = plates.filter((p) => p.name === LONG);
     expect(long).toHaveLength(1);
     expect(long[0]!.z).toBeCloseTo(205 - PROUD);
-    expect(long[0]!.y).toBe(3);
   });
 
-  test('a plate hangs under a low eave, or not at all', () => {
-    const low = placeStreetPlates({ ...input, eaves: [0.5, 0.5, 0.5, 0.5, 0.5] });
+  test('a building lower than a storey takes no plate', () => {
+    const low = placeStreetPlates({ ...input, eaves: [2.5, 2.5, 2.5, 2.5, 2.5, 2.5] });
     expect(low.plates).toHaveLength(0);
-    const under = placeStreetPlates({ ...input, eaves: [3.2, 3.2, 3.2, 3.2, 3.2] });
-    expect(under.plates[0]!.y).toBeCloseTo(2.7);
   });
 
   test('skips landmark buildings and repeats near the same junction', () => {
@@ -284,7 +329,8 @@ describe('placeStreetPlates', () => {
       junctions: [input.junctions[0]!, { x: 3, z: -3, names: [A] }],
       skip: new Set([4]),
     });
-    expect(twice.plates.filter((p) => p.name === A)).toHaveLength(1);
+    // Each side of A once, though two junctions are within a few metres.
+    expect(twice.plates.filter((p) => p.name === A)).toHaveLength(2);
     expect(twice.placed['along stretches']).toBe(0);
   });
 });

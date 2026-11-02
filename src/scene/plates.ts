@@ -38,9 +38,9 @@ const HOUSE_REACH = 40;
 const STREET_REACH = 60;
 /** The mesh is built round the middle of the walker's square, so it covers the whole square. */
 const SLACK = PLATE_BUCKET * Math.SQRT1_2;
-/** At most this many of each, nearest first: the densest square in the city has 86 and 21. */
+/** At most this many of each, nearest first: the densest square in the city has about 86 and 33. */
 const MAX_HOUSES = 200;
-const MAX_STREETS = 40;
+const MAX_STREETS = 64;
 
 const ATLAS_WIDTH = 1024;
 /** Texels between the atlas's cells, and how far each cell's enamel reaches into them. */

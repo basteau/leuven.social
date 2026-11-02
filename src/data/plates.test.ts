@@ -20,7 +20,7 @@ const data: WalkData = {
     { x: -300.4, z: 812.9, angle: 0, text: '12A' },
     { x: -301.2, z: 815, angle: Math.PI, text: '2' },
   ],
-  streets: [{ x: 4.4, z: 1.2, y: 3, angle: -Math.PI / 4, name: 7 }],
+  streets: [{ x: 4.4, z: 1.2, angle: -Math.PI / 4, name: 7 }],
 };
 
 describe('the walk file', () => {
@@ -35,7 +35,7 @@ describe('the walk file', () => {
       expect(Math.abs(turn)).toBeLessThan(Math.PI / 256 + 1e-9);
     }
     const [plate] = back.streets;
-    expect(plate).toMatchObject({ name: 7, y: 3 });
+    expect(plate).toMatchObject({ name: 7 });
     expect(plate!.x).toBeCloseTo(4.4, 5);
     expect(plate!.angle).toBeCloseTo((224 / 256) * Math.PI * 2, 9);
   });

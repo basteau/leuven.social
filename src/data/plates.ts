@@ -8,16 +8,17 @@
  * - the house numbers: a count, their positions as one ring (decimetres, zigzag deltas, as in
  *   city.bin), then each one's place in the table and its wall's facing (a byte: 256ths of a turn);
  * - the street plates: a count, their positions as one ring, then each one's name (its place in
- *   `City.streetNames`), facing and height (decimetres).
+ *   `City.streetNames`) and facing.
  * Positions are the plate's face, a few centimetres proud of its wall (`PROUD`), so rounding to
- * decimetres never sinks it into the wall.
+ * decimetres never sinks it into the wall. How high a plate hangs is the renderer's to say, from
+ * the windows of the house it is on (src/scene/plate-mesh.ts), so it isn't stored.
  */
 
 import * as Binary from '@portable/binary';
 import * as Compress from '@portable/compress';
 
 const MAGIC = 'LVW1';
-const VERSION = 1;
+const VERSION = 2;
 const DM = 10;
 const ZIGZAG = { encoding: 'zigzag' } as const;
 const TURN = Math.PI * 2;
@@ -31,11 +32,10 @@ export const PROUD = 0.06;
 /**
  * Plates are drawn half again larger than life, a little more than the walker and the street
  * furniture (1.3×), so a number reads from the chase camera across the street on a phone: a
- * house number 20 cm tall (30 drawn) at 2.2 m, a street plate 30 cm tall (45 drawn).
+ * house number 20 cm tall (30 drawn), a street plate 30 cm tall (45 drawn).
  */
 export const PLATE_SCALE = 1.5;
 export const HOUSE_PLATE_HEIGHT = 0.2 * PLATE_SCALE;
-export const HOUSE_PLATE_Y = 2.2;
 export const STREET_PLATE_HEIGHT = 0.3 * PLATE_SCALE;
 
 /** A house number on the wall that faces its street. */
@@ -51,8 +51,6 @@ export interface HousePlate {
 export interface StreetPlate {
   x: number;
   z: number;
-  /** Height of its middle above the street (m). */
-  y: number;
   angle: number;
   /** Where its name is in `City.streetNames`. */
   name: number;
@@ -121,7 +119,6 @@ export function encodeWalk(data: WalkData): Uint8Array {
   for (const s of data.streets) {
     w.varint(s.name);
     w.uint8(turn(s.angle));
-    w.uint8(Math.min(255, Math.round(s.y * DM)));
   }
   return w.toBytes();
 }
@@ -145,8 +142,7 @@ export function decodeWalk(bytes: Uint8Array): WalkData {
   const streets = Array.from({ length: plates }, (_, i): StreetPlate => {
     const name = r.varint();
     const angle = (r.uint8() / 256) * TURN;
-    const y = r.uint8() / DM;
-    return { x: spots[i * 2]!, z: spots[i * 2 + 1]!, y, angle, name };
+    return { x: spots[i * 2]!, z: spots[i * 2 + 1]!, angle, name };
   });
   if (r.remaining !== 0) throw new WalkFormatError(`${r.remaining} trailing bytes.`);
   return { houses, streets };
