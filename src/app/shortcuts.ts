@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import type { RefObject } from 'react';
 
 import type { Viewer, WalkMode } from '../scene/viewer.ts';
-import { menuKey } from './input.ts';
+import { idleRepeat, menuKey } from './input.ts';
 import type { TurnHold } from './input.ts';
 
 /**
@@ -86,6 +86,7 @@ export function useShortcuts(target: ShortcutTarget): void {
       const menu = menuKey(event);
       if (menu && target.viewer.current) {
         event.preventDefault(); // ⌘P would print
+        if (event.repeat) return;
         release();
         target.openMenu(event.key === '?' ? 'help' : 'list');
         return;
@@ -112,10 +113,12 @@ export function useShortcuts(target: ShortcutTarget): void {
       }
       // Turning and walking go by position here too, so a key does the same on the map as on
       // foot; the rest are named for what they do (M mutes, R resets), so they go by letter.
-      // A held key's repeats are no new presses: the hold goes by its keydown and keyup.
+      // A held key's repeats are no new presses: the hold goes by its keydown and keyup, and only
+      // zoom goes on while its key is held.
+      if (idleRepeat(event)) return;
       const turn = LOOK_KEYS[code];
       if (turn) {
-        if (!event.repeat) target.turnHold.press(code, turn, viewer);
+        target.turnHold.press(code, turn, viewer);
         return;
       }
       const byCode: Record<string, () => void> = {

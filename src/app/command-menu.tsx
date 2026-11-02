@@ -194,7 +194,7 @@ export function CommandMenu(props: MenuProps) {
     const onKey = (event: KeyboardEvent) => {
       if (menuKey(event) !== 'chord') return;
       event.preventDefault();
-      shut();
+      if (!event.repeat) shut(); // held, the chord that opened it mustn't close it
     };
     const onClick = (event: MouseEvent) => {
       if (event.target === dialog) shut();

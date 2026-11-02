@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   createTurnHold,
   HOLD_MS,
+  idleRepeat,
   KEYCAPS,
   layoutKeycaps,
   menuKey,
@@ -75,6 +76,24 @@ describe('menuKey', () => {
     expect(press('/', { ctrlKey: true })).toBeNull();
     expect(press('k', { metaKey: true, altKey: true })).toBeNull();
     expect(press('?', { altKey: true })).toBeNull();
+  });
+});
+
+describe('idleRepeat', () => {
+  test('a first press always counts', () => {
+    for (const key of ['w', 'f', 'm', 'Escape', 'Enter', 'k', '+']) {
+      expect(idleRepeat({ key, repeat: false })).toBe(false);
+    }
+  });
+
+  test('a held toggle’s repeats do nothing', () => {
+    for (const key of ['w', 'f', 'm', 'r', 'Escape', 'Enter', 'k', '/']) {
+      expect(idleRepeat({ key, repeat: true })).toBe(true);
+    }
+  });
+
+  test('held, zoom goes on', () => {
+    for (const key of ['+', '=', '-']) expect(idleRepeat({ key, repeat: true })).toBe(false);
   });
 });
 
