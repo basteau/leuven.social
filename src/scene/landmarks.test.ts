@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import type { BufferGeometry } from 'three';
 
-import { LANCETS, addLandmark } from './landmarks.ts';
+import { LANCETS } from './facade-codes.ts';
+import { addLandmark } from './landmarks.ts';
 import type { LandmarkModel, Part } from './landmarks.ts';
 import { LineBuilder, MeshBuilder, unindexed } from './mesh-builder.ts';
 

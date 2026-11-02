@@ -7,7 +7,9 @@ import type { OrientedRect } from '../data/geometry.ts';
 import { straightSkeleton } from '../data/skeleton.ts';
 import type { Skeleton } from '../data/skeleton.ts';
 import { LANDMARK_MODELS } from './landmark-models.ts';
-import { LANCETS, addLandmark, addTower } from './landmarks.ts';
+import { SHOP_KINDS } from '../data/shop-kinds.ts';
+import { LANCETS, shopFront } from './facade-codes.ts';
+import { addLandmark, addTower } from './landmarks.ts';
 import type { Terrain } from '../data/terrain.ts';
 import { LIFT_UNIT, LineBuilder, MeshBuilder } from './mesh-builder.ts';
 import type { V3 } from './mesh-builder.ts';
@@ -39,10 +41,11 @@ export type RoofPlan =
 
 const PITCHED_KINDS = new Set(['house', 'apartments', 'retail', 'other']);
 /**
- * Added to a wall's `facade` value (its top height, at most 90 m) when its ground floor is a
- * shop front: shops, cafés, offices and hotels (`retail`). The facade shader reads it back.
+ * A building's shop front shows on the walls whose normal is within 40° of the way its main front
+ * faces (its street side, a corner shop's two sides when they're near enough); the back and the
+ * gables keep plain windows.
  */
-export const SHOP_FRONT = 200;
+const FRONT_SPREAD = Math.cos((40 * Math.PI) / 180);
 /**
  * Share of gables that are stepped (trapgevels), the most Flemish silhouette there is. Hero
  * squares like Oude Markt get the most, ordinary streets some, the fringe none.
@@ -296,6 +299,9 @@ function planOf(b: Building): RoofPlan {
   return plan;
 }
 
+/** How high a building's walls stand (m), up to its eaves. */
+export const wallTop = (b: Building): number => planOf(b).eave;
+
 /** The rings a building's walls stand on: a hipped roof was fitted to a simplified footprint. */
 function wallRings(b: Building, plan: RoofPlan): readonly ArrayLike<number>[] {
   return plan.type === 'hip' ? [plan.ring, ...plan.holes] : [b.ring, ...b.holes];
@@ -374,7 +380,7 @@ function addWalls(
   ring: ArrayLike<number>,
   top: number,
   wall: number,
-  facade: number,
+  facade: number | ((nx: number, nz: number) => number),
   walls: PartyWalls,
   base: number,
 ): void {
@@ -403,7 +409,7 @@ function addWalls(
         [ax, top, az],
         wall,
         hint,
-        facade,
+        typeof facade === 'number' ? facade : facade(hint[0], hint[2]),
       );
     }
 
@@ -427,6 +433,24 @@ function addWalls(
   }
 }
 
+/**
+ * The `facade` value of each outer wall of a building `top` high, by its outward normal (not
+ * unit): its shop front's kind on the walls that face the way its main front does (`b.front`,
+ * src/data/shops.ts), plain windows elsewhere.
+ */
+export function frontWalls(
+  b: Building,
+  top: number,
+): number | ((nx: number, nz: number) => number) {
+  if (!b.front) return top;
+  const { ring } = b;
+  const [e, n] = [b.front.edge * 2, ring.length];
+  const [fx, fz] = [ring[(e + 3) % n]! - ring[e + 1]!, ring[e]! - ring[(e + 2) % n]!];
+  const spread = FRONT_SPREAD * Math.hypot(fx, fz);
+  const shop = shopFront(SHOP_KINDS.indexOf(b.front.kind), top);
+  return (nx, nz) => (nx * fx + nz * fz >= spread * Math.hypot(nx, nz) ? shop : top);
+}
+
 const toVectors = (ring: ArrayLike<number>) =>
   Array.from({ length: ring.length / 2 }, (_, i) => new Vector2(ring[i * 2]!, ring[i * 2 + 1]!));
 
@@ -447,9 +471,9 @@ export function addBuilding(
   const top = plan.eave;
   // Sheds get no windows, churches lancets: the window grid would make an office block of them.
   const windows = landmark?.windows ?? (b.kind === 'church' ? 'lancet' : b.kind !== 'shed');
-  const front = windows === 'lancet' ? LANCETS : b.kind === 'retail' ? SHOP_FRONT : 0;
-  const facade = windows ? top + front : 0;
-  for (const r of [ring, ...holes]) addWalls(mesh, ink, r, top, wall, facade, walls, base);
+  const facade = windows === 'lancet' ? top + LANCETS : windows ? top : 0;
+  addWalls(mesh, ink, ring, top, wall, windows === true ? frontWalls(b, top) : facade, walls, base);
+  for (const r of holes) addWalls(mesh, ink, r, top, wall, facade, walls, base);
   if (b.tower && !landmark) addTower(mesh, ink, ring, b.tower, wall, LANDMARK.spire);
 
   if (plan.type === 'hip') {

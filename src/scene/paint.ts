@@ -222,15 +222,19 @@ export function addFinePaint(mesh: MeshBuilder, markings: readonly Marking[]): v
 
 /** Pitch lines lie just over the pitches (ground.ts `PITCH_Y`) and under car parks and paths. */
 const ON_PITCH = 0.07;
-/** Chords in a full circle: a 46 m bend strays 22 cm from its arc at most. */
-const ROUND = 32;
+/**
+ * How far a chord may stray from its arc (m): about a pixel where the lines show sharpest, so a
+ * track's bend takes 16 chords and a basketball court's centre circle 7, not the same 32.
+ */
+const SAG = 0.2;
 
 /** Draws a line in a field's own frame: u along its length, v across, from its centre (m). */
 type Draw = (u0: number, v0: number, u1: number, v1: number) => void;
 
 /** An arc round (cu, cv) of radius r, from angle a0 to a1 (radians from +u towards +v). */
 function arc(draw: Draw, cu: number, cv: number, r: number, a0: number, a1: number): void {
-  const n = Math.max(2, Math.ceil((Math.abs(a1 - a0) / (2 * Math.PI)) * ROUND));
+  const step = 2 * Math.acos(1 - Math.min(SAG / r, 1));
+  const n = Math.max(2, Math.ceil(Math.abs(a1 - a0) / step));
   let [pu, pv] = [cu + r * Math.cos(a0), cv + r * Math.sin(a0)];
   for (let i = 1; i <= n; i++) {
     const a = a0 + ((a1 - a0) * i) / n;

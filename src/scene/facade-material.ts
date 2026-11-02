@@ -1,21 +1,15 @@
-import { Color, MeshToonMaterial } from 'three';
+import { Color, MeshToonMaterial, Vector4 } from 'three';
 import type { LineBasicMaterial, Material, Texture } from 'three';
 
-import { SHOP_FRONT } from './buildings.ts';
-import { LANCETS } from './landmarks.ts';
+import { SHOP_KINDS } from '../data/shop-kinds.ts';
+import { AWNING, LANCETS, SHOP_FRONT } from './facade-codes.ts';
 import { LUMA, SHADE_CHROMA, SHADE_HUE, SHADE_RANGE } from './lighting.ts';
 import { LIFT_UNIT, linearVertexColors } from './mesh-builder.ts';
 import { ANGLES, LINE_LOD, PAINT_HALF, PAINT_KIND, STRIPE_LOD, SURFACE } from './paint.ts';
-import { AWNINGS, WINDOW } from './palette.ts';
+import { FRONTS, WINDOW } from './palette.ts';
 import { SLEEPER_CODE } from './rails.ts';
 
 const f = (v: number) => v.toFixed(4);
-/** A palette colour as a GLSL vec3 in linear light, the space the shader works in. */
-const vec = (hex: number) => {
-  const c = new Color(hex);
-  return `vec3(${f(c.r)}, ${f(c.g)}, ${f(c.b)})`;
-};
-
 /** A 4×4 ordered dither: a threshold from 0 to 15/16 for each pixel of a block. */
 export const BAYER = `float bayer2(vec2 a) { a = mod(floor(a), 2.0); return fract(a.x / 2.0 + a.y * a.y * 0.75); }
 float bayer4(vec2 a) { return bayer2(0.5 * a) * 0.25 + bayer2(a); }`;
@@ -78,9 +72,11 @@ export function fadeInkNearCamera(ink: LineBasicMaterial): void {
 
 /**
  * The one material every cell draws with: toon shading plus detail from world position.
- * - Walls (`facade` > 0 holds the wall top, plus SHOP_FRONT over a shop front, LANCETS on a
- *   church): windows in each building's own rhythm, or a church's tall pointed lancets, fading to
- *   an average wall tint when a window shrinks below two pixels instead of aliasing into stripes.
+ * - Walls (`facade` > 0 holds the wall top, plus a code for a church or a shop front's kind,
+ *   facade-codes.ts): windows in each building's own rhythm, or a church's tall pointed lancets,
+ *   fading to an average wall tint when a window shrinks below two pixels instead of aliasing
+ *   into stripes. A shop front glazes the ground floor under its kind's canvas (`FRONTS`).
+ * - Awnings (storefronts.ts): striped in their kind's second colour.
  * - Road surfaces (`facade` a small negative code, paint.ts): asphalt patches, setts, paving
  *   joints, each fading out before it's finer than a pixel.
  * - Road paint (larger negative codes): the vertex shader widens a line to cover a whole pixel, or
@@ -105,10 +101,18 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
   const lit = new Color(WINDOW.lit);
   const pixel = { value: 1 };
   material.userData.pixel = pixel;
+  // Each kind of shop front as two vec4s: its canvas and whether its panes are warm, its stripe
+  // and whether it shows goods.
+  const fronts = SHOP_KINDS.flatMap((kind) => {
+    const { canvas, stripe = canvas, lit: warm, goods } = FRONTS[kind];
+    const [a, b] = [new Color(canvas), new Color(stripe)];
+    return [new Vector4(a.r, a.g, a.b, warm ? 1 : 0), new Vector4(b.r, b.g, b.b, goods ? 1 : 0)];
+  });
 
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uGlass = { value: glass };
     shader.uniforms.uLit = { value: lit };
+    shader.uniforms.uFront = { value: fronts };
     shader.uniforms.uPixel = pixel;
     shader.uniforms.uNearFade = nearFade;
     shader.uniforms.uNearGround = nearGround;
@@ -168,6 +172,7 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
         `#include <common>
         uniform vec3 uGlass;
         uniform vec3 uLit;
+        uniform vec4 uFront[${fronts.length}];
         varying float vFacade;
         varying float vLift;
         varying vec3 vWorld;
@@ -194,12 +199,19 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
-        if (vFacade > 0.0) {
-          // Walls carry their top height, plus SHOP_FRONT on buildings with a shop front and
-          // LANCETS on churches.
-          float church = step(${f((SHOP_FRONT + LANCETS) / 2)}, vFacade);
-          float shop = step(${f(SHOP_FRONT / 2)}, vFacade) - church;
-          float top = vFacade - shop * ${f(SHOP_FRONT)} - church * ${f(LANCETS)};
+        if (vFacade > ${f(AWNING - 0.5)}) {
+          // An awning's canvas, striped across in its kind's second colour (facade-codes.ts).
+          vec3 second = uFront[int(vFacade - ${f(AWNING - 0.5)}) * 2 + 1].rgb;
+          float along = dot(vWorld.xz, vec2(-vWallNormal.y, vWallNormal.x)) / 0.9;
+          float band = mix(0.5, step(0.5, fract(along)), 1.0 - smoothstep(0.2, 0.35, fwidth(along)));
+          diffuseColor.rgb = mix(diffuseColor.rgb, second, band);
+        } else if (vFacade > 0.0) {
+          // Walls carry their top height, plus LANCETS on churches or SHOP_FRONT + 100 · kind over
+          // a shop front (facade-codes.ts).
+          float shop = step(${f(SHOP_FRONT - 0.5)}, vFacade);
+          float church = step(${f(LANCETS - 0.5)}, vFacade) - shop;
+          float kind = shop * floor((vFacade - ${f(SHOP_FRONT)}) / 100.0);
+          float top = vFacade - church * ${f(LANCETS)} - shop * (${f(SHOP_FRONT)} + 100.0 * kind);
           // Each building's own rhythm, seeded by its wall height: bay width, window width,
           // and as many storeys as fit, so the top row always sits under the eaves.
           float seed = fract(sin(top * 91.345) * 43758.5453);
@@ -223,18 +235,25 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
           window = mix(window, lancet, church);
           average = mix(average, 2.0 * halfWidth * step(3.0, p.y) * step(p.y, apex), church);
           vec3 glass = uGlass;
-          // A shop front: one wide pane per bay on the ground floor, under an awning in the
-          // shop's colour.
+          // A shop front: one wide pane per bay on the ground floor, under its kind's canvas.
           float ground = shop * (1.0 - step(storey, p.y));
           float awning = ground * step(storey * 0.78, p.y) * step(p.y, storey * 0.92);
           float pane = step(0.08, g.x) * step(g.x, 0.92) * step(0.1, p.y) * step(p.y, storey * 0.72);
           window = mix(window, pane, ground);
           average = mix(average, 0.6, ground);
-          float pick = fract(sin(dot(cell + 0.5, vec2(4.898, 7.23))) * 23421.631);
-          vec3 canvas = ${AWNINGS.map((c, i) => `pick < ${f((i + 1) / AWNINGS.length)} ? ${vec(c)} : `).join('')}vec3(0.0);
           // A window narrower than about two device pixels aliases into stripes, so the grid
           // fades to its average tint between three and two pixels per window.
           float pixel = max(fwidth(p.x), fwidth(p.y));
+          vec4 front = uFront[int(kind) * 2];
+          vec4 second = uFront[int(kind) * 2 + 1];
+          // Stripes 45 cm wide, blended to their average once finer than a couple of pixels.
+          float band = mix(0.5, step(0.5, fract(p.x / 0.9)), 1.0 - smoothstep(0.2, 0.35, pixel));
+          vec3 canvas = mix(front.rgb, second.rgb, band);
+          // Warm panes in a café, goods in a shop's window: blocks of its canvas and paper.
+          glass = mix(glass, mix(glass, uLit, 0.55), ground * front.w);
+          float item = hash2(floor(vec2(p.x / 0.32, p.y / 0.28)));
+          float goods = ground * second.w * step(0.15, p.y) * step(p.y, storey * 0.3) * step(0.45, item);
+          glass = mix(glass, mix(front.rgb, vec3(0.93, 0.89, 0.8), item), goods);
           float span = 2.0 * halfWidth * size.x;
           float detail = 1.0 - smoothstep(span / 3.0, span / 2.0, pixel);
           float coverage = mix(average, window, detail);
@@ -290,7 +309,7 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
         #include <opaque_fragment>`,
       );
   };
-  material.customProgramCacheKey = () => 'facade-v6';
+  material.customProgramCacheKey = () => 'facade-v7';
   return material;
 }
 

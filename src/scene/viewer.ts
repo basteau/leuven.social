@@ -30,10 +30,12 @@ import type { City } from '../data/city.ts';
 import { clampToArea } from '../data/geometry.ts';
 import type { StreetIndex } from '../data/streets.ts';
 import { Terrain } from '../data/terrain.ts';
-import { footing, partyWalls } from './buildings.ts';
+import { footing, partyWalls, wallTop } from './buildings.ts';
+import { AWNING } from './facade-codes.ts';
 import type { PartyWalls } from './buildings.ts';
-import { buildCell, buildFurniture, groundRange, partition } from './cells.ts';
+import { buildCell, groundRange, partition } from './cells.ts';
 import type { Cell, DetailMarks } from './cells.ts';
+import type { buildFurniture } from './furniture.ts';
 import {
   createFacadeMaterial,
   fadeInkNearCamera,
@@ -142,6 +144,10 @@ interface CellEntry {
   objects: Object3D[];
   /** Its street furniture, built after the rest (see `furnish`). */
   furniture: Mesh | undefined;
+  /** What of it stands tall enough to show at every zoom, if anything does. */
+  tall: Mesh | null;
+  /** Its shop fronts' awnings, shown with the furniture, if it has any. */
+  awnings: Mesh | null;
   /** Where the rails and the catenary masts end in its outlines, which only show zoomed in. */
   detail: DetailMarks;
   /** Where the trunks, what else casts shadows and the fine road paint start in its mesh. */
@@ -279,6 +285,8 @@ export function createViewer(options: ViewerOptions): Viewer {
         ),
         objects: [],
         furniture: undefined,
+        tall: null,
+        awnings: null,
         detail: { rails: 0, masts: 0 },
         trunksFrom: 0,
         shadowFrom: 0,
@@ -322,24 +330,63 @@ export function createViewer(options: ViewerOptions): Viewer {
   }
 
   /**
+   * The street furniture and monuments are drawn by a chunk of their own (furniture.ts), loaded
+   * once the first frame is drawn, or as soon as the view gets close. If it fails to load, the
+   * map goes on without them.
+   */
+  let furnishing: { buildFurniture: typeof buildFurniture } | undefined;
+  let loadingFurniture: Promise<void> | undefined;
+  function loadFurniture(): void {
+    loadingFurniture ??= import('./furniture.ts').then(
+      (chunk) => {
+        furnishing = chunk;
+        if (disposed) return;
+        // The cells waiting for their furniture get it: those in view now, the rest when idle.
+        invalidate();
+        idleHandle ||= idle(buildInBackground);
+      },
+      () => {},
+    );
+  }
+
+  /** Makes a mesh of furniture, sharing the city's material, culled by `cull`. */
+  function furnitureMesh(builder: MeshBuilder, striped = false): Mesh {
+    // No windows: it leaves out the facade attribute and the shader reads its default, but
+    // awnings need it for their stripes.
+    const mesh = new Mesh(builder.build({ facade: striped }), material);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.frustumCulled = false;
+    mesh.visible = false; // until `cull` says otherwise
+    hold(mesh);
+    scene.add(mesh);
+    return mesh;
+  }
+
+  /**
    * Builds a cell's street furniture. It shows only up close, so it waits for the idle builder,
-   * unless the view gets close first (see `prepare`).
+   * unless the view gets close first (see `prepare`); its tall monuments show at every zoom.
    */
   function furnish(entry: CellEntry): void {
-    // It shares the material and its program: one more draw call, only up close. It has no
-    // windows, so it leaves out the facade attribute and the shader reads its default.
-    const { mesh, bikes } = buildFurniture(entry.cell, terrain);
-    const furniture = new Mesh(mesh.build(), material);
+    if (!furnishing) return loadFurniture();
+    const { near, bikes, awnings, tall } = furnishing.buildFurniture(entry.cell, {
+      MeshBuilder,
+      terrain,
+      awning: AWNING,
+      footing: (b) => footing(terrain, b.ring),
+      wallTop,
+      ground: (x, z) => terrain.height(x, z),
+    });
+    entry.furniture = furnitureMesh(near);
     // Where each parked bike is drawn in it (`PARKED`), for the rideable bikes to come.
-    furniture.userData.bikes = bikes;
-    furniture.castShadow = true;
-    furniture.receiveShadow = true;
-    furniture.frustumCulled = false;
-    furniture.visible = false; // until `cull` says otherwise
-    entry.furniture = furniture;
-    hold(furniture);
-    entry.box.union(furniture.geometry.boundingBox!);
-    scene.add(furniture);
+    entry.furniture.userData.bikes = bikes;
+    entry.box.union(entry.furniture.geometry.boundingBox!);
+    entry.awnings = awnings && furnitureMesh(awnings, true);
+    entry.tall = tall && furnitureMesh(tall);
+    if (entry.tall) {
+      entry.box.union(entry.tall.geometry.boundingBox!);
+      renderer.shadowMap.needsUpdate = true;
+    }
   }
 
   function hold(...objects: { geometry: BufferGeometry }[]): void {
@@ -567,7 +614,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     const flying = walk?.flightSpan !== undefined;
     const fromStreet = view !== camera && !flying;
     for (const entry of cells) {
-      const { box, cell, objects, detail, trunksFrom, shadowFrom, fineVertices } = entry;
+      const { box, objects, detail, trunksFrom, shadowFrom, fineVertices } = entry;
       const [surfaces, outlines, casters] = objects as [Mesh?, Mesh?, Mesh?];
       if (!surfaces || !outlines || !casters) continue;
       const skip = pixel > MAST_PIXEL ? detail.masts : pixel > RAIL_PIXEL ? detail.rails : 0;
@@ -584,14 +631,22 @@ export function createViewer(options: ViewerOptions): Viewer {
         calls++; // its outlines
       }
       if (casts) draw(casters);
+      const { furniture, tall } = entry;
+      if (tall) {
+        tall.layers.mask = (inView ? VIEW_LAYER : 0) | (casts ? SHADOW_LAYER : 0);
+        tall.visible = inView || casts;
+        if (inView) draw(tall);
+        if (casts) draw(tall);
+      }
       // Up close, `prepare` has built it for every cell in view or casting.
-      const { furniture } = entry;
-      if (!furniture) continue;
       const furnitureCasts = casts && fromStreet;
-      furniture.layers.mask = (inView ? VIEW_LAYER : 0) | (furnitureCasts ? SHADOW_LAYER : 0);
-      furniture.visible = (inView || furnitureCasts) && propsShown && cell.props.length > 0;
-      if (furniture.visible && inView) draw(furniture);
-      if (furniture.visible && furnitureCasts) draw(furniture);
+      for (const mesh of [furniture, entry.awnings]) {
+        if (!mesh) continue;
+        mesh.layers.mask = (inView ? VIEW_LAYER : 0) | (furnitureCasts ? SHADOW_LAYER : 0);
+        mesh.visible = (inView || furnitureCasts) && propsShown && corners(mesh.geometry) > 0;
+        if (mesh.visible && inView) draw(mesh);
+        if (mesh.visible && furnitureCasts) draw(mesh);
+      }
     }
     return calls <= FRAME_CALLS && triangles <= FRAME_TRIANGLES;
   }
@@ -615,8 +670,11 @@ export function createViewer(options: ViewerOptions): Viewer {
     for (const entry of waiting) {
       if (performance.now() - start > IDLE_SLICE_MS) break;
       if (entry.objects.length) {
-        // Off screen: up close, `prepare` furnishes what shows or casts before it's drawn.
+        // Off screen: up close, `prepare` furnishes what shows or casts before it's drawn. The
+        // tall monuments it brings show at every zoom.
         if (!entry.furniture) furnish(entry);
+        if (!furnishing) break;
+        changed ||= entry.tall !== null && frustum.intersectsBox(entry.box);
         continue;
       }
       build(entry);
@@ -635,7 +693,11 @@ export function createViewer(options: ViewerOptions): Viewer {
     if (changed) invalidate();
     // What the cells hand the GPU, for the smoke test, whether or not a frame is drawn.
     publish({ vertices: held.vertices, geometryBytes: held.bytes });
-    if (cells.some((e) => !e.furniture)) idleHandle = idle(buildInBackground);
+    // Cells left to furnish wait for the chunk, which picks the work up again when it arrives.
+    const unbuilt = cells.some((e) => !e.objects.length);
+    if (unbuilt || (furnishing && cells.some((e) => !e.furniture))) {
+      idleHandle = idle(buildInBackground);
+    }
   }
 
   const peak = { drawCalls: 0, triangles: 0 };
@@ -971,8 +1033,12 @@ export function createViewer(options: ViewerOptions): Viewer {
     for (const entry of cells) {
       scene.remove(...entry.objects);
       if (entry.furniture) scene.remove(entry.furniture);
+      if (entry.tall) scene.remove(entry.tall);
+      if (entry.awnings) scene.remove(entry.awnings);
       entry.objects = [];
       entry.furniture = undefined;
+      entry.tall = null;
+      entry.awnings = null;
     }
     [held.vertices, held.bytes] = [0, 0];
     shadow = undefined;

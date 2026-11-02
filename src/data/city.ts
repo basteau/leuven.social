@@ -5,6 +5,7 @@
  */
 
 import type { Field, PitchSurface } from './pitches.ts';
+import type { ShopKind } from './shop-kinds.ts';
 
 export const TIERS = ['hero', 'core', 'fringe'] as const;
 export type Tier = (typeof TIERS)[number];
@@ -53,6 +54,24 @@ export interface Building {
   holes: Float32Array[];
   /** A church's tower, where the LiDAR saw one. */
   tower?: Tower;
+  /** Its main shop front, the most telling of its `City.fronts` (src/data/shops.ts). */
+  front?: ShopFront;
+}
+
+/**
+ * A shop, café or bank on the ground floor, from OpenStreetMap (src/data/shops.ts): on its
+ * building's wall that faces the street, the one its house number would hang on.
+ */
+export interface ShopFront {
+  /** Its building's place in `City.buildings`. */
+  building: number;
+  /** The wall: the edge of the building's `ring` from corner `edge` to the next. */
+  edge: number;
+  /** Where along that wall it is centred (m from corner `edge`). */
+  along: number;
+  kind: ShopKind;
+  /** OSM `outdoor_seating=yes`, with room on the pavement for a table and two chairs. */
+  terrace: boolean;
 }
 
 /** A footpath, cycle path or park path, drawn as a ribbon on the ground. */
@@ -253,6 +272,8 @@ export interface City {
   plazaNames: number[];
   /** The ground's height, smoothed to the landform: y = 0 is the ground at Grote Markt. */
   terrain: TerrainGrid;
+  /** Shop fronts, by building, each building's main one first. */
+  fronts: ShopFront[];
 }
 
 const KIND_BY_OSM: Record<string, Kind> = {

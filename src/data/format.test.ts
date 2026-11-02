@@ -108,6 +108,7 @@ const city: City = {
   ],
   plazaNames: [0, -1],
   terrain: FLAT_GRID,
+  fronts: [],
 };
 
 /** Fifty small rings in a row, starting at x. */
@@ -255,9 +256,9 @@ describe('city format', () => {
     expect(() => decodeCity(encodeCity({ ...city, plazaNames: [0, 2] }))).toThrow('Bad square');
     // A tower on a building past the end of the list. Its eight bytes are the building's place,
     // the centre and radius (a byte each here), then top and tip (two each), before the level
-    // terrain's nine.
+    // terrain's nine and the shop fronts' count.
     const towered = encodeCity({ ...city, buildings: [city.buildings[0]!] });
-    const place = towered.length - 9 - 8;
+    const place = towered.length - 1 - 9 - 8;
     expect(towered[place]).toBe(0);
     towered[place] = 5;
     expect(() => decodeCity(towered)).toThrow('Bad tower building');
@@ -286,9 +287,35 @@ describe('terrain', () => {
     // Gentle enough that each height takes a byte: columns and rows are the two bytes before them.
     const gentle = { ...hill, heights: Float32Array.of(-0.5, 0, 1.35, 2.05, 2.4, 3) };
     const bytes = encodeCity({ ...city, terrain: gentle });
-    const cols = bytes.length - 6 - 2;
+    const cols = bytes.length - 1 - 6 - 2;
     expect(bytes[cols]).toBe(3);
     bytes[cols] = 100;
     expect(() => decodeCity(bytes)).toThrow('Bad terrain grid');
+  });
+});
+
+describe('shop fronts', () => {
+  const fronts: City['fronts'] = [
+    { building: 1, edge: 0, along: 2.5, kind: 'bakery', terrace: false },
+    { building: 1, edge: 3, along: 1.2, kind: 'service', terrace: false },
+    { building: 2, edge: 1, along: 3.9, kind: 'cafe', terrace: true },
+  ];
+
+  test('round-trip by building, each building wearing its first as its front', () => {
+    const decoded = decodeCity(encodeCity({ ...city, fronts }));
+    expect(decoded.fronts).toEqual(fronts);
+    expect(decoded.buildings.map((b) => b.front)).toEqual([undefined, fronts[0], fronts[2]]);
+  });
+
+  test('rejects a front on a missing building, wall or kind', () => {
+    const bad = (front: Partial<City['fronts'][number]>) => {
+      const one = [{ ...fronts[2]!, ...front }];
+      return () => decodeCity(encodeCity({ ...city, fronts: one }));
+    };
+    expect(bad({ building: 3 })).toThrow('Bad shop front');
+    expect(bad({ edge: 4 })).toThrow('Bad shop front');
+    const kinds = encodeCity({ ...city, fronts: [fronts[0]!] });
+    kinds[kinds.length - 1] = 0x7f;
+    expect(() => decodeCity(kinds)).toThrow('Bad shop front');
   });
 });
