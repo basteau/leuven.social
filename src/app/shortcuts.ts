@@ -108,7 +108,7 @@ export function useShortcuts(target: ShortcutTarget): void {
         '=': () => viewer.zoomBy(1.25),
         '-': () => viewer.zoomBy(0.8),
         m: target.toggleSound,
-        ...(mode === 'map' && { r: () => viewer.resetView() }),
+        ...(mode !== 'walk' && { r: () => viewer.resetView() }),
         ...(mode === 'pick' && !onControl && { enter: () => viewer.walkFromCentre() }),
         ...(mode !== 'map' && { escape: () => viewer.stopWalking() }),
       };

@@ -114,7 +114,10 @@ async function overpass(query: string): Promise<OverpassResult> {
   for (let round = 1; round <= 3; round++) {
     for (const endpoint of OVERPASS_ENDPOINTS) {
       try {
-        return await request(endpoint, (b) => checkOverpass(text(b)), { body: query, attempts: 2 });
+        return await request(endpoint, (b) => checkOverpass(text(b), OSM_DATE), {
+          body: query,
+          attempts: 2,
+        });
       } catch (error) {
         last = error;
         console.warn(`  ${new URL(endpoint).host} failed, trying the next server`);
@@ -154,8 +157,12 @@ function overpassPlan(source: OverpassSource): Plan {
           `${DATA}/.cache/${source.id}/${(await sha256(query)).slice(0, 16)}.json`,
         );
         if (await cache.exists()) {
-          results.push(checkOverpass(await cache.text()));
-          continue;
+          try {
+            results.push(checkOverpass(await cache.text(), OSM_DATE));
+            continue;
+          } catch {
+            // A cached answer from a server whose data ended too early: ask again.
+          }
         }
         console.log(`  tile ${i + 1}/${queries.length}`);
         const result = await overpass(query);

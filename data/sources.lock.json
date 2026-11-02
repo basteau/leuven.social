@@ -41,6 +41,13 @@
     "sha256": "cce341409e44974b191cddfc877b582a3ef1b13fc99fb1f746660314549089f9",
     "fetched": "2026-11-01"
   },
+  "osm-entrances": {
+    "plan": "fd1ff1742a6ea125",
+    "files": 1,
+    "bytes": 312378,
+    "sha256": "e1b90a6c4281495e2d1b9f51f920a9e1c136403e7c318725bb15a01bc6857a8f",
+    "fetched": "2026-11-02"
+  },
   "osm-rail-platforms": {
     "plan": "dcba6d5a184aa2f0",
     "files": 1,

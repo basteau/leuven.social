@@ -4,7 +4,6 @@ import type { BufferAttribute, Material, Object3D, Scene, Texture } from 'three'
 import type { City } from '../data/city.ts';
 import {
   HOUSE_PLATE_HEIGHT,
-  HOUSE_PLATE_Y,
   PLATE_BUCKET,
   PlateIndex,
   STREET_PLATE_HEIGHT,
@@ -12,8 +11,15 @@ import {
   unpackWalk,
 } from '../data/plates.ts';
 import type { WalkData } from '../data/plates.ts';
-import { Footings, PlateBuffers, addPlate, packCells } from './plate-mesh.ts';
-import type { Ground, PlateStyle, Slice } from './plate-mesh.ts';
+import {
+  PlateBuffers,
+  Walls,
+  addPlate,
+  packCells,
+  plateHeights,
+  plateWidth,
+} from './plate-mesh.ts';
+import type { Facade, PlateStyle, Slice } from './plate-mesh.ts';
 import type { PLATE } from './palette.ts';
 
 /**
@@ -32,9 +38,9 @@ const HOUSE_REACH = 40;
 const STREET_REACH = 60;
 /** The mesh is built round the middle of the walker's square, so it covers the whole square. */
 const SLACK = PLATE_BUCKET * Math.SQRT1_2;
-/** At most this many of each, nearest first: the densest square in the city has 86 and 21. */
+/** At most this many of each, nearest first: the densest square in the city has about 86 and 33. */
 const MAX_HOUSES = 200;
-const MAX_STREETS = 40;
+const MAX_STREETS = 64;
 
 const ATLAS_WIDTH = 1024;
 /** Texels between the atlas's cells, and how far each cell's enamel reaches into them. */
@@ -55,28 +61,38 @@ interface Design {
   cap: number;
   minWidth: number;
 }
-/** House numbers: a small plate, big bold digits. */
-const HOUSE: Design = {
-  height: HOUSE_PLATE_HEIGHT,
-  texels: 80,
-  weight: 800,
-  size: 0.6,
-  spacing: 0,
-  radius: 0.2,
-  cap: 0.28,
-  minWidth: 1.45,
-};
-/** Street names: the HUD plate's letters (weight 750, a hair of spacing), on a longer plate. */
-const STREET: Design = {
-  height: STREET_PLATE_HEIGHT,
-  texels: 96,
-  weight: 750,
-  size: 0.44,
-  spacing: 0.015,
-  radius: 0.16,
-  cap: 0.3,
-  minWidth: 2.4,
-};
+/**
+ * Every kind of plate, drawn into one atlas for one draw call. Another kind (a shop's name board)
+ * is another row: its letters go into the same atlas.
+ */
+const STYLES = {
+  /** House numbers: a small plate, big bold digits. */
+  house: {
+    height: HOUSE_PLATE_HEIGHT,
+    texels: 80,
+    weight: 800,
+    size: 0.6,
+    spacing: 0,
+    radius: 0.2,
+    cap: 0.28,
+    minWidth: 1.45,
+  },
+  /**
+   * Street names: the HUD plate's letters (weight 750), spaced a little wider than on screen so
+   * they stay apart from across the street, on a plate as long as the name.
+   */
+  street: {
+    height: STREET_PLATE_HEIGHT,
+    texels: 96,
+    weight: 750,
+    size: 0.46,
+    spacing: 0.03,
+    radius: 0.16,
+    cap: 0.3,
+    minWidth: 2.4,
+  },
+} satisfies Record<string, Design>;
+type Kind = keyof typeof STYLES;
 /** The enamel's layers from the edge in, in plate heights: ink, enamel, then the paper rim. */
 const INK_EDGE = 0.05;
 const RIM_INSET = 0.11;
@@ -87,23 +103,19 @@ const hex = (colour: number) => `#${colour.toString(16).padStart(6, '0')}`;
 
 interface Atlas {
   canvas: HTMLCanvasElement;
-  house: PlateStyle;
-  street: PlateStyle;
+  styles: Record<Kind, PlateStyle>;
   ink: [number, number];
 }
 
 /** Draws every letter the plates use, once, as slices of enamel plate. */
-function drawAtlas(
-  houseText: Iterable<string>,
-  streetText: Iterable<string>,
-  colours: typeof PLATE,
-): Atlas {
+function drawAtlas(texts: Record<Kind, Iterable<string>>, colours: typeof PLATE): Atlas {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d')!;
-  const sets = [
-    { design: HOUSE, chars: [...new Set(houseText)].toSorted() },
-    { design: STREET, chars: [...new Set(streetText)].toSorted() },
-  ];
+  const kinds = Object.keys(STYLES) as Kind[];
+  const sets = kinds.map((kind) => ({
+    design: STYLES[kind] as Design,
+    chars: [...new Set(texts[kind])].toSorted(),
+  }));
   // Measure first: the atlas's height follows from the letters.
   type Item = {
     set: number;
@@ -195,7 +207,7 @@ function drawAtlas(
       ctx.fillStyle = hex(colours.paper);
       ctx.textBaseline = 'alphabetic';
       // Capitals and figures sit in the middle of the enamel; accents and descenders around them.
-      const capital = ctx.measureText(item.set === 0 ? '0' : 'H').actualBoundingBoxAscent;
+      const capital = ctx.measureText('H').actualBoundingBoxAscent;
       const spacing = design.spacing * design.size * design.texels;
       ctx.fillText(item.ch, x + spacing / 2, y + (design.texels + capital) / 2);
       style.glyphs.set(item.ch, slice(x, y, w, design));
@@ -204,8 +216,9 @@ function drawAtlas(
   const [ix, iy] = at.at(-1)!;
   return {
     canvas,
-    house: styles[0] as PlateStyle,
-    street: styles[1] as PlateStyle,
+    styles: Object.fromEntries(
+      kinds.map((kind, i) => [kind, styles[i] as PlateStyle]),
+    ) as Atlas['styles'],
     ink: [(ix + 8) / ATLAS_WIDTH, 1 - (iy + 8) / height],
   };
 }
@@ -228,8 +241,9 @@ export interface PlatesHost {
   kit: PlateKit;
   scene: Scene;
   city: City;
-  /** The ground and where houses stand on it: a plate hangs at its height over its house's foot. */
-  ground: Ground;
+  /** How a building's walls are drawn: a plate hangs on them, over its house's foot. */
+  facade(building: City['buildings'][number]): Facade;
+  height(x: number, z: number): number;
   gradientMap: Texture;
   /** The most anisotropic filtering the GPU offers, so letters stay sharp at a slant. */
   anisotropy: number;
@@ -259,8 +273,10 @@ export function createPlates(host: PlatesHost, data: WalkData): Plates {
   const names = host.city.streetNames;
   const { BufferAttribute, BufferGeometry, CanvasTexture, Mesh, MeshToonMaterial } = host.kit.three;
   const atlas = drawAtlas(
-    data.houses.flatMap((h) => [...h.text]),
-    data.streets.flatMap((s) => [...(names[s.name] ?? '')]),
+    {
+      house: data.houses.flatMap((h) => [...h.text]),
+      street: data.streets.flatMap((s) => [...(names[s.name] ?? '')]),
+    },
     host.kit.colours,
   );
   const texture = new CanvasTexture(atlas.canvas);
@@ -288,7 +304,7 @@ export function createPlates(host: PlatesHost, data: WalkData): Plates {
   const houses = new PlateIndex(data.houses);
   const streets = new PlateIndex(data.streets);
   const buffers = new PlateBuffers();
-  let footings: Footings | undefined;
+  let walls: Walls | undefined;
   let built = Number.NaN;
   let shown = 0;
 
@@ -298,19 +314,23 @@ export function createPlates(host: PlatesHost, data: WalkData): Plates {
     buffers.reset();
     const nearHouses = houses.near(cx, cz, HOUSE_REACH + SLACK, MAX_HOUSES);
     const nearStreets = streets.near(cx, cz, STREET_REACH + SLACK, MAX_STREETS);
-    footings ??= new Footings(
-      host.city.buildings.map((b) => b.ring),
-      host.ground,
+    const { buildings } = host.city;
+    walls ??= new Walls(
+      buildings.map((b) => b.ring),
+      { facade: (b) => host.facade(buildings[b]!), height: host.height },
     );
-    for (const i of nearHouses) {
-      const h = data.houses[i]!;
-      const y = footings.at(h.x, h.z, h.angle) + HOUSE_PLATE_Y;
-      addPlate(buffers, { ...h, y, style: atlas.house }, atlas.ink);
-    }
+    /** Settled onto its drawn wall, at its kind's height over the foot of its house. */
+    const hang = (kind: Kind, plate: { x: number; z: number; angle: number }, text: string) => {
+      const style = atlas.styles[kind];
+      const half = (plateWidth(text, style) * style.height) / 2;
+      const at = walls!.hang(plate.x, plate.z, plate.angle, half);
+      const y = at.foot + plateHeights(at.top, at.shop)[kind];
+      addPlate(buffers, { ...at, y, text, style }, atlas.ink);
+    };
+    for (const i of nearHouses) hang('house', data.houses[i]!, data.houses[i]!.text);
     for (const i of nearStreets) {
       const s = data.streets[i]!;
-      const y = footings.at(s.x, s.z, s.angle) + s.y;
-      addPlate(buffers, { ...s, y, text: names[s.name] ?? '', style: atlas.street }, atlas.ink);
+      hang('street', s, names[s.name] ?? '');
     }
     shown = nearHouses.length + nearStreets.length;
     const fill = (name: string, array: Float32Array, size: number) => {

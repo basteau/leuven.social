@@ -1,13 +1,15 @@
 import { describe, expect, test } from 'bun:test';
 
+import { HOUSE_PLATE_HEIGHT, STREET_PLATE_HEIGHT } from '../data/plates.ts';
 import { Terrain } from '../data/terrain.ts';
 import { footing } from './buildings.ts';
 import {
-  Footings,
   PLATE_DEPTH,
   PlateBuffers,
+  Walls,
   addPlate,
   packCells,
+  plateHeights,
   plateOutline,
   plateWidth,
 } from './plate-mesh.ts';
@@ -159,7 +161,7 @@ describe('packCells', () => {
   });
 });
 
-describe('Footings', () => {
+describe('Walls', () => {
   // Rising 0.1 m a metre to the east.
   const slope = new Terrain({
     step: 100,
@@ -169,22 +171,95 @@ describe('Footings', () => {
     rows: 3,
     heights: Float32Array.of(-10, 0, 10, -10, 0, 10, -10, 0, 10),
   });
-  // A house from x = 23 to 60, its lowest corner at 2.3 m (it stands at 2), and one further west.
-  const footings = new Footings(
-    [Float32Array.of(23, 0, 60, 0, 60, 10, 23, 10), Float32Array.of(-43, 30, -30, 30, -30, 40)],
-    { footing: (ring) => footing(slope, ring), height: (x, z) => slope.height(x, z) },
-  );
+  // A house from x = 23 to 60, its lowest corner at 2.3 m (it stands at 2), drawn on its own
+  // footprint; and one further west whose walls are drawn on a ring 20 cm inside its footprint,
+  // as a hipped roof's are.
+  const rings = [
+    Float32Array.of(23, 0, 60, 0, 60, 10, 23, 10),
+    Float32Array.of(-43, 30, -30, 30, -30, 40),
+  ];
+  const drawn = [rings[0]!, Float32Array.of(-42.8, 30.2, -30.2, 30.2, -30.2, 39.4)];
+  const walls = new Walls(rings, {
+    facade: (b) => ({
+      rings: [drawn[b]!],
+      foot: footing(slope, rings[b]!),
+      top: 9 + b,
+      shop: (nx) => b === 1 && nx > -2,
+    }),
+    height: (x, z) => slope.height(x, z),
+  });
+  const face = PLATE_DEPTH - 0.01;
 
   test('a plate hangs from the foot of its house, wherever along the wall it is', () => {
     // On the front wall (z = 0, facing -z), at either end.
-    expect(footings.at(25, -0.05, -Math.PI / 2)).toBeCloseTo(2);
-    expect(footings.at(58, -0.05, -Math.PI / 2)).toBeCloseTo(2);
+    expect(walls.hang(25, -0.05, -Math.PI / 2, 0.5).foot).toBeCloseTo(2);
+    expect(walls.hang(58, -0.05, -Math.PI / 2, 0.5).foot).toBeCloseTo(2);
     // On the east wall, facing +x.
-    expect(footings.at(60.05, 5, 0)).toBeCloseTo(2);
-    expect(footings.at(-35, 29.95, -Math.PI / 2)).toBeCloseTo(-4.5);
+    const east = walls.hang(60.05, 5, 0, 0.5);
+    expect([east.foot, east.top, east.shop]).toEqual([2, 9, false]);
+    expect(walls.hang(-35, 29.95, -Math.PI / 2, 0.5).foot).toBeCloseTo(-4.5);
+  });
+
+  test('settles onto the drawn wall: its facing, just off it, its sides tucked in', () => {
+    // Hung a few centimetres out and a little turned, it comes to the wall's own facing.
+    const at = walls.hang(40, -0.08, -Math.PI / 2 + 0.02, 0.5);
+    expect(at.angle).toBeCloseTo(-Math.PI / 2);
+    expect(at.x).toBeCloseTo(40);
+    expect(at.z).toBeCloseTo(-face);
+    // The western house's walls stand 20 cm in from its footprint: the plate follows them in.
+    const west = walls.hang(-36, 29.94, -Math.PI / 2, 0.5);
+    expect(west.z).toBeCloseTo(30.2 - face);
+    expect([west.top, west.shop]).toEqual([10, true]);
+  });
+
+  test('keeps a plate within its wall where it fits, and lets a long one overhang', () => {
+    expect(walls.hang(23.2, -0.05, -Math.PI / 2, 1).x).toBeCloseTo(24);
+    expect(walls.hang(59.9, -0.05, -Math.PI / 2, 1).x).toBeCloseTo(59);
+    // The east wall is 10 m long: a 12 m plate stays where it was put.
+    expect(walls.hang(60.05, 9, 0, 6).z).toBeCloseTo(9);
+  });
+
+  test('leaves a plate be where no drawn wall faces its way nearby', () => {
+    // Facing +z on the front wall, which faces -z: no wall of the house faces that way near it.
+    const at = walls.hang(40, 0.5, Math.PI / 2, 0.5);
+    expect([at.x, at.z, at.angle]).toEqual([40, 0.5, Math.PI / 2]);
   });
 
   test('a plate on no house hangs over the ground at its point', () => {
-    expect(footings.at(80, 50, 0)).toBeCloseTo(8);
+    const at = walls.hang(80, 50, 0, 0.5);
+    expect(at.foot).toBeCloseTo(8);
+    expect([at.x, at.z]).toEqual([80, 50]);
+  });
+});
+
+describe('plateHeights', () => {
+  const [house, street] = [HOUSE_PLATE_HEIGHT / 2, STREET_PLATE_HEIGHT / 2];
+
+  test('hangs between the ground floor openings and the first floor sills', () => {
+    // Three storeys of 3.2 m: windows to 2.56 m, the next sills at 4.22 m.
+    const { house: h, street: s } = plateHeights(9.6, false);
+    expect(h - house).toBeGreaterThan(2.56);
+    expect(s - street).toBeGreaterThan(h + house);
+    expect(s + street).toBeLessThan(4.22);
+    // Low and tall storeys alike.
+    for (const top of [5.6, 6, 7, 8, 10, 11.5, 13, 16, 20, 30]) {
+      const storey = Math.min(4, Math.max(2.8, top / Math.max(1, Math.round(top / 3.2))));
+      const heights = plateHeights(top, false);
+      expect(heights.house - house).toBeGreaterThan(0.8 * storey);
+      expect(heights.street - street).toBeGreaterThan(heights.house + house);
+      expect(heights.street + street).toBeLessThan(1.32 * storey);
+    }
+  });
+
+  test('clears the awning over a shop front', () => {
+    expect(plateHeights(9.6, true).house - house).toBeGreaterThan(0.97 * 3.2);
+    expect(plateHeights(9.6, true).street + street).toBeLessThan(1.32 * 3.2);
+    expect(plateHeights(9.6, true).street).toBeGreaterThan(plateHeights(9.6, false).street - 1e-9);
+  });
+
+  test('stays under the eaves of a low house', () => {
+    const { house: h, street: s } = plateHeights(3.4, false);
+    expect(h + house).toBeLessThan(3.4);
+    expect(s + street).toBeLessThan(3.4);
   });
 });

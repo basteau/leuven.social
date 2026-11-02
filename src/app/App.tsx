@@ -305,6 +305,9 @@ export function App() {
     };
   }, [ready]);
 
+  // Starting a walk is using the map too, and the hint then needs the room under the credits.
+  if (walkMode !== 'map' && creditsOpen) setCreditsOpen(false);
+
   const coaching = walkMode === 'walk' && coach && !blocked;
 
   return (
@@ -331,13 +334,13 @@ export function App() {
 
       <header className="hud hud-top">
         {/*
-          The top-start corner: who we are on the map; walking, one panel with the way back and
-          the street, the way the rail's controls share an outline.
+          The top-start corner, one panel in every mode: a plate that says where you are (Leuven
+          on the map, the street on foot), and the way back once there is one.
         */}
-        <div className={walkMode === 'walk' ? 'corner panel' : 'corner'}>
-          {walkMode === 'walk' ? (
+        <div className="corner panel">
+          {walkMode !== 'map' && (
             <ActionButton
-              label="Map"
+              label={walkMode === 'walk' ? 'Map' : 'Cancel'}
               shortcut="Esc"
               keys="Escape"
               quiet
@@ -346,11 +349,12 @@ export function App() {
             >
               <BackIcon />
             </ActionButton>
-          ) : (
-            <div className="panel brand">
+          )}
+          {walkMode === 'map' && (
+            <h1 className="sign">
               <GableIcon />
-              <h1>Leuven</h1>
-            </div>
+              Leuven
+            </h1>
           )}
           <StreetSign name={walkMode === 'walk' ? street : null} />
         </div>
@@ -368,6 +372,50 @@ export function App() {
             <SoundIcon on={soundOn} />
           </RoundButton>
         </div>
+        {/*
+          The hint, under the corners, clear of the thumbs and the controls. Always in the page,
+          empty when there's nothing to say, so changes are announced.
+        */}
+        <output className="panel hint">
+          {blocked ? (
+            'Can’t walk there. Pick a street or square.'
+          ) : walkMode === 'map' ? (
+            walkLoad === 'loading' ? (
+              'Getting ready to walk…'
+            ) : walkLoad === 'failed' ? (
+              'Walking couldn’t load. Check your connection and try again.'
+            ) : null
+          ) : walkMode === 'pick' ? (
+            <>
+              <span className="hint-keys">
+                Click a street to start there, or press <kbd>Enter</kbd> for the middle.
+              </span>
+              <span className="hint-touch">Tap a street, or move the map and tap Start here.</span>
+            </>
+          ) : riding && rideCoach ? (
+            <>
+              <span className="hint-keys">
+                <kbd>{keys.KeyW}</kbd> pedals, <kbd>{keys.KeyS}</kbd> brakes, <kbd>{keys.KeyA}</kbd>{' '}
+                <kbd>{keys.KeyD}</kbd> steer, <kbd>Shift</kbd> sprints. <kbd>F</kbd> gets off
+                anywhere.
+              </span>
+              <span className="hint-touch">
+                Left thumb rides where it points; push to the rim to sprint.
+              </span>
+            </>
+          ) : coaching ? (
+            <>
+              <span className="hint-keys">
+                <kbd>{keys.KeyW}</kbd> <kbd>{keys.KeyA}</kbd> <kbd>{keys.KeyS}</kbd>{' '}
+                <kbd>{keys.KeyD}</kbd> walk, hold <kbd>Shift</kbd> to run, drag to look. Click a
+                street to go there.
+              </span>
+              <span className="hint-touch">
+                Left thumb walks, right thumb looks. Tap a street to go there.
+              </span>
+            </>
+          ) : null}
+        </output>
       </header>
 
       {/* One region for loading and errors, so screen readers hear every change. */}
@@ -390,9 +438,52 @@ export function App() {
       </output>
 
       <footer className="hud hud-bottom">
-        {/* Map controls at the end edge, in thumb reach; the same place in every mode. */}
-        <div className="rail">
+        {/* The mode's one action, in the middle of the bottom edge. */}
+        <div className="bar">
           {walkMode === 'map' && (
+            <ActionButton
+              label="Walk"
+              shortcut={keys.KeyW}
+              primary
+              disabled={!ready}
+              busy={walkLoad === 'loading'}
+              onPress={() => startWalkRef.current()}
+              onWarm={() => viewer()?.preloadWalk()}
+            >
+              <WalkIcon />
+            </ActionButton>
+          )}
+          {walkMode === 'walk' && ride && (
+            <ActionButton
+              label={riding ? 'Get off' : 'Ride'}
+              shortcut="F"
+              primary={!riding}
+              disabled={!ready}
+              onPress={() => viewer()?.ride('toggle')}
+            >
+              <BikeIcon />
+            </ActionButton>
+          )}
+          {walkMode === 'pick' && (
+            <ActionButton
+              label="Start here"
+              shortcut="↵"
+              keys="Enter"
+              primary
+              disabled={!ready}
+              onPress={() => viewer()?.walkFromCentre()}
+            >
+              <PinIcon />
+            </ActionButton>
+          )}
+        </div>
+
+        {/*
+          The view's controls at the end edge, in thumb reach, standing on the bottom edge so they
+          stay put when a mode adds its own under them (Run on foot).
+        */}
+        <div className="rail">
+          {walkMode !== 'walk' && (
             <RoundButton
               label="Reset view"
               shortcut="R"
@@ -404,7 +495,7 @@ export function App() {
             </RoundButton>
           )}
           <fieldset className="stack">
-            <legend className="sr-only">Zoom</legend>
+            <legend className="sr-only">View</legend>
             <RoundButton
               label={walkMode === 'walk' ? 'Closer' : 'Zoom in'}
               shortcut="+"
@@ -421,9 +512,6 @@ export function App() {
             >
               <MinusIcon />
             </RoundButton>
-          </fieldset>
-          <fieldset className="stack">
-            <legend className="sr-only">Turn</legend>
             <RoundButton
               label="Turn left"
               shortcut={keys.KeyQ}
@@ -466,100 +554,6 @@ export function App() {
             >
               <RunIcon />
             </RoundButton>
-          )}
-        </div>
-
-        <div className="bar">
-          {/* Always in the page, empty when there's nothing to say, so changes are announced. */}
-          <output className="panel hint">
-            {blocked ? (
-              'Can’t walk there. Pick a street or square.'
-            ) : walkMode === 'map' ? (
-              walkLoad === 'loading' ? (
-                'Getting ready to walk…'
-              ) : walkLoad === 'failed' ? (
-                'Walking couldn’t load. Check your connection and try again.'
-              ) : null
-            ) : walkMode === 'pick' ? (
-              <>
-                <span className="hint-keys">
-                  Click a street to start there, or press <kbd>Enter</kbd> for the middle.
-                </span>
-                <span className="hint-touch">
-                  Tap a street, or move the map and tap Start here.
-                </span>
-              </>
-            ) : riding && rideCoach ? (
-              <>
-                <span className="hint-keys">
-                  <kbd>{keys.KeyW}</kbd> pedals, <kbd>{keys.KeyS}</kbd> brakes,{' '}
-                  <kbd>{keys.KeyA}</kbd> <kbd>{keys.KeyD}</kbd> steer, <kbd>Shift</kbd> sprints.{' '}
-                  <kbd>F</kbd> gets off anywhere.
-                </span>
-                <span className="hint-touch">
-                  Left thumb rides where it points; push to the rim to sprint.
-                </span>
-              </>
-            ) : coaching ? (
-              <>
-                <span className="hint-keys">
-                  <kbd>{keys.KeyW}</kbd> <kbd>{keys.KeyA}</kbd> <kbd>{keys.KeyS}</kbd>{' '}
-                  <kbd>{keys.KeyD}</kbd> walk, hold <kbd>Shift</kbd> to run, drag to look. Click a
-                  street to go there.
-                </span>
-                <span className="hint-touch">
-                  Left thumb walks, right thumb looks. Tap a street to go there.
-                </span>
-              </>
-            ) : null}
-          </output>
-          {walkMode === 'map' && (
-            <ActionButton
-              label="Walk"
-              shortcut={keys.KeyW}
-              primary
-              disabled={!ready}
-              busy={walkLoad === 'loading'}
-              onPress={() => startWalkRef.current()}
-              onWarm={() => viewer()?.preloadWalk()}
-            >
-              <WalkIcon />
-            </ActionButton>
-          )}
-          {walkMode === 'walk' && ride && (
-            <ActionButton
-              label={riding ? 'Get off' : 'Ride'}
-              shortcut="F"
-              primary={!riding}
-              disabled={!ready}
-              onPress={() => viewer()?.ride('toggle')}
-            >
-              <BikeIcon />
-            </ActionButton>
-          )}
-          {walkMode === 'pick' && (
-            <fieldset className="actions">
-              <legend className="sr-only">Start walking</legend>
-              <ActionButton
-                label="Cancel"
-                shortcut="Esc"
-                keys="Escape"
-                disabled={!ready}
-                onPress={() => viewer()?.stopWalking()}
-              >
-                <BackIcon />
-              </ActionButton>
-              <ActionButton
-                label="Start here"
-                shortcut="↵"
-                keys="Enter"
-                primary
-                disabled={!ready}
-                onPress={() => viewer()?.walkFromCentre()}
-              >
-                <PinIcon />
-              </ActionButton>
-            </fieldset>
           )}
         </div>
       </footer>
