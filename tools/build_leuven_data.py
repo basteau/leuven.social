@@ -29,6 +29,7 @@ Outputs (data/derived/):
   lidar_trees.json           tree crowns found in the LiDAR canopy, with their heights
   grb_structures.json        GRB structures (bridges, tanks and silos) in local metres, with tank heights from the LiDAR
   road_zones.json            carriageways, cycle tracks, lane lines and crossings (tools/build_road_zones.py)
+  terrain.json               the landform: the DTM smoothed (sigma ~37 m), every 60 m on a grid anchored at the origin
   osm_roads.geojson, osm_areas.geojson, osm_points.geojson
   preview_heights.png
 """
@@ -468,6 +469,70 @@ for f in json.load(open(DATA / 'grb/grb_KNW.geojson'))['features']:
 json.dump({'units': 'm', 'axes': 'x=east, z=south', 'source': 'GRB KNW structures, heights DHMV II DSM-DTM p90',
            'structures': structures}, open(OUT / 'grb_structures.json', 'w'), separators=(',', ':'))
 print(f'structures: {len(structures)}')
+
+# --- Terrain: the lie of the land, without the city's kerbs, quays and cuttings -----------------------------------------
+# The DTM averaged into 5 m blocks, then smoothed by three box passes 75 m wide (a near-Gaussian, sigma ~37 m): what's
+# left is the landform (the Dijle valley, the slopes up to Kessel-Lo and Heverlee), not the quay walls, railway
+# cuttings or embankments, so roads stay at grade the way bridges already do. Sampled every TERRAIN_STEP metres on a
+# grid anchored at the origin (Grote Markt), over the whole raster; the bake keeps the part over the map.
+TERRAIN_STEP = 60
+TERRAIN_BLOCK = 5
+TERRAIN_BOX = 7  # blocks either side: 15 x 5 = 75 m
+
+
+def box_sum(a, r, axis):
+    """Sums over a window of 2r + 1 along `axis`, counting nothing beyond the edges."""
+    pad = [(0, 0)] * a.ndim
+    pad[axis] = (r + 1, r)
+    c = np.cumsum(np.pad(a, pad), axis=axis)
+    n = a.shape[axis]
+    return np.take(c, np.arange(2 * r + 1, 2 * r + 1 + n), axis) - np.take(c, np.arange(n), axis)
+
+
+def landform():
+    b = TERRAIN_BLOCK
+    h, w = dtm.shape[0] // b * b, dtm.shape[1] // b * b
+    known = ~np.isnan(dtm[:h, :w])
+    total = np.where(known, dtm[:h, :w], 0).astype(np.float64).reshape(h // b, b, w // b, b).sum((1, 3))
+    count = known.astype(np.float64).reshape(h // b, b, w // b, b).sum((1, 3))
+    # Smoothing the sums and the counts alike keeps the DTM's holes (no ground return) out of the mean.
+    for _ in range(3):
+        for axis in (0, 1):
+            total, count = box_sum(total, TERRAIN_BOX, axis), box_sum(count, TERRAIN_BOX, axis)
+    with np.errstate(invalid='ignore', divide='ignore'):
+        return total / count
+
+
+def terrain_grid():
+    smooth = landform()
+    rows, cols = smooth.shape
+    # The raster's corners in local metres: nodes inside all four are sampled.
+    corners = [to_wgs(X0 + c * RES, Y1 - r * RES) for r in (0, rows * TERRAIN_BLOCK) for c in (0, cols * TERRAIN_BLOCK)]
+    xs = [(lon - ORIGIN[0]) * kx for lon, _ in corners]
+    zs = [-(lat - ORIGIN[1]) * kz for _, lat in corners]
+    g = TERRAIN_STEP
+    i0, i1 = math.ceil(max(xs[0], xs[2]) / g), math.floor(min(xs[1], xs[3]) / g)
+    j0, j1 = math.ceil(max(zs[0], zs[1]) / g), math.floor(min(zs[2], zs[3]) / g)
+    nx, nz = np.meshgrid(np.arange(i0, i1 + 1) * g, np.arange(j0, j1 + 1) * g)
+    lx, ly = to_lambert(ORIGIN[0] + nx / kx, ORIGIN[1] - nz / kz)
+    # Bilinear between block centres.
+    fc = (lx - X0) / RES / TERRAIN_BLOCK - 0.5
+    fr = (Y1 - ly) / RES / TERRAIN_BLOCK - 0.5
+    c0 = np.clip(np.floor(fc).astype(int), 0, cols - 2)
+    r0 = np.clip(np.floor(fr).astype(int), 0, rows - 2)
+    u, v = np.clip(fc - c0, 0, 1), np.clip(fr - r0, 0, 1)
+    heights = (smooth[r0, c0] * (1 - u) * (1 - v) + smooth[r0, c0 + 1] * u * (1 - v)
+               + smooth[r0 + 1, c0] * (1 - u) * v + smooth[r0 + 1, c0 + 1] * u * v)
+    return {'step': g, 'i0': i0, 'j0': j0, 'cols': i1 - i0 + 1, 'rows': j1 - j0 + 1,
+            'heights': [round(float(v), 2) for v in heights.ravel()]}
+
+
+terrain = terrain_grid()
+json.dump({'units': 'm TAW', 'axes': 'x=east, z=south; node (i, j) at x = (i0 + i) step, z = (j0 + j) step, rows along z',
+           'source': 'DHMV II DTM, 5 m blocks smoothed by three 75 m box passes', **terrain},
+          open(OUT / 'terrain.json', 'w'), separators=(',', ':'))
+print(f"terrain: {terrain['cols']} x {terrain['rows']} nodes every {TERRAIN_STEP} m, "
+      f"{min(terrain['heights']):.1f}..{max(terrain['heights']):.1f} m TAW")
 
 hs = np.array([f['properties']['height'] for f in feats])
 print(f'church towers: {len(towers)} (name, p90, [radius, top, tip])')

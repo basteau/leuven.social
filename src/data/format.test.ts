@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import type { City } from './city.ts';
 import { CityFormatError, decodeCity, encodeCity, packCity, unpackCity } from './format.ts';
+import { FLAT_GRID } from './terrain.ts';
 
 const square = (x: number, z: number, s: number) =>
   new Float32Array([x, z, x + s, z, x + s, z + s, x, z + s]);
@@ -90,6 +91,7 @@ const city: City = {
     { name: 0, line: new Float32Array([-60, 0, -10, 0, 10, 5]) },
   ],
   plazaNames: [0, -1],
+  terrain: FLAT_GRID,
 };
 
 /** Fifty small rings in a row, starting at x. */
@@ -194,11 +196,42 @@ describe('city format', () => {
     const street = { ...city, streets: [{ ...city.streets[0]!, name: 2 }] };
     expect(() => decodeCity(encodeCity(street))).toThrow('Bad street name');
     expect(() => decodeCity(encodeCity({ ...city, plazaNames: [0, 2] }))).toThrow('Bad square');
-    // A tower on a building past the end of the list. Its last eight bytes are the building's
-    // place, the centre and radius (a byte each here), then top and tip (two each).
+    // A tower on a building past the end of the list. Its eight bytes are the building's place,
+    // the centre and radius (a byte each here), then top and tip (two each), before the level
+    // terrain's nine.
     const towered = encodeCity({ ...city, buildings: [city.buildings[0]!] });
-    expect(towered[towered.length - 8]).toBe(0);
-    towered[towered.length - 8] = 5;
+    const place = towered.length - 9 - 8;
+    expect(towered[place]).toBe(0);
+    towered[place] = 5;
     expect(() => decodeCity(towered)).toThrow('Bad tower building');
+  });
+});
+
+describe('terrain', () => {
+  const hill = {
+    step: 60,
+    minX: -120,
+    minZ: 60,
+    cols: 3,
+    rows: 2,
+    heights: Float32Array.of(-2.5, 0, 1.35, 4.05, 8.4, 70),
+  };
+
+  test('round-trips to the nearest 5 cm, anchored on whole steps', () => {
+    const { terrain } = decodeCity(encodeCity({ ...city, terrain: hill }));
+    expect({ ...terrain, heights: [] }).toEqual({ ...hill, heights: [] });
+    expect(Array.from(terrain.heights)).toEqual(
+      Array.from(hill.heights, (h) => Math.fround(Math.round(h * 20) / 20)),
+    );
+  });
+
+  test('rejects a grid larger than the file', () => {
+    // Gentle enough that each height takes a byte: columns and rows are the two bytes before them.
+    const gentle = { ...hill, heights: Float32Array.of(-0.5, 0, 1.35, 2.05, 2.4, 3) };
+    const bytes = encodeCity({ ...city, terrain: gentle });
+    const cols = bytes.length - 6 - 2;
+    expect(bytes[cols]).toBe(3);
+    bytes[cols] = 100;
+    expect(() => decodeCity(bytes)).toThrow('Bad terrain grid');
   });
 });

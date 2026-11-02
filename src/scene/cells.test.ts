@@ -5,6 +5,7 @@ import { partyWalls } from './buildings.ts';
 import { CELL_SIZE, along, buildCell, buildFurniture, partition } from './cells.ts';
 import { unindexed } from './mesh-builder.ts';
 import type { MeshBuilder } from './mesh-builder.ts';
+import { FLAT_GRID } from '../data/terrain.ts';
 
 const S = CELL_SIZE;
 const box = (x: number, z: number, w: number, d: number) =>
@@ -70,6 +71,7 @@ const city: City = {
   streetNames: [],
   streets: [],
   plazaNames: [],
+  terrain: FLAT_GRID,
 };
 
 test('the area is cut into cells, and each thing goes to one', () => {
