@@ -281,6 +281,8 @@ export const WALKER = {
 /** The route hint: pale dots and a target, ringed in ink like the HUD. */
 export const ROUTE = 0x4a3c33;
 
+/** Chimney stacks on pale houses: a dark red brick (darker houses darken their own). */
+export const CHIMNEY = 0x8a4a3c;
 /** Window glass, and the few windows that catch the low sun. */
 export const WINDOW = { glass: 0x2f3a4a, lit: 0xf3c873 } as const;
 

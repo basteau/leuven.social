@@ -147,7 +147,7 @@ describe('buildingsGeometry', () => {
   });
 
   test('a gabled house faces outward too and peaks at its height', () => {
-    const b = building({});
+    const b = building({ kind: 'other' }); // no chimney, which would stand higher
     expect(windingAgreesWithNormals(b)).toBe(true);
     const g = buildingsGeometry([b]).surfaces;
     g.computeBoundingBox();
@@ -289,7 +289,7 @@ describe('stepped gables', () => {
   });
 
   test('steps climb above the ridge, face outward and replace the gable triangles', () => {
-    const b = wide({ id: steppedId, tier: 'hero' });
+    const b = wide({ id: steppedId, tier: 'hero', kind: 'other' }); // bare of stacks and dormers
     expect(windingAgreesWithNormals(b)).toBe(true);
     const { surfaces, outlines } = buildingsGeometry([b]);
     surfaces.computeBoundingBox();
@@ -384,6 +384,54 @@ describe('party walls', () => {
       buildingsGeometry([right]).surfaces.getAttribute('position').count;
     // The lower house loses its whole seam wall, the taller one keeps a strip: one quad less.
     expect(together).toBe(apart - 6);
+  });
+});
+
+const houses = (tier: Building['tier'], kind: Building['kind'] = 'house') =>
+  Array.from({ length: 60 }, (_, id) => wide({ id, tier, kind, height: 14, eave: 10 }));
+const peak = (b: Building) => {
+  const g = buildingsGeometry([b]).surfaces;
+  g.computeBoundingBox();
+  return g.boundingBox!.max.y;
+};
+const vertices = (b: Building) => buildingsGeometry([b]).surfaces.getAttribute('position').count;
+/** What the details add: the same house as a bare kind, with the same stepped gable if any. */
+const extra = (b: Building) => vertices(b) - vertices({ ...b, kind: 'other' });
+const plain = (b: Building) => {
+  const plan = planRoof(b);
+  return plan.type === 'gable' && !plan.stepped;
+};
+
+describe('roof details', () => {
+  test('most houses in the centre get a chimney stack above the ridge, the fringe none', () => {
+    const centre = houses('core')
+      .filter(plain)
+      .filter((b) => peak(b) > 14.5).length;
+    expect(centre).toBeGreaterThan(25);
+    expect(houses('fringe').every((b) => peak(b) === 14)).toBe(true);
+    expect(
+      houses('core', 'retail')
+        .filter(plain)
+        .every((b) => peak(b) === 14),
+    ).toBe(true);
+  });
+
+  test('a stack is a box of five faces; a dormer adds a front, a pane, cheeks and a lid', () => {
+    const counts = new Set(houses('core').map(extra));
+    // Stacks: 0, 1 or 2 boxes of 5 quads (30 vertices each as triangles).
+    expect(counts.has(30) || counts.has(60)).toBe(true);
+    // A dormer: a front quad, its pane, two cheek triangles and a lid (6 + 6 + 3 + 3 + 6).
+    expect([...counts].some((n) => n % 30 === 24)).toBe(true);
+    // A roof window: one quad.
+    expect([...counts].some((n) => n % 30 === 6)).toBe(true);
+    for (const b of houses('core')) expect(windingAgreesWithNormals(b)).toBe(true);
+  });
+
+  test('a low or narrow roof gets no dormer, and a short ridge no stack', () => {
+    const low = houses('core').map((b) => building({ ...b, height: 11.6, eave: 10 }));
+    expect(low.every((b) => extra(b) % 30 !== 24)).toBe(true);
+    const short = building({ ring: box(3, 2.4), height: 6, eave: 4 });
+    expect(peak(short)).toBe(6);
   });
 });
 

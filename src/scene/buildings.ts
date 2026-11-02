@@ -15,7 +15,8 @@ import { LIFT_UNIT, LineBuilder, MeshBuilder } from './mesh-builder.ts';
 import type { V3 } from './mesh-builder.ts';
 import { addParasol } from './terraces.ts';
 import type { Parasol } from './terraces.ts';
-import { LANDMARK, pick, roofColor, wallColor } from './palette.ts';
+import { CHIMNEY, LANDMARK, WINDOW, pick, roofColor, wallColor } from './palette.ts';
+import { fromOklab, toOklab } from '../data/colour.ts';
 
 export type RoofPlan =
   | {
@@ -591,6 +592,132 @@ export function addBuilding(
     ink.segment(at(end, W, eave), at(end, 0, ridge));
     ink.segment(at(end, -W, eave), at(end, 0, ridge));
   }
+  if (b.tier !== 'fringe' && (b.kind === 'house' || b.kind === 'apartments')) {
+    roofDetails(mesh, ink, at, plan, b, wall, roof);
+  }
+}
+
+/** Chimney stacks: a half-metre box, this far out of the ridge and this far from a gable end. */
+const STACK = { half: 0.28, rise: 0.8, sink: 0.4, inset: 1.1 } as const;
+/** How many stacks a house gets, by its id: most one, some two, a few none. */
+const STACKS = [1, 1, 1, 2, 2, 1, 0, 1] as const;
+/** A dormer's width, height and how far down the slope its front stands (share of the width). */
+const DORMER = { half: 0.6, rise: 1.2, down: 0.6, min: 2.5 } as const;
+/** A roof window's half sizes along and down the slope, lifted just off it. */
+const SKYLIGHT = { halfU: 0.45, halfV: 0.5, lift: 0.04 } as const;
+
+/**
+ * What makes a roof a house's own, on the gables of the centre's houses: chimney stacks on the
+ * ridge near the party walls (one on most, two on some), a dormer poking out of one slope of a
+ * third of them, a roof window in another fifth. In brick a shade darker than the wall, or the
+ * wall's own colour for a dormer; about 30 triangles a house at most. Shadows and ink cost
+ * nothing more: a stack is too small for a line, a dormer gets its front's edges.
+ */
+function roofDetails(
+  mesh: MeshBuilder,
+  ink: Ink,
+  at: At,
+  plan: Extract<RoofPlan, { type: 'gable' }>,
+  b: Building,
+  wall: number,
+  roof: number,
+): void {
+  const { rect, eave, ridge } = plan;
+  const { halfLength: L, halfWidth: W } = rect;
+  const rise = ridge - eave;
+  if (L < STACK.inset + STACK.half || rise < 1) return;
+  const [ux, uz, vx, vz] = [rect.ux, rect.uz, -rect.uz, rect.ux];
+  const brick = chimneyColor(wall);
+  /** An upright box in the roof's frame: four sides and a top. */
+  const block = (
+    u0: number,
+    u1: number,
+    v0: number,
+    v1: number,
+    y0: number,
+    y1: number,
+    c: number,
+  ) => {
+    mesh.quad(at(u1, v0, y0), at(u1, v1, y0), at(u1, v1, y1), at(u1, v0, y1), c, [ux, 0, uz]);
+    mesh.quad(at(u0, v1, y0), at(u0, v0, y0), at(u0, v0, y1), at(u0, v1, y1), c, [-ux, 0, -uz]);
+    mesh.quad(at(u1, v1, y0), at(u0, v1, y0), at(u0, v1, y1), at(u1, v1, y1), c, [vx, 0, vz]);
+    mesh.quad(at(u0, v0, y0), at(u1, v0, y0), at(u1, v0, y1), at(u0, v0, y1), c, [-vx, 0, -vz]);
+    mesh.quad(at(u0, v0, y1), at(u1, v0, y1), at(u1, v1, y1), at(u0, v1, y1), c, [0, 1, 0]);
+  };
+  const stacks = pick(STACKS, b.id * 23);
+  const first = pick([1, -1], b.id * 29);
+  for (let i = 0; i < stacks; i++) {
+    const u = (i === 0 ? first : -first) * (L - STACK.inset);
+    block(
+      u - STACK.half,
+      u + STACK.half,
+      -STACK.half,
+      STACK.half,
+      ridge - STACK.sink,
+      ridge + STACK.rise,
+      brick,
+    );
+  }
+  // The slope's height at v across the ridge.
+  const slope = (v: number) => eave + rise * (1 - Math.abs(v) / W);
+  const side = pick([1, -1], b.id * 31);
+  const where = pick([-0.5, -0.25, 0, 0.25, 0.5], b.id * 37) * Math.max(0, L - 1.6);
+  const look = pick([0, 1, 2, 3, 4, 5], b.id * 41);
+  if (look < 2 && rise >= DORMER.min && W >= 2.4 && L >= 2) {
+    // A shed dormer: a vertical front on the slope, cheeks, and a lid sloping back to the roof.
+    const vf = side * W * DORMER.down;
+    const y0 = slope(vf);
+    const y1 = y0 + DORMER.rise;
+    // Where the lid, 0.3 m higher at the back, meets the slope.
+    const vb = side * W * (1 - (y1 + 0.3 - eave) / rise);
+    const [u0, u1] = [where - DORMER.half, where + DORMER.half];
+    const out: V3 = [side * vx, 0, side * vz];
+    mesh.quad(at(u0, vf, y0), at(u1, vf, y0), at(u1, vf, y1), at(u0, vf, y1), wall, out);
+    // Its window: a pane a hair proud of the front.
+    const p = 0.02;
+    const pane = (u: number, y: number) => at(u, vf + side * p, y);
+    mesh.quad(
+      pane(u0 + 0.15, y0 + 0.25),
+      pane(u1 - 0.15, y0 + 0.25),
+      pane(u1 - 0.15, y1 - 0.2),
+      pane(u0 + 0.15, y1 - 0.2),
+      WINDOW.glass,
+      out,
+    );
+    mesh.triangle(at(u1, vf, y0), at(u1, vb, y1 + 0.3), at(u1, vf, y1), wall, [ux, 0, uz]);
+    mesh.triangle(at(u0, vf, y0), at(u0, vf, y1), at(u0, vb, y1 + 0.3), wall, [-ux, 0, -uz]);
+    mesh.quad(
+      at(u0, vf, y1),
+      at(u1, vf, y1),
+      at(u1, vb, y1 + 0.3),
+      at(u0, vb, y1 + 0.3),
+      roof,
+      [0, 1, 0],
+    );
+    ink.segment(at(u0, vf, y1), at(u1, vf, y1));
+    ink.segment(at(u0, vf, y0), at(u0, vf, y1));
+    ink.segment(at(u1, vf, y0), at(u1, vf, y1));
+  } else if (look === 2 && rise >= 1.5 && W >= 2 && L >= 1.5) {
+    // A roof window, lying on the slope.
+    const vc = side * W * 0.5;
+    const lift = (v: number) => slope(v) + SKYLIGHT.lift;
+    const [v0, v1] = [vc - side * SKYLIGHT.halfV, vc + side * SKYLIGHT.halfV];
+    const [u0, u1] = [where - SKYLIGHT.halfU, where + SKYLIGHT.halfU];
+    mesh.quad(
+      at(u0, v0, lift(v0)),
+      at(u1, v0, lift(v0)),
+      at(u1, v1, lift(v1)),
+      at(u0, v1, lift(v1)),
+      WINDOW.glass,
+      [side * vx, 1, side * vz],
+    );
+  }
+}
+
+/** A chimney in brick a shade darker than its house's wall; on a pale wall, a dark red brick. */
+function chimneyColor(wall: number): number {
+  const [l, a, bb] = toOklab(wall);
+  return l > 0.72 ? CHIMNEY : fromOklab([l - 0.12, a, bb]);
 }
 
 /**
