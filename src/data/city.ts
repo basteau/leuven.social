@@ -114,8 +114,8 @@ export interface Street {
 }
 
 /**
- * Street furniture and small monuments, from OpenStreetMap points (src/data/props.ts). All of
- * them stand in the way: none is walkable.
+ * Street furniture, then monuments (from 'statue' on), from OpenStreetMap points
+ * (src/data/props.ts, src/data/monuments.ts). All of them stand in the way: none is walkable.
  */
 export const PROP_KINDS = [
   'lamp',
@@ -127,8 +127,29 @@ export const PROP_KINDS = [
   'fountain',
   'pump',
   'needle',
+  'bust',
+  'group',
+  'sculpture',
+  'column',
+  'stone',
 ] as const;
 export type PropKind = (typeof PROP_KINDS)[number];
+/** Monuments: the props that are art or memory, each an archetype (src/data/monuments.ts). */
+export type MonumentKind = Exclude<PropKind, 'lamp' | 'bench' | 'bikes' | 'shelter' | 'busstop'>;
+/** What a monument is made of, as drawn; a fountain of water has a jet in its basin. */
+export const MATERIALS = [
+  'bronze',
+  'stone',
+  'marble',
+  'bluestone',
+  'steel',
+  'rust',
+  'concrete',
+  'wood',
+  'brick',
+  'water',
+] as const;
+export type Material = (typeof MATERIALS)[number];
 
 export interface Prop {
   kind: PropKind;
@@ -136,9 +157,18 @@ export interface Prop {
   z: number;
   /** Which way it faces (radians from +x towards +z): towards the nearest kerb, path or wall. */
   angle: number;
-  /** Stands in a bike rack; a statue's or needle's tagged height (m); else 0. */
+  /** Stands in a bike rack; a monument's height, plinth included (m); else 0. */
   size: number;
+  /** Monuments only: their plinth or basin across (u) and along (v) their facing (m). */
+  width?: number;
+  depth?: number;
+  /** Monuments only: what they're made of. */
+  material?: Material;
 }
+
+/** Whether a prop is a monument, which carries its plinth and material. */
+export const isMonument = (kind: PropKind): kind is MonumentKind =>
+  PROP_KINDS.indexOf(kind) >= PROP_KINDS.indexOf('statue');
 
 /** A tank or silo (GRB structures): its footprint and LiDAR height. Solid, so not walkable. */
 export interface Tank {

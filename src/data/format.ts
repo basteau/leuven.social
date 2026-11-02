@@ -16,14 +16,15 @@
  * centre line: the gauge is standard everywhere, so a track needs no more.
  * Trees are a ring of positions followed by their heights in decimetres.
  * Props are a kind per prop, then their positions as one ring, then a turn (a byte: 256ths of a
- * full turn) and a size in decimetres each.
+ * full turn) and a size in decimetres each; a monument (v14) adds its plinth's width and depth
+ * (decimetres) and its material (a byte).
  * Tanks are a height in decimetres and a footprint each; parapets are open lines.
  * Street names are a table of strings, then each street as its name's place in the table and a
  * centre line, then one number per plaza: 0 for none, else its name's place plus one.
- * Church towers (v13) come last, as few as there are churches with one: each is its building's
+ * Church towers (v13) come next, as few as there are churches with one: each is its building's
  * place in the list (the change from the tower before), its centre (zigzag decimetres), radius,
  * wall top and tip (decimetres). The decoder hangs each on its building as `tower`.
- * The terrain (v14) closes the file: its grid step (decimetres), its first node in whole steps
+ * The terrain (v15) closes the file: its grid step (decimetres), its first node in whole steps
  * from the origin (zigzag), columns and rows, then each height in 5 cm as its difference from the
  * plane through its neighbours to the west, north and north-west (zigzag): the land is smooth,
  * so most of those take a byte.
@@ -36,10 +37,12 @@ import {
   CARRIAGEWAY_KINDS,
   KINDS,
   MARKING_KINDS,
+  MATERIALS,
   PROP_KINDS,
   RAIL_KINDS,
   ROOFS,
   TIERS,
+  isMonument,
 } from './city.ts';
 import type {
   Bounds,
@@ -54,7 +57,7 @@ import type {
 import { boundsOf } from './geometry.ts';
 
 const MAGIC = 'LVN1';
-const VERSION = 14;
+const VERSION = 15;
 const DM = 10; // units per metre
 const GROUND = 20; // terrain heights per metre: 5 cm
 const ZIGZAG = { encoding: 'zigzag' } as const;
@@ -229,6 +232,10 @@ export function encodeCity(city: City): Uint8Array {
   for (const p of city.props) {
     w.uint8(Math.round((p.angle / TURN) * 256) & 255);
     w.varint(Math.round(p.size * DM));
+    if (!isMonument(p.kind)) continue;
+    w.varint(Math.round((p.width ?? 0) * DM));
+    w.varint(Math.round((p.depth ?? 0) * DM));
+    w.uint8(MATERIALS.indexOf(p.material ?? 'bronze'));
   }
 
   w.varint(city.tanks.length);
@@ -376,13 +383,19 @@ export function decodeCity(bytes: Uint8Array): City {
     return kind;
   });
   const places = readRing(r);
-  const props = kinds.map((kind, i): Prop => ({
-    kind,
-    x: places[i * 2]!,
-    z: places[i * 2 + 1]!,
-    angle: (r.uint8() / 256) * TURN,
-    size: r.varint() / DM,
-  }));
+  const props = kinds.map((kind, i): Prop => {
+    const prop: Prop = {
+      kind,
+      x: places[i * 2]!,
+      z: places[i * 2 + 1]!,
+      angle: (r.uint8() / 256) * TURN,
+      size: r.varint() / DM,
+    };
+    if (!isMonument(kind)) return prop;
+    const [width, depth, material] = [r.varint() / DM, r.varint() / DM, MATERIALS[r.uint8()]];
+    if (!material) throw new CityFormatError('Bad monument material.');
+    return Object.assign(prop, { width, depth, material });
+  });
   const tanks = list((from) => ({ height: r.varint() / DM, ring: readRing(r, from) }));
   const parapets = list((from) => readRing(r, from));
 

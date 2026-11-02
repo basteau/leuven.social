@@ -14,7 +14,8 @@ const SQUARE = new Float32Array([-50, -20, 50, -20, 50, 20, -50, 20]);
 const props: Prop[] = [
   { kind: 'lamp', x: 10, z: 30, angle: 0, size: 0 },
   { kind: 'bench', x: 20, z: 30, angle: Math.PI / 2, size: 0 },
-  { kind: 'statue', x: 30, z: 30, angle: 0, size: 3 },
+  // As the bake writes a monument: with its plinth and material.
+  { kind: 'statue', x: 30, z: 30, angle: 0, size: 3, width: 1.2, depth: 1.2, material: 'bronze' },
 ];
 const city: City = {
   area: [{ minX: -100, minZ: -100, maxX: 100, maxZ: 100 }],
@@ -75,7 +76,8 @@ test('lamps are posts; benches (their seat), statues and parasol feet are footpr
   const [bench, statue, ...feet] = rings;
   // The seat, 1.8 by 0.5 m at 1.3×, without the room for legs in front of it.
   expect(Math.abs(signedArea(bench!))).toBeCloseTo(1.8 * 0.5 * 1.3 * 1.3, 4);
-  expect(Math.abs(signedArea(statue!))).toBeCloseTo(1.2 * 1.2 * 1.3 * 1.3, 4);
+  // A monument stands on its own plinth, at life size.
+  expect(Math.abs(signedArea(statue!))).toBeCloseTo(1.2 * 1.2, 4);
   expect(feet.length).toBeGreaterThan(10);
   for (const foot of feet)
     expect(Math.abs(signedArea(foot))).toBeCloseTo((2 * PARASOL_FOOT) ** 2, 4);

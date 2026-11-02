@@ -1,5 +1,6 @@
 import type { Bounds, Building, Carriageway, City, Path, Prop, Rail, Tank } from '../data/city.ts';
 import { areaOutline, clipLine, clipRing } from '../data/geometry.ts';
+import { propFootprint } from '../data/props.ts';
 import { FLAT } from '../data/terrain.ts';
 import type { Terrain } from '../data/terrain.ts';
 import { addBuilding, footing } from './buildings.ts';
@@ -9,7 +10,7 @@ import { GROUND_RINGS } from './ground.ts';
 import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
 import { addFinePaint } from './paint.ts';
 import type { Marking } from './paint.ts';
-import { LARGE_PROPS, addProp } from './props.ts';
+import { addProp, isLarge } from './props.ts';
 import {
   addCanopyBay,
   addMasts,
@@ -309,8 +310,8 @@ export function buildCell(
     addTank(mesh, lines, t);
   }
   for (const p of cell.props) {
-    if (!LARGE_PROPS.has(p.kind)) continue;
-    at(p.x, p.z);
+    if (!isLarge(p)) continue;
+    mesh.lift = propBase(terrain, p);
     addProp(mesh, p);
   }
   mesh.lift = lines.lift = 0;
@@ -321,15 +322,27 @@ export function buildCell(
 }
 
 /**
+ * Where a prop stands: the lowest ground under its footprint's corners, so a bench or a
+ * monument's plinth runs into a slope rather than over it.
+ */
+export function propBase(terrain: Terrain, p: Prop): number {
+  const { x, z, fx, fz, u0, u1, v0, v1 } = propFootprint(p);
+  const ring = [u0, u1].flatMap((u) =>
+    [v0, v1].flatMap((v) => [x - fz * u + fx * v, z + fx * u + fz * v]),
+  );
+  return terrain.base(ring);
+}
+
+/**
  * A cell's small street furniture, as a mesh of its own that hides when zoomed out. It only
  * shows up close, so it's built apart from the rest, after the first frame. Each piece stands
- * on the ground at its point.
+ * on the ground under it (`propBase`).
  */
 export function buildFurniture(cell: Cell, terrain: Terrain = FLAT): MeshBuilder {
   const props = new MeshBuilder();
   for (const p of cell.props) {
-    if (LARGE_PROPS.has(p.kind)) continue;
-    props.lift = terrain.height(p.x, p.z);
+    if (isLarge(p)) continue;
+    props.lift = propBase(terrain, p);
     addProp(props, p);
   }
   return props;

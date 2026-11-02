@@ -2,11 +2,19 @@ import { expect, test } from 'bun:test';
 
 import type { Building, City } from '../data/city.ts';
 import { footing, partyWalls } from './buildings.ts';
-import { CELL_SIZE, along, buildCell, buildFurniture, groundRange, partition } from './cells.ts';
+import {
+  CELL_SIZE,
+  along,
+  buildCell,
+  buildFurniture,
+  groundRange,
+  partition,
+  propBase,
+} from './cells.ts';
 import { slabBottom } from './ground.ts';
 import { unindexed } from './mesh-builder.ts';
 import type { MeshBuilder } from './mesh-builder.ts';
-import { FLAT_GRID, Terrain } from '../data/terrain.ts';
+import { FLAT, FLAT_GRID, Terrain } from '../data/terrain.ts';
 
 const S = CELL_SIZE;
 const box = (x: number, z: number, w: number, d: number) =>
@@ -242,4 +250,22 @@ test('a cell guesses its height from its own ground, down to the slab at the edg
   expect(groundRange(east!, wide, slope, 10)).toEqual([0, 20]);
   // The area's edge runs through: the slab hangs to its flat underside.
   expect(groundRange(west!, city.area, slope, 0)).toEqual([slabBottom(slope), 10]);
+});
+
+test('a prop stands on the lowest ground under its footprint', () => {
+  // Rising 0.1 m a metre to the east.
+  const slope = new Terrain({
+    step: 100,
+    minX: -100,
+    minZ: -100,
+    cols: 3,
+    rows: 3,
+    heights: Float32Array.of(-10, 0, 10, -10, 0, 10, -10, 0, 10),
+  });
+  const plinth = { kind: 'statue' as const, x: 20, z: 0, angle: 0, size: 4, width: 4, depth: 2 };
+  const base = propBase(slope, plinth);
+  // A little under the ground at its middle: its west edge is lower.
+  expect(base).toBeLessThan(slope.height(20, 0));
+  expect(base).toBeGreaterThan(slope.height(20, 0) - 0.5);
+  expect(propBase(FLAT, plinth)).toBe(0);
 });
