@@ -1,39 +1,7 @@
-/* Tokens and rationale: DESIGN.md. Techniques: .agents/skills/good-css, mobile-native. */
-
-:root {
-  color-scheme: light;
-  --ink: oklch(26% 0.02 50);
-  --paper: oklch(97.5% 0.014 85);
-  --paper-press: color-mix(in oklch, var(--paper), var(--ink) 10%);
-  --accent: oklch(47% 0.12 252);
-  /* Deeper shades keep the accent's hue: mixing in the warm ink would turn the blue purple. */
-  --accent-press: oklch(40% 0.11 252);
-  /* The street plate: the accent a shade deeper, so it reads as a sign, not a button. */
-  --sign: oklch(43% 0.115 252);
-  --sky-top: oklch(83% 0.06 235);
-  --sky-horizon: oklch(93% 0.05 75);
-
-  --space-xs: 0.25rem;
-  --space-s: 0.5rem;
-  --space-m: 0.75rem;
-  --space-l: 1rem;
-  --gutter: clamp(0.75rem, 2.5vw, 1.25rem);
-  --control: 44px;
-  --control-big: 60px;
-  /* The actions and the corner panel: a little taller than a round control. */
-  --bar: 48px;
-  --radius: 14px;
-  /* Inside a panel, 2px in from its 2px border: concentric with it. */
-  --radius-inner: calc(var(--radius) - 4px);
-  --border: 2px;
-  /* Pressing sinks a control into its shadow: hard, inked, no blur. */
-  --lift: 3px;
-  --shadow-hard: 0 var(--lift) 0 var(--ink);
-  --shadow-pressed: 0 1px 0 var(--ink);
-  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
-  --font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
-}
+/*
+ * Tokens are in index.html, inline, so the loading screen paints before this file arrives;
+ * rationale in DESIGN.md. Techniques: .agents/skills/good-css, better-ui, mobile-native.
+ */
 
 /* Reset (good-css foundations) */
 *,
@@ -54,13 +22,6 @@
   overscroll-behavior: none;
 }
 
-body {
-  margin: 0;
-  font-family: var(--font-ui);
-  color: var(--ink);
-  background: var(--sky-horizon);
-}
-
 h1,
 h2,
 h3,
@@ -78,11 +39,6 @@ button {
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
-}
-
-/* A button that's held (Turn): a thumb drifting while it holds mustn't hand the touch to the page. */
-.round.hold {
-  touch-action: none;
 }
 
 .sr-only {
@@ -109,15 +65,15 @@ kbd {
   border-block-end-width: 2px;
   border-radius: 4px;
   font: 600 0.6875rem / 1.4 var(--font-mono);
+  white-space: nowrap;
 }
 
-/* App shell: the map fills the dynamic viewport; HUD panels float over it. */
+/* App shell: the map fills the dynamic viewport; the few things on it float over it. */
 .app {
   position: fixed;
   inset: 0;
   block-size: 100dvh;
   overflow: clip;
-  container-type: inline-size;
   background: linear-gradient(var(--sky-top), var(--sky-horizon) 70%);
 }
 
@@ -156,53 +112,28 @@ kbd {
   pointer-events: none;
 }
 
-/* The HUD takes no pointer events itself: only its controls do, the rest stays draggable map. */
+/* The edges take no pointer events themselves: only what's on them does, the rest is map. */
 .hud {
   position: absolute;
   inset-inline: 0;
+  display: grid;
   gap: var(--space-s);
   padding-inline: max(var(--gutter), env(safe-area-inset-left, 0px))
     max(var(--gutter), env(safe-area-inset-right, 0px));
   pointer-events: none;
 }
 
-.panel,
-.action,
-.round,
-.stack {
-  pointer-events: auto;
-  border: var(--border) solid var(--ink);
-  background: var(--paper);
-  box-shadow: var(--shadow-hard);
-}
-
-.panel {
-  border-radius: var(--radius);
-}
-
-/* Top: the corner (the way back, where you are), the credits and Mute; the hint under them. */
+/* Top: the street plate at the start, the credit at the end, a hint under them. */
 .hud-top {
   inset-block-start: 0;
-  display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: 1fr auto;
   align-items: start;
   padding-block-start: calc(var(--gutter) + env(safe-area-inset-top, 0px));
 }
 
-/*
- * The corner is one panel in every mode, as tall as the actions: the way back (once there is
- * one) and a plate, 2px in from its border, with concentric corners.
- */
-.corner {
-  display: flex;
-  min-block-size: var(--bar);
-  padding: 2px;
-}
-
-/* Bottom: the mode's action in the middle, the view's controls in a rail at the end edge. */
+/* Bottom: the moment's one action in the middle, the menu button at the end. */
 .hud-bottom {
   inset-block-end: 0;
-  display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: end;
   padding-block-end: calc(var(--gutter) + env(safe-area-inset-bottom, 0px));
@@ -213,73 +144,18 @@ kbd {
   display: flex;
 }
 
-/* Standing on the bottom edge and lined up on the end edge, so a control a mode adds under them
- * (Run, wider) moves nothing else sideways. */
-.rail {
-  justify-self: end;
-  display: flex;
-  flex-direction: column;
-  align-items: end;
-  gap: var(--space-s);
+/* Pressable things stand on a hard inked shadow, and sink into it when pressed. */
+.action,
+.menu-trigger {
+  pointer-events: auto;
+  border: var(--border) solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: var(--shadow-hard);
+  cursor: pointer;
 }
 
-/*
- * Short screens (a phone on its side): a column would reach up to Mute in the corner, so the rail
- * lies down in a row, Run at its start where the compass was, so the view's controls stay put.
- */
-@media (max-height: 26rem) {
-  .rail,
-  .rail .stack {
-    flex-direction: row;
-  }
-
-  .rail {
-    /* The reset lets grid items shrink; a row of controls never should. */
-    min-inline-size: max-content;
-  }
-
-  .rail .big {
-    order: -1;
-  }
-
-  .stack .round + .round::before {
-    inset-block: 10px;
-    inset-inline: 0 auto;
-    inline-size: 1px;
-    block-size: auto;
-  }
-
-  .rail .tip {
-    inset-block: auto calc(100% + var(--space-m));
-    inset-inline-end: 50%;
-    translate: 50% 0;
-  }
-}
-
-fieldset {
-  min-inline-size: 0;
-  margin: 0;
-  padding: 0;
-}
-
-.notice {
-  position: absolute;
-  inset-block-start: 50%;
-  inset-inline-start: 50%;
-  translate: -50% -50%;
-  display: grid;
-  gap: var(--space-m);
-  justify-items: center;
-  max-inline-size: min(22rem, calc(100% - 2 * var(--space-l)));
-  margin: 0;
-  padding: var(--space-l);
-  font-weight: 600;
-  text-align: center;
-  /* A short centred message: even lines, not one long and a word left over. */
-  text-wrap: balance;
-}
-
-/* An action: a pill with an icon and its name, the one or two things each mode is for. */
+/* An action: a pill with an icon and its name (Ride, Get off, Try again). */
 .action {
   display: inline-flex;
   align-items: center;
@@ -288,10 +164,8 @@ fieldset {
   min-block-size: var(--bar);
   padding-inline: var(--space-l) 1.125rem;
   border-radius: 999px;
-  color: var(--ink);
   font: 700 0.9375rem / 1 var(--font-ui);
   white-space: nowrap;
-  cursor: pointer;
 }
 
 .action.primary {
@@ -303,131 +177,52 @@ fieldset {
   opacity: 0.75;
 }
 
-/* Inside a panel: bare, its corners concentric with the panel's, its hit area out to its edge. */
-.action.quiet {
+/*
+ * The menu button: small and quiet in the end corner, under a right thumb. With a keyboard it
+ * shows its chord, so the menu is found by mouse and learnt for next time.
+ */
+.menu-trigger {
+  grid-column: 3;
+  justify-self: end;
   position: relative;
-  flex: none;
-  min-block-size: 0;
-  padding-inline: var(--space-s) var(--space-m);
-  border: 0;
-  border-radius: var(--radius-inner);
-  background: transparent;
-  box-shadow: none;
-}
-
-.action.quiet::after {
-  position: absolute;
-  inset: -4px;
-  content: '';
-}
-
-/* A round map control. In a stack, the stack is the outline and the buttons share it. */
-.round {
-  position: relative;
-  display: grid;
-  place-items: center;
-  inline-size: var(--control);
-  block-size: var(--control);
-  padding: 0;
-  border-radius: 50%;
-  color: var(--ink);
-  font: inherit;
-  cursor: pointer;
-}
-
-.stack {
-  display: flex;
-  flex-direction: column;
-  border-radius: 999px;
-}
-
-.stack .round {
-  inline-size: calc(var(--control) - 2 * var(--border));
-  border: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-/* 40px wide inside the capsule's border; the hit area reaches out over it to 44px. */
-.stack .round::after {
-  position: absolute;
-  inset: min(0px, (100% - var(--control)) / 2);
-  content: '';
-}
-
-.stack .round + .round::before {
-  position: absolute;
-  inset-block-start: 0;
-  inset-inline: 10px;
-  block-size: 1px;
-  background: color-mix(in oklch, var(--ink) 25%, transparent);
-  content: '';
-}
-
-/* Run: a toggle under the right thumb, big enough to find without looking, labelled. */
-.round.big {
-  inline-size: var(--control-big);
-  block-size: var(--control-big);
-  align-content: center;
-  gap: 1px;
-}
-
-.round-label {
-  font-size: 0.625rem;
-  font-weight: 750;
-  line-height: 1;
-}
-
-.round[aria-pressed='true'] {
-  background: var(--accent);
-  color: var(--paper);
-}
-
-/* The compass needle points north on the map, turned against the view's heading. */
-.compass-needle {
-  rotate: var(--heading, 0rad);
-}
-
-/* Names and shortcuts of the round controls, on hover and keyboard focus only. */
-.tip {
-  position: absolute;
-  inset-block-start: 50%;
-  inset-inline-end: calc(100% + var(--space-m));
-  display: none;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: var(--space-s);
-  padding-block: var(--space-xs);
-  padding-inline: var(--space-s);
-  border-radius: 6px;
-  background: var(--ink);
-  color: var(--paper);
-  font-size: 0.75rem;
-  font-weight: 650;
-  white-space: nowrap;
-  translate: 0 -50%;
-  pointer-events: none;
+  min-inline-size: 40px;
+  block-size: 40px;
+  padding-inline: 9px;
+  border-radius: 999px;
+  font: inherit;
 }
 
-.round:focus-visible .tip {
-  display: flex;
+/* 40px to the eye, 44px to the thumb. */
+.menu-trigger::after {
+  position: absolute;
+  inset: -2px;
+  content: '';
 }
 
-/* Mute's tip would open over the credits beside it: it opens below instead. */
-.corner-end .tip {
-  inset-block-start: calc(100% + var(--space-s));
-  inset-inline-end: 0;
-  translate: none;
+.menu-trigger kbd {
+  padding-inline-end: 0.35em;
+  opacity: 0.75;
 }
 
-/* Press feedback everywhere: the control sinks into its hard shadow. */
-.action:not(.quiet):active:not(:disabled),
-.round:not(.stack .round):active:not(:disabled) {
+@media (hover: none), (pointer: coarse) {
+  .action kbd,
+  .menu-trigger kbd {
+    display: none;
+  }
+}
+
+.action:active:not(:disabled),
+.menu-trigger:active {
   translate: 0 calc(var(--lift) - 1px);
   box-shadow: var(--shadow-pressed);
 }
 
 .action:active:not(:disabled, .primary),
-.round:active:not(:disabled, [aria-pressed='true']) {
+.menu-trigger:active {
   background: var(--paper-press);
 }
 
@@ -435,62 +230,35 @@ fieldset {
   background: var(--accent-press);
 }
 
-.stack .round:active:not(:disabled) svg {
-  scale: 0.88;
-}
-
-/* High-contrast modes replace both colours: keep the fill as the system's own highlight. */
-@media (forced-colors: active) {
-  .round[aria-pressed='true'] {
-    background: Highlight;
-    color: HighlightText;
-    forced-color-adjust: none;
-  }
-}
-
-:is(.action, .round):disabled {
+.action:disabled {
   opacity: 0.5;
   cursor: default;
 }
 
-@media (hover: none) {
-  .action kbd {
-    display: none;
-  }
-}
-
 @media (hover: hover) and (pointer: fine) {
   .action:hover:not(:disabled, .primary),
-  .round:hover:not(:disabled, [aria-pressed='true']) {
+  .menu-trigger:hover {
     background: var(--paper-press);
   }
 
   .action.primary:hover:not(:disabled) {
     background: var(--accent-press);
   }
-
-  .round:hover:not(:disabled) .tip {
-    display: flex;
-  }
 }
 
 @media (prefers-reduced-motion: no-preference) {
   .action,
-  .round {
+  .menu-trigger {
     transition:
       translate 120ms var(--ease-out),
       box-shadow 120ms var(--ease-out),
       background-color 120ms var(--ease-out);
   }
-
-  .stack .round svg {
-    transition: scale 120ms var(--ease-out);
-  }
 }
 
 /*
- * The corner's plate, Leuven on the map and the street on foot: inset in the corner panel, the
- * accent's enamel under a paper rim.
+ * The street plate, on foot: Leuven's enamel blue under a paper rim, in the start corner, the
+ * HUD's version of the plates on the facades. Nothing that looks like a plate is pressable.
  */
 .sign-slot {
   display: flex;
@@ -499,19 +267,20 @@ fieldset {
 .sign {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: var(--space-s);
-  max-inline-size: 17rem;
+  max-inline-size: min(17rem, 100%);
+  min-block-size: 40px;
   margin: 0;
   padding-block: var(--space-xs);
   padding-inline: var(--space-m);
-  border-radius: var(--radius-inner);
+  border: var(--border) solid var(--ink);
+  border-radius: var(--radius);
   background: var(--sign);
   color: var(--paper);
   /* The enamel's rim, a little inside the edge. */
   box-shadow:
     inset 0 0 0 3px var(--sign),
-    inset 0 0 0 4.5px var(--paper);
+    inset 0 0 0 4.5px var(--paper),
+    var(--shadow-hard);
   font-size: 0.875rem;
   font-weight: 750;
   line-height: 1.25;
@@ -520,26 +289,13 @@ fieldset {
   text-wrap: balance;
 }
 
-.action ~ .sign,
-.action ~ * .sign {
-  margin-inline-start: 2px;
-}
-
-h1.sign {
-  padding-inline-end: var(--space-l);
-  font-size: 1.125rem;
-  font-weight: 800;
-  line-height: 1;
-  letter-spacing: 0.01em;
-}
-
 .sign-name {
   animation: fade-in 200ms var(--ease-out);
 }
 
-/* It slides in from the Map button's side; each new name follows it in. */
+/* It slides in from the start; each new name follows it in. */
 @media (prefers-reduced-motion: no-preference) {
-  .sign-slot .sign {
+  .sign {
     animation: sign-in 240ms var(--ease-out);
   }
 
@@ -568,6 +324,46 @@ h1.sign {
   }
 }
 
+/*
+ * The data credit the licences ask for: one small line with a paper halo instead of a panel,
+ * quiet and still legible over busy streets. Out of thumb reach, at the top.
+ */
+.credits {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  column-gap: var(--space-s);
+  max-inline-size: 13rem;
+  margin: 0;
+  color: color-mix(in oklch, var(--ink) 85%, var(--paper));
+  font-size: 0.625rem;
+  font-weight: 600;
+  line-height: 1.5;
+  text-align: end;
+  text-shadow:
+    0 0 1px var(--paper),
+    0 0 1px var(--paper),
+    0 0 3px var(--paper),
+    0 0 3px var(--paper);
+}
+
+/* Each a 24px target, the WCAG minimum, without spreading the line. */
+.credits a {
+  padding-block: calc((24px - 1lh) / 2);
+  margin-block: calc((1lh - 24px) / 2);
+  color: inherit;
+  text-decoration: none;
+  pointer-events: auto;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .credits a:hover {
+    text-decoration: underline;
+  }
+}
+
+/* What just happened, what to do next: one or two lines, centred under the top corners. */
 .hint {
   grid-column: 1 / -1;
   justify-self: center;
@@ -576,18 +372,20 @@ h1.sign {
   margin: 0;
   padding-block: var(--space-xs);
   padding-inline: var(--space-m);
+  border: var(--border) solid var(--ink);
   border-radius: var(--radius);
+  background: var(--paper);
+  box-shadow: var(--shadow-hard);
   font-size: 0.8125rem;
   font-weight: 600;
   line-height: 1.5;
   text-align: center;
-  /* Centred over two lines at most: balanced, so no word hangs alone on the second. */
   text-wrap: balance;
   /* Read, not touched: taps go through to the map. */
   pointer-events: none;
 }
 
-/* On the map the hint is empty but stays in the page, so its next words are announced. */
+/* Empty, it stays in the page, so its next words are announced. */
 .hint:empty {
   padding: 0;
   border: 0;
@@ -607,6 +405,24 @@ h1.sign {
   .hint-touch {
     display: none;
   }
+}
+
+/* An error while loading, on the loading screen in place of the progress. */
+.load-error {
+  display: grid;
+  gap: var(--space-m);
+  justify-items: center;
+  max-inline-size: 20rem;
+  font-weight: 600;
+  text-wrap: balance;
+}
+
+/* Without the loading screen (it's gone), the error stands in the middle of the sky. */
+.app > .load-error {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: 50%;
+  translate: -50% -50%;
 }
 
 /* The thumb stick, under the thumb that steers: a ring and the knob that follows it. */
@@ -651,7 +467,7 @@ h1.sign {
   }
 }
 
-/* Marks where "Start here" begins: ink on a paper halo, readable over any street. */
+/* Marks where Enter starts the walk: ink on a paper halo, readable over any street. */
 .reticle {
   position: absolute;
   inset-block-start: 50%;
@@ -669,112 +485,452 @@ h1.sign {
   stroke-width: 6;
 }
 
-/* Mute and the © centred on the corner panel's row: 44px controls on a 48px panel. */
-.corner-end {
-  justify-self: end;
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-s);
-  padding-block-start: calc((var(--bar) - var(--control)) / 2);
-}
-
-.credits {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-xs);
-}
-
 /*
- * Narrow headers: the credit tucks under its button, so it stays clear of the corner panel, and
- * Mute's tip stacks its key under its name, as narrow as the button, so it doesn't cover them.
+ * The menu: one big inked sheet of paper over the city. A dialog, centred with a fixed height
+ * so the list doesn't jump while typing; a sheet from the bottom edge on a narrow screen.
  */
-@container (inline-size < 26rem) {
-  .credits {
-    flex-direction: column-reverse;
-    align-items: flex-end;
-  }
-
-  .corner-end .tip {
-    flex-direction: column;
-    gap: var(--space-xs);
-  }
-}
-
-/* Only the links and the button take pointer events: the rest of the corner stays draggable map. */
-.credits a,
-.credits-toggle {
-  pointer-events: auto;
-}
-
-.credits p {
-  display: grid;
-  justify-items: end;
-  margin: 0;
-  margin-block-start: var(--space-s);
-  color: color-mix(in oklch, var(--ink) 85%, var(--paper));
-  font-size: 0.625rem;
-  font-weight: 600;
-  line-height: 1.5;
-  /* A tight paper halo instead of a panel: small and quiet, still legible over busy streets. */
-  text-shadow:
-    0 0 1px var(--paper),
-    0 0 1px var(--paper),
-    0 0 3px var(--paper),
-    0 0 3px var(--paper);
-}
-
-.credits a {
-  color: inherit;
-  text-decoration: none;
-}
-
-/*
- * Each line a 24px target, the WCAG minimum, with the lines where they were: the first reaches
- * up and the last down, into space their padding takes back with a negative margin.
- */
-.credits a:first-child {
-  padding-block-start: calc(24px - 1lh);
-  margin-block-start: calc(1lh - 24px);
-}
-
-.credits a:last-child {
-  padding-block-end: calc(24px - 1lh);
-  margin-block-end: calc(1lh - 24px);
-}
-
-/* Centred on the corner panel's row; its 44px hit area reaches past the visual (below). */
-.credits-toggle {
-  position: relative;
-  display: grid;
-  place-items: center;
-  inline-size: 1.25rem;
-  block-size: 1.25rem;
-  margin-block: 12px;
+.menu {
+  inline-size: min(40rem, 100% - 2 * var(--gutter));
+  block-size: min(36rem, 100dvh - 4rem);
+  max-inline-size: none;
+  max-block-size: none;
+  margin: auto;
   padding: 0;
   border: 0;
-  border-radius: 50%;
-  background: color-mix(in oklch, var(--paper) 85%, transparent);
+  background: transparent;
   color: var(--ink);
-  font: 600 1rem / 1 var(--font-ui);
+  overflow: visible;
+  /* Exit (better-ui): opacity, 4px of blur and 12px up over 150ms; reduced motion fades only. */
+  opacity: 0;
+  transition:
+    opacity 150ms ease-out,
+    display 150ms allow-discrete,
+    overlay 150ms allow-discrete;
+}
+
+.menu[open] {
+  opacity: 1;
+  transition-duration: 300ms;
+}
+
+@starting-style {
+  .menu[open] {
+    opacity: 0;
+  }
+}
+
+.menu::backdrop {
+  background: color-mix(in oklch, var(--ink) 35%, transparent);
+  opacity: 0;
+  transition:
+    opacity 150ms ease-out,
+    display 150ms allow-discrete,
+    overlay 150ms allow-discrete;
+}
+
+.menu[open]::backdrop {
+  opacity: 1;
+  transition-duration: 300ms;
+}
+
+@starting-style {
+  .menu[open]::backdrop {
+    opacity: 0;
+  }
+}
+
+/* Enter (better-ui): opacity, 4px of blur and 12px of rise over 300ms, ease-out. */
+@media (prefers-reduced-motion: no-preference) {
+  .menu {
+    translate: 0 -12px;
+    filter: blur(4px);
+    transition-property: opacity, translate, filter, display, overlay;
+  }
+
+  .menu[open] {
+    translate: 0 0;
+    filter: none;
+  }
+
+  @starting-style {
+    .menu[open] {
+      translate: 0 12px;
+      filter: blur(4px);
+    }
+  }
+}
+
+.menu-panel {
+  display: flex;
+  flex-direction: column;
+  block-size: 100%;
+  border: var(--border) solid var(--ink);
+  border-radius: var(--radius-large);
+  background: var(--paper);
+  box-shadow: 0 6px 0 var(--ink);
+  overflow: clip;
+}
+
+.menu-panel:focus-visible {
+  outline: none;
+}
+
+.menu-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--space-m);
+  min-block-size: 3.75rem;
+  padding-inline: 1.125rem var(--space-m);
+  border-block-end: var(--border) solid var(--ink);
+}
+
+.menu-search {
+  flex: 1;
+  block-size: 3rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: 600 1.125rem / 1.2 var(--font-ui);
+  outline: none;
+}
+
+.menu-search::placeholder {
+  color: color-mix(in oklch, var(--ink) 55%, var(--paper));
+}
+
+.menu-title {
+  flex: 1;
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 800;
+}
+
+.menu-close,
+.menu-icon-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: var(--control);
+  block-size: var(--control);
+  padding-inline: var(--space-s);
+  border: 0;
+  border-radius: var(--radius-inner);
+  background: transparent;
+  color: inherit;
+  font: inherit;
   cursor: pointer;
 }
 
-.credits-toggle::before {
-  content: '';
-  position: absolute;
-  inset: -12px;
+.menu-icon-button {
+  margin-inline-start: calc(-1 * var(--space-s));
 }
 
-.credits-toggle:active {
-  transform: scale(0.94);
+/* Esc says how with a keyboard; a cross says so on touch. */
+.menu-close svg,
+.menu-close kbd {
+  opacity: 0.75;
 }
 
 @media (hover: hover) and (pointer: fine) {
-  .credits a:hover {
-    text-decoration: underline;
+  .menu-close svg {
+    display: none;
   }
 
-  .credits-toggle:hover {
-    background: var(--paper);
+  .menu-close:hover,
+  .menu-icon-button:hover {
+    background: var(--paper-press);
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .menu-close kbd {
+    display: none;
+  }
+}
+
+.menu-close:active,
+.menu-icon-button:active {
+  background: var(--paper-press);
+}
+
+.menu-body {
+  flex: 1;
+  min-block-size: 0;
+  padding: var(--space-s);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.menu-group {
+  padding: var(--space-m) var(--space-m) var(--space-xs);
+  color: color-mix(in oklch, var(--ink) 65%, var(--paper));
+  font-size: 0.75rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.menu-group:first-child {
+  padding-block-start: var(--space-xs);
+}
+
+/* A row: icon, name and what it does, its keys at the end. Concentric with the panel. */
+.menu-option {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-m);
+  min-block-size: var(--bar);
+  padding: var(--space-s) var(--space-m);
+  border-radius: var(--radius-inner);
+  cursor: pointer;
+  scroll-margin-block: var(--space-s);
+}
+
+.menu-option[aria-selected='true'] {
+  background: var(--accent);
+  color: var(--paper);
+}
+
+.menu-option-icon {
+  display: grid;
+  place-items: center;
+  inline-size: 2rem;
+  block-size: 2rem;
+  border: 1.5px solid currentColor;
+  border-radius: 8px;
+}
+
+.menu-option-icon svg {
+  inline-size: 18px;
+  block-size: 18px;
+}
+
+.menu-option-text {
+  display: grid;
+}
+
+.menu-option-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.menu-option-detail {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  line-height: 1.35;
+  opacity: 0.8;
+}
+
+/* A toggle's state, in words: never colour alone. */
+.menu-state {
+  padding-inline: 0.45em;
+  border: 1.5px solid currentColor;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.menu-state[data-on='true'] {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.menu-option[aria-selected='true'] .menu-state[data-on='true'] {
+  border-color: var(--paper);
+  background: var(--paper);
+  color: var(--accent);
+}
+
+.keycaps {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.keycaps kbd {
+  min-inline-size: 1.6em;
+  text-align: center;
+}
+
+.keycaps-or {
+  font-size: 0.75rem;
+  font-weight: 500;
+  opacity: 0.7;
+}
+
+.menu-empty {
+  margin: 0;
+  padding: var(--space-l) var(--space-m);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.menu-page {
+  display: grid;
+  gap: var(--space-l);
+  padding: var(--space-s) var(--space-m) var(--space-l);
+}
+
+.menu-lede {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.menu-page a {
+  color: var(--accent);
+  font-weight: 650;
+}
+
+.key-section h3 {
+  margin: 0 0 var(--space-s);
+  font-size: 0.75rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+
+.key-list,
+.credit-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* What on the start, its keys and touch at the end; stacked where there's no room for both. */
+.key-row,
+.credit-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-xs) var(--space-l);
+  padding-block: var(--space-s);
+  border-block-end: 1px solid color-mix(in oklch, var(--ink) 15%, transparent);
+  font-size: 0.875rem;
+}
+
+.key-row dt {
+  font-weight: 650;
+}
+
+.key-row dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: var(--space-xs) var(--space-m);
+  margin: 0;
+}
+
+.key-touch {
+  font-size: 0.8125rem;
+  opacity: 0.8;
+}
+
+.menu-foot {
+  display: flex;
+  flex: none;
+  justify-content: space-between;
+  gap: var(--space-l);
+  padding: var(--space-s) 1.125rem;
+  border-block-start: var(--border) solid var(--ink);
+  background: var(--paper-press);
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+
+.menu-foot-keys kbd {
+  margin-inline-start: var(--space-xs);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .menu-option:not([aria-selected='true']):hover {
+    background: var(--paper-press);
+  }
+}
+
+/*
+ * Touch: bigger rows, a search box that doesn't zoom the page (16px), no keyboard footer.
+ */
+@media (pointer: coarse) {
+  .menu-search {
+    font-size: max(16px, 1.0625rem);
+  }
+
+  .menu-option {
+    min-block-size: 56px;
+  }
+
+  .menu-foot {
+    display: none;
+  }
+}
+
+/*
+ * A narrow screen: a sheet from the bottom edge, its own height, the top corners rounded, clear
+ * of the home indicator. It slides the whole way, since that's where it goes back to.
+ */
+@media (max-width: 40rem) {
+  .menu {
+    inline-size: 100%;
+    block-size: min(85dvh, 44rem);
+    margin-block-end: 0;
+  }
+
+  .menu-panel {
+    border-block-end: 0;
+    border-end-start-radius: 0;
+    border-end-end-radius: 0;
+    box-shadow: none;
+    padding-block-end: env(safe-area-inset-bottom, 0px);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    /* In over 300ms, out over 200ms (better-ui's full exit). */
+    .menu {
+      translate: 0 100%;
+      filter: none;
+      transition-duration: 200ms;
+      transition-timing-function: var(--ease-out);
+    }
+
+    .menu[open] {
+      translate: 0 0;
+      filter: none;
+    }
+
+    @starting-style {
+      .menu[open] {
+        translate: 0 100%;
+        filter: none;
+      }
+    }
+  }
+}
+
+/* High-contrast modes replace colours: the chosen row keeps the system's own highlight. */
+@media (forced-colors: active) {
+  .menu-option[aria-selected='true'] {
+    background: Highlight;
+    color: HighlightText;
+    forced-color-adjust: none;
   }
 }

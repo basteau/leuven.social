@@ -1,5 +1,5 @@
 /**
- * Small, pure rules for the HUD's input. The React shell and the shortcuts wire them up.
+ * Small, pure rules for the app's input. The React shell and the shortcuts wire them up.
  */
 
 /**
@@ -33,12 +33,29 @@ export async function layoutKeycaps(keyboard?: KeyboardLayout): Promise<Keycaps>
   return caps;
 }
 
-/** Keys that pan, zoom, turn or reset the map; anything else (Tab, Enter, M) leaves it be. */
-const MOVING_CODES = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyQ', 'KeyE']);
-const MOVING_KEYS = new Set(['+', '=', '-', 'r', 'R']);
+/** A key as pressed, with the modifiers held. */
+interface Chord {
+  key: string;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  altKey: boolean;
+}
 
-export function movesMap(event: { code: string; key: string }): boolean {
-  return MOVING_CODES.has(event.code) || MOVING_KEYS.has(event.key);
+/**
+ * Whether a key opens the menu: ⌘K or Ctrl+K, as in most apps that have one, ⌘P or Ctrl+P, as in
+ * editors, and `/` or `?` on their own, as on sites with search and keyboard help. A chord also
+ * closes it again; `/` and `?` are typed into its search instead.
+ */
+export function menuKey(event: Chord): 'chord' | 'key' | null {
+  if (event.altKey) return null;
+  const key = event.key.toLowerCase();
+  if (event.metaKey || event.ctrlKey) return key === 'k' || key === 'p' ? 'chord' : null;
+  return key === '/' || key === '?' ? 'key' : null;
+}
+
+/** The menu's chord as this platform writes it: ⌘ on Apple's, Ctrl everywhere else. */
+export function modKey(platform: string): string {
+  return /mac|iphone|ipad|ipod/i.test(platform) ? '⌘' : 'Ctrl';
 }
 
 /**

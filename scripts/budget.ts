@@ -18,6 +18,16 @@ const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[
     gzip: true,
   },
   { label: 'CSS', pattern: 'assets/*.css', limit: 6 * KB, gzip: true },
+  // The page itself paints the loading screen before any script or stylesheet: the tokens, its
+  // styles and the diorama's SVG are inline (about 3 KB of it the little town).
+  { label: 'HTML (the loading screen)', pattern: 'index.html', limit: 7.5 * KB, gzip: true },
+  // The menu loads while the city is built: its list, search, pages, icons and places.
+  {
+    label: 'Menu JS (while building)',
+    pattern: 'assets/command-menu-*.js',
+    limit: 6.5 * KB,
+    gzip: true,
+  },
   // The whole R23 ring plus Heverlee; the ceiling agreed for the city data is 1 MB.
   { label: 'City data (already gzipped)', pattern: 'data/city.bin', limit: 1024 * KB, gzip: false },
   // Walk mode downloads the first time someone walks (or hovers Walk), not with the map. The

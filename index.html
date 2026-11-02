@@ -20,8 +20,660 @@
     <link rel="icon" href="/icons/favicon-32.png" type="image/png" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <link rel="preload" href="/data/city.bin" as="fetch" crossorigin />
+    <!--
+      The design tokens and the loading screen, inline: the screen paints from this file alone,
+      before any script or stylesheet arrives. Tokens and rationale: DESIGN.md. The rest of the
+      styles are in src/app/app.css.
+    -->
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: oklch(26% 0.02 50);
+        --paper: oklch(97.5% 0.014 85);
+        --paper-press: color-mix(in oklch, var(--paper), var(--ink) 10%);
+        --accent: oklch(47% 0.12 252);
+        /* Deeper shades keep the accent's hue: mixing in the warm ink would turn the blue purple. */
+        --accent-press: oklch(40% 0.11 252);
+        /* The street plate: the accent a shade deeper, so it reads as a sign, not a button. */
+        --sign: oklch(43% 0.115 252);
+        --sky-top: oklch(83% 0.06 235);
+        --sky-horizon: oklch(93% 0.05 75);
+        --space-xs: 0.25rem;
+        --space-s: 0.5rem;
+        --space-m: 0.75rem;
+        --space-l: 1rem;
+        --gutter: clamp(0.75rem, 2.5vw, 1.25rem);
+        --control: 44px;
+        --bar: 48px;
+        --radius: 14px;
+        --radius-inner: calc(var(--radius) - 4px);
+        /* The menu: a big surface, 8px of padding round rows with --radius-inner (+ 2px border). */
+        --radius-large: 20px;
+        --border: 2px;
+        --lift: 3px;
+        --shadow-hard: 0 var(--lift) 0 var(--ink);
+        --shadow-pressed: 0 1px 0 var(--ink);
+        --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+        --font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+        --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+      }
+
+      body {
+        margin: 0;
+        font-family: var(--font-ui);
+        color: var(--ink);
+        background: var(--sky-horizon);
+      }
+
+      /* The loading screen: a tiny Leuven floating in the sky, built piece by piece. */
+      .intro {
+        position: fixed;
+        inset: 0;
+        z-index: 2;
+        display: grid;
+        place-items: center;
+        padding: max(1rem, env(safe-area-inset-top, 0px)) max(1rem, env(safe-area-inset-right, 0px))
+          max(1rem, env(safe-area-inset-bottom, 0px)) max(1rem, env(safe-area-inset-left, 0px));
+        overflow: clip;
+        background: linear-gradient(var(--sky-top), var(--sky-horizon) 70%);
+        text-align: center;
+        /* The reveal: the sky lifts off the map once the stage has gone. */
+        transition:
+          opacity 400ms ease-out 100ms,
+          visibility 0s 500ms;
+      }
+
+      [data-state='ready'] .intro {
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+      }
+
+      .intro-stage {
+        display: grid;
+        justify-items: center;
+        gap: var(--space-m);
+        inline-size: min(22rem, 100%);
+        transition: opacity 150ms ease-out;
+      }
+
+      [data-state='ready'] .intro-stage {
+        opacity: 0;
+      }
+
+      .intro-art {
+        /* Fits a phone on its side as well as one upright. */
+        inline-size: min(17rem, 70vw, 42dvh);
+        block-size: auto;
+        aspect-ratio: 184 / 194;
+        overflow: visible;
+        fill: none;
+        stroke: var(--ink);
+        stroke-width: 1.2;
+        stroke-linejoin: round;
+        stroke-linecap: round;
+      }
+
+      .intro-art .w,
+      .intro-art .flat {
+        stroke: none;
+      }
+
+      .intro-art .cloud,
+      .intro-art .sun {
+        stroke-width: 1;
+      }
+
+      /* Leuven's name on an enamel plate, like its street signs. */
+      .intro-plate {
+        display: flex;
+        align-items: center;
+        gap: var(--space-s);
+        margin: var(--space-xs) 0 0;
+        padding: var(--space-s) var(--space-l) var(--space-s) var(--space-m);
+        border: var(--border) solid var(--ink);
+        border-radius: var(--radius);
+        background: var(--sign);
+        color: var(--paper);
+        box-shadow:
+          inset 0 0 0 3px var(--sign),
+          inset 0 0 0 4.5px var(--paper),
+          var(--shadow-hard);
+        font-size: 1.375rem;
+        font-weight: 800;
+        line-height: 1;
+        letter-spacing: 0.01em;
+      }
+
+      .intro-plate svg {
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2.25;
+      }
+
+      .intro-lede {
+        margin: 0;
+        font-size: 0.9375rem;
+        font-weight: 600;
+        line-height: 1.4;
+        text-wrap: balance;
+      }
+
+      .intro-load {
+        display: grid;
+        gap: var(--space-s);
+        inline-size: min(16rem, 100%);
+        margin-block-start: var(--space-s);
+      }
+
+      .intro-bar {
+        block-size: 14px;
+        border: var(--border) solid var(--ink);
+        border-radius: 999px;
+        background: var(--paper);
+        box-shadow: var(--shadow-hard);
+        overflow: clip;
+      }
+
+      /* Honest progress: the bytes of the city as they arrive, then each step it waits on. */
+      .intro-fill {
+        display: block;
+        block-size: 100%;
+        background: var(--accent)
+          repeating-linear-gradient(
+            -45deg,
+            transparent 0 6px,
+            color-mix(in oklch, var(--paper) 22%, transparent) 6px 12px
+          );
+        background-size: 17px 17px;
+        clip-path: inset(0 calc((1 - var(--progress, 0)) * 100%) 0 0);
+        transition: clip-path 600ms var(--ease-out);
+      }
+
+      .intro-status {
+        display: flex;
+        justify-content: center;
+        gap: 0.4em;
+        block-size: 1.25rem;
+        margin: 0;
+        font-size: 0.8125rem;
+        font-weight: 650;
+        line-height: 1.25rem;
+        white-space: nowrap;
+      }
+
+      .intro-detail {
+        color: color-mix(in oklch, var(--ink) 70%, var(--paper));
+        font-variant-numeric: tabular-nums;
+      }
+
+      .intro-detail:not(:empty)::before {
+        content: '· ';
+      }
+
+      [data-state='error'] .intro-load,
+      [data-state='error'] .intro-hints {
+        display: none;
+      }
+
+      .intro-hints {
+        display: grid;
+        gap: var(--space-xs);
+        margin-block-start: var(--space-s);
+        font-size: 0.8125rem;
+        font-weight: 600;
+        line-height: 1.6;
+        text-wrap: balance;
+      }
+
+      .intro-hints p {
+        margin: 0;
+      }
+
+      .intro-tip {
+        color: color-mix(in oklch, var(--ink) 75%, var(--paper));
+      }
+
+      .intro kbd {
+        padding-inline: 0.3em;
+        border: 1px solid currentColor;
+        border-block-end-width: 2px;
+        border-radius: 4px;
+        font: 600 0.6875rem / 1.4 var(--font-mono);
+      }
+
+      /* Keys where there's likely a keyboard; thumbs everywhere else. */
+      .intro-touch {
+        display: none;
+      }
+
+      @media (pointer: coarse) {
+        .intro-keys {
+          display: none;
+        }
+
+        .intro-touch {
+          display: block;
+        }
+      }
+
+      @media (prefers-reduced-motion: no-preference) {
+        /* The town rises one piece at a time, then floats while the rest arrives. */
+        .intro-art .b {
+          animation: intro-rise 400ms ease-out both;
+          animation-delay: calc(150ms + var(--i) * 60ms);
+        }
+
+        .intro-art {
+          animation: intro-float 3.2s ease-in-out 1.6s infinite alternate;
+        }
+
+        .intro-art .cloud {
+          animation: intro-drift 9s ease-in-out infinite alternate;
+        }
+
+        .intro-fill {
+          animation: intro-stripes 900ms linear infinite;
+        }
+
+        /* Then the words, 100ms apart. */
+        .intro-stage > :not(.intro-art) {
+          animation: intro-enter 300ms ease-out var(--delay, 0ms) both;
+        }
+
+        /* The reveal: the stage leaves smaller than it came, and the sky lifts after it. */
+        .intro-stage {
+          transition-property: opacity, translate, filter;
+        }
+
+        [data-state='ready'] .intro-stage {
+          translate: 0 -12px;
+          filter: blur(4px);
+        }
+      }
+
+      /* Reduced motion: the same entrance as a fade, nothing that moves. */
+      @media (prefers-reduced-motion: reduce) {
+        .intro-art .b,
+        .intro-stage > :not(.intro-art) {
+          animation: intro-fade 300ms ease-out var(--delay, 0ms) both;
+        }
+      }
+
+      .intro-plate {
+        --delay: 100ms;
+      }
+
+      .intro-lede {
+        --delay: 200ms;
+      }
+
+      .intro-load {
+        --delay: 300ms;
+      }
+
+      .intro-hints {
+        --delay: 400ms;
+      }
+
+      @keyframes intro-rise {
+        from {
+          opacity: 0;
+          translate: 0 10px;
+        }
+      }
+
+      @keyframes intro-enter {
+        from {
+          opacity: 0;
+          translate: 0 12px;
+          filter: blur(4px);
+        }
+      }
+
+      @keyframes intro-fade {
+        from {
+          opacity: 0;
+        }
+      }
+
+      @keyframes intro-float {
+        to {
+          translate: 0 -5px;
+        }
+      }
+
+      @keyframes intro-drift {
+        to {
+          translate: 14px 0;
+        }
+      }
+
+      @keyframes intro-stripes {
+        to {
+          background-position: 17px 0;
+        }
+      }
+    </style>
   </head>
   <body>
+    <div id="intro" class="intro">
+      <div class="intro-stage">
+        <svg class="intro-art" viewBox="-92 -80 184 194" aria-hidden="true">
+          <circle class="sun" cx="46" cy="-50" r="15" fill="#ffd98a" />
+          <path
+            class="cloud"
+            d="M-78 -40h30a6 6 0 0 0-9-7a8 8 0 0 0-15 1a6 6 0 0 0-6 6z"
+            fill="#fbf6ec"
+          />
+          <g class="slab">
+            <polygon points="-86.6,50 0,100 0,109 -86.6,59" fill="#94603f" />
+            <polygon points="86.6,50 0,100 0,109 86.6,59" fill="#764d32" />
+            <polygon points="0,0 86.6,50 0,100 -86.6,50" fill="#b9c98b" />
+            <polygon
+              class="flat"
+              points="0,27 60.6,62 23.4,83.5 0,70 -23.4,83.5 -60.6,62"
+              fill="#ecd29a"
+            />
+          </g>
+          <g class="b" style="--i: 0">
+            <polygon points="-17.3,-25 0,-15 0,25 -17.3,15" fill="#f4dca2" />
+            <polygon points="17.3,-25 0,-15 0,25 17.3,15" fill="#c3b082" />
+            <polygon points="0,-35 17.3,-25 0,-15 -17.3,-25" fill="#f5e0ad" />
+            <polygon points="-12.1,-41 0,-34 0,-18 -12.1,-25" fill="#f4dca2" />
+            <polygon points="12.1,-41 0,-34 0,-18 12.1,-25" fill="#c3b082" />
+            <polygon points="0,-48 12.1,-41 0,-34 -12.1,-41" fill="#f5e0ad" />
+            <circle class="w" cx="-6.1" cy="-29.5" r="3" fill="#faf0d8" />
+            <polygon points="-12.1,-41 0,-34 0,-71" fill="#4a5161" />
+            <polygon points="12.1,-41 0,-34 0,-71" fill="#3b414e" />
+          </g>
+          <g class="b" style="--i: 1">
+            <polygon points="27.7,-6 13.9,2 13.9,32 27.7,24" fill="#91422f" />
+            <polygon points="22.5,-16.4 9.1,-8.7 14.3,1.8 27.7,-6" fill="#4a5161" />
+            <polygon
+              points="3.5,26 13.9,32 13.9,2 13.9,0.1 12.6,-0.6 12.6,-2.5 11.3,-3.2 11.3,-5.1 10,-5.8 10,-7.7 7.4,-9.2 7.4,-7.3 6.1,-8.1 6.1,-6.2 4.8,-7 4.8,-5.1 3.5,-5.9 3.5,-4"
+              fill="#b5523b"
+            />
+            <polygon class="w" points="5.6,15.3 8.2,16.8 8.2,20.8 5.6,19.3" fill="#3e4a5c" />
+            <polygon class="w" points="9.1,17.3 11.7,18.8 11.7,22.8 9.1,21.3" fill="#3e4a5c" />
+            <polygon class="w" points="5.6,7.3 8.2,8.8 8.2,12.8 5.6,11.3" fill="#3e4a5c" />
+            <polygon class="w" points="9.1,9.3 11.7,10.8 11.7,14.8 9.1,13.3" fill="#3e4a5c" />
+            <polygon class="w" points="5.6,-0.7 8.2,0.8 8.2,4.8 5.6,3.3" fill="#3e4a5c" />
+            <polygon class="w" points="9.1,1.3 11.7,2.8 11.7,6.8 9.1,5.3" fill="#3e4a5c" />
+            <polygon class="w" points="7.3,22.7 10,24.3 10,29.8 7.3,28.2" fill="#5a3a2a" />
+          </g>
+          <g class="b" style="--i: 2">
+            <polygon points="36.4,5 22.5,13 22.5,37 36.4,29" fill="#bcb5a3" />
+            <polygon points="32,-3.7 18.6,4.1 22.9,12.8 36.4,5" fill="#a8483a" />
+            <polygon
+              points="13.9,32 22.5,37 22.5,13 22.5,11.5 21.4,10.8 21.4,9.3 20.4,8.6 20.4,7.1 19.3,6.5 19.3,4.9 17.1,3.7 17.1,5.2 16,4.6 16,6.1 14.9,5.5 14.9,7.1 13.9,6.5 13.9,8"
+              fill="#ebe2cc"
+            />
+            <polygon class="w" points="16.9,21.8 19.5,23.3 19.5,27.3 16.9,25.8" fill="#3e4a5c" />
+            <polygon class="w" points="16.9,13.8 19.5,15.3 19.5,19.3 16.9,17.8" fill="#3e4a5c" />
+            <polygon class="w" points="16.8,28.2 19.6,29.8 19.6,35.3 16.8,33.7" fill="#5a3a2a" />
+          </g>
+          <g class="b" style="--i: 3">
+            <polygon points="46.8,1 32.9,9 32.9,43 46.8,35" fill="#ab976a" />
+            <polygon points="41.6,-9.4 28.1,-1.7 33.3,8.8 46.8,1" fill="#4a5161" />
+            <polygon
+              points="22.5,37 32.9,43 32.9,9 32.9,7.1 31.6,6.4 31.6,4.5 30.3,3.8 30.3,1.9 29,1.2 29,-0.7 26.4,-2.2 26.4,-0.3 25.1,-1.1 25.1,0.8 23.8,0 23.8,1.9 22.5,1.1 22.5,3"
+              fill="#d6bd85"
+            />
+            <polygon class="w" points="24.7,26.3 27.3,27.8 27.3,31.8 24.7,30.3" fill="#3e4a5c" />
+            <polygon class="w" points="28.1,28.3 30.7,29.8 30.7,33.8 28.1,32.3" fill="#3e4a5c" />
+            <polygon class="w" points="24.7,18.3 27.3,19.8 27.3,23.8 24.7,22.3" fill="#3e4a5c" />
+            <polygon class="w" points="28.1,20.3 30.7,21.8 30.7,25.8 28.1,24.3" fill="#3e4a5c" />
+            <polygon class="w" points="24.7,10.3 27.3,11.8 27.3,15.8 24.7,14.3" fill="#3e4a5c" />
+            <polygon class="w" points="28.1,12.3 30.7,13.8 30.7,17.8 28.1,16.3" fill="#3e4a5c" />
+            <polygon class="w" points="26.3,33.7 29.1,35.3 29.1,40.8 26.3,39.2" fill="#5a3a2a" />
+          </g>
+          <g class="b" style="--i: 4">
+            <polygon points="56.3,14.5 42.4,22.5 42.4,48.5 56.3,40.5" fill="#9a523b" />
+            <polygon points="51.5,4.9 38.1,12.7 42.9,22.3 56.3,14.5" fill="#4a5161" />
+            <polygon
+              points="32.9,43 42.4,48.5 42.4,22.5 42.4,20.8 41.2,20.1 41.2,18.4 40.1,17.7 40.1,16 38.9,15.3 38.9,13.6 36.5,12.2 36.5,13.9 35.3,13.3 35.3,15 34.1,14.3 34.1,16 32.9,15.3 32.9,17"
+              fill="#c0674a"
+            />
+            <polygon class="w" points="36.4,33 39,34.5 39,38.5 36.4,37" fill="#3e4a5c" />
+            <polygon class="w" points="36.4,25 39,26.5 39,30.5 36.4,29" fill="#3e4a5c" />
+            <polygon class="w" points="36.3,39.5 39.1,41.1 39.1,46.6 36.3,45" fill="#5a3a2a" />
+          </g>
+          <g class="b" style="--i: 5">
+            <polygon points="67.5,17 53.7,25 53.7,55 67.5,47" fill="#b7ae9a" />
+            <polygon points="61.9,5.7 48.5,13.4 54.1,24.8 67.5,17" fill="#a8483a" />
+            <polygon
+              points="42.4,48.5 53.7,55 53.7,25 53.7,23 52.3,22.2 52.3,20.2 50.9,19.3 50.9,17.3 49.5,16.5 49.5,14.5 46.7,12.9 46.7,14.9 45.2,14.1 45.2,16.1 43.8,15.3 43.8,17.3 42.4,16.5 42.4,18.5"
+              fill="#e5d9c0"
+            />
+            <polygon class="w" points="44.9,37.9 47.5,39.4 47.5,43.4 44.9,41.9" fill="#3e4a5c" />
+            <polygon class="w" points="48.6,40.1 51.2,41.6 51.2,45.6 48.6,44.1" fill="#3e4a5c" />
+            <polygon class="w" points="44.9,29.9 47.5,31.4 47.5,35.4 44.9,33.9" fill="#3e4a5c" />
+            <polygon class="w" points="48.6,32.1 51.2,33.6 51.2,37.6 48.6,36.1" fill="#3e4a5c" />
+            <polygon class="w" points="44.9,21.9 47.5,23.4 47.5,27.4 44.9,25.9" fill="#3e4a5c" />
+            <polygon class="w" points="48.6,24.1 51.2,25.6 51.2,29.6 48.6,28.1" fill="#3e4a5c" />
+            <polygon class="w" points="46.7,45.5 49.5,47.1 49.5,52.6 46.7,51" fill="#5a3a2a" />
+          </g>
+          <g class="b" style="--i: 6">
+            <polygon points="77.1,30.5 63.2,38.5 63.2,60.5 77.1,52.5" fill="#764632" />
+            <polygon points="72.3,20.9 58.9,28.7 63.7,38.3 77.1,30.5" fill="#4a5161" />
+            <polygon
+              points="53.7,55 63.2,60.5 63.2,38.5 63.2,36.8 62,36.1 62,34.4 60.8,33.7 60.8,32 59.6,31.3 59.6,29.6 57.3,28.2 57.3,29.9 56.1,29.3 56.1,31 54.9,30.3 54.9,32 53.7,31.3 53.7,33"
+              fill="#94573f"
+            />
+            <polygon class="w" points="57.2,45 59.8,46.5 59.8,50.5 57.2,49" fill="#3e4a5c" />
+            <polygon class="w" points="57.2,37 59.8,38.5 59.8,42.5 57.2,41" fill="#3e4a5c" />
+            <polygon class="w" points="57.1,51.5 59.8,53.1 59.8,58.6 57.1,57" fill="#5a3a2a" />
+          </g>
+          <g class="b" style="--i: 7">
+            <polygon points="-28.6,-1.5 -14.7,6.5 -14.7,32.5 -28.6,24.5" fill="#e5d9c0" />
+            <polygon points="-22.9,-12.8 -9.5,-5.1 -15.2,6.3 -28.6,-1.5" fill="#606674" />
+            <polygon
+              points="-3.5,26 -14.7,32.5 -14.7,6.5 -14.7,4.5 -13.3,3.7 -13.3,1.7 -11.9,0.8 -11.9,-1.2 -10.5,-2 -10.5,-4 -7.7,-5.6 -7.7,-3.6 -6.3,-4.4 -6.3,-2.4 -4.9,-3.2 -4.9,-1.2 -3.5,-2 -3.5,0"
+              fill="#b7ae9a"
+            />
+            <polygon class="w" points="-8.5,16.9 -5.9,15.4 -5.9,19.4 -8.5,20.9" fill="#3e4a5c" />
+            <polygon class="w" points="-12.3,19.1 -9.7,17.6 -9.7,21.6 -12.3,23.1" fill="#3e4a5c" />
+            <polygon class="w" points="-8.5,8.9 -5.9,7.4 -5.9,11.4 -8.5,12.9" fill="#3e4a5c" />
+            <polygon class="w" points="-12.3,11.1 -9.7,9.6 -9.7,13.6 -12.3,15.1" fill="#3e4a5c" />
+            <polygon class="w" points="-10.5,24.6 -7.7,23 -7.7,28.5 -10.5,30.1" fill="#5a3a2a" />
+          </g>
+          <g class="b" style="--i: 8">
+            <polygon points="-37.2,-2.5 -23.4,5.5 -23.4,37.5 -37.2,29.5" fill="#a84a3a" />
+            <polygon points="-32.9,-11.2 -19.5,-3.5 -23.8,5.3 -37.2,-2.5" fill="#606674" />
+            <polygon
+              points="-14.7,32.5 -23.4,37.5 -23.4,5.5 -23.4,4 -22.3,3.3 -22.3,1.8 -21.2,1.1 -21.2,-0.4 -20.1,-1 -20.1,-2.6 -18,-3.8 -18,-2.3 -16.9,-2.9 -16.9,-1.4 -15.8,-2 -15.8,-0.4 -14.7,-1 -14.7,0.5"
+              fill="#863b2e"
+            />
+            <polygon
+              class="w"
+              points="-20.4,23.8 -17.8,22.3 -17.8,26.3 -20.4,27.8"
+              fill="#3e4a5c"
+            />
+            <polygon
+              class="w"
+              points="-20.4,15.8 -17.8,14.3 -17.8,18.3 -20.4,19.8"
+              fill="#3e4a5c"
+            />
+            <polygon class="w" points="-20.4,7.8 -17.8,6.3 -17.8,10.3 -20.4,11.8" fill="#3e4a5c" />
+            <polygon
+              class="w"
+              points="-20.4,30.3 -17.7,28.7 -17.7,34.2 -20.4,35.8"
+              fill="#5a3a2a"
+            />
+          </g>
+          <g class="b" style="--i: 9">
+            <polygon points="-46.8,13 -32.9,21 -32.9,43 -46.8,35" fill="#ebe2cc" />
+            <polygon points="-42,3.4 -28.6,11.2 -33.3,20.8 -46.8,13" fill="#b25e52" />
+            <polygon
+              points="-23.4,37.5 -32.9,43 -32.9,21 -32.9,19.3 -31.7,18.6 -31.7,16.9 -30.5,16.2 -30.5,14.5 -29.3,13.8 -29.3,12.1 -27,10.7 -27,12.4 -25.8,11.8 -25.8,13.5 -24.6,12.8 -24.6,14.5 -23.4,13.8 -23.4,15.5"
+              fill="#bcb5a3"
+            />
+            <polygon class="w" points="-29.4,29 -26.8,27.5 -26.8,31.5 -29.4,33" fill="#3e4a5c" />
+            <polygon class="w" points="-29.4,21 -26.8,19.5 -26.8,23.5 -29.4,25" fill="#3e4a5c" />
+            <polygon class="w" points="-29.5,35.6 -26.8,34 -26.8,39.5 -29.5,41.1" fill="#5a3a2a" />
+          </g>
+          <g class="b" style="--i: 10">
+            <polygon points="-57.2,13 -43.3,21 -43.3,49 -57.2,41" fill="#d9c7a8" />
+            <polygon points="-52,2.6 -38.5,10.3 -43.7,20.8 -57.2,13" fill="#606674" />
+            <polygon
+              points="-32.9,43 -43.3,49 -43.3,21 -43.3,19.1 -42,18.4 -42,16.5 -40.7,15.8 -40.7,13.9 -39.4,13.2 -39.4,11.3 -36.8,9.8 -36.8,11.7 -35.5,10.9 -35.5,12.8 -34.2,12 -34.2,13.9 -32.9,13.1 -32.9,15"
+              fill="#ae9f86"
+            />
+            <polygon
+              class="w"
+              points="-37.7,33.8 -35.1,32.3 -35.1,36.3 -37.7,37.8"
+              fill="#3e4a5c"
+            />
+            <polygon
+              class="w"
+              points="-41.1,35.8 -38.5,34.3 -38.5,38.3 -41.1,39.8"
+              fill="#3e4a5c"
+            />
+            <polygon
+              class="w"
+              points="-37.7,25.8 -35.1,24.3 -35.1,28.3 -37.7,29.8"
+              fill="#3e4a5c"
+            />
+            <polygon
+              class="w"
+              points="-41.1,27.8 -38.5,26.3 -38.5,30.3 -41.1,31.8"
+              fill="#3e4a5c"
+            />
+            <polygon
+              class="w"
+              points="-39.5,41.3 -36.7,39.7 -36.7,45.2 -39.5,46.8"
+              fill="#5a3a2a"
+            />
+          </g>
+          <g class="b" style="--i: 11">
+            <polygon points="-67.5,23 -53.7,31 -53.7,55 -67.5,47" fill="#c98e6c" />
+            <polygon points="-62.4,12.6 -48.9,20.3 -54.1,30.8 -67.5,23" fill="#b25e52" />
+            <polygon
+              points="-43.3,49 -53.7,55 -53.7,31 -53.7,29.1 -52.4,28.4 -52.4,26.5 -51.1,25.8 -51.1,23.9 -49.8,23.2 -49.8,21.3 -47.2,19.8 -47.2,21.7 -45.9,20.9 -45.9,22.8 -44.6,22 -44.6,23.9 -43.3,23.1 -43.3,25"
+              fill="#a17256"
+            />
+            <polygon
+              class="w"
+              points="-48.1,39.8 -45.5,38.3 -45.5,42.3 -48.1,43.8"
+              fill="#3e4a5c"
+            />
+            <polygon
+              class="w"
+              points="-51.5,41.8 -48.9,40.3 -48.9,44.3 -51.5,45.8"
+              fill="#3e4a5c"
+            />
+            <polygon
+              class="w"
+              points="-48.1,31.8 -45.5,30.3 -45.5,34.3 -48.1,35.8"
+              fill="#3e4a5c"
+            />
+            <polygon
+              class="w"
+              points="-51.5,33.8 -48.9,32.3 -48.9,36.3 -51.5,37.8"
+              fill="#3e4a5c"
+            />
+            <polygon
+              class="w"
+              points="-49.9,47.3 -47.1,45.7 -47.1,51.2 -49.9,52.8"
+              fill="#5a3a2a"
+            />
+          </g>
+          <g class="b" style="--i: 12">
+            <polygon points="-77.1,22.5 -63.2,30.5 -63.2,60.5 -77.1,52.5" fill="#b5523b" />
+            <polygon points="-72.3,12.9 -58.9,20.7 -63.7,30.3 -77.1,22.5" fill="#606674" />
+            <polygon
+              points="-53.7,55 -63.2,60.5 -63.2,30.5 -63.2,28.8 -62,28.1 -62,26.4 -60.8,25.7 -60.8,24 -59.6,23.3 -59.6,21.6 -57.3,20.2 -57.3,21.9 -56.1,21.3 -56.1,23 -54.9,22.3 -54.9,24 -53.7,23.3 -53.7,25"
+              fill="#91422f"
+            />
+            <polygon class="w" points="-59.8,46.5 -57.2,45 -57.2,49 -59.8,50.5" fill="#3e4a5c" />
+            <polygon class="w" points="-59.8,38.5 -57.2,37 -57.2,41 -59.8,42.5" fill="#3e4a5c" />
+            <polygon class="w" points="-59.8,30.5 -57.2,29 -57.2,33 -59.8,34.5" fill="#3e4a5c" />
+            <polygon class="w" points="-59.8,53.1 -57.1,51.5 -57.1,57 -59.8,58.6" fill="#5a3a2a" />
+          </g>
+          <g class="b" style="--i: 13">
+            <path d="M0 44V35" />
+            <path d="M-7 36L0 31L7 36Q0 39 -7 36Z" fill="#d2553f" />
+          </g>
+          <g class="b" style="--i: 14">
+            <path d="M15.6 49V40" />
+            <path d="M8.6 41L15.6 36L22.6 41Q15.6 44 8.6 41Z" fill="#f6eedc" />
+          </g>
+          <g class="b" style="--i: 15">
+            <path d="M-17.3 50V41" />
+            <path d="M-24.3 42L-17.3 37L-10.3 42Q-17.3 45 -24.3 42Z" fill="#e8b94a" />
+          </g>
+          <g class="b" style="--i: 16">
+            <ellipse class="w" cx="3.5" cy="64" rx="3.5" ry="1.6" fill="#2b2420" opacity=".25" />
+            <rect x="1.5" y="55" width="4" height="7" rx="1.5" fill="#fa8064" />
+            <circle cx="3.5" cy="52.5" r="2.4" fill="#f0c49c" />
+          </g>
+          <g class="b" style="--i: 17">
+            <path d="M8.7 85v-7" />
+            <circle cx="8.7" cy="73.1" r="7" fill="#7c9f52" />
+          </g>
+          <g class="b" style="--i: 18">
+            <path d="M-10.4 86v-6" />
+            <circle cx="-10.4" cy="75.8" r="6" fill="#6e9348" />
+          </g>
+          <g class="b" style="--i: 19">
+            <path d="M0 94v-5.5" />
+            <circle cx="0" cy="84.7" r="5.5" fill="#86a95c" />
+          </g>
+        </svg>
+        <p class="intro-plate">
+          <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 21V12h2V9h2.5V6H11V3h2v3h2.5v3H18v3h2v9z" />
+            <path d="M10 21v-5h4v5" />
+          </svg>
+          Leuven
+        </p>
+        <p class="intro-lede">Walk and cycle a tiny Leuven, built from open data.</p>
+        <div class="intro-load">
+          <div
+            id="intro-bar"
+            class="intro-bar"
+            role="progressbar"
+            aria-label="Loading Leuven"
+            aria-valuemin="0"
+            aria-valuemax="100"
+            aria-valuenow="0"
+          >
+            <span class="intro-fill"></span>
+          </div>
+          <p class="intro-status">
+            <span id="intro-step" aria-live="polite">Fetching the map</span>
+            <span id="intro-detail" class="intro-detail" aria-hidden="true"></span>
+          </p>
+          <noscript><p>Leuven needs JavaScript to draw the city.</p></noscript>
+        </div>
+        <div id="intro-error"></div>
+        <div class="intro-hints">
+          <p class="intro-keys">
+            <kbd data-code="KeyW">W</kbd> <kbd data-code="KeyA">A</kbd>
+            <kbd data-code="KeyS">S</kbd> <kbd data-code="KeyD">D</kbd> walk · <kbd>Shift</kbd> runs
+            · <kbd data-mod>Ctrl</kbd> <kbd>K</kbd> for everything else
+          </p>
+          <p class="intro-touch">
+            Left thumb walks, right thumb looks. The menu button holds the rest.
+          </p>
+          <p class="intro-tip" id="intro-tip">
+            By a bike rack? Ride one off and leave it anywhere.
+          </p>
+        </div>
+      </div>
+    </div>
+    <script>
+      // Before the app: the menu's chord as this platform writes it, and one tip of a few.
+      for (const kbd of document.querySelectorAll('[data-mod]'))
+        kbd.textContent = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl';
+      document.getElementById('intro-tip').textContent = [
+        'By a bike rack? Ride one off and leave it anywhere.',
+        'The blue plates on the corners name the streets, like the real ones.',
+        'Every building has its real footprint and height, from Flemish open data.',
+        'Lost? The menu has every command and key, and a search.',
+      ][Math.floor(Math.random() * 4)];
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
