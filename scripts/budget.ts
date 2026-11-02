@@ -23,10 +23,22 @@ const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[
   // Walk mode downloads the first time someone walks (or hovers Walk), not with the map. The
   // walker's planted-foot gait, its rig and its bevelled, inked figure take about 1.8 KB of it,
   // and walking on the terrain about 0.6 KB more: 16 KB. Riding gets a chunk of its own.
+  // 16.5: riding's hooks (fetching its chunk near a rack, handing it the body, the camera's
+  // retuning) and the collide and slide, pose IK and parked-bike lookup it shares from here.
   {
     label: 'Walk mode JS (on first walk)',
     pattern: 'assets/walk-*.js',
-    limit: 16 * KB,
+    limit: 16.5 * KB,
+    gzip: true,
+  },
+  // Riding loads near a rack (or on F): the bike's physics, rig and model, the rider's pose, the
+  // glue that takes and leaves bikes, and its sounds. The plan said 7 KB; riding along a route,
+  // swinging a racked bike round to the open street and baking the bikes left about the city
+  // into one mesh took it to about 8.8.
+  {
+    label: 'Riding JS (near a rack)',
+    pattern: 'assets/ride-*.js',
+    limit: 9 * KB,
     gzip: true,
   },
   // The plates on the facades load after walk mode, in a chunk and a data file of their own.

@@ -16,6 +16,7 @@ import type { BikeArrays, Stand } from './bike-rig.ts';
 import type { Character, Pose } from './character.ts';
 import type { Boom, Follow } from './chase.ts';
 import { loose, overlap } from './collide.ts';
+import { decayAngle } from './motion.ts';
 import { DROPPED_KEY, PARKED, nearestParked, parkedHeading } from './parked.ts';
 import type { Furniture } from './parked.ts';
 import {
@@ -102,12 +103,16 @@ export interface Ride {
 /** Within this of a bike (m) the Ride pill shows; within FETCH, F walks there first. */
 const NEAR = 1.6;
 const FETCH = 30;
+/** Walked to a bike, the route may end this far from it (m): the rider steps the rest. */
+const ARRIVED = 3.5;
 /** Getting on and off (s). */
 const MOUNT = 0.45;
 /** A bike on its kickstand leans this far onto it, its left (radians). */
 const KICKSTAND = (6 * Math.PI) / 180;
 /** Getting off, the rider stands this far to the bike's side (m). */
 const ASIDE = 0.8;
+/** Getting on, the bike is turned to have this much clear street ahead (m), if it can. */
+const CLEAR = 6;
 /** A dropped bike is met as a circle this round (m). */
 const DROPPED_RADIUS = 0.55;
 /** Bikes left about the city at once, before the oldest goes back to its rack. */
@@ -257,6 +262,8 @@ export function createRide(kit: RideKit): Ride {
   const input = createInput();
   const poseState: PoseState = { crank: 0, steer: 0, stand: 0, foot: 0, look: 0 };
   let fetching: { x: number; z: number } | undefined;
+  /** The way the bike faced as it was taken, if the rider swings it round getting on. */
+  let turnFrom = 0;
 
   // Bikes left about the city, oldest first.
   let dropped: Dropped[] = [];
@@ -363,6 +370,10 @@ export function createRide(kit: RideKit): Ride {
     d!.y = terrain.height(d!.x, d!.z) + kit.lift;
     rider = createRider(d!.x, d!.z, d!.heading);
     [rider.lean, rider.steer] = [d!.lean, d!.steer];
+    // A bike parked nose to a wall, or across a lane, is swung round as the rider gets on: to
+    // ride the way the camera looks, or as near it as the street lets it go.
+    turnFrom = d!.heading;
+    rider.heading = clearWay(d!.x, d!.z, wrap(boom.yaw + Math.PI));
     [from.x, from.z, from.heading] = [walker.x, walker.z, walker.heading];
     walker.route = null;
     fetching = undefined;
@@ -404,6 +415,23 @@ export function createRide(kit: RideKit): Ride {
     remember();
     place(d);
     sounds.kickstand(true);
+  }
+
+  /** The way from (x, z) nearest `toward` that's clear for a few metres, or the clearest. */
+  function clearWay(x: number, z: number, toward: number): number {
+    let [best, most] = [toward, -1];
+    for (const k of [0, 1, -1, 2, -2, 3, -3, 4]) {
+      const h = toward + (k * Math.PI) / 4;
+      let free = 0;
+      while (
+        free < CLEAR &&
+        !overlap(x + Math.sin(h) * (free + 1), z + Math.cos(h) * (free + 1), grid, 0.4, 0, spare)
+      )
+        free += 0.5;
+      if (free >= CLEAR) return wrap(h);
+      if (free > most) [best, most] = [h, free];
+    }
+    return wrap(best);
   }
 
   /** Where the rider stands getting off: beside the bike, on whichever side is clear. */
@@ -478,11 +506,14 @@ export function createRide(kit: RideKit): Ride {
           // Walked to the bike (or stopped short): get on if it's in reach.
           const target = fetching && nearest(fetching.x, fetching.z, 0.3);
           const there =
-            target && Math.hypot(walker.x - fetching!.x, walker.z - fetching!.z) < NEAR + 0.6;
+            target && Math.hypot(walker.x - fetching!.x, walker.z - fetching!.z) < ARRIVED;
           if (target && there) mount(walker, target);
           else phase = 'walk';
         }
-        if (phase === 'walk' && Math.hypot(walker.x - checkedAt.x, walker.z - checkedAt.z) > 0.2) {
+        if (
+          phase === 'walk' &&
+          !(Math.hypot(walker.x - checkedAt.x, walker.z - checkedAt.z) <= 0.2)
+        ) {
           [checkedAt.x, checkedAt.z] = [walker.x, walker.z];
           publish(nearest(walker.x, walker.z, NEAR) ? 'near' : '');
         }
@@ -519,6 +550,13 @@ export function createRide(kit: RideKit): Ride {
         walker.z = fz + (rider.z - fz) * k;
         walker.heading = wrap(from.heading + wrap(rider.heading - from.heading) * k);
         walker.speed = 0;
+        if (phase === 'mount') {
+          bike.rotation.y = wrap(turnFrom + wrap(rider.heading - turnFrom) * k);
+          // The camera comes round behind the bike as the rider gets on, so up on the stick
+          // (or W) is the way it faces.
+          if (!reducedMotion)
+            boom.aimYaw = decayAngle(boom.aimYaw, rider.heading + Math.PI, 0.12, STEP);
+        }
         if (phase === 'mount' && blend === 1) {
           phase = 'ride';
           // Seated: the bike rides with the figure, leaning and turning with it.

@@ -213,6 +213,32 @@ describe('walls', () => {
     }
   });
 
+  test('scraping along a wall it steers into, it keeps going rather than grinding to a halt', () => {
+    const wall = planes([2, 0, -1, 0]);
+    const r = createRider(1.4, 0, 0);
+    r.speed = CRUISE;
+    // The rider holds the bars a little into the wall the whole way.
+    ride(r, 3, { throttle: 1, toward: 0.3 }, wall);
+    expect(r.speed).toBeGreaterThan(CRUISE * 0.8);
+    expect(r.z).toBeGreaterThan(18);
+    expect(r.x).toBeLessThan(2 - 0.45);
+  });
+
+  test('taken out of a rack it stood in, it rides out of the rack’s footprint', () => {
+    // A rack across the bike's middle: inside its ring, the way out is the nearer long side.
+    const rack: Ground = {
+      wallOverlap(x, z, radius, out) {
+        if (Math.abs(x) > 1.5 + radius || Math.abs(z) > 0.3 + radius) return 0;
+        [out[0], out[1]] = [0, z < 0 ? -1 : 1];
+        return radius + 0.3 - Math.abs(z);
+      },
+      closed: () => 0,
+    };
+    const r = createRider(0, 0.05, 0);
+    ride(r, 3, { throttle: 1 }, rack);
+    expect(r.z).toBeGreaterThan(5);
+  });
+
   test('held back by the edge of the water, it stops rather than pushing on', () => {
     const water: Ground = { wallOverlap: () => 0, closed: (_x, z) => (z > 4 ? 1 : 0) };
     const r = createRider(0, 0, 0);

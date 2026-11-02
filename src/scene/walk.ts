@@ -1,25 +1,19 @@
 import {
   BackSide,
+  Bone,
   BufferAttribute,
+  BufferGeometry,
   Color,
   Mesh,
   MeshBasicMaterial,
   PerspectiveCamera,
   Raycaster,
+  Skeleton,
+  SkinnedMesh,
   SphereGeometry,
   Vector2,
 } from 'three';
-import type {
-  Bone,
-  BufferGeometry,
-  Fog,
-  OrthographicCamera,
-  Scene,
-  Skeleton,
-  SkinnedMesh,
-  Texture,
-  WebGLRenderer,
-} from 'three';
+import type { Fog, OrthographicCamera, Scene, Texture, WebGLRenderer } from 'three';
 import type { MapControls } from 'three/addons/controls/MapControls.js';
 
 import { createWalkSounds } from '../audio/walking.ts';
@@ -324,14 +318,7 @@ export function createWalk(host: WalkHost): Walk {
     (rideLoad ??= import('./ride.ts').then(
       ({ createRide }) => {
         riding = createRide({
-          // The engine's classes, from the figure that walk mode already built with them.
-          three: {
-            Bone: character!.bones.root.constructor as typeof Bone,
-            BufferAttribute,
-            BufferGeometry: hint.geometry.constructor as typeof BufferGeometry,
-            Skeleton: character!.mesh.skeleton.constructor as typeof Skeleton,
-            SkinnedMesh: character!.mesh.constructor as typeof SkinnedMesh,
-          },
+          three: { Bone, BufferAttribute, BufferGeometry, Skeleton, SkinnedMesh },
           host,
           grid: ensureGrid(),
           character: character!,

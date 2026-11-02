@@ -95,6 +95,8 @@ export interface Rider {
   foot: number;
   /** How hard it last hit something (m/s), for the thud; whoever plays it sets it back to 0. */
   bump: number;
+  /** Whether it is sliding along a wall. */
+  scraping: boolean;
 }
 
 export const createRider = (x: number, z: number, heading: number): Rider => ({
@@ -113,6 +115,7 @@ export const createRider = (x: number, z: number, heading: number): Rider => ({
   stand: 0,
   foot: 1,
   bump: 0,
+  scraping: false,
 });
 
 export interface RideInput {
@@ -206,6 +209,7 @@ export function stepRider(r: Rider, dt: number, input: RideInput, ground: Ground
   const [mx, mz] = [x - r.x, z - r.z];
   const step = Math.hypot(mx, mz);
   let hit = false;
+  let scraping = false;
   if (step > 1e-6) {
     const body = overlap(x, z, ground, BODY, 0.02, normal);
     const dir = Math.sign(v);
@@ -225,8 +229,11 @@ export function stepRider(r: Rider, dt: number, input: RideInput, ground: Ground
     } else if (into < -1e-3) {
       const [tx, tz] = [ux - into * normal[0], uz - into * normal[1]];
       const share = Math.hypot(tx, tz);
-      if (Math.abs(v) * -into > 1.5) r.bump = Math.max(r.bump, Math.abs(v) * -into);
-      v *= share;
+      // Meeting the wall costs the speed into it, once; scraping along it after that moves at
+      // the share the wall leaves, while the heading turns along it.
+      if (!r.scraping && Math.abs(v) * -into > 1.5) r.bump = Math.max(r.bump, Math.abs(v) * -into);
+      if (!r.scraping) v *= share;
+      scraping = true;
       [x, z] = [r.x + tx * step, r.z + tz * step];
       const along = Math.atan2(tx * dir, tz * dir);
       r.heading = decayAngle(r.heading, along, ALONG_EASE, dt);
@@ -234,17 +241,14 @@ export function stepRider(r: Rider, dt: number, input: RideInput, ground: Ground
   }
   const [fromX, fromZ] = [r.x, r.z];
   settle(r, x, z, dt, ground, BODY);
-  // Held back by the edge of the water or the tracks: as good as a wall head on.
-  if (
-    !hit &&
-    step > 1e-3 &&
-    Math.hypot(r.x - fromX, r.z - fromZ) < step * 0.3 &&
-    Math.abs(v) > 0.5
-  ) {
+  // Refused by the edge of the water or the tracks: as good as a wall head on. (Pushed back out
+  // of something it overlaps, as a bike taken out of a rack is, it still moves.)
+  if (!hit && step > 1e-3 && r.x === fromX && r.z === fromZ && Math.abs(v) > 0.5) {
     r.bump = Math.max(r.bump, Math.abs(v));
     v = 0;
   }
   r.speed = v;
+  r.scraping = scraping;
 
   // Lean into the turn as much as the turn asks (atan v ω / g), lagging a little; stopped with
   // a foot down, onto that foot.
