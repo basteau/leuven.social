@@ -2,9 +2,10 @@ import { describe, expect, test } from 'bun:test';
 
 import type { City } from '../data/city.ts';
 import { pointInRing } from '../data/geometry.ts';
+import { CHARACTER_SCALE } from './character.ts';
 import { LineBuilder, MeshBuilder, unindexed } from './mesh-builder.ts';
 import { PARASOLS } from './palette.ts';
-import { addParasol, terraceParasols } from './terraces.ts';
+import { PARASOL_RIM, addParasol, terraceParasols } from './terraces.ts';
 import { FLAT_GRID } from '../data/terrain.ts';
 
 /** A 100 × 40 m square centred on the origin. */
@@ -79,5 +80,10 @@ test('a parasol is a canopy facing up and out with an underside, on a pole and a
   // The pole and foot reach the ground.
   g.computeBoundingBox();
   expect(g.boundingBox!.min.y).toBe(0);
+  // The canopy's rim clears a walker's head; the apex and the pole top stay just above it.
+  const heights = new Set(Array.from({ length: 24 }, (_, i) => g.getAttribute('position').getY(i)));
+  expect([...heights].toSorted()).toEqual([PARASOL_RIM, 3]);
+  // The figure's hair tops out at 1.85 model metres.
+  expect(PARASOL_RIM).toBeGreaterThan(1.85 * CHARACTER_SCALE + 0.05);
   expect(unindexed(lines.build()).getAttribute('position').count / 2).toBe(4);
 });

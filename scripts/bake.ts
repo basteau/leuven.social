@@ -52,6 +52,8 @@ import {
   simplifyLine,
   simplifyRing,
 } from '../src/data/geometry.ts';
+import { coverOf, groundRings, osmAreas as areasOf } from '../src/data/landcover.ts';
+import type { Cover, OsmElement } from '../src/data/landcover.ts';
 import { toLocal } from '../src/data/projection.ts';
 import {
   EdgeIndex,
@@ -192,16 +194,6 @@ const featureRings = (features: Feature[], keep: (p: Props) => boolean, minArea 
 const layer = (features: Feature[], keep: (p: Props) => boolean, minArea = 0) =>
   featureRings(features, keep, minArea).map(({ ring }) => ring);
 
-const GREEN_LEISURE = new Set(['park', 'garden', 'playground']);
-const GREEN_LANDUSE = new Set([
-  'grass',
-  'meadow',
-  'cemetery',
-  'recreation_ground',
-  'village_green',
-]);
-const WOODS = (p: Props) => p.landuse === 'forest' || p.natural === 'wood' || p.natural === 'scrub';
-
 /** Courtyards smaller than this are light wells: below a game pixel, and not worth the walls. */
 const MIN_COURTYARD = 12;
 
@@ -213,7 +205,7 @@ const [
   zones,
   wtz,
   gba,
-  osmAreas,
+  osmAreaElements,
   osmRoads,
   osmPoints,
   osmPlatforms,
@@ -229,7 +221,7 @@ const [
   read<RoadZones>('derived/road_zones.json'),
   read<Collection>('grb/grb_WTZ.geojson'),
   read<Collection>('grb/grb_GBA.geojson'),
-  read<Collection>('derived/osm_areas.geojson'),
+  read<{ elements: OsmElement[] }>('osm/areas.json'),
   read<Collection>('derived/osm_roads.geojson'),
   read<Collection>('derived/osm_points.geojson'),
   read<Overpass>('osm/rail_platforms.json'),
@@ -311,14 +303,40 @@ const paths: Path[] = osmRoads.features.flatMap((f) => {
 
 const lineOf = (f: Feature) =>
   (f.geometry.coordinates as [number, number][]).flatMap(([lon, lat]) => toLocal(lon, lat));
-const rails: Rail[] = osmAreas.features.flatMap((f) => {
-  const style = railFromOsm(f.properties);
-  if (!style || f.geometry.type !== 'LineString') return [];
-  const line = simplifyLine(lineOf(f), RAIL_SIMPLIFY);
+// Tracks are the open railway ways (a closed one would be an area).
+const rails: Rail[] = osmAreaElements.elements.flatMap((e) => {
+  const style = railFromOsm(e.tags ?? {});
+  const points = (e.geometry ?? []).flatMap((p) => (p ? [p] : []));
+  const [first, last] = [points[0], points.at(-1)];
+  const closed = points.length >= 4 && first?.lon === last?.lon && first?.lat === last?.lat;
+  if (!style || e.type !== 'way' || points.length < 2 || closed) return [];
+  const line = simplifyLine(
+    points.flatMap(({ lon, lat }) => toLocal(lon, lat)),
+    RAIL_SIMPLIFY,
+  );
   return AREA.flatMap((rect) => clipLine(line, rect)).map((piece) =>
     Object.assign({ line: new Float32Array(piece) }, style),
   );
 });
+
+// OSM's areas, ways and multipolygons alike, each in the ground layer its tags say
+// (src/data/landcover.ts), holes and all.
+const covers = areasOf(osmAreaElements.elements, toLocal).flatMap((a) => {
+  const cover = coverOf(a.tags);
+  return cover ? [{ cover, tags: a.tags, polygons: a.polygons }] : [];
+});
+/** The rings of one ground layer, with the tags of the area each came from. */
+const coverRings = (cover: Cover, minArea = 0) =>
+  covers
+    .filter((c) => c.cover === cover)
+    .flatMap(({ tags, polygons }) =>
+      groundRings(polygons, AREA, GROUND_SIMPLIFY, minArea).map((r) => ({
+        props: tags as Props,
+        ring: new Float32Array(r),
+      })),
+    );
+const coverLayer = (cover: Cover, minArea = 0) =>
+  coverRings(cover, minArea).map(({ ring }) => ring);
 
 // Station platforms are multipolygons, often chained from several open ways.
 const platforms = osmPlatforms.elements
@@ -334,7 +352,7 @@ const platforms = osmPlatforms.elements
   .filter((ring) => ring.length >= 6)
   .map((ring) => new Float32Array(ring));
 
-const railLand = layer(osmAreas.features, (p) => p.landuse === 'railway');
+const railLand = coverLayer('railLand');
 /**
  * Platform roofs: GRB annexes surveyed as an `afdak` (canopy), big enough to span tracks and
  * standing on railway land. In this area that is Leuven's wave roof, kept whole and unsimplified
@@ -395,17 +413,11 @@ const allTrees = mergeTrees(
 
 const roads = layer(wbn.features, () => true);
 const squareRings = [
-  ...featureRings(
-    osmAreas.features,
-    (p) => p.place === 'square' || p['area:highway'] !== undefined,
-  ),
+  ...coverRings('plazas'),
   ...featureRings(osmRoads.features, closedPedestrianArea),
 ];
 const plazas = squareRings.map(({ ring }) => ring);
-const water = [
-  ...layer(wtz.features, () => true),
-  ...layer(osmAreas.features, (p) => p.natural === 'water'),
-];
+const water = [...layer(wtz.features, () => true), ...coverLayer('water')];
 
 // A path under a road surface or a square is never seen (44% of their length): keep the rest.
 const paved = new RingIndex();
@@ -538,18 +550,10 @@ const city: City = {
   carriageways,
   markings,
   plazas,
-  green: layer(
-    osmAreas.features,
-    (p) => GREEN_LEISURE.has(p.leisure ?? '') || GREEN_LANDUSE.has(p.landuse ?? ''),
-    MIN_GREEN_AREA,
-  ),
-  woods: layer(osmAreas.features, WOODS, MIN_GREEN_AREA),
-  pitches: layer(osmAreas.features, (p) => p.leisure === 'pitch', MIN_GREEN_AREA),
-  parking: layer(
-    osmAreas.features,
-    (p) => p.amenity === 'parking' && p.parking !== 'underground' && p.parking !== 'multi-storey',
-    MIN_GREEN_AREA,
-  ),
+  green: coverLayer('green', MIN_GREEN_AREA),
+  woods: coverLayer('woods', MIN_GREEN_AREA),
+  pitches: coverLayer('pitches', MIN_GREEN_AREA),
+  parking: coverLayer('parking', MIN_GREEN_AREA),
   water,
   paths: shownPaths,
   rails,

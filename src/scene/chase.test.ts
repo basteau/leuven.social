@@ -307,6 +307,21 @@ describe('following', () => {
     expect(frame.input).toBeNaN();
   });
 
+  test('a new key while the camera comes round steers by where it will rest, not where it is', () => {
+    const frame = createSteerFrame();
+    // Walking forward (W) with the camera at yaw 0, then W+D turns the walker 45° right.
+    expect(steerYaw(frame, 0, 0, 1)).toBe(0);
+    expect(steerYaw(frame, 0, 1, 1, 0)).toBe(0);
+    // The camera is only partway round (aim -0.3) to behind the walker (-π/4) when D is let go:
+    // W now steers toward -π/4, the way the walker goes, not back toward -0.3.
+    expect(steerYaw(frame, -0.3, 0, 1, -Math.PI / 4)).toBeCloseTo(-Math.PI / 4);
+    // As the camera keeps coming round, the key keeps that way.
+    frame.drift += -0.2;
+    expect(steerYaw(frame, -0.5, 0, 1, -Math.PI / 4)).toBeCloseTo(-Math.PI / 4);
+    // With the camera not following (NaN), a new key steers by the camera as it is.
+    expect(steerYaw(frame, -0.5, 1, 0)).toBeCloseTo(-0.5);
+  });
+
   test('the head looks where the camera looks, or back at the camera in front of it', () => {
     // Camera behind (yaw π for a walker facing +z): straight ahead.
     expect(headLook(0, Math.PI)).toBeCloseTo(0);

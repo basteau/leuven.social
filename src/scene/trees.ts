@@ -1,6 +1,6 @@
 import type { MeshBuilder, V3 } from './mesh-builder.ts';
 import { fromOklab, toOklab } from '../data/colour.ts';
-import { treeScale } from '../data/trees.ts';
+import { MAX_TRUNK, treeScale } from '../data/trees.ts';
 import { TREE, pick } from './palette.ts';
 
 // A four-sided open trunk is all a pixel can show: its caps hide in the crown and the ground.
@@ -85,6 +85,11 @@ export function treeSize(seed: number, height = 0): { scale: number; wide: numbe
   return { scale, wide: 1.2 * scale ** 0.8 * pick([0.86, 0.94, 1, 1.06, 1.14], seed * 3) };
 }
 
+/** How far a tree's trunk reaches at its foot (m): its crown's spread, up to `MAX_TRUNK`. */
+export function trunkFoot(seed: number, height = 0): number {
+  return Math.min(TRUNK_BASE * treeSize(seed, height).wide, MAX_TRUNK);
+}
+
 export type TreePart = 'trunk' | 'crown';
 
 /** A side of the trunk as the cylinder writes it: triangles a, b, d and b, c, d. */
@@ -110,16 +115,16 @@ export function addTree(
   const { scale, wide } = treeSize(seed, height);
   const turn = (seed * 2.399) % (Math.PI * 2);
   const [c, s] = [Math.cos(turn), Math.sin(turn)];
-  const place = ([px, py, pz]: V3): V3 => [
-    x + (px * c + pz * s) * wide,
-    py * scale,
-    z + (-px * s + pz * c) * wide,
-  ];
-  for (const [part, shape, color, centreY] of [
-    ['trunk', TRUNK, TREE.trunk, 1.5],
-    ['crown', CROWN, crownColor(seed, height || scale * MODEL_HEIGHT), CROWN_Y],
+  for (const [part, shape, color, centreY, spread] of [
+    ['trunk', TRUNK, TREE.trunk, 1.5, trunkFoot(seed, height) / TRUNK_BASE],
+    ['crown', CROWN, crownColor(seed, height || scale * MODEL_HEIGHT), CROWN_Y, wide],
   ] as const) {
     if (!parts.includes(part)) continue;
+    const place = ([px, py, pz]: V3): V3 => [
+      x + (px * c + pz * s) * spread,
+      py * scale,
+      z + (-px * s + pz * c) * spread,
+    ];
     // Each side of the trunk is a flat quad, (a, b, d) then (b, c, d): one vertex per corner.
     const step = part === 'trunk' ? 6 : 3;
     for (let i = 0; i < shape.length; i += step) {

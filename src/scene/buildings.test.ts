@@ -204,9 +204,18 @@ describe('outlines', () => {
   });
 
   test('footprint jogs shorter than the ink threshold get no line', () => {
-    // A 6 × 12 box with a 0.3 m notch in one corner: two tiny edges, two tiny corners' worth.
+    // A 6 × 12 box with a 0.3 m notch in one corner: two tiny edges get no top, and the notch's
+    // inner corner, between two of them, no line up it.
     const notched = new Float32Array([0, 0, 6, 0, 6, 11.7, 5.7, 11.7, 5.7, 12, 0, 12]);
-    expect(segments([building({ roof: 'flat', ring: notched })])).toBe(4 + 6);
+    expect(segments([building({ roof: 'flat', ring: notched })])).toBe(4 + 5);
+  });
+
+  test('a saw-tooth facade gets no line up its jogs, only at its real corners', () => {
+    // A block whose front steps back in 1 m by 1.5 m teeth: the five corners between two short
+    // walls get no line; the block's own five corners keep theirs, and every wall its top.
+    const ring = [0, -10, 10, -10, 10, 4.5, 9, 4.5, 9, 3, 8, 3, 8, 1.5, 7, 1.5, 7, 0, 0, 0];
+    const b = building({ roof: 'flat', ring: new Float32Array(ring) });
+    expect(segments([b])).toBe(10 + 5);
   });
 
   test('sheds and kiosks get no ink at all', () => {

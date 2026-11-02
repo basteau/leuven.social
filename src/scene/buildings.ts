@@ -281,6 +281,8 @@ const PARTY_SLACK = 1.5;
 
 /** Wall corners sharper than this get a vertical outline; gentler bends in curved walls don't. */
 const CREASE = Math.cos((35 * Math.PI) / 180);
+/** A corner between two walls both shorter than this (m) is a jog in a facade: no line up it. */
+const MIN_CREASE_WALL = 2;
 
 const plans = new WeakMap<Building, RoofPlan>();
 /** The roof a building gets; a landmark's footprint is a flat base under its parts. */
@@ -413,7 +415,10 @@ function addWalls(
     const px = ring[((i + n - 1) % n) * 2]!;
     const pz = ring[((i + n - 1) % n) * 2 + 1]!;
     const [d1x, d1z, d2x, d2z] = [ax - px, az - pz, bx - ax, bz - az];
-    const cos = (d1x * d2x + d1z * d2z) / (Math.hypot(d1x, d1z) * Math.hypot(d2x, d2z) || 1);
+    const [l1, l2] = [Math.hypot(d1x, d1z), Math.hypot(d2x, d2z)];
+    // A saw-tooth facade's jogs: a full-height line at each would ink the whole front black.
+    if (l1 < MIN_CREASE_WALL && l2 < MIN_CREASE_WALL) continue;
+    const cos = (d1x * d2x + d1z * d2z) / (l1 * l2 || 1);
     if (cos > CREASE) continue;
     // A corner against a neighbour is a crease only where the wall rises above it.
     const before = against(a, ids[(i + n - 1) % n]);

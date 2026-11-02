@@ -17,6 +17,7 @@ import type { City } from '../data/city.ts';
 import type { Terrain } from '../data/terrain.ts';
 import { Router } from '../data/route.ts';
 import { WalkGrid, pickWalkable } from '../data/walkable.ts';
+import { walkSolids } from './solids.ts';
 import { createCharacterMaterial, createXrayMaterial } from './character-material.ts';
 import type { Fade } from './character-material.ts';
 import { CHARACTER_SCALE, applyPose, createCharacter, poseAt, restPose } from './character.ts';
@@ -229,7 +230,8 @@ export function createWalk(host: WalkHost): Walk {
   /** What the flight keeps over: the roofs, standing on the ground. */
   const heightAt = (x: number, z: number) => ground(x, z) + grid!.buildingHeight(x, z);
   const ensureGrid = () => {
-    grid ??= new WalkGrid(host.city);
+    // Trunks, benches and lamp posts stand in the way as drawn (src/scene/solids.ts).
+    grid ??= new WalkGrid(host.city, walkSolids(host.city));
     router ??= new Router(grid);
     return grid;
   };
@@ -609,8 +611,15 @@ export function createWalk(host: WalkHost): Walk {
         const right = sticking ? stick.right : keyRight;
         const up = sticking ? stick.up : keyUp;
         // Steered by the camera as it was when the input last changed, give or take looks by
-        // hand: the camera swinging round behind doesn't turn a held key's way with it.
-        const yaw = steerYaw(steerFrame, boom.aimYaw, right, up);
+        // hand: the camera swinging round behind doesn't turn a held key's way with it. A new
+        // input while it's still coming round goes by where it will rest, behind the walker.
+        const following =
+          !reducedMotion &&
+          walker.speed > 0.1 &&
+          followStrength((now - lastLook) / 1000) > 0 &&
+          recentreWeight(walker.heading, boom.aimYaw) > 0.5;
+        const settle = following ? wrap(walker.heading + Math.PI) : Number.NaN;
+        const yaw = steerYaw(steerFrame, boom.aimYaw, right, up, settle);
         const fx = -Math.sin(yaw);
         const fz = -Math.cos(yaw);
         const sx = -fz * right + fx * up;

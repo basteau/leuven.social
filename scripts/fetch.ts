@@ -241,16 +241,27 @@ function plan(source: Source): Plan {
   }
 }
 
+/**
+ * The lock is the truth: with the same requests, the files must hash to what it says. A file
+ * that doesn't (left over from an older plan, say) is fetched again, and a fresh download that
+ * still doesn't match fails the fetch instead of rewriting the lock. `--update` accepts it, for
+ * when the data really did change at the source.
+ */
+const update = process.argv.includes('--update');
 const lock = await readLock();
 const changed: string[] = [];
+const mismatched: string[] = [];
 for (const source of SOURCES) {
   const p = plan(source);
   const planHash = (await sha256(p.requests.join('\n'))).slice(0, 16);
   const previous = lock[source.id];
+  const samePlan = previous?.plan === planHash;
   const complete = (await Promise.all(p.files.map(exists))).every(Boolean);
   // A merged file can't tell it was made for another extent; tiles are named by what they cover.
-  const stale = previous?.plan !== planHash && source.kind !== 'wcs' && source.kind !== 'wmts';
-  if (!complete || stale) {
+  const stale = !samePlan && source.kind !== 'wcs' && source.kind !== 'wmts';
+  const drifted =
+    complete && samePlan && (await hashSource(DATA, p.files)).sha256 !== previous.sha256;
+  if (!complete || stale || drifted) {
     console.log(`${source.id}: fetching ${source.title.toLowerCase()}`);
     await p.run();
   } else {
@@ -258,6 +269,11 @@ for (const source of SOURCES) {
   }
   await removeStale(DATA, source, p.files);
   const digest = await hashSource(DATA, p.files);
+  if (samePlan && previous.sha256 !== digest.sha256 && !update) {
+    console.error(`${source.id}: the download doesn't match the lock for the same requests`);
+    mismatched.push(source.id);
+    continue;
+  }
   if (previous?.sha256 !== digest.sha256) changed.push(source.id);
   lock[source.id] = {
     plan: planHash,
@@ -272,3 +288,9 @@ for (const source of SOURCES) {
 console.log(
   changed.length ? `Lock updated for ${changed.join(', ')}` : 'Everything matches the lock',
 );
+if (mismatched.length) {
+  console.error(
+    `Not reproducible: ${mismatched.join(', ')}. Run with --update only if the source itself changed.`,
+  );
+  process.exit(1);
+}

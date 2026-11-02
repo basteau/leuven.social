@@ -1,6 +1,13 @@
 import { expect, test } from 'bun:test';
 
-import { DEFAULT_TREE_HEIGHT, clearCrowns, mergeTrees, treeScale, trunkRadius } from './trees.ts';
+import {
+  DEFAULT_TREE_HEIGHT,
+  MAX_TRUNK,
+  clearCrowns,
+  mergeTrees,
+  treeScale,
+  trunkRadius,
+} from './trees.ts';
 
 test('a mapped tree takes the height of the crown above it, and the crown is not doubled', () => {
   const merged = mergeTrees(
@@ -21,11 +28,12 @@ test('each crown is claimed by at most one mapped tree', () => {
   expect(merged.positions).toHaveLength(4);
 });
 
-test('trunks thicken with height, within the limits of the model', () => {
+test('trees grow within the limits of the model, their trunks at most 35 cm round', () => {
   expect(treeScale(1)).toBe(0.7);
   expect(treeScale(100)).toBe(2.8);
-  expect(trunkRadius(20)).toBeGreaterThan(trunkRadius(7));
-  expect(trunkRadius(100)).toBe(trunkRadius(60));
+  expect(trunkRadius(100)).toBe(MAX_TRUNK);
+  expect(MAX_TRUNK).toBe(0.35);
+  for (const h of [1, 7, 12, 30]) expect(trunkRadius(h)).toBeLessThanOrEqual(MAX_TRUNK);
 });
 
 test('LiDAR crowns give way to what is mapped; mapped trees stay', () => {

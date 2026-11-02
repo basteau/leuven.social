@@ -231,9 +231,11 @@ export function followStrength(since: number): number {
 /**
  * The frame keys and the stick steer in: the camera's aim, less however far following the
  * walker has swung it since the input last changed. Holding a key to walk sideways then walks
- * a straight line while the camera comes round behind, instead of a spiral; pressing anything
- * new (or the stick swinging past ~30°) steers by the camera as it is now. A look by hand
- * turns the aim, so it turns the steering at once.
+ * a straight line while the camera comes round behind, instead of a spiral. Pressing anything
+ * new (or the stick swinging past ~30°) steers by where the camera is coming to rest, `settle`
+ * (behind a walker it's following), or by the camera as it is now if it isn't following: letting
+ * go of D while walking with W keeps the way you were going, rather than turning back toward
+ * wherever the camera had got to. A look by hand turns the aim, so it turns the steering at once.
  */
 export interface SteerFrame {
   /** How far following has turned the aim since the input changed (radians). */
@@ -247,7 +249,13 @@ export const createSteerFrame = (): SteerFrame => ({ drift: 0, input: Number.NaN
 const RELATCH = 0.5;
 
 /** The yaw to steer by for input `right` and `up`, the boom aiming at `aimYaw`. */
-export function steerYaw(frame: SteerFrame, aimYaw: number, right: number, up: number): number {
+export function steerYaw(
+  frame: SteerFrame,
+  aimYaw: number,
+  right: number,
+  up: number,
+  settle = Number.NaN,
+): number {
   if (right === 0 && up === 0) {
     frame.input = Number.NaN;
     frame.drift = 0;
@@ -256,7 +264,7 @@ export function steerYaw(frame: SteerFrame, aimYaw: number, right: number, up: n
   const input = Math.atan2(right, up);
   if (!(Math.abs(wrap(input - frame.input)) <= RELATCH)) {
     frame.input = input;
-    frame.drift = 0;
+    frame.drift = Number.isNaN(settle) ? 0 : wrap(aimYaw - settle);
   }
   return wrap(aimYaw - frame.drift);
 }
