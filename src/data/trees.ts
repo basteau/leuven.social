@@ -57,8 +57,17 @@ export function mergeTrees(
 
 /** How much larger than its model a tree this tall is drawn (src/scene/trees.ts). */
 export const treeScale = (height: number): number => Math.min(Math.max(height / 6.8, 0.7), 2.8);
-/** The widest a tree's trunk is drawn at the ground (m): what street furniture keeps clear of. */
-export const trunkRadius = (height: number): number => 0.55 * treeScale(height) ** 0.8;
+/**
+ * The widest any trunk is drawn (m). A crown spreads with the tree's height, but a 12 m lime
+ * or plane by the street is about half a metre across at the foot, not two and a half.
+ */
+export const MAX_TRUNK = 0.35;
+/**
+ * The widest a tree's trunk is drawn at the ground (m): what street furniture keeps clear of,
+ * and what a walker walks round.
+ */
+export const trunkRadius = (height: number): number =>
+  Math.min(0.55 * treeScale(height) ** 0.8, MAX_TRUNK);
 
 /**
  * Drops the LiDAR crowns (every tree after the first `mapped`) whose trunk would stand in

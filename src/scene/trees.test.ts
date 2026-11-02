@@ -70,7 +70,7 @@ test('a trunk is never drawn wider than street furniture keeps clear of', () => 
       for (let i = 0; i < position.count; i++) {
         if (position.getY(i) > 0.01) continue; // the trunk's foot, its widest
         expect(Math.hypot(position.getX(i), position.getZ(i))).toBeLessThanOrEqual(
-          trunkRadius(height),
+          trunkRadius(height) + 1e-6, // float32 positions
         );
       }
     }

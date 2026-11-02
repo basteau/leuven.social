@@ -3,7 +3,7 @@ import type { BufferGeometry } from 'three';
 
 import type { MeshBuilder, V3 } from './mesh-builder.ts';
 import { fromOklab, toOklab } from '../data/colour.ts';
-import { treeScale } from '../data/trees.ts';
+import { MAX_TRUNK, treeScale } from '../data/trees.ts';
 import { TREE, pick } from './palette.ts';
 
 /** Flat triangle soup of a three.js shape, so trees can join the cell meshes. */
@@ -76,16 +76,16 @@ export function addTree(
   const { scale, wide } = treeSize(seed, height);
   const turn = (seed * 2.399) % (Math.PI * 2);
   const [c, s] = [Math.cos(turn), Math.sin(turn)];
-  const place = ([px, py, pz]: V3): V3 => [
-    x + (px * c + pz * s) * wide,
-    py * scale,
-    z + (-px * s + pz * c) * wide,
-  ];
-  for (const [part, shape, color, centreY] of [
-    ['trunk', TRUNK, TREE.trunk, 1.5],
-    ['crown', CROWN, crownColor(seed, height || scale * MODEL_HEIGHT), CROWN_Y],
+  for (const [part, shape, color, centreY, spread] of [
+    ['trunk', TRUNK, TREE.trunk, 1.5, Math.min(wide, MAX_TRUNK / TRUNK_BASE)],
+    ['crown', CROWN, crownColor(seed, height || scale * MODEL_HEIGHT), CROWN_Y, wide],
   ] as const) {
     if (!parts.includes(part)) continue;
+    const place = ([px, py, pz]: V3): V3 => [
+      x + (px * c + pz * s) * spread,
+      py * scale,
+      z + (-px * s + pz * c) * spread,
+    ];
     // Each side of the trunk is a flat quad, (a, b, d) then (b, c, d): one vertex per corner.
     const step = part === 'trunk' ? 6 : 3;
     for (let i = 0; i < shape.length; i += step) {
