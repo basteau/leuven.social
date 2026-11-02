@@ -299,6 +299,9 @@ function planOf(b: Building): RoofPlan {
   return plan;
 }
 
+/** How high a building's walls stand (m), up to its eaves. */
+export const wallTop = (b: Building): number => planOf(b).eave;
+
 /** The rings a building's walls stand on: a hipped roof was fitted to a simplified footprint. */
 function wallRings(b: Building, plan: RoofPlan): readonly ArrayLike<number>[] {
   return plan.type === 'hip' ? [plan.ring, ...plan.holes] : [b.ring, ...b.holes];

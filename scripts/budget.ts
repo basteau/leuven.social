@@ -34,12 +34,13 @@ const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[
     limit: 5 * KB,
     gzip: true,
   },
-  // Street furniture and monuments load once the first frame is drawn, with the prop footprints
-  // they share with walk mode.
+  // Street furniture, monuments and the shop fronts' awnings, signs and terraces load once the
+  // first frame is drawn, with the prop and terrace footprints they share with walk mode.
+  // 6: the storefronts' shapes and the fronts' places on their walls added 1.6 KB.
   {
     label: 'Furniture JS (after first frame)',
-    pattern: 'assets/{furniture,props}-*.js',
-    limit: 4 * KB,
+    pattern: 'assets/{furniture,props,shops}-*.js',
+    limit: 6 * KB,
     gzip: true,
   },
   // About 11k house numbers and 1.3k street plates are 64 KB; room for the map to grow by half.

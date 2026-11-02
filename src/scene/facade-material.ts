@@ -2,7 +2,7 @@ import { Color, MeshToonMaterial, Vector4 } from 'three';
 import type { LineBasicMaterial, Material, Texture } from 'three';
 
 import { SHOP_KINDS } from '../data/shop-kinds.ts';
-import { LANCETS, SHOP_FRONT } from './facade-codes.ts';
+import { AWNING, LANCETS, SHOP_FRONT } from './facade-codes.ts';
 import { LUMA, SHADE_CHROMA, SHADE_HUE, SHADE_RANGE } from './lighting.ts';
 import { LIFT_UNIT, linearVertexColors } from './mesh-builder.ts';
 import { ANGLES, LINE_LOD, PAINT_HALF, PAINT_KIND, STRIPE_LOD, SURFACE } from './paint.ts';
@@ -76,6 +76,7 @@ export function fadeInkNearCamera(ink: LineBasicMaterial): void {
  *   facade-codes.ts): windows in each building's own rhythm, or a church's tall pointed lancets,
  *   fading to an average wall tint when a window shrinks below two pixels instead of aliasing
  *   into stripes. A shop front glazes the ground floor under its kind's canvas (`FRONTS`).
+ * - Awnings (storefronts.ts): striped in their kind's second colour.
  * - Road surfaces (`facade` a small negative code, paint.ts): asphalt patches, setts, paving
  *   joints, each fading out before it's finer than a pixel.
  * - Road paint (larger negative codes): the vertex shader widens a line to cover a whole pixel, or
@@ -198,7 +199,13 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
       .replace(
         '#include <color_fragment>',
         `#include <color_fragment>
-        if (vFacade > 0.0) {
+        if (vFacade > ${f(AWNING - 0.5)}) {
+          // An awning's canvas, striped across in its kind's second colour (facade-codes.ts).
+          vec3 second = uFront[int(vFacade - ${f(AWNING - 0.5)}) * 2 + 1].rgb;
+          float along = dot(vWorld.xz, vec2(-vWallNormal.y, vWallNormal.x)) / 0.9;
+          float band = mix(0.5, step(0.5, fract(along)), 1.0 - smoothstep(0.2, 0.35, fwidth(along)));
+          diffuseColor.rgb = mix(diffuseColor.rgb, second, band);
+        } else if (vFacade > 0.0) {
           // Walls carry their top height, plus LANCETS on churches or SHOP_FRONT + 100 · kind over
           // a shop front (facade-codes.ts).
           float shop = step(${f(SHOP_FRONT - 0.5)}, vFacade);

@@ -11,6 +11,8 @@ import type { Terrain } from '../data/terrain.ts';
 import type { Cell } from './cells.ts';
 import type { MeshBuilder } from './mesh-builder.ts';
 import { addProp, isLarge } from './props.ts';
+import { addStorefronts } from './storefronts.ts';
+import type { StorefrontKit } from './storefronts.ts';
 
 /**
  * Where a prop stands: the lowest ground under its footprint's corners, so a bench or a
@@ -25,8 +27,10 @@ export function propBase(terrain: Terrain, p: Prop): number {
 }
 
 export interface Furniture {
-  /** What shows from zoom 2 on. */
+  /** What shows from zoom 2 on: the props, and the shop fronts' awnings, signs and terraces. */
   near: MeshBuilder;
+  /** The shop fronts' awnings, which carry their kind in the `facade` attribute, if any. */
+  awnings: MeshBuilder | null;
   /** What shows at every zoom, or null where nothing in the cell is that tall. */
   tall: MeshBuilder | null;
 }
@@ -35,13 +39,14 @@ export interface Furniture {
  * What the chunk takes from the engine rather than importing it, as the plates do: a module
  * the engine, walk mode and this chunk all import would be split into a chunk of its own.
  */
-export interface FurnitureKit {
+export interface FurnitureKit extends StorefrontKit {
   MeshBuilder: typeof MeshBuilder;
   terrain: Terrain;
 }
 
 /** A cell's furniture, each piece standing on the ground under it (`propBase`). */
-export function buildFurniture(cell: Cell, { MeshBuilder, terrain }: FurnitureKit): Furniture {
+export function buildFurniture(cell: Cell, kit: FurnitureKit): Furniture {
+  const { MeshBuilder, terrain } = kit;
   const near = new MeshBuilder();
   let tall: MeshBuilder | null = null;
   for (const p of cell.props) {
@@ -49,5 +54,7 @@ export function buildFurniture(cell: Cell, { MeshBuilder, terrain }: FurnitureKi
     mesh.lift = propBase(terrain, p);
     addProp(mesh, p);
   }
-  return { near, tall };
+  const awnings = cell.fronts.length > 0 ? new MeshBuilder() : null;
+  if (awnings) addStorefronts(near, awnings, cell.fronts, kit);
+  return { near, awnings, tall };
 }

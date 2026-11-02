@@ -9,7 +9,14 @@ import { MeshBuilder, unindexed } from './mesh-builder.ts';
 import { FLAT, FLAT_GRID, Terrain } from '../data/terrain.ts';
 
 const S = CELL_SIZE;
-const kit = { MeshBuilder, terrain: FLAT };
+const kit = {
+  MeshBuilder,
+  awning: 3000,
+  terrain: FLAT,
+  footing: () => 0,
+  wallTop: (b: Building) => b.eave,
+  ground: () => 0,
+};
 const box = (x: number, z: number, w: number, d: number) =>
   new Float32Array([x, z, x + w, z, x + w, z + d, x, z + d]);
 const house = (id: number, ring: Float32Array): Building => ({
@@ -227,7 +234,7 @@ test('on the terrain, the ground drapes, houses stand at their foot, props on th
     (i) => p.getX(i) >= 10 && p.getX(i) <= 18 && p.getZ(i) >= 10 && p.getZ(i) <= 18,
   );
   expect(Math.max(...first.map((i) => p.getY(i)))).toBeCloseTo(11);
-  const props = buildFurniture(east!, { MeshBuilder, terrain: slope }).near.build();
+  const props = buildFurniture(east!, { ...kit, terrain: slope }).near.build();
   props.computeBoundingBox();
   expect(props.boundingBox!.min.y).toBeGreaterThan(slope.height(S, 0) - 1);
 });

@@ -1,4 +1,14 @@
-import type { Bounds, Building, Carriageway, City, Path, Prop, Rail, Tank } from '../data/city.ts';
+import type {
+  Bounds,
+  Building,
+  Carriageway,
+  City,
+  Path,
+  Prop,
+  Rail,
+  ShopFront,
+  Tank,
+} from '../data/city.ts';
 import { areaOutline, clipLine, clipRing } from '../data/geometry.ts';
 import { FLAT } from '../data/terrain.ts';
 import type { Terrain } from '../data/terrain.ts';
@@ -45,6 +55,8 @@ export interface Cell {
   parasols: Parasol[];
   /** Street furniture and monuments, drawn apart once the furniture chunk loads (furniture.ts). */
   props: Prop[];
+  /** Its buildings' shop fronts, for their awnings, signs and terraces (storefronts.ts). */
+  fronts: { building: Building; front: ShopFront }[];
   tanks: Tank[];
   parapets: Float32Array[];
   /** Track pieces clipped to the cell, and what stands along them. */
@@ -111,6 +123,7 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
           trees: [],
           parasols: [],
           props: [],
+          fronts: [],
           tanks: [],
           parapets: [],
           rails: [],
@@ -131,6 +144,10 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
   }
   for (const p of parasols) at(p.x, p.z)?.parasols.push(p);
   for (const p of city.props) at(p.x, p.z)?.props.push(p);
+  for (const front of city.fronts) {
+    const building = city.buildings[front.building]!;
+    at(building.ring[0]!, building.ring[1]!)?.fronts.push({ building, front });
+  }
   // Like buildings, tanks and parapets go whole to the cell of their first point.
   for (const t of city.tanks) at(t.ring[0]!, t.ring[1]!)?.tanks.push(t);
   for (const line of city.parapets) at(line[0]!, line[1]!)?.parapets.push(line);
