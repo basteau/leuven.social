@@ -225,25 +225,26 @@ export function addTerrace(mesh: MeshBuilder, p: FrontPoint, kind: ShopKind): vo
 
 /**
  * What the storefronts take from the engine rather than import (see `FurnitureKit`): where a
- * building stands and its wall top, the ground, and `AWNING` (facade-codes.ts).
+ * building stands and its wall top, and `AWNING` (facade-codes.ts).
  */
 export interface StorefrontKit {
   awning: number;
   footing: (b: Building) => number;
   wallTop: (b: Building) => number;
-  ground: (x: number, z: number) => number;
 }
 
 /**
  * The awnings (into `awnings`, which carries the `facade` attribute for their stripes: on the
- * rest of the furniture it would cost 4 bytes a vertex), signs and terraces of a cell's fronts. An awning spans its front, but stops short
- * of the next front along the same wall, and of the wall's ends; a sign hangs at an end of it.
+ * rest of the furniture it would cost 4 bytes a vertex), signs and terraces of a cell's fronts,
+ * on the `ground` as drawn. An awning spans its front, but stops short of the next front along
+ * the same wall, and of the wall's ends; a sign hangs at an end of it.
  */
 export function addStorefronts(
   mesh: MeshBuilder,
   awnings: MeshBuilder,
   fronts: readonly { building: Building; front: ShopFront }[],
   kit: StorefrontKit,
+  ground: (x: number, z: number) => number,
 ): void {
   const [lift, awningLift] = [mesh.lift, awnings.lift];
   for (const { building, front } of fronts) {
@@ -254,7 +255,12 @@ export function addStorefronts(
       .map((o) => o.front.along);
     const room = awningRoom(front.along, p.length, others);
     if (room <= MIN_ROOM) continue;
-    mesh.lift = awnings.lift = kit.footing(building);
+    // Over the street in front, where that's higher than the house's foot (on a slope, or on
+    // a pavement), so the awning's edge stays over the walker's head.
+    mesh.lift = awnings.lift = Math.max(
+      kit.footing(building),
+      ground(p.x + p.nx * REACH, p.z + p.nz * REACH),
+    );
     if (FRONTS[front.kind].awning) addAwning(awnings, p, front.kind, top, room, kit.awning);
     // Beside the awning, at the end with room.
     const end = [room + 0.3, -room - 0.3].find(
@@ -262,7 +268,7 @@ export function addStorefronts(
     );
     if (SIGNS.has(front.kind) && end !== undefined) addSign(mesh, frame(p, end), front.kind, top);
     if (front.terrace) {
-      mesh.lift = kit.ground(p.x + p.nx * TERRACE.out, p.z + p.nz * TERRACE.out);
+      mesh.lift = ground(p.x + p.nx * TERRACE.out, p.z + p.nz * TERRACE.out);
       addTerrace(mesh, p, front.kind);
     }
   }

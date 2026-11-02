@@ -70,7 +70,7 @@ export function buildFurniture(cell: Cell, kit: FurnitureKit): Furniture {
     addProp(mesh, p, mesh === near ? bikes : undefined, drawn.height);
   }
   const awnings = cell.fronts.length > 0 ? new MeshBuilder() : null;
-  if (awnings) addStorefronts(near, awnings, cell.fronts, kit);
+  if (awnings) addStorefronts(near, awnings, cell.fronts, kit, drawn.height);
   return { near, bikes: new Float32Array(bikes), awnings, tall };
 }
 

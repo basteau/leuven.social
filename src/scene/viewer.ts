@@ -416,7 +416,6 @@ export function createViewer(options: ViewerOptions): Viewer {
       awning: AWNING,
       footing: (b) => footing(terrain, b.ring),
       wallTop,
-      ground: (x, z) => terrain.height(x, z),
       layers: LAYER_Y,
     });
     entry.furniture = furnitureMesh(near);
