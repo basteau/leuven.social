@@ -18,7 +18,7 @@ Leuven as a tiny city you could hold in your hands: a warm, crisp, low-poly dior
 ### Camera
 
 - True isometric view (35.26° pitch).
-- Rotation snaps to 90° steps.
+- Rotation snaps to 90° steps. Held, it keeps turning and settles on the next quarter view ahead, never back.
 - One rendering path: device resolution (capped at 2×), with multisampling only on standard-density screens, where edges would otherwise stair-step.
 
 ### Light
@@ -125,6 +125,7 @@ Tokens are oklch, in `src/app/app.css`:
 
 - **Actions** are pills with an icon and a visible name: the one or two things a mode is for. The primary one is filled with the accent. The shortcut shows as a keycap on devices that have hover.
 - **Map controls** are round, icon only, in a rail at the bottom end, the same place in every mode and in reach of a right thumb: a **compass** whose needle points north on the map and resets the view (R); **zoom in / zoom out** (+ / −; closer and further while walking), so pinch is never the only way to zoom; **turn left / turn right** (Q / E). Each has an accessible name, and shows it with its key as a tip on hover and keyboard focus.
+- **Turning** acts as the button goes down. A tap is one step, a quarter turn on the map and an eighth on foot; held past 300 ms, the button or key keeps turning (on foot at the held Q/E rate, on the map steadily through the quarter views) until let go, when the map slows onto the next quarter view. Enter and Space press it once. Keys go by keydown and keyup, not the browser's auto-repeat. A sliding thumb or a long press doesn't end the hold or open a menu; letting go, the window losing focus or the mode changing does.
 - Every control is at least 44 px. On narrow screens the rail stands above the actions; on wide ones they share the bottom row. On short screens (a phone on its side) the rail lies down in a row, with Run where the compass was, so it never reaches up to Mute.
 - **Map:** the brand in the corner, the rail, and **Walk** (W) as the primary action. Walking downloads on first use; if that takes over a quarter of a second, the hint says "Getting ready to walk…", and if it fails, "Walking couldn’t load. Check your connection and try again."
 - **Picking a start:** a reticle in the middle of the view, a hint ("Click a street to start there, or press Enter for the middle." / "Tap a street, or move the map and tap Start here."), and **Cancel** (Esc) / **Start here** (Enter).

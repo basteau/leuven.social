@@ -1,7 +1,15 @@
 import { describe, expect, test } from 'bun:test';
 
-import { KEYCAPS, layoutKeycaps, movesMap, SETTLE_MS, strayPress } from './input.ts';
-import type { KeyboardLayout } from './input.ts';
+import {
+  createTurnHold,
+  HOLD_MS,
+  KEYCAPS,
+  layoutKeycaps,
+  movesMap,
+  SETTLE_MS,
+  strayPress,
+} from './input.ts';
+import type { KeyboardLayout, Turner } from './input.ts';
 
 const layout = (keys: Record<string, string>): KeyboardLayout => ({
   getLayoutMap: async () => new Map(Object.entries(keys)),
@@ -87,5 +95,91 @@ describe('strayPress', () => {
   test('always lets the keyboard press', () => {
     expect(strayPress(0, 0)).toBe(false);
     expect(strayPress(0, 5_000)).toBe(false);
+  });
+});
+
+/** A turn hold with its timer in hand: `later()` runs what waits, as if HOLD_MS went by. */
+function setup() {
+  const calls: string[] = [];
+  const turner: Turner = {
+    rotate: (direction) => calls.push(`rotate ${direction}`),
+    spin: (direction) => calls.push(`spin ${direction}`),
+  };
+  let waiting: (() => void) | undefined;
+  const waits: number[] = [];
+  const hold = createTurnHold((then, ms) => {
+    waiting = then;
+    waits.push(ms);
+    return () => {
+      waiting = undefined;
+    };
+  });
+  const later = () => waiting?.();
+  const press = (source: string, direction: 1 | -1) => hold.press(source, direction, turner);
+  return { hold, press, calls, waits, later };
+}
+
+describe('createTurnHold', () => {
+  test('a tap is one step', () => {
+    const { hold, press, calls, later } = setup();
+    press('KeyQ', -1);
+    hold.release('KeyQ');
+    later();
+    expect(calls).toEqual(['rotate -1']);
+  });
+
+  test('held, it steps at once, keeps turning after HOLD_MS and stops when let go', () => {
+    const { hold, press, calls, waits, later } = setup();
+    press('right', 1);
+    expect(waits).toEqual([HOLD_MS]);
+    later();
+    expect(calls).toEqual(['rotate 1', 'spin 1']);
+    hold.release('right');
+    hold.release('right');
+    expect(calls).toEqual(['rotate 1', 'spin 1', 'spin 0']);
+  });
+
+  test('only what started the hold ends it', () => {
+    const { hold, press, calls, later } = setup();
+    press('left', -1);
+    later();
+    hold.release('KeyE');
+    expect(calls).toEqual(['rotate -1', 'spin -1']);
+    hold.release();
+    expect(calls).toEqual(['rotate -1', 'spin -1', 'spin 0']);
+  });
+
+  test('a new press takes over from the one held', () => {
+    const { hold, press, calls, later } = setup();
+    press('left', -1);
+    later();
+    press('KeyE', 1);
+    hold.release('left');
+    later();
+    expect(calls).toEqual(['rotate -1', 'spin -1', 'spin 0', 'rotate 1', 'spin 1']);
+  });
+
+  test('waits for the viewer without failing', () => {
+    let waiting: (() => void) | undefined;
+    const hold = createTurnHold((then) => {
+      waiting = then;
+      return () => {};
+    });
+    hold.press('KeyQ', -1, null);
+    waiting?.();
+    hold.release();
+    expect(waiting).toBeDefined();
+  });
+
+  test('times the hold with a real timer by default', async () => {
+    const calls: number[] = [];
+    const turner: Turner = { rotate: () => {}, spin: (d) => calls.push(d) };
+    const hold = createTurnHold();
+    hold.press('KeyE', 1, turner);
+    hold.release('KeyE');
+    hold.press('KeyE', 1, turner);
+    await new Promise((resolve) => setTimeout(resolve, HOLD_MS + 20));
+    hold.release('KeyE');
+    expect(calls).toEqual([1, 0]);
   });
 });

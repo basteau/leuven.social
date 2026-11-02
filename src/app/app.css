@@ -75,6 +75,12 @@ button {
   touch-action: manipulation;
   user-select: none;
   -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* A button that's held (Turn): a thumb drifting while it holds mustn't hand the touch to the page. */
+.round.hold {
+  touch-action: none;
 }
 
 .sr-only {
