@@ -9,7 +9,7 @@
 import type { Building, ShopFront } from '../data/city.ts';
 import { SHOP_KINDS } from '../data/shop-kinds.ts';
 import type { ShopKind } from '../data/shop-kinds.ts';
-import { TERRACE, frontPoint } from '../data/shops.ts';
+import { END_GAP, MIN_ROOM, TERRACE, awningRoom, frontPoint } from '../data/shops.ts';
 import type { FrontPoint } from '../data/shops.ts';
 import type { MeshBuilder, V3 } from './mesh-builder.ts';
 import { FRONTS, PROPS } from './palette.ts';
@@ -28,9 +28,6 @@ const REACH = 1;
 const SLOPE = 0.4;
 const VALANCE = 0.2;
 const LOW_EDGE = 2.6;
-/** At most this wide each side of its front (m), and this far from the wall's ends. */
-const HALF = 2.5;
-const END_GAP = 0.3;
 
 /** The trades whose sign people look for down a street. */
 const SIGNS = new Set<ShopKind>([
@@ -251,11 +248,11 @@ export function addStorefronts(
   for (const { building, front } of fronts) {
     const p = frontPoint(building.ring, front);
     const top = kit.wallTop(building);
-    const next = fronts
+    const others = fronts
       .filter((o) => o.building === building && o.front.edge === front.edge && o.front !== front)
-      .map((o) => Math.abs(o.front.along - front.along) / 2);
-    const room = Math.min(HALF, front.along - END_GAP, p.length - END_GAP - front.along, ...next);
-    if (room <= 0.4) continue;
+      .map((o) => o.front.along);
+    const room = awningRoom(front.along, p.length, others);
+    if (room <= MIN_ROOM) continue;
     mesh.lift = awnings.lift = kit.footing(building);
     if (FRONTS[front.kind].awning) addAwning(awnings, p, front.kind, top, room, kit.awning);
     // Beside the awning, at the end with room.
