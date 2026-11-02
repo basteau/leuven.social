@@ -14,7 +14,6 @@ import {
   THIGH,
   UPPER_ARM,
   CHARACTER_SCALE,
-  SOLE,
   limbIK,
   poseAt,
   restPose,
@@ -22,6 +21,13 @@ import {
 import { unindexed } from './mesh-builder.ts';
 import { WALKER } from './palette.ts';
 import { IDLE_SECONDS, RUN_SPEED, STEP, WALK_SPEED, createWalker, stepWalker } from './walker.ts';
+
+/** The sole's heel, ball and toe tip, from the ankle (z forward, y up; model metres). */
+const SOLE = [
+  [-0.105, -0.09],
+  [0.12, -0.09],
+  [0.2, -0.05],
+] as const;
 
 /** A palette colour as the normalised bytes the geometry stores. */
 const bytes = (hex: number) => [hex >> 16, (hex >> 8) & 255, hex & 255].map((c) => c / 255);
@@ -38,6 +44,15 @@ describe('characterGeometry', () => {
       expect(index.getX(i)).toBeLessThan(BONES.length);
       expect(weight.getX(i)).toBe(1);
       expect(weight.getY(i)).toBe(0);
+    }
+  });
+
+  test('keeps its arrays after the GPU has them, for skinned bounds and a lost context', () => {
+    const geometry = characterGeometry();
+    for (const a of [geometry.index!, ...Object.values(geometry.attributes)]) {
+      const buffer = 'data' in a ? a.data : a;
+      buffer.onUploadCallback();
+      expect(buffer.array).not.toBeNull();
     }
   });
 
@@ -64,7 +79,7 @@ describe('characterGeometry', () => {
   });
 
   test('a hull moves every side of a part out by the outline width', () => {
-    const thigh = figure(WALKER).solids[0]!;
+    const thigh = figure(WALKER)[0]!;
     const [bottom, top] = grown(thigh.rings, OUTLINE_WIDTH);
     const xs = bottom!.map((p) => p[0]);
     expect(Math.min(...xs)).toBeCloseTo(0.035 - OUTLINE_WIDTH);
@@ -74,7 +89,7 @@ describe('characterGeometry', () => {
   });
 
   test('every part but the smallest sits well inside its hull', () => {
-    const { solids } = figure(WALKER);
+    const solids = figure(WALKER);
     const outlined = solids.filter((s) => s.hull !== false);
     expect(outlined.length).toBeGreaterThan(solids.length / 2);
     for (const solid of outlined) {
@@ -117,9 +132,6 @@ test('the blob shadow is a dithered flat octagon on the root, just above the fee
     expect(index.getX(i)).toBe(BONES.indexOf('root'));
   }
 });
-
-/** How far the body leans `still` seconds after stopping. */
-const lean = (still: number) => poseAt(restPose(), 0, 0, still, true).lean;
 
 describe('createCharacter and poses', () => {
   const material = new MeshBasicMaterial();
@@ -264,7 +276,7 @@ describe('createCharacter and poses', () => {
     expect(run.worst).toBeLessThan(0.1);
   });
 
-  test('setting off leans in with the hips ahead; stopping leans back, then rocks and settles', () => {
+  test('setting off leans in with the hips ahead; stopping leans back, then stands up straight', () => {
     const cruising = poseAt(restPose(), 2, 1, 0, true);
     const starting = poseAt(restPose(), 2, 1, 0, true, 0, 0, 15);
     const stopping = poseAt(restPose(), 2, 1, 0, true, 0, 0, -30);
@@ -274,10 +286,11 @@ describe('createCharacter and poses', () => {
     expect(stopping.hipsZ).toBeLessThan(-0.03);
     // Without the idle motion (reduced motion), none of it.
     expect(poseAt(restPose(), 2, 1, 0, false, 0, 0, 15).lean).toBeCloseTo(cruising.lean);
-    expect(lean(0)).toBeCloseTo(0);
-    expect(lean(0.12)).toBeGreaterThan(0.03);
-    expect(lean(0.4)).toBeLessThan(0);
-    expect(lean(1.5)).toBe(0);
+    // Stopped, the walker stands straight, its scarf tail hanging back down.
+    const stopped = poseAt(restPose(), 0, 1, 0, true, 0, 0, -30);
+    expect(stopped.lean).toBe(0);
+    expect(stopped.hipsZ).toBe(0);
+    expect(stopped.scarf).toBeLessThan(starting.scarf);
   });
 
   test('turning on the spot, it steps from foot to foot as it comes round', () => {
