@@ -41,7 +41,7 @@ const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[
   // swinging a racked bike round to the open street and baking the bikes left about the city
   // into one mesh took it to about 8.8. 10: the richer bike asked for (round spoked wheels,
   // mudguards, a chain and its guard, a lamp, a bell, grips, carrier stays, a basket) and the
-  // rider's arms reaching bars turned twice as far took it to about 9.4.
+  // rider's arms reaching bars turned twice as far took it to about 9.6.
   {
     label: 'Riding JS (near a rack)',
     pattern: 'assets/ride-*.js',
