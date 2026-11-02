@@ -24,7 +24,6 @@ import {
   WebGLRenderer,
 } from 'three';
 import type { Material, Object3D, PerspectiveCamera } from 'three';
-import { MapControls } from 'three/addons/controls/MapControls.js';
 
 import type { City } from '../data/city.ts';
 import { clampToArea } from '../data/geometry.ts';
@@ -43,6 +42,7 @@ import {
   setPixelSize,
 } from './facade-material.ts';
 import { LIGHT } from './lighting.ts';
+import { MapControls } from './map-controls.ts';
 import { LAYER_Y, slabBottom } from './ground.ts';
 import { LINE_LOD } from './paint.ts';
 import { LineBuilder, MeshBuilder, corners, geometryBytes } from './mesh-builder.ts';
@@ -445,14 +445,8 @@ export function createViewer(options: ViewerOptions): Viewer {
   const needProjection = new Matrix4();
 
   const camera = new OrthographicCamera(-1, 1, 1, -1, 1, CAMERA_DISTANCE * 2);
-  const controls = new MapControls(camera, canvas);
-  controls.enableRotate = false;
-  controls.enableDamping = false;
-  controls.zoomToCursor = true;
-  controls.minZoom = 0.5;
-  controls.maxZoom = 4;
-  controls.cursorStyle = 'grab';
-  controls.listenToKeyEvents(keyTarget); // arrow keys pan while the map has focus
+  // Arrow keys pan while the map has focus.
+  const controls = new MapControls(camera, canvas, keyTarget, () => onChange());
 
   // The camera that draws: the map's, or the walking one while walking.
   let view: OrthographicCamera | PerspectiveCamera = camera;
@@ -944,11 +938,10 @@ export function createViewer(options: ViewerOptions): Viewer {
       t.set(cx, cy, cz);
     }
   }
-  const onChange = () => {
+  function onChange(): void {
     clampTarget();
     invalidate();
-  };
-  controls.addEventListener('change', onChange);
+  }
 
   let spin = 0;
   function rotate(direction: 1 | -1): void {
@@ -1193,7 +1186,6 @@ export function createViewer(options: ViewerOptions): Viewer {
       listening.abort();
       densityQuery?.removeEventListener('change', onDensity);
       canvas.removeEventListener('webglcontextrestored', onRestored);
-      controls.removeEventListener('change', onChange);
       controls.dispose();
       scene.traverse((object: Object3D) => {
         const { geometry, material: m } = object as Partial<{

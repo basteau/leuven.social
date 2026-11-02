@@ -14,7 +14,7 @@ import {
   Vector2,
 } from 'three';
 import type { Fog, OrthographicCamera, Scene, Texture, WebGLRenderer } from 'three';
-import type { MapControls } from 'three/addons/controls/MapControls.js';
+import type { MapControls } from './map-controls.ts';
 
 import { createWalkSounds } from '../audio/walking.ts';
 import type { City } from '../data/city.ts';
