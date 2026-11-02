@@ -47,12 +47,44 @@ const empty = (): BikeArrays => ({
 });
 
 describe('the rideable bike', () => {
-  test('is at most 450 triangles in any look, ink and shadow included', () => {
-    for (const look of looks) {
-      expect(triangles(bikeArrays(look))).toBeLessThanOrEqual(450);
-      expect(triangles(bikeArrays(look))).toBeGreaterThan(400);
+  test('is at most 800 triangles in any look, ink and shadow included', () => {
+    for (const look of [...looks, LOOK.basket]) {
+      expect(triangles(bikeArrays(look))).toBeLessThanOrEqual(800);
+      expect(triangles(bikeArrays(look))).toBeGreaterThan(650);
     }
-    expect(BIKE_MOST.indices / 3).toBe(triangles(bikeArrays(LOOK.crate)));
+    const most = Math.max(...[...looks, LOOK.basket].map((look) => triangles(bikeArrays(look))));
+    expect(BIKE_MOST.indices / 3).toBe(most);
+  });
+
+  test('is richer than a parked one: spokes, a chain, mudguards, a lamp, a bell, a reflector', () => {
+    const a = bikeArrays(0);
+    expect(has(a, PROPS.lantern)).toBe(true); // the lamp's lens
+    expect(has(a, PROPS.spokes)).toBe(true); // spokes, hubs and the bell
+    // Spokes on each wheel: thin beams through its axle, turning with it.
+    for (const wheel of ['front', 'rear'] as const) {
+      const b = BIKE_BONES.indexOf(wheel);
+      const [, y, z] = bonePivot(b);
+      let spokes = 0;
+      for (let v = 0; v < a.bone.length; v++) {
+        const at = [a.position[v * 3 + 1]! - y, a.position[v * 3 + 2]! - z];
+        if (
+          a.bone[v] === b &&
+          Math.hypot(at[0]!, at[1]!) > WHEEL - 0.06 &&
+          Math.hypot(at[0]!, at[1]!) < WHEEL - 0.04
+        )
+          spokes++;
+      }
+      expect(spokes).toBeGreaterThanOrEqual(12 * 4); // twelve spoke ends, four corners each
+    }
+    // A carrier stands on stays, and a basket hangs on the bars, turning with them.
+    expect(triangles(bikeArrays(LOOK.carrier))).toBeGreaterThan(triangles(a) + 30);
+    const basket = bikeArrays(LOOK.basket);
+    expect(has(basket, PROPS.crateInside)).toBe(true);
+    const steer = BIKE_BONES.indexOf('steer');
+    let high = 0;
+    for (let v = 0; v < basket.bone.length; v++)
+      if (basket.bone[v] === steer) high = Math.max(high, basket.position[v * 3 + 1]!);
+    expect(high).toBeGreaterThan(1.02);
   });
 
   test('wears the look and colours the racks use', () => {
@@ -63,11 +95,13 @@ describe('the rideable bike', () => {
     expect(PARTS.iron).toBe(PROPS.iron);
     expect(PARTS.crate).toBe(PROPS.crate);
     expect(PARTS.crateInside).toBe(PROPS.crateInside);
+    expect(PARTS.lantern).toBe(PROPS.lantern);
+    expect(PARTS.leather).toBe(PROPS.wood);
     expect(PARTS.ink).toBe(OUTLINE);
     const red = bikeArrays(2 * LOOK.colour);
     expect(has(red, BIKES[2])).toBe(true);
-    expect(has(bikeArrays(LOOK.crate), PROPS.crate)).toBe(true);
-    expect(has(bikeArrays(0), PROPS.crate)).toBe(false);
+    expect(has(bikeArrays(LOOK.crate), PROPS.crateInside)).toBe(true);
+    expect(has(bikeArrays(0), PROPS.crateInside)).toBe(false);
   });
 
   test('every part hangs on one of its seven bones, and only the shadow dithers', () => {
@@ -128,7 +162,7 @@ describe('a bike left on its stand', () => {
     const stand = { x: 10, y: 2, z: -5, heading: Math.PI / 2, lean: 0.1, steer: 0.4, look: 0 };
     bakeBike(stand, 1.3, into, at);
     const first = { ...at };
-    bakeBike({ ...stand, x: 20, look: LOOK.crate }, 1.3, into, at);
+    bakeBike({ ...stand, x: 20, look: LOOK.carrier }, 1.3, into, at);
     expect(at.vertices).toBe(first.vertices + BIKE_MOST.vertices);
     expect(into.index[first.indices]).toBeGreaterThanOrEqual(first.vertices);
     expect(Math.max(...into.bone)).toBe(0);

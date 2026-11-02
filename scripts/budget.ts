@@ -34,11 +34,13 @@ const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[
   // Riding loads near a rack (or on F): the bike's physics, rig and model, the rider's pose, the
   // glue that takes and leaves bikes, and its sounds. The plan said 7 KB; riding along a route,
   // swinging a racked bike round to the open street and baking the bikes left about the city
-  // into one mesh took it to about 8.8.
+  // into one mesh took it to about 8.8. 10: the richer bike asked for (round spoked wheels,
+  // mudguards, a chain and its guard, a lamp, a bell, grips, carrier stays, a basket) and the
+  // rider's arms reaching bars turned twice as far took it to about 9.4.
   {
     label: 'Riding JS (near a rack)',
     pattern: 'assets/ride-*.js',
-    limit: 9 * KB,
+    limit: 10 * KB,
     gzip: true,
   },
   // The plates on the facades load after walk mode, in a chunk and a data file of their own.
