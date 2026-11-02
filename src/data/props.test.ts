@@ -5,6 +5,8 @@ import {
   CLEARANCE,
   DEFAULT_STANDS,
   EdgeIndex,
+  FILL,
+  MAX_BIKES,
   MAX_STANDS,
   ROW,
   RingIndex,
@@ -16,6 +18,7 @@ import {
   placeProps,
   propFootprint,
   propFromOsm,
+  rackFill,
   segmentInFootprint,
   standsAlong,
 } from './props.ts';
@@ -105,7 +108,8 @@ test('bike racks hold their tagged capacity, within reason, unless out of sight'
   });
   expect(propFromOsm({ amenity: 'bicycle_parking' })?.size).toBe(DEFAULT_STANDS);
   expect(propFromOsm({ amenity: 'bicycle_parking', capacity: '400' })?.size).toBe(MAX_STANDS);
-  expect(propFromOsm({ amenity: 'bicycle_parking', capacity: '1' })?.size).toBe(2);
+  expect(propFromOsm({ amenity: 'bicycle_parking', capacity: '2' })?.size).toBe(2);
+  expect(propFromOsm({ amenity: 'bicycle_parking', capacity: '1' })).toBeNull(); // a loop by a door
   expect(propFromOsm({ amenity: 'bicycle_parking', location: 'underground' })).toBeNull();
   expect(propFromOsm({ amenity: 'bicycle_parking', bicycle_parking: 'building' })).toBeNull();
 });
@@ -175,7 +179,7 @@ test('a bench or rack drawn as a way runs along it; a bench line faces its side'
 });
 
 test('a rack drawn as a way without a capacity fills its length, in one row', () => {
-  expect(standsAlong(4.8)).toBe(DEFAULT_STANDS); // Leuven's typical rack
+  expect(standsAlong(5.6)).toBe(DEFAULT_STANDS); // Leuven's typical rack, its end bars' reach included
   expect(standsAlong(1)).toBe(2);
   expect(standsAlong(60)).toBe(ROW);
   // Drawn, its stands span about the way.
@@ -185,6 +189,45 @@ test('a rack drawn as a way without a capacity fills its length, in one row', ()
   const way = { amenity: 'bicycle_parking', _bearing: '0.0' };
   expect(propFromOsm({ ...way, _length: '7' })?.size).toBe(standsAlong(7));
   expect(propFromOsm({ ...way, _length: '7', capacity: '20' })?.size).toBe(20);
+});
+
+const site = (x: number, z: number, size = 10, access?: string) => ({ x, z, size, access });
+
+test('a rack fills by where it stands: the station, a hotspot, behind a gate, a busy or quiet street', () => {
+  const station: [number, number] = [0, 0];
+  const [atStation, alone, gated] = rackFill(
+    [site(250, 0, 24), site(2000, 0), site(3000, 0, 10, 'private')],
+    station,
+  );
+  expect(atStation!.class).toBe('station');
+  expect(atStation!.bikes).toBeGreaterThanOrEqual(Math.floor(24 * FILL.station)); // no cap there
+  expect(alone!.class).toBe('quiet');
+  expect(gated!.class).toBe('private');
+  // Stands within 60 m, the rack's own included, make a street busy, then a hotspot.
+  const square = (n: number, access?: string) =>
+    Array.from({ length: n }, (_, i) => site(1000 + i * 5, 0, 10, access));
+  expect(rackFill(square(5), station).map((r) => r.class)).toEqual(Array(5).fill('busy'));
+  expect(rackFill(square(9), station)[4]!.class).toBe('hotspot');
+  // A gated rack in a busy street stays mostly empty; in a hotspot it fills like the rest.
+  expect(rackFill(square(5, 'customers'), station)[0]!.class).toBe('private');
+  expect(rackFill(square(9, 'permit'), station)[4]!.class).toBe('hotspot');
+  expect(rackFill([site(1000, 0, 10, 'yes')], station)[0]!.class).toBe('quiet');
+  // Without platform roofs there is no station.
+  expect(rackFill([site(0, 0)], null)[0]!.class).toBe('quiet');
+});
+
+test('a rack holds its share of bikes on average, at most ten outside the station', () => {
+  const many = Array.from({ length: 400 }, (_, i) => ({ x: i * 100, z: i * 37, size: 6 }));
+  const fills = rackFill(many, null);
+  const mean = fills.reduce((sum, r) => sum + r.bikes, 0) / (many.length * 6);
+  expect(mean).toBeCloseTo(FILL.quiet, 1);
+  for (const r of fills) expect([5, 6]).not.toContain(r.bikes); // 1.8 rounds to 1 or 2
+  // A hotspot's long racks stop at ten bikes; the station's don't.
+  const long = Array.from({ length: 4 }, (_, i) => ({ x: 1000 + i, z: 0, size: 24 }));
+  expect(rackFill(long, null).every((r) => r.bikes === MAX_BIKES)).toBe(true);
+  expect(rackFill(long, [1000, 0]).every((r) => r.bikes > MAX_BIKES)).toBe(true);
+  // The same racks always fill the same way.
+  expect(rackFill(many, null)).toEqual(fills);
 });
 
 const at = (over: Partial<Prop>): Prop => ({
