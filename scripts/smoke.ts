@@ -323,11 +323,11 @@ const canvasNumber = async (name: string) =>
 async function expectRiding(): Promise<void> {
   const [x, z] = await nearestRack();
   await browser('press', 'r');
-  // The map turned a quarter from north, at zoom 1: 800 px show 560 m. A drag moves the ground
-  // under the pointer, across by its screen width and along by its depth.
+  // The map turned a quarter from north, at zoom 1: 800 px show 560 m. A drag keeps the ground
+  // under the pointer: across by its screen width, along foreshortened by the isometric pitch.
   const k = 800 / 560;
   const s = Math.SQRT1_2;
-  const [dx, dy] = [-(x * s - z * s) * k, ((-x * s - z * s) * k) / 2.82];
+  const [dx, dy] = [-(x * s - z * s) * k, (-x * s - z * s) * k * Math.sqrt(1 / 3)];
   await browser('mouse', 'move', '640', '400');
   await browser('mouse', 'down');
   for (let i = 1; i <= 4; i++) {
@@ -341,9 +341,15 @@ async function expectRiding(): Promise<void> {
   await browser('mouse', 'up');
   await browser('wait', '400');
   await expectOnMap('dragging the map');
-  // W walks from the street nearest the middle of the view.
+  // W walks from the street nearest the middle of the view, which the drag brought the rack to.
   await browser('press', 'w');
   await browser('wait', '--fn', landed);
+  const [wx, wz] = (await evalJson<string>(`JSON.stringify(${canvasData('walker')})`))
+    .split(' ')
+    .map(Number);
+  if (!(Math.hypot(wx! - x, wz! - z) < 30)) {
+    throw new Error(`riding: dragged to the rack at ${x}, ${z} but landed at ${wx}, ${wz}`);
+  }
   await browser('eval', key('keydown', 'KeyF'));
   await browser('eval', key('keyup', 'KeyF'));
   await browser('wait', '--timeout', '20000', '--fn', `${canvasData('ride')} === 'riding'`);
