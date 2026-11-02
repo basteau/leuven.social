@@ -203,19 +203,24 @@ export function recentre(boom: Boom, heading: number, rate: number, dt: number):
   return wrap(boom.aimYaw - before);
 }
 
-/** The camera follows fully a walker turned up to this far from its back (radians), not at all past the second. */
+/**
+ * The camera follows fully a walker turned up to this far from its back (radians); turned all the
+ * way round, toward the camera, it follows at this share, so an about-turn swings it round
+ * behind more slowly than a turn to the side.
+ */
 const FOLLOW_FULL = (100 * Math.PI) / 180;
-const FOLLOW_NONE = (145 * Math.PI) / 180;
+const ABOUT_TURN = 0.6;
 
 /**
  * How much the boom should swing behind a walker going `heading` with the boom at `yaw`: fully
- * after a turn to either side, so the camera comes round to its back; not at all walking toward
- * the camera, where swinging round would spin the view and turn the controls with it.
+ * after a turn to either side, a little less after turning right round to walk at the camera.
+ * Held keys keep the way they set off in while it swings (`steerYaw`), so the view coming round
+ * never turns the controls with it.
  */
 export function recentreWeight(heading: number, yaw: number): number {
   const off = Math.abs(wrap(heading + Math.PI - yaw));
-  const t = Math.min(1, Math.max(0, (FOLLOW_NONE - off) / (FOLLOW_NONE - FOLLOW_FULL)));
-  return t * t * (3 - 2 * t);
+  const t = Math.min(1, Math.max(0, (off - FOLLOW_FULL) / (Math.PI - FOLLOW_FULL)));
+  return 1 - (1 - ABOUT_TURN) * t * t * (3 - 2 * t);
 }
 
 /** After someone last turned the view (s), the camera leaves it this long, then takes this long to follow fully. */

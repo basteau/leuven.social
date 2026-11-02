@@ -12,6 +12,7 @@ import {
   propBase,
 } from './cells.ts';
 import { slabBottom } from './ground.ts';
+import { PARKED } from './props.ts';
 import { unindexed } from './mesh-builder.ts';
 import type { MeshBuilder } from './mesh-builder.ts';
 import { FLAT, FLAT_GRID, Terrain } from '../data/terrain.ts';
@@ -200,9 +201,29 @@ test('small props get a mesh of their own, built apart; tall ones join the cell'
   const [west, east] = partition(city);
   const walls = partyWalls(city.buildings);
   const e = buildCell(east!, city.area, walls);
-  expect(height(buildFurniture(west!))).toBeLessThan(2); // a bench
-  expect(height(buildFurniture(east!))).toBeLessThan(2); // only the bench: the needle is in the main mesh
+  expect(height(buildFurniture(west!).mesh)).toBeLessThan(2); // a bench
+  expect(height(buildFurniture(east!).mesh)).toBeLessThan(2); // only the bench: the needle is in the main mesh
   expect(height(e.mesh)).toBeGreaterThan(20);
+});
+
+test('the furniture notes where each parked bike is drawn, on the ground it stands on', () => {
+  const [west] = partition(city);
+  const rack = { kind: 'bikes' as const, x: 30, z: 40, angle: 0.3, size: 12, fill: 0.5 };
+  const cell = { ...west!, props: [...west!.props, rack, { ...rack, x: 60, fill: 0.25 }] };
+  const slope = new Terrain({ ...FLAT_GRID, step: 100, heights: Float32Array.of(0, 7, 0, 7) });
+  expect(propBase(slope, rack)).toBeGreaterThan(1);
+  const { mesh, bikes } = buildFurniture(cell, slope);
+  expect(bikes).toHaveLength((6 + 3) * PARKED.stride);
+  const indices = mesh.build().index!.count;
+  for (let i = 0; i < bikes.length; i += PARKED.stride) {
+    const [from, to] = [bikes[i + PARKED.from]!, bikes[i + PARKED.to]!];
+    expect((to - from) / 3).toBeGreaterThanOrEqual(41);
+    expect(to).toBeLessThanOrEqual(indices);
+    // Each stands near its rack, on the ground under the rack.
+    const near = Math.hypot(bikes[i + PARKED.x]! - 30, bikes[i + PARKED.z]! - 40) < 6 ? rack : null;
+    const base = propBase(slope, near ?? { ...rack, x: 60, fill: 0.25 });
+    expect(bikes[i + PARKED.y]).toBeCloseTo(base, 4);
+  }
 });
 
 test('along: how far a point on a line lies from its start', () => {
@@ -248,7 +269,7 @@ test('on the terrain, the ground drapes, houses stand at their foot, props on th
     (i) => p.getX(i) >= 10 && p.getX(i) <= 18 && p.getZ(i) >= 10 && p.getZ(i) <= 18,
   );
   expect(Math.max(...first.map((i) => p.getY(i)))).toBeCloseTo(11);
-  const props = buildFurniture(east!, slope).build();
+  const props = buildFurniture(east!, slope).mesh.build();
   props.computeBoundingBox();
   expect(props.boundingBox!.min.y).toBeGreaterThan(slope.height(S, 0) - 1);
 });

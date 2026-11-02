@@ -30,6 +30,7 @@ import {
   turnBoom,
   wheelKind,
   wheelZoom,
+  wrap,
   zoomStop,
 } from './chase.ts';
 import type { Lens, Shot, Vec3 } from './chase.ts';
@@ -247,14 +248,29 @@ describe('following', () => {
     expect(Math.abs(across.aimYaw)).toBeGreaterThan(Math.PI - 0.2);
   });
 
-  test('swings behind after a turn to either side, never round to a walker coming toward it', () => {
+  test('swings behind after a turn to either side, and after an about-turn a little slower', () => {
     expect(recentreWeight(0, Math.PI)).toBe(1);
     expect(recentreWeight(Math.PI / 2, Math.PI)).toBe(1);
     expect(recentreWeight(-Math.PI / 2, Math.PI)).toBe(1);
-    // Backing off diagonally barely turns it; straight at the camera, not at all.
-    expect(recentreWeight((3 * Math.PI) / 4, Math.PI)).toBeGreaterThan(0);
-    expect(recentreWeight((3 * Math.PI) / 4, Math.PI)).toBeLessThan(0.15);
-    expect(recentreWeight(Math.PI, Math.PI)).toBe(0);
+    // Turned right round toward the camera, it still comes round behind, at 0.6 the rate.
+    expect(recentreWeight((3 * Math.PI) / 4, Math.PI)).toBeLessThan(1);
+    expect(recentreWeight((3 * Math.PI) / 4, Math.PI)).toBeGreaterThan(0.6);
+    expect(recentreWeight(Math.PI, Math.PI)).toBeCloseTo(0.6);
+  });
+
+  test('an about-turn ends with the camera behind the walker, its held key still going the same way', () => {
+    // Walking toward the camera (heading 0, camera at yaw 0 in front), holding S.
+    const boom = createBoom(0);
+    const frame = createSteerFrame();
+    const yaw0 = steerYaw(frame, boom.aimYaw, 0, -1);
+    for (let i = 0; i < 60 * 3; i++) {
+      const w = recentreWeight(0, boom.aimYaw);
+      frame.drift = wrap(frame.drift + recentre(boom, 0, 2.2 * w, 1 / 60));
+    }
+    // Behind a walker facing +z is yaw π.
+    expect(Math.abs(wrap(boom.aimYaw - Math.PI))).toBeLessThan(0.2);
+    // The held key still steers the way it set off.
+    expect(steerYaw(frame, boom.aimYaw, 0, -1)).toBeCloseTo(yaw0, 5);
   });
 
   test('a turn to the side is behind the walker within a second, the same at any frame rate', () => {

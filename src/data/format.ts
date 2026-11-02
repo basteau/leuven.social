@@ -21,7 +21,8 @@
  * Trees are a ring of positions followed by their heights in decimetres.
  * Props are a kind per prop, then their positions as one ring, then a turn (a byte: 256ths of a
  * full turn) and a size in decimetres each; a monument (v14) adds its plinth's width and depth
- * (decimetres) and its material (a byte).
+ * (decimetres) and its material (a byte), and a bike rack (v16) how full it is (a byte: 255ths of
+ * its stands, which the bake picks by where it stands).
  * Tanks are a height in decimetres and a footprint each; parapets are open lines.
  * Street names are a table of strings, then each street as its name's place in the table and a
  * centre line, then one number per plaza: 0 for none, else its name's place plus one.
@@ -63,7 +64,8 @@ import { FIELD_SPORTS, PITCH_SURFACES } from './pitches.ts';
 import type { Field } from './pitches.ts';
 
 const MAGIC = 'LVN1';
-const VERSION = 15;
+// v16: a byte per bike rack, its fill (`Prop.fill`). Bump the cache in public/sw.js with it.
+const VERSION = 16;
 const DM = 10; // units per metre
 const GROUND = 20; // terrain heights per metre: 5 cm
 const ZIGZAG = { encoding: 'zigzag' } as const;
@@ -251,6 +253,7 @@ export function encodeCity(city: City): Uint8Array {
   for (const p of city.props) {
     w.uint8(Math.round((p.angle / TURN) * 256) & 255);
     w.varint(Math.round(p.size * DM));
+    if (p.kind === 'bikes') w.uint8(Math.round(Math.min(Math.max(p.fill ?? 0, 0), 1) * 255));
     if (!isMonument(p.kind)) continue;
     w.varint(Math.round((p.width ?? 0) * DM));
     w.varint(Math.round((p.depth ?? 0) * DM));
@@ -423,6 +426,7 @@ export function decodeCity(bytes: Uint8Array): City {
       angle: (r.uint8() / 256) * TURN,
       size: r.varint() / DM,
     };
+    if (kind === 'bikes') prop.fill = r.uint8() / 255;
     if (!isMonument(kind)) return prop;
     const [width, depth, material] = [r.varint() / DM, r.varint() / DM, MATERIALS[r.uint8()]];
     if (!material) throw new CityFormatError('Bad monument material.');

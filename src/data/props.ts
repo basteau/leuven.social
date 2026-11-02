@@ -38,7 +38,7 @@ const POSTLESS_SUPPORTS = new Set(['wall_mounted', 'suspended', 'wire', 'ceiling
 const DIRECTED = (kind: PropKind) => kind === 'bench' || kind === 'lamp' || isMonument(kind);
 /** Kinds drawn along the way they're mapped as, when they are: a long bench, a row of stands. */
 const RUNS = new Set<PropKind>(['bench', 'bikes']);
-const POINTS = 'N NNE NE ENE E ESE SE SSE S SSW SW WSW W WNW NW NNW'.split(' ');
+const POINTS = /* @__PURE__ */ 'N NNE NE ENE E ESE SE SSE S SSW SW WSW W WNW NW NNW'.split(' ');
 
 /**
  * An OSM `direction` (degrees clockwise from north, or a compass point) as a turn in the map's
@@ -110,6 +110,8 @@ function styleFromOsm(tags: Tags): { kind: PropKind; size: number } | null {
   if (tags.amenity === 'bicycle_parking') {
     if (HIDDEN_RACKS.has(tags.location ?? '') || tags.bicycle_parking === 'building') return null;
     const capacity = Number.parseInt(tags.capacity ?? '', 10);
+    // A single loop, mostly at a house's door: too small to read as a rack, so not drawn.
+    if (capacity === 1) return null;
     const length = Number.parseFloat(tags['_length'] ?? '');
     const stands = capacity > 0 ? capacity : length > 0 ? standsAlong(length) : DEFAULT_STANDS;
     return { kind: 'bikes', size: Math.min(Math.max(stands, 2), MAX_STANDS) };
@@ -150,11 +152,14 @@ const EXTENT: Record<'lamp' | 'bench' | 'shelter' | 'busstop', [number, number, 
   shelter: [-1.6, 1.6, -0.75, 0.75],
   busstop: [-0.1, 0.1, -0.3, 0.3],
 };
-/** A bike is this long from wheel to wheel, and may be parked this far off its stand (m). */
-const BIKE_HALF_LENGTH = 0.88;
+/**
+ * Half a parked bike's length, whatever it carries and however its front wheel is turned, and
+ * how far it may stand off its stand (m). src/scene/props.test.ts checks every look fits.
+ */
+const BIKE_HALF_LENGTH = 0.9;
 export const BIKE_SHIFT = 0.15;
-/** Half a handlebar's width: what a rack's end bikes reach past their stand (m). */
-export const HANDLEBAR = 0.25;
+/** What a rack's end bikes reach past their stand: half a handlebar, turned and off square (m). */
+export const HANDLEBAR = 0.3;
 /** A rack's second row stands this far behind the first (m). */
 export const ROW_GAP = 0.9;
 
@@ -163,6 +168,82 @@ export function rackRows(stands: number): { rows: number; perRow: number } {
   const rows = stands > ROW ? 2 : 1;
   return { rows, perRow: Math.ceil(stands / rows) };
 }
+
+/** Small integer hash in [0, 1), so a rack's bikes and their looks stay put across rebakes. */
+export const propHash = (a: number, b: number): number => {
+  let h = Math.imul(a ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(b, 0xc2b2ae35);
+  h ^= h >>> 15;
+  return (Math.imul(h, 0x27d4eb2d) >>> 0) / 2 ** 32;
+};
+/** A prop's seed, from where it stands. */
+export const propSeed = (x: number, z: number): number => Math.round(x * 7) ^ Math.round(z * 13);
+
+/** How full a rack is, by where it stands (`rackFill`). */
+export type FillClass = 'station' | 'hotspot' | 'private' | 'busy' | 'quiet';
+/**
+ * The share of a rack's stands that hold a bike, by class: Leuven's station racks are packed, a
+ * square of racks by the faculties well used, a pavement rack in a quiet street a third full,
+ * and one behind a gate (`access=private`, `customers`, `permit`) mostly empty.
+ */
+export const FILL: Record<FillClass, number> = {
+  station: 0.85,
+  hotspot: 0.65,
+  private: 0.2,
+  busy: 0.45,
+  quiet: 0.3,
+};
+/** Racks this close to the station (the middle of its platform roofs) are station racks (m). */
+export const STATION_REACH = 300;
+/** How far round a rack its neighbours' stands count (m), and how many make it busy or a hotspot. */
+export const NEAR_REACH = 60;
+export const BUSY_STANDS = 50;
+export const HOTSPOT_STANDS = 90;
+/** Bikes drawn in one rack outside the station: a long rack in a quiet street isn't a car park. */
+export const MAX_BIKES = 10;
+const RESTRICTED = new Set(['private', 'customers', 'permit']);
+
+/** What `rackFill` reads off a rack: where it stands, its stands, its OSM `access`. */
+export interface RackSite {
+  x: number;
+  z: number;
+  size: number;
+  access?: string | undefined;
+}
+
+/**
+ * How full each rack is, by where it stands: its class (see `FILL`), checked in that order, and
+ * how many bikes it holds. The count is the class's share of its stands, rounded up or down at
+ * random (seeded by where it stands) so the shares hold on average, and at most `MAX_BIKES`
+ * outside the station. Stands within `NEAR_REACH` count the rack's own. Without a station (no
+ * platform roofs) no rack is a station rack.
+ */
+export function rackFill(
+  racks: readonly RackSite[],
+  station: readonly [number, number] | null,
+): { class: FillClass; bikes: number }[] {
+  return racks.map((r) => {
+    let near = 0;
+    for (const q of racks) {
+      if (Math.hypot(q.x - r.x, q.z - r.z) <= NEAR_REACH) near += q.size;
+    }
+    const kind: FillClass =
+      station && Math.hypot(r.x - station[0], r.z - station[1]) <= STATION_REACH
+        ? 'station'
+        : near >= HOTSPOT_STANDS
+          ? 'hotspot'
+          : RESTRICTED.has(r.access ?? '')
+            ? 'private'
+            : near >= BUSY_STANDS
+              ? 'busy'
+              : 'quiet';
+    const share = r.size * FILL[kind] + propHash(propSeed(r.x, r.z), 99);
+    const most = kind === 'station' ? r.size : Math.min(r.size, MAX_BIKES);
+    return { class: kind, bikes: Math.min(most, Math.floor(share)) };
+  });
+}
+
+/** Bikes in a rack, from its fill (a share of its stands). */
+export const bikesIn = (p: Prop): number => Math.round((p.fill ?? 0) * p.size);
 
 /** Where a prop stands and what it covers, drawn to scale: a monument its plinth or basin. */
 export function propFootprint(p: Prop): Footprint {
@@ -493,6 +574,8 @@ export interface PropPoint {
 
 export interface PlacedProps {
   props: Prop[];
+  /** The tags each prop was read from, in the same order: a rack's `access` sets its fill. */
+  tags: Tags[];
   /** Mapped props moved off a kerb, a wall, a trunk or another prop. */
   nudged: number;
   /** Props with no room within their nudge: a second mapping of one prop, or walled in. */
@@ -541,7 +624,7 @@ export function placeProps(points: readonly PropPoint[], around: Surroundings): 
   };
   const radius = (f: Footprint) => Math.hypot(Math.max(-f.u0, f.u1), Math.max(-f.v0, f.v1));
 
-  const result: PlacedProps = { props: [], nudged: 0, dropped: 0 };
+  const result: PlacedProps = { props: [], tags: [], nudged: 0, dropped: 0 };
   for (const c of candidates) {
     const angle = c.facing ?? turnOf(c.kind, c.x, c.z, around, c.axis);
     const prop: Prop = { kind: c.kind, x: c.x, z: c.z, angle, size: c.size };
@@ -588,6 +671,7 @@ export function placeProps(points: readonly PropPoint[], around: Surroundings): 
     placed.set(k, [...(placed.get(k) ?? []), { kind: c.kind, f }]);
     widest = Math.max(widest, radius(f));
     result.props.push(prop);
+    result.tags.push(c.tags);
   }
   return result;
 }

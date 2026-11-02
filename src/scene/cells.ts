@@ -348,14 +348,18 @@ export function propBase(terrain: Terrain, p: Prop): number {
 /**
  * A cell's small street furniture, as a mesh of its own that hides when zoomed out. It only
  * shows up close, so it's built apart from the rest, after the first frame. Each piece stands
- * on the ground under it (`propBase`).
+ * on the ground under it (`propBase`). `bikes` says where each parked bike is in it (`PARKED`).
  */
-export function buildFurniture(cell: Cell, terrain: Terrain = FLAT): MeshBuilder {
-  const props = new MeshBuilder();
+export function buildFurniture(
+  cell: Cell,
+  terrain: Terrain = FLAT,
+): { mesh: MeshBuilder; bikes: Float32Array } {
+  const mesh = new MeshBuilder();
+  const bikes: number[] = [];
   for (const p of cell.props) {
     if (isLarge(p)) continue;
-    props.lift = propBase(terrain, p);
-    addProp(props, p);
+    mesh.lift = propBase(terrain, p);
+    addProp(mesh, p, bikes);
   }
-  return props;
+  return { mesh, bikes: new Float32Array(bikes) };
 }

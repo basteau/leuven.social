@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import type { City } from './city.ts';
 import { CityFormatError, decodeCity, encodeCity, packCity, unpackCity } from './format.ts';
+import { MAX_STANDS, bikesIn } from './props.ts';
 import { FLAT_GRID } from './terrain.ts';
 
 const square = (x: number, z: number, s: number) =>
@@ -84,7 +85,7 @@ const city: City = {
   trees: new Float32Array([1.5, 2.5, -40, 60.1]),
   treeHeights: new Float32Array([8, 21.5]),
   props: [
-    { kind: 'bikes', x: 12.3, z: -4.5, angle: Math.PI / 2, size: 12 },
+    { kind: 'bikes', x: 12.3, z: -4.5, angle: Math.PI / 2, size: 12, fill: 5 / 12 },
     {
       kind: 'needle',
       x: -100,
@@ -120,6 +121,17 @@ const badKind = (a: City, b: City) => {
 };
 
 describe('city format', () => {
+  test("a rack's fill byte keeps its count of bikes, for every count in every rack", () => {
+    const props: City['props'] = [];
+    for (let size = 2; size <= MAX_STANDS; size++) {
+      for (let bikes = 0; bikes <= size; bikes++) {
+        props.push({ kind: 'bikes', x: 0, z: 0, angle: 0, size, fill: bikes / size });
+      }
+    }
+    const decoded = decodeCity(encodeCity({ ...city, props })).props;
+    expect(decoded.map(bikesIn)).toEqual(props.map(bikesIn));
+  });
+
   test('round-trips every field at decimetre precision', () => {
     const decoded = decodeCity(encodeCity(city));
     expect(decoded.area).toEqual(city.area);
@@ -154,6 +166,10 @@ describe('city format', () => {
     // Monuments keep their plinth and material; furniture carries neither.
     expect(decoded.props[2]).toMatchObject({ width: 3.2, depth: 3.1, material: 'bronze' });
     expect(decoded.props[0]!.material).toBeUndefined();
+    // A rack keeps its fill to a 255th: the same bikes, and only a rack carries one.
+    expect(decoded.props[0]!.fill).toBeCloseTo(5 / 12, 2);
+    expect(bikesIn(decoded.props[0]!)).toBe(5);
+    expect(decoded.props[1]!.fill).toBeUndefined();
     for (const [i, p] of decoded.props.entries()) {
       const original = city.props[i]!;
       expect(p.x).toBeCloseTo(original.x, 4);
