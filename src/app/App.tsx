@@ -406,6 +406,17 @@ export function App() {
     [placeCity, closeMenu],
   );
 
+  // The Ride pill goes once no bike is near. Pressed, it had focus, which would fall to the page
+  // and take the keys with it: back to the map, as after a walk starts or ends.
+  const pill = ready && walkMode === 'walk' && !!ride;
+  const hadPill = useRef(false);
+  useEffect(() => {
+    if (hadPill.current && !pill && document.activeElement === document.body) {
+      mapRef.current?.focus({ focusVisible: false } as FocusOptions);
+    }
+    hadPill.current = pill;
+  }, [pill]);
+
   const coaching = walkMode === 'walk' && coach && !blocked;
   const errorSlot = status.state === 'error' ? introErrorSlot() : null;
   const errorNotice = status.state === 'error' && (
@@ -491,7 +502,7 @@ export function App() {
       <footer className="hud hud-bottom">
         {/* By a bike, or on one: the one thing the moment offers, where a thumb finds it. */}
         <div className="bar">
-          {ready && walkMode === 'walk' && ride && (
+          {pill && (
             <ActionButton
               label={riding ? 'Get off' : 'Ride'}
               shortcut="F"
