@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
 
+import { bridgeHoles } from '../data/landcover.ts';
 import { SLAB_DEPTH, addGround, addSlabInk } from './ground.ts';
 import { LineBuilder, MeshBuilder, unindexed } from './mesh-builder.ts';
 
@@ -81,6 +82,57 @@ test('the road surface carries texture codes, and coarse paint lands on top', ()
   expect([...at(0.155)]).toEqual([-2]); // setts on top
   expect(at(0.16).size).toBe(2); // the zebra's patch, both sides of it
   expect(at(0.17).size).toBe(0); // its bars are fine paint, drawn after the buildings
+});
+
+const empty = {
+  roads: [],
+  carriageways: [],
+  plazas: [],
+  green: [],
+  woods: [],
+  pitches: [],
+  parking: [],
+  water: [],
+  bridges: [],
+  railLand: [],
+};
+const everywhere = { minX: -100, minZ: -100, maxX: 200, maxZ: 200 };
+
+test('generic land lies under specific land: railway land, green, woods, pitches, car parks', () => {
+  const order = [
+    'railLand',
+    'green',
+    'woods',
+    'pitches',
+    'parking',
+    'water',
+    'roads',
+    'plazas',
+  ] as const;
+  const heights = order.map((key) => {
+    const mesh = new MeshBuilder();
+    addGround(mesh, [], everywhere, { ...layers, ...empty, [key]: [square] });
+    return unindexed(mesh.build()).getAttribute('position').getY(0);
+  });
+  expect(heights).toEqual(heights.toSorted((a, b) => a - b));
+  expect(new Set(heights).size).toBe(order.length);
+});
+
+const sq = (x: number, z: number, s: number) => [x, z, x + s, z, x + s, z + s, x, z + s];
+const cw = (r: number[]) => r.flatMap((_, i) => (i % 2 ? [] : [r.at(-i - 2)!, r.at(-i - 1)!]));
+
+test('a ring with its holes bridged in triangulates as the polygon with holes', () => {
+  const holes = [cw(sq(10, 10, 20)), cw(sq(60, 60, 10)), cw(sq(60, 10, 20))];
+  const ring = new Float32Array(bridgeHoles(sq(0, 0, 100), holes));
+  const mesh = new MeshBuilder();
+  addGround(mesh, [], everywhere, { ...layers, ...empty, green: [ring] });
+  const p = unindexed(mesh.build()).getAttribute('position');
+  let covered = 0;
+  for (let i = 0; i < p.count; i += 3) {
+    const [ax, az, bx, bz, cx, cz] = [0, 1, 2].flatMap((k) => [p.getX(i + k), p.getZ(i + k)]);
+    covered += Math.abs((bx! - ax!) * (cz! - az!) - (cx! - ax!) * (bz! - az!)) / 2;
+  }
+  expect(covered).toBeCloseTo(10000 - 400 - 100 - 400, 3);
 });
 
 test('the slab gets an ink lip along its top and bottom edges and down its corners', () => {

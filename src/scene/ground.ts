@@ -141,13 +141,13 @@ export function addGround(
     const hint = [e.nx, 0, e.nz] as const;
     mesh.quad([x0, d, z0], [x1, d, z1], [x1, 0, z1], [x0, 0, z0], GROUND.earth, hint);
   }
-  // Layers stack a few centimetres apart; the orthographic depth buffer resolves that cleanly.
+  // Layers stack a few millimetres apart, from the most generic land to the most specific, so
+  // what is mapped inside something else shows: railway land is the land a railway owns, with
+  // its grass verges and copses on it; a wood in a park, a pitch or car park in either.
+  addRings(mesh, layers.railLand, 0.04, GROUND.railway);
   addRings(mesh, layers.green, 0.05, GROUND.green);
-  // Woods, pitches, railway land and car parks lie in or beside parks and streets, each a few
-  // millimetres above the last.
   addRings(mesh, layers.woods, 0.06, GROUND.woods);
   addRings(mesh, layers.pitches, 0.065, GROUND.pitch);
-  addRings(mesh, layers.railLand, 0.07, GROUND.railway);
   addRings(mesh, layers.parking, 0.08, GROUND.parking);
   addRings(mesh, layers.water, 0.1, GROUND.water);
   // Above the water (footbridges), under the road surfaces that already cover their crossings.
