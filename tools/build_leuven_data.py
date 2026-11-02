@@ -19,6 +19,7 @@ before they are written, and the map projection is pinned below rather than left
 Inputs (src/data/sources.ts lists each one's source and licence):
   grb/grb_GBG.geojson, grb/grb_GBA.geojson   GRB buildings and annexes (EPSG:4326)
   grb/grb_WBN.geojson, grb/grb_WGO.geojson   GRB road surfaces and their subdivision lines, for the road zones
+  grb/grb_KNW.geojson                       GRB structures: bridges, tanks and silos, and the plinths under buildings
   elevation/{DTM,DSM}/*.tif                 DHMV II 1 m rasters (EPSG:31370), tiled
   osm/{buildings,ring_r23,roads,areas,points,furniture_ways}.json   Overpass answers (out geom / center)
   ortho/z18/{x}_{y}.png                     optional: orthophoto tiles for roof colours

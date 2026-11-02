@@ -7,7 +7,7 @@
 import { sound, vary } from './sound.ts';
 import type { Voice } from './sound.ts';
 
-/** Clicks of the freewheel's pawls per turn of the wheel: about 18 a second at a cruise. */
+/** Clicks of the freewheel's pawls per turn of the wheel: about 25 a second at a cruise. */
 export const PAWLS = 6;
 /** Slower than this (m/s) the ticks are too far apart to hear as a freewheel. */
 const TICKING = 0.6;
