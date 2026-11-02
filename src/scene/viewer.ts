@@ -56,6 +56,8 @@ import {
 } from './shadow-fit.ts';
 import type { ShadowSquare } from './shadow-fit.ts';
 import { applyShadowChunks } from './shadow-filter.ts';
+import { SPIN_EASE, spinStep } from './spin.ts';
+import type { Spin } from './spin.ts';
 import { terraceParasols } from './terraces.ts';
 import type { Plates } from './plates.ts';
 import type { Walk, WalkMode } from './walk.ts';
@@ -89,6 +91,11 @@ export interface ViewerStats {
 
 export interface Viewer {
   rotate(direction: 1 | -1): void;
+  /**
+   * Keeps turning while a turn control is held: -1 left, 1 right, 0 lets go. The map then
+   * settles on the next quarter view; walking, the view turns as with a held Q or E.
+   */
+  spin(direction: number): void;
   /** Multiplies the zoom, within the controls' limits. */
   zoomBy(factor: number): void;
   resetView(): void;
@@ -737,6 +744,8 @@ export function createViewer(options: ViewerOptions): Viewer {
           },
           render: renderNow,
           onModeChange: (mode) => {
+            // A held turn on the map mustn't fight the flight down.
+            if (mode === 'walk') stopTurning();
             options.onWalkModeChange?.(mode);
             signStreet();
           },
@@ -840,7 +849,7 @@ export function createViewer(options: ViewerOptions): Viewer {
       Math.round((yaw - Math.PI / 4) / (Math.PI / 2)) * (Math.PI / 2) +
       Math.PI / 4 +
       direction * (Math.PI / 2);
-    cancelAnimationFrame(spin);
+    stopTurning();
     if (reducedMotion) {
       yaw = to;
       placeCamera();
@@ -858,6 +867,42 @@ export function createViewer(options: ViewerOptions): Viewer {
     spin = requestAnimationFrame(step);
   }
 
+  // A held turn control: on the map a spin of its own; walking, a look, with the turn keys'.
+  const turning: Spin = { held: 0, rate: 0, to: Number.NaN };
+  let looking = 0;
+  function stopTurning(): void {
+    cancelAnimationFrame(spin);
+    turning.rate = 0;
+  }
+  function look(direction: number): void {
+    looking = direction;
+    walk?.look(Math.sign(looking + turning.held));
+  }
+  function spinMap(direction: number): void {
+    turning.held = direction;
+    look(looking);
+    // Let go, a spin under way settles by itself.
+    if (!direction || walk?.mode === 'walk') return;
+    walk?.land();
+    stopTurning();
+    turning.to = Number.NaN;
+    let last = performance.now();
+    const step = (now: number) => {
+      // Reduced motion: no easing in or out, though the turn itself is what was asked for.
+      yaw = spinStep(
+        turning,
+        yaw,
+        Math.min(0.1, (now - last) / 1000),
+        reducedMotion ? 1e9 : SPIN_EASE,
+      );
+      last = now;
+      placeCamera();
+      if (!walk?.animating) renderNow();
+      spin = turning.held || turning.rate ? requestAnimationFrame(step) : 0;
+    };
+    spin = requestAnimationFrame(step);
+  }
+
   function zoomBy(factor: number): void {
     if (walk?.mode === 'walk') {
       walk.zoom(factor);
@@ -871,7 +916,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   }
 
   function resetView(): void {
-    cancelAnimationFrame(spin);
+    stopTurning();
     walk?.land();
     yaw = Math.PI / 4;
     camera.zoom = 1;
@@ -977,7 +1022,8 @@ export function createViewer(options: ViewerOptions): Viewer {
     stopWalking: () => walk?.exit(),
     steer: (x, y) => walk?.steer(x, y),
     run: (on) => walk?.run(on),
-    look: (direction) => walk?.look(direction),
+    look,
+    spin: spinMap,
     stats: () => ({
       drawCalls: renderer.info.render.calls,
       triangles: renderer.info.render.triangles,
