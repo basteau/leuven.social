@@ -85,7 +85,7 @@ The size and render budgets are enforced by `bun run verify`; if one is exceeded
 | Walk mode JS (loaded on first walk)    | 14.5 KB | `scripts/budget.ts` |
 | Facade plates JS (after walk mode)     | 5 KB    | `scripts/budget.ts` |
 | Plates data (`walk.bin`), gzipped      | 96 KB   | `scripts/budget.ts` |
-| First-load JS (shell + engine)         | 252 KB  | `scripts/budget.ts` |
+| First-load JS (shell + engine)         | 253 KB  | `scripts/budget.ts` |
 | CSS, gzipped                           | 6 KB    | `scripts/budget.ts` |
 | City data                              | 1 MB    | `scripts/budget.ts` |
 | Draw calls per frame                   | 100     | `scripts/smoke.ts`  |

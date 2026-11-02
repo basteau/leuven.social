@@ -31,12 +31,16 @@ const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[
   // About 11k house numbers and 1.3k street plates are 64 KB; room for the map to grow by half.
   { label: 'Plates data (already gzipped)', pattern: 'data/walk.bin', limit: 96 * KB, gzip: false },
   // What the first visit downloads: the shell and the engine, not the chunks loaded later.
-  // 252: land use from relations, data-chosen monuments and hold-to-turn together passed 250;
-  // furniture and monument drawing can move to a chunk of their own to win it back.
+  // 252: land use from relations, data-chosen monuments and hold-to-turn together passed 250.
+  // 253: the parked bikes' looks, rails and notes (+0.7 KB). Furniture and monument drawing can
+  // move to a chunk of their own to win it back, but a plain import() of them makes Rolldown
+  // split the modules walk mode shares with the engine (three's core, mesh-builder, palette,
+  // data/props, terrain) into a third first-load chunk this pattern misses: the chunk has to
+  // take those from the viewer, as plates.ts takes its kit, or they need reorganising first.
   {
     label: 'First-load JS',
     pattern: 'assets/{index,viewer}-*.js',
-    limit: 252 * KB,
+    limit: 253 * KB,
     gzip: true,
   },
 ];
