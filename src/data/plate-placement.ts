@@ -553,7 +553,7 @@ export interface Junction {
 /**
  * Where streets of different names meet: nodes their OSM ways share (before any simplifying),
  * merged within JUNCTION_MERGE metres, so a dual carriageway or a small roundabout is one
- * junction. In order of their first node, south to north strip by strip, west to east.
+ * junction. In order of their first node, north to south (z grows southward), then west to east.
  */
 export function junctions(ways: readonly { name: number; line: ArrayLike<number> }[]): Junction[] {
   const nodes = new Map<string, { x: number; z: number; names: Set<number> }>();
