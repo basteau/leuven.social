@@ -471,13 +471,19 @@ export interface Pose {
   armR: number;
   elbowL: number;
   elbowR: number;
+  /**
+   * How far out from the body each arm swings (radians), if not the resting `ARM_SPREAD`: a
+   * rider's hands follow the bars as they turn.
+   */
+  spreadL?: number;
+  spreadR?: number;
   /** Head nod and turn. */
   nod: number;
   look: number;
 }
 
 /** How far out from the body the arms hang (radians). */
-const ARM_SPREAD = 0.07;
+export const ARM_SPREAD = 0.07;
 /** Elbows hang a little bent, as arms do. */
 const REST_ELBOW = -0.12;
 /** The furthest the head turns toward where the camera looks (radians). */
@@ -696,8 +702,8 @@ export function applyPose({ bones }: Character, pose: Pose): void {
   bones.footL.rotation.x = pose.footL;
   bones.footR.rotation.x = pose.footR;
   // The arms hang a little out from the body, so the hands clear the shirt's hem.
-  bones.armL.rotation.set(pose.armL, 0, ARM_SPREAD);
-  bones.armR.rotation.set(pose.armR, 0, -ARM_SPREAD);
+  bones.armL.rotation.set(pose.armL, 0, pose.spreadL ?? ARM_SPREAD);
+  bones.armR.rotation.set(pose.armR, 0, -(pose.spreadR ?? ARM_SPREAD));
   bones.foreL.rotation.x = pose.elbowL;
   bones.foreR.rotation.x = pose.elbowR;
 }
