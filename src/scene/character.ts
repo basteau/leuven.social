@@ -6,7 +6,7 @@ import type { Limb } from './limb.ts';
 import { MeshBuilder } from './mesh-builder.ts';
 import type { V3 } from './mesh-builder.ts';
 import { OUTLINE, WALKER } from './palette.ts';
-import { IDLE_SECONDS, STRIDE_RUN, STRIDE_WALK, runBlend } from './walker.ts';
+import { IDLE_SECONDS, STRIDE_RUN, STRIDE_WALK, WALK_SPEED, runBlend } from './walker.ts';
 
 /**
  * The walker: a Leuven student in a shirt and shorts, a few chunky blocks on a fourteen-bone
@@ -490,11 +490,11 @@ const REACH = THIGH + SHIN - 0.004;
  * between), how high a foot lifts, the hips' height and their bounce, where under the hips the
  * steps centre, how far the heel lifts before the toes push off, and the lean.
  */
-const DUTY = [0.52, 0.27] as const;
-const LIFT = [0.09, 0.26] as const;
-const HIPS = [0.77, 0.7] as const;
-const CENTRE = [0.03, -0.04] as const;
-const TOES = [0.38, 0.45] as const;
+const DUTY = [0.52, 0.2] as const;
+const LIFT = [0.09, 0.3] as const;
+const HIPS = [0.73, 0.62] as const;
+const CENTRE = [0.07, 0] as const;
+const TOES = [0.45, 0.45] as const;
 const LEAN = [0.07, 0.24] as const;
 /** How far the arms swing either way (radians). */
 const ARMS = 0.55;
@@ -503,7 +503,7 @@ const STEPPING = 1.5;
 /** Turning on the spot: a full cycle of two steps for each quarter turn. */
 const TURN_STEPS = 4;
 /** Starting and stopping: the acceleration (m/s²) that leans the body most of its furthest. */
-const SURGE = 15;
+const SURGE = 20;
 const SURGE_LEAN = 0.2;
 const SURGE_HIPS = 0.06;
 
@@ -663,7 +663,7 @@ export function poseAt(
   out.elbowL = out.elbowR = REST_ELBOW - 0.2 * step - 1.05 * run;
   out.lean = lerp(LEAN, run) * step + SURGE_LEAN * surge;
   out.twist = (0.16 - 0.1 * run) * step * swing;
-  out.bank = Math.max(-0.3, Math.min(0.3, -0.03 * turning * speed));
+  out.bank = Math.max(-0.3, Math.min(0.3, (-0.12 * turning * speed) / WALK_SPEED));
   out.nod = -0.6 * out.lean;
   out.look = Math.max(-LOOK_LIMIT, Math.min(LOOK_LIMIT, look));
   if (idle && speed === 0 && still < IDLE_SECONDS) {

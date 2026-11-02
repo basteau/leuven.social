@@ -171,14 +171,14 @@ describe('createCharacter and poses', () => {
     expect(poseAt(restPose(), 0, 0, IDLE_SECONDS / 4, false).look).toBe(0);
   });
 
-  test('walking swings each thigh about 0.6 rad, against the arm on its side', () => {
+  test('walking swings each thigh about 0.7 rad, against the arm on its side', () => {
     let [forward, back] = [0, 0];
     for (let phase = 0; phase < Math.PI * 2; phase += 0.05) {
       const pose = poseAt(restPose(), WALK_SPEED, phase, 0, true);
       [forward, back] = [Math.min(forward, pose.legL), Math.max(back, pose.legL)];
     }
     expect(-forward).toBeGreaterThan(0.5);
-    expect(-forward).toBeLessThan(0.95);
+    expect(-forward).toBeLessThan(1.05);
     expect(back).toBeGreaterThan(0.4);
     // The left foot lands at a quarter cycle, ahead, with the left arm back.
     const landing = poseAt(restPose(), WALK_SPEED, Math.PI / 2, 0, true);

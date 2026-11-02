@@ -13,14 +13,14 @@ import type { Spring } from './motion.ts';
  * Its body is a circle kept clear of walls by collide and slide (collide.ts).
  */
 
-/** Walking and running pace (m/s), for a figure a little larger than life. */
-export const WALK_SPEED = 4;
-export const RUN_SPEED = 10.6;
+/** Walking and running pace (m/s), brisk for a figure a little larger than life. */
+export const WALK_SPEED = 5.4;
+export const RUN_SPEED = 14.3;
 /** The simulation step (s): steps are this long whatever the frame rate. */
 export const STEP = 1 / 120;
 /** Metres covered by one full gait cycle (two steps) walking, and running flat out. */
-export const STRIDE_WALK = 2.1;
-export const STRIDE_RUN = 4.8;
+export const STRIDE_WALK = 2.6;
+export const STRIDE_RUN = 6.4;
 /** Seconds the idle animation plays after stopping, before the scene can rest. */
 export const IDLE_SECONDS = 4;
 /** Half-lives (s) of the speed easing up, and down; below this speed (m/s) it stands. */

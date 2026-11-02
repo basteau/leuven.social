@@ -105,7 +105,7 @@ const FOG_FAR = 330;
  * where it goes (s of travel), so it trails a hair setting off and leads a hair at a run.
  */
 const FOLLOW_EASE = 0.09;
-const LOOK_AHEAD = 0.2;
+const LOOK_AHEAD = 0.15;
 /** Holding a turn key turns the view up to this fast (rad/s), easing in and out (half-life, s). */
 const LOOK_KEY_RATE = 1.9;
 const LOOK_KEY_EASE = 0.08;
