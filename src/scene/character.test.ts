@@ -36,8 +36,8 @@ describe('characterGeometry', () => {
   const g = unindexed(characterGeometry());
   const position = g.getAttribute('position');
 
-  test('stays within 750 triangles, one bone to a vertex', () => {
-    expect(position.count / 3).toBeLessThanOrEqual(750);
+  test('stays within 480 triangles, one bone to a vertex', () => {
+    expect(position.count / 3).toBeLessThanOrEqual(480);
     const index = g.getAttribute('skinIndex');
     const weight = g.getAttribute('skinWeight');
     for (let i = 0; i < position.count; i++) {
@@ -61,7 +61,7 @@ describe('characterGeometry', () => {
     const box = g.boundingBox!;
     expect(box.min.y).toBeCloseTo(-OUTLINE_WIDTH);
     expect(box.max.y).toBeLessThan(2);
-    expect(box.max.z).toBeGreaterThan(-box.min.z - 0.15); // nose ahead, backpack behind
+    expect(box.max.z).toBeGreaterThan(-box.min.z - 0.15); // toes ahead, the back of the head behind
   });
 
   test('hull faces point inward, so only their far sides draw round the silhouette', () => {
@@ -82,10 +82,10 @@ describe('characterGeometry', () => {
     const thigh = figure(WALKER)[0]!;
     const [bottom, top] = grown(thigh.rings, OUTLINE_WIDTH);
     const xs = bottom!.map((p) => p[0]);
-    expect(Math.min(...xs)).toBeCloseTo(0.035 - OUTLINE_WIDTH);
-    expect(Math.max(...xs)).toBeCloseTo(0.165 + OUTLINE_WIDTH);
-    expect(bottom![0]![1]).toBeCloseTo(0.47 - OUTLINE_WIDTH);
-    expect(top![0]![1]).toBeCloseTo(0.84 + OUTLINE_WIDTH);
+    expect(Math.min(...xs)).toBeCloseTo(0.012 - OUTLINE_WIDTH);
+    expect(Math.max(...xs)).toBeCloseTo(0.188 + OUTLINE_WIDTH);
+    expect(bottom![0]![1]).toBeCloseTo(0.5 - OUTLINE_WIDTH);
+    expect(top![0]![1]).toBeCloseTo(0.86 + OUTLINE_WIDTH);
   });
 
   test('every part but the smallest sits well inside its hull', () => {
@@ -107,14 +107,14 @@ describe('characterGeometry', () => {
     }
   });
 
-  test('dresses the walker in its outfit, the coat always the accent blue', () => {
-    const outfit = { scarf: 0xc4553c, bag: 0x6e7a3c, hair: 0xd8b060, trousers: 0x48597a };
+  test('dresses the walker in its outfit, with bare arms and legs', () => {
+    const outfit = { shirt: 0x3cb4a8, shorts: 0xf2e8f0, hair: 0xd8b060 };
     const colours = unindexed(characterGeometry(outfit)).getAttribute('color');
     const has = (hex: number) =>
       Array.from({ length: colours.count }, (_, i) => i).some((i) =>
         bytes(hex).every((c, k) => Math.abs(colours.getComponent(i, k) - c) < 1e-6),
       );
-    for (const hex of [outfit.scarf, outfit.bag, outfit.hair, outfit.trousers, WALKER.coat]) {
+    for (const hex of [outfit.shirt, outfit.shorts, outfit.hair, WALKER.skin, WALKER.sneakers]) {
       expect(has(hex)).toBe(true);
     }
   });
@@ -286,11 +286,10 @@ describe('createCharacter and poses', () => {
     expect(stopping.hipsZ).toBeLessThan(-0.03);
     // Without the idle motion (reduced motion), none of it.
     expect(poseAt(restPose(), 2, 1, 0, false, 0, 0, 15).lean).toBeCloseTo(cruising.lean);
-    // Stopped, the walker stands straight, its scarf tail hanging back down.
+    // Stopped, the walker stands straight.
     const stopped = poseAt(restPose(), 0, 1, 0, true, 0, 0, -30);
     expect(stopped.lean).toBe(0);
     expect(stopped.hipsZ).toBe(0);
-    expect(stopped.scarf).toBeLessThan(starting.scarf);
   });
 
   test('turning on the spot, it steps from foot to foot as it comes round', () => {

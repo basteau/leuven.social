@@ -57,13 +57,13 @@ export function createCharacterMaterial(gradientMap: Texture, fade: Fade): MeshT
 }
 
 /**
- * The walker's silhouette where the city hides it: a checkerboard of coat blue, readable on
+ * The walker's silhouette where the city hides it: a checkerboard of the HUD's accent blue, readable on
  * slate roofs and pale walls alike. It draws only where something nearer already filled the
  * depth buffer, and never for the shadow.
  */
 export function createXrayMaterial(fade: Fade): MeshBasicMaterial {
   const material = new MeshBasicMaterial({
-    color: WALKER.coat,
+    color: WALKER.xray,
     depthFunc: GreaterDepth,
     depthWrite: false,
   });
