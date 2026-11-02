@@ -68,6 +68,11 @@ export function terraceParasols(city: City): Parasol[] {
   return parasols;
 }
 
+/**
+ * The canopy's lowest edge (m): above the head of the walker, who is drawn a little larger than
+ * life, so walking under a terrace never cuts through it.
+ */
+export const PARASOL_RIM = 2.5;
 /** The pole's half width, and the weighted foot's half width and height (m). */
 const POLE = 0.05;
 const FOOT = 0.28;
@@ -111,7 +116,7 @@ function post(
  * and the foot. 26 triangles.
  */
 export function addParasol(mesh: MeshBuilder, lines: LineBuilder, p: Parasol): void {
-  const rim = 2.3;
+  const rim = PARASOL_RIM;
   const apex: V3 = [p.x, 3, p.z];
   const corners = [
     [1, 1],
