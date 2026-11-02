@@ -50,6 +50,8 @@ const city: City = {
   water: [],
   woods: [],
   pitches: [],
+  pitchSurfaces: [],
+  fields: [],
   parking: [],
   // A path from one cell into the other.
   paths: [{ width: 2, paved: true, line: new Float32Array([S - 20, 50, S + 20, 50]) }],

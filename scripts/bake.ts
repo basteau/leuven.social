@@ -54,6 +54,7 @@ import {
 } from '../src/data/geometry.ts';
 import { coverOf, groundRings, osmAreas as areasOf } from '../src/data/landcover.ts';
 import type { Cover, OsmElement } from '../src/data/landcover.ts';
+import { FIELD_SPORTS, fieldOf, pitchSurface } from '../src/data/pitches.ts';
 import { toLocal } from '../src/data/projection.ts';
 import {
   EdgeIndex,
@@ -338,6 +339,13 @@ const coverRings = (cover: Cover, minArea = 0) =>
 const coverLayer = (cover: Cover, minArea = 0) =>
   coverRings(cover, minArea).map(({ ring }) => ring);
 
+// Pitches keep what they're made of, and the lines of the fields their whole outlines hold
+// (src/data/pitches.ts), measured before the area cuts them.
+const pitchRings = coverRings('pitches', MIN_GREEN_AREA);
+const fields = covers
+  .filter((c) => c.cover === 'pitches')
+  .flatMap(({ tags, polygons }) => polygons.flatMap((p) => fieldOf(tags, p, AREA) ?? []));
+
 // Station platforms are multipolygons, often chained from several open ways.
 const platforms = osmPlatforms.elements
   .flatMap((e) =>
@@ -552,7 +560,9 @@ const city: City = {
   plazas,
   green: coverLayer('green', MIN_GREEN_AREA),
   woods: coverLayer('woods', MIN_GREEN_AREA),
-  pitches: coverLayer('pitches', MIN_GREEN_AREA),
+  pitches: pitchRings.map(({ ring }) => ring),
+  pitchSurfaces: pitchRings.map((p) => pitchSurface(p.props)),
+  fields,
   parking: coverLayer('parking', MIN_GREEN_AREA),
   water,
   paths: shownPaths,
@@ -654,7 +664,7 @@ console.log(
       .map(([k, v]) => `${k} ${v?.length}`)
       .join(', ')}`,
     `plazas ${city.plazas.length}, green ${city.green.length}, water ${city.water.length}`,
-    `woods ${city.woods.length}, pitches ${city.pitches.length}, parking ${city.parking.length}`,
+    `woods ${city.woods.length}, pitches ${city.pitches.length} (${fields.length} with lines: ${FIELD_SPORTS.map((s) => `${fields.filter((f) => f.sport === s).length} ${s}`).join(', ')}), parking ${city.parking.length}`,
     `paths ${shownPaths.length} (${shownPaths.filter((p) => !p.paved).length} unpaved), ${(pathLength(shownPaths) / 1000).toFixed(0)} of ${(pathLength(paths) / 1000).toFixed(0)} km not under a road or square`,
     `rails ${rails.length} (${rails.filter((r) => r.bridge).length} on bridges, ${rails.reduce((sum, r) => sum + r.line.length / 2 - 1, 0)} segments), platforms ${city.platforms.length}, railway land ${railLand.length}, platform roofs ${canopies.length}`,
     `trees ${trees.heights.length} (${osmTrees.length / 2} mapped)`,

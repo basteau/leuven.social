@@ -66,7 +66,12 @@ const city: City = {
   green: [square(-200, 100, 30)],
   water: [square(-300, -300, 12.5)],
   woods: [square(40, 40, 9)],
-  pitches: [square(60, 40, 9)],
+  pitches: [square(60, 40, 9), square(0, 300, 40)],
+  pitchSurfaces: ['clay', 'tartan'],
+  fields: [
+    { sport: 'tennis', x: 60.1, z: -40.3, angle: 2.5, length: 34.2, width: 37.1, count: 2 },
+    { sport: 'track', x: 0, z: 300, angle: 0, length: 158, width: 73, count: 6 },
+  ],
   parking: [square(80, 40, 9)],
   paths: [{ width: 2.5, paved: false, line: new Float32Array([0, 0, 10, 5, 20, 5]) }],
   rails: [
@@ -161,6 +166,14 @@ describe('city format', () => {
     expect(decoded.streetNames).toEqual(city.streetNames);
     expect(decoded.streets).toEqual(city.streets);
     expect(decoded.plazaNames).toEqual(city.plazaNames);
+    expect(decoded.pitchSurfaces).toEqual(city.pitchSurfaces);
+    expect(decoded.fields.map(({ angle: _, ...f }) => f)).toEqual(
+      city.fields.map(({ angle: _, ...f }) => f),
+    );
+    // A 4096th of half a turn: under 4 cm off at the end of a 100 m pitch.
+    for (const [i, f] of decoded.fields.entries()) {
+      expect(Math.abs(f.angle - city.fields[i]!.angle) * 50).toBeLessThan(0.04);
+    }
   });
 
   test('gzip pack and unpack, and accepts already-inflated bytes', async () => {
@@ -192,6 +205,13 @@ describe('city format', () => {
       markings: [{ ...city.markings[0]!, kind }],
     });
     expect(() => decodeCity(badKind(mark('solid'), mark('zebra')))).toThrow(CityFormatError);
+    const ground = (surface: 'clay' | 'grass') => ({ ...city, pitchSurfaces: [surface, surface] });
+    expect(() => decodeCity(badKind(ground('clay'), ground('grass')))).toThrow('Bad pitch surface');
+    const sport = (kind: 'tennis' | 'soccer') => ({
+      ...city,
+      fields: [{ ...city.fields[0]!, sport: kind }],
+    });
+    expect(() => decodeCity(badKind(sport('tennis'), sport('soccer')))).toThrow('Bad field sport');
     const prop = (kind: 'lamp' | 'bench') => ({ ...city, props: [{ ...city.props[0]!, kind }] });
     expect(() => decodeCity(badKind(prop('lamp'), prop('bench')))).toThrow('Bad prop kind');
     const made = (material: 'bronze' | 'stone') => ({

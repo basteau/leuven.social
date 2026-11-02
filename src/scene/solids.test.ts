@@ -29,6 +29,8 @@ const city: City = {
   water: [],
   woods: [],
   pitches: [],
+  pitchSurfaces: [],
+  fields: [],
   parking: [],
   paths: [],
   rails: [],
