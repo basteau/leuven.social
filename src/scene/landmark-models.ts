@@ -22,12 +22,15 @@ function dormers(u: number, vs: readonly number[], eave: number): Part[] {
   }));
 }
 
-/** Stadhuis: the Gothic hall on Grote Markt, a steep roof, four corner and two gable turrets. */
+/**
+ * Stadhuis: the Gothic hall on Grote Markt, a steep roof, four corner and two gable turrets, its
+ * walls tiers of niches with their statues (`ornate`).
+ */
 const STADHUIS: LandmarkModel = {
   base: 17,
   wall: LANDMARK.sandstone,
   roof: LANDMARK.slate,
-  windows: true,
+  windows: 'ornate',
   parts: [
     {
       type: 'hall',

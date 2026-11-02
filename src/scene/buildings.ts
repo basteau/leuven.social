@@ -8,7 +8,7 @@ import { straightSkeleton } from '../data/skeleton.ts';
 import type { Skeleton } from '../data/skeleton.ts';
 import { LANDMARK_MODELS } from './landmark-models.ts';
 import { SHOP_KINDS } from '../data/shop-kinds.ts';
-import { LANCETS, shopFront } from './facade-codes.ts';
+import { LANCETS, ORNATE, shopFront } from './facade-codes.ts';
 import { addLandmark, addTower } from './landmarks.ts';
 import type { Terrain } from '../data/terrain.ts';
 import { LIFT_UNIT, LineBuilder, MeshBuilder } from './mesh-builder.ts';
@@ -544,7 +544,8 @@ export function addBuilding(
   const top = plan.eave;
   // Sheds get no windows, churches lancets: the window grid would make an office block of them.
   const windows = landmark?.windows ?? (b.kind === 'church' ? 'lancet' : b.kind !== 'shed');
-  const facade = windows === 'lancet' ? top + LANCETS : windows ? top : 0;
+  const facade =
+    windows === 'lancet' ? top + LANCETS : windows === 'ornate' ? top + ORNATE : windows ? top : 0;
   addWalls(mesh, ink, ring, top, wall, windows === true ? frontWalls(b, top) : facade, walls, base);
   for (const r of holes) addWalls(mesh, ink, r, top, wall, facade, walls, base);
   if (b.tower && !landmark) addTower(mesh, ink, ring, b.tower, wall, LANDMARK.spire);

@@ -1,6 +1,6 @@
 import type { Tower } from '../data/city.ts';
 import { orientedRect } from '../data/geometry.ts';
-import { LANCETS } from './facade-codes.ts';
+import { LANCETS, ORNATE } from './facade-codes.ts';
 import type { LineBuilder, MeshBuilder, V3 } from './mesh-builder.ts';
 
 /**
@@ -54,8 +54,8 @@ export interface LandmarkModel {
   base: number;
   wall: number;
   roof: number;
-  /** Whether the base and halls get the window grid, or a church's lancets. */
-  windows: boolean | 'lancet';
+  /** Whether the base and halls get the window grid, a church's lancets or civic Gothic niches. */
+  windows: boolean | 'lancet' | 'ornate';
   parts: readonly Part[];
 }
 
@@ -85,7 +85,14 @@ function addHall(mesh: MeshBuilder, lines: LineBuilder, f: Frame, h: Hall, m: La
     return [x - ox, y, z - oz];
   };
   const { length: L, width: W, eave, from = 0 } = h;
-  const facade = m.windows === 'lancet' ? eave + LANCETS : h.windows && m.windows ? eave : 0;
+  const facade =
+    m.windows === 'lancet'
+      ? eave + LANCETS
+      : m.windows === 'ornate'
+        ? eave + ORNATE
+        : h.windows && m.windows
+          ? eave
+          : 0;
   const corners = [
     [-L, -W],
     [L, -W],

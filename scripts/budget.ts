@@ -32,7 +32,10 @@ const BUDGETS: {
   {
     label: '3D engine JS (three.js)',
     pattern: 'assets/{viewer,palette}-*.js',
-    limit: 166 * KB,
+    // 168: livelier facades asked for (1.4 KB): frames, sills and flower boxes on ordinary
+    // windows, the Stadhuis's tiers of niches with their statues, tracery in the churches'
+    // lancets, the parasols' valances and the café guests' colours.
+    limit: 168 * KB,
     gzip: true,
   },
   // 3.5: just above 3.1 KB.
@@ -124,11 +127,11 @@ const BUDGETS: {
   // moved to a chunk of their own, taking what they share with the engine as a kit, as plates.ts
   // does; only the palette, which scene/props.ts imports, loads as a chunk of its own beside it.
   // 250: panning and zooming with our own map controls (map-controls.ts) took 4.4 KB off; the
-  // load, menu and key fixes put 0.4 back: 249.2 KB.
+  // load, menu and key fixes put 0.4 back: 249.2 KB. 251: the livelier facades (1.4 KB).
   {
     label: 'First-load JS',
     pattern: 'assets/{index,viewer}-*.js',
-    limit: 250 * KB,
+    limit: 251 * KB,
     gzip: true,
     closure: true,
   },
