@@ -344,6 +344,7 @@ export function App() {
     turnHold,
     openMenu,
     menuOpen: menuOpenRef,
+    closeMenu,
     typeAhead: (key) => (typedRef.current += key),
   });
 

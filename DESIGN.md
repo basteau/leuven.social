@@ -162,7 +162,7 @@ Tokens are oklch, inline in `index.html`, so the loading screen paints with them
 - **Two pages:** **Controls and keys**, every key and gesture by mode (the mode at hand first), with what touch does instead; **About**, what this is and every data source with its licence. Back (or Esc) returns to the list.
 - **Keys:** ↑ ↓ move (Page Up and Down by five), ↵ chooses, Esc steps back from a page and then closes, and the chord that opened it closes it. A click on the backdrop closes it too. Running a command closes the menu first. However it closes, focus goes back to the map, not to the menu button, so the map's keys work at once.
 - **Accessible:** a native modal `<dialog>`, which traps focus. The search is a combobox over a labelled listbox of grouped options (`aria-activedescendant`), and the number of results is announced politely.
-- It loads as its own chunk while the city is built, and is in the page (closed) by the time the map is drawn, so it opens at once. Keys pressed while it is on its way go into its search, never to the map.
+- It loads as its own chunk while the city is built, and is in the page (closed) by the time the map is drawn, so it opens at once. Keys pressed while it is on its way go into its search, never to the map; Esc or the chord again calls it off.
 
 ### The street plate
 

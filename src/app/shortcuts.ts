@@ -39,6 +39,8 @@ export interface ShortcutTarget {
   openMenu: (page: 'list' | 'help') => void;
   /** The menu is open or on its way: its keys aren't the map's. */
   menuOpen: RefObject<boolean>;
+  /** Calls off a menu that is still on its way. */
+  closeMenu: () => void;
   /** A character typed while the menu was on its way, for its search. */
   typeAhead: (key: string) => void;
 }
@@ -76,9 +78,14 @@ export function useShortcuts(target: ShortcutTarget): void {
       // The menu's own keys (its search, arrows, Escape) are the menu's.
       if (event.target instanceof Element && event.target.closest('dialog')) return;
       // From the moment it's asked for, too: a search typed before its code arrives goes into
-      // its search, and mustn't walk or mute.
+      // its search, and mustn't walk or mute. Escape or the chord again calls it off, as they
+      // would close it once it's open.
       if (target.menuOpen.current) {
         event.preventDefault();
+        if (event.key === 'Escape' || menuKey(event) === 'chord') {
+          if (!event.repeat) target.closeMenu();
+          return;
+        }
         const typed = event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey;
         if (typed) target.typeAhead(event.key);
         return;
