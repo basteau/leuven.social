@@ -177,6 +177,8 @@ export class Traffic {
   #near: Pool[] | null = null;
   /** Whether each edge has a twin the class may use the other way: where the lane is kept right. */
   readonly #twoWay: Uint8Array;
+  /** Each edge's twin, the same way run the other way (-1: none): where a U-turn would go. */
+  readonly #twin: Int32Array;
   readonly #random: () => number;
   /** Vehicles sorted by edge, class and distance along, rebuilt each step for the leader search. */
   readonly #order: number[] = [];
@@ -204,9 +206,11 @@ export class Traffic {
     // A twin running the other way, for each class: the way is two-way for it.
     const byEnds = new Map(edges.map((e, i) => [`${e.from}>${e.to}`, i]));
     this.#twoWay = new Uint8Array(edges.length);
+    this.#twin = new Int32Array(edges.length).fill(-1);
     for (const [i, e] of edges.entries()) {
       const twin = byEnds.get(`${e.to}>${e.from}`);
       if (twin === undefined) continue;
+      this.#twin[i] = twin;
       for (let cls = 0; cls < CLASSES; cls++) {
         if (this.#allowed[cls]!(twin)) this.#twoWay[i]! |= 1 << cls;
       }
@@ -216,8 +220,10 @@ export class Traffic {
       const cum: number[] = [];
       let total = 0;
       for (const [i, e] of edges.entries()) {
-        // A dead end spawns nobody: they would drive off at once.
-        if (!allowed(i) || nodes[e.to]!.out.length === 0) continue;
+        // Nobody spawns on, or heads for, an edge that leads nowhere but back the way it came
+        // (a cul-de-sac, the map's edge): they would turn round or drive off at once.
+        const onward = nodes[e.to]!.out.some((j) => j !== this.#twin[i] && allowed(j));
+        if (!allowed(i) || !onward) continue;
         list.push(i);
         cum.push((total += e.length));
       }
@@ -406,7 +412,8 @@ export class Traffic {
 
   /**
    * Finds a vehicle its way: a destination among the edges near the focus and the shortest
-   * route there for its class, or nothing when none is within reach (it then turns at random).
+   * route there for its class that doesn't start by turning back, or nothing when none is
+   * within reach (it then turns at random).
    */
   #route(v: Vehicle): void {
     const cls = CLASS[v.kind];
@@ -417,7 +424,10 @@ export class Traffic {
     const goal = edges[this.#pick(pool)]!.to;
     if (goal === from) return;
     const most = this.#focus.radius > 0 ? 2 * this.#focus.radius + ROUTE_REACH : Infinity;
-    const route = this.#router.route(from, goal, this.#allowed[cls]!, most);
+    // Never back the way it came: a goal behind it is reached round the block, or not at all.
+    const back = this.#twin[v.edge]!;
+    const allowed = this.#allowed[cls]!;
+    const route = this.#router.route(from, goal, (i) => i !== back && allowed(i), most);
     if (!route) return;
     v.goal = goal;
     v.route = route.toReversed();

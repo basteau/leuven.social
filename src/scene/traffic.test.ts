@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { Way } from '../data/city.ts';
-import { roadGraph, splitAtJunctions } from '../data/traffic.ts';
+import { alongEdge, roadGraph, splitAtJunctions } from '../data/traffic.ts';
 import {
   CLASS,
   COUNTS,
@@ -129,10 +129,10 @@ describe('Traffic', () => {
       }
       expect(at).toBe(v.goal);
     }
-    const goals = new Set(routed.map((v) => v.goal));
+    const goals = routed.map((v) => v.goal);
     for (let i = 0; i < 60 * 120; i++) t.step(1 / 60);
     // Two minutes on, some have arrived and set off for somewhere else.
-    expect(t.vehicles.some((v) => v.goal >= 0 && !goals.has(v.goal))).toBe(true);
+    expect(routed.some((v, i) => v.goal >= 0 && v.goal !== goals[i])).toBe(true);
   });
 
   test('moves on, keeps its distance, slows for corners and never runs backwards', () => {
@@ -157,6 +157,24 @@ describe('Traffic', () => {
         if (a === b || a.edge !== b.edge || CLASS[a.kind] !== CLASS[b.kind]) continue;
         if (b.s <= a.s) continue;
         expect(b.s - a.s).toBeGreaterThan((LENGTH[a.kind] + LENGTH[b.kind]) / 2 - 0.5);
+      }
+    }
+  });
+
+  test('never turns back at the junction ahead, and is not sent into a cul-de-sac', () => {
+    // A stub off the south street that ends in nothing: a cul-de-sac.
+    const withStub = build([...rawTown, raw([100, 200, 100, 260])]);
+    const t = settle(new Traffic(withStub, 5, counts({ car: 24, bike: 24, person: 24 })), 300);
+    const { edges, nodes } = t.graph;
+    const twin = (i: number) =>
+      edges.findIndex((e) => e.from === edges[i]!.to && e.to === edges[i]!.from);
+    const stub = edges.findIndex((e) => nodes[e.to]!.z === 260 || nodes[e.from]!.z === 260);
+    for (let i = 0; i < 60 * 60; i++) {
+      t.step(1 / 60);
+      for (const v of t.vehicles) {
+        if (!v.active || v.next < 0) continue;
+        expect(v.next).not.toBe(twin(v.edge));
+        expect(v.edge).not.toBe(stub);
       }
     }
   });
@@ -260,17 +278,30 @@ describe('Traffic', () => {
   });
 
   test('places each vehicle in its lane, right of the line, and people on the pavement', () => {
-    const t = settle(new Traffic([way([0, 0, 100, 0])], 1, counts({ car: 1, person: 1 })));
+    // A block of four streets, so every edge leads somewhere.
+    const block = build([
+      raw([0, 0, 100, 0]),
+      raw([100, 0, 100, 100]),
+      raw([100, 100, 0, 100]),
+      raw([0, 100, 0, 0]),
+    ]);
+    const t = settle(new Traffic(block, 1, counts({ car: 1, person: 1 })));
     const [car, person] = t.vehicles as [Vehicle, Vehicle];
     for (const v of [car, person]) {
-      const [x, z, dx, dz] = t.place(v);
+      expect(v.active).toBe(true);
+      // Mid-edge, clear of the corners' curves.
       const e = t.graph.edges[v.edge]!;
-      // Eastward (+x) traffic keeps to the south (+z) side; westward to the north.
-      expect(Math.abs(x - (e.from === 0 ? v.s : 100 - v.s))).toBeLessThan(1e-3);
-      expect(z).toBeCloseTo(dx > 0 ? v.lane : -v.lane);
-      expect([dx, dz]).toEqual(e.from === 0 ? [1, 0] : [-1, 0]);
+      v.s = e.length / 2;
+      v.rIn = 0;
+      const [x, z, dx, dz] = t.place(v);
+      const [lx, lz, ldx, ldz] = alongEdge(e, v.s);
+      // Right-hand traffic: right of the heading in (x east, z south) is (-dz, dx).
+      expect(x).toBeCloseTo(lx - ldz * v.lane);
+      expect(z).toBeCloseTo(lz + ldx * v.lane);
+      expect([dx, dz]).toEqual([ldx, ldz]);
+      expect(v.lane).toBeGreaterThan(0);
     }
-    expect(Math.abs(person.lane)).toBeGreaterThan(Math.abs(car.lane));
+    expect(person.lane).toBeGreaterThan(car.lane);
   });
 
   test('lanes keep inside the street: narrow streets put everyone nearer the line', () => {
@@ -307,8 +338,9 @@ describe('Traffic', () => {
     t.focus(100, 100, 2000);
     for (let i = 0; i < 60 * 10; i++) t.step(1 / 60);
     expect(t.vehicles.filter((v) => v.active).length).toBe(t.vehicles.length);
-    // Narrowed in place (no jump), the surplus is parked as it drives out of reach.
-    t.focus(100, 100, 120);
+    // Narrowed in place (no jump) to a corner of the town, the surplus is parked as it drives
+    // out of reach: round the block, now that nobody turns back.
+    t.focus(50, 50, 60);
     for (let i = 0; i < 60 * 60; i++) t.step(1 / 60);
     const bikes = t.vehicles.filter((v) => v.active && v.kind === 'bike').length;
     expect(bikes).toBeGreaterThanOrEqual(FLOOR.bike);
