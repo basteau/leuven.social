@@ -64,7 +64,7 @@ export function plateText(raw: string): string | null {
   const text =
     parts.length === 1
       ? parts[0]!
-      : `${parts[0]!.split('-')[0]!.trim()}-${parts.at(-1)!.split('-').at(-1)!.trim()}`;
+      : `${parts[0]!.split(/[-–]/)[0]!.trim()}-${parts.at(-1)!.split(/[-–]/).at(-1)!.trim()}`;
   const ranged = text.replace(/\s*[-–]\s*/g, '–');
   return ranged.length <= MAX_TEXT ? ranged : null;
 }

@@ -46,6 +46,7 @@ describe('plateText', () => {
   test('keeps a plain number', () => {
     expect(plateText('12')).toBe('12');
     expect(plateText('12A')).toBe('12A');
+    expect(plateText('3–5;7')).toBe('3–7');
     expect(plateText(' Blok 1 ')).toBe('Blok 1');
   });
 
