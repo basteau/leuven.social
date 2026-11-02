@@ -118,7 +118,7 @@ describe('pedalling', () => {
 });
 
 describe('turning', () => {
-  test('at full lock, turns as tight as the speed allows and leans no more than 39°', () => {
+  test('at full lock, turns as tight as the speed allows and leans a gentle 16° at most', () => {
     const table: string[] = [];
     for (const v of [2, 5, CRUISE, SPRINT]) {
       const r = createRider(0, 0, 0);
@@ -129,19 +129,27 @@ describe('turning', () => {
       }
       const radius = v / Math.abs(r.turning);
       table.push(`${v} m/s: r ${radius.toFixed(1)} m, lean ${deg(r.lean).toFixed(0)}°`);
-      expect(radius).toBeCloseTo(Math.max(1.7, (v * v) / 8), 0);
+      expect(radius).toBeCloseTo(Math.max(1.5, (v * v) / 12), 0);
       // Turning right leans right: negative, toward -x from +z.
       expect(r.turning).toBeLessThan(0);
       expect(r.lean).toBeLessThan(0);
       expect(Math.abs(r.lean)).toBeLessThanOrEqual(MAX_LEAN + 1e-6);
     }
-    expect(deg(MAX_LEAN)).toBeCloseTo(39, 0);
-    expect(table).toHaveLength(4);
+    expect(deg(MAX_LEAN)).toBeCloseTo(16, 0);
+    // 1.5 m round at 2 m/s, 2.1 at 5, 11 at a cruise and 25.5 flat out (were 1.7, 3.1, 16.5, 38, leaning
+    // up to 39°).
+    expect(table).toEqual([
+      '2 m/s: r 1.5 m, lean -7°',
+      '5 m/s: r 2.1 m, lean -16°',
+      '11.5 m/s: r 11.0 m, lean -16°',
+      '17.5 m/s: r 25.6 m, lean -16°',
+    ]);
   });
 
-  test('a street corner taken at a cruise fits: turning hard sheds speed until the turn does', () => {
-    // A right turn into a side street, keys or stick: round in under 10 m ahead and across, as
-    // two of Leuven's 8 to 12 m streets leave room for, slowing to about 6.5 m/s and leaning 39°.
+  test('a street corner taken at a cruise fits: turning hard sheds a little speed until it does', () => {
+    // A right turn into a side street, keys or stick: round in about 1.3 s and under 10 m ahead
+    // and across, as two of Leuven's 8 to 12 m streets leave room for, slowing to about 8 m/s.
+    // (It took 1.6 s, 9.3 m ahead and 7 across, slowing to 6.5.)
     for (const more of [
       { throttle: 1, turn: 1 },
       { turn: 1 },
@@ -150,14 +158,14 @@ describe('turning', () => {
       const r = createRider(0, 0, 0);
       r.speed = CRUISE;
       const t = ride(r, 5, more, open, (q) => q.heading < -Math.PI / 2 + 0.05);
-      expect(t).toBeLessThan(2);
-      expect(r.z).toBeLessThan(10.5);
-      expect(-r.x).toBeLessThan(10.5);
+      expect(t).toBeLessThan(1.5);
+      expect(r.z).toBeLessThan(9);
+      expect(-r.x).toBeLessThan(10);
       expect(r.speed).toBeGreaterThan(CORNER - 0.5);
       expect(Math.abs(r.lean)).toBeLessThanOrEqual(MAX_LEAN + 1e-6);
     }
-    // Without easing off, the tightest turn at a cruise is 16.5 m round: past the corner.
-    expect((CRUISE * CRUISE) / 8).toBeGreaterThan(16);
+    // Without easing off, the tightest turn at a cruise is 11 m round: past the corner.
+    expect((CRUISE * CRUISE) / 12).toBeGreaterThan(10.5);
     // A gentle bend keeps the pace.
     const bend = createRider(0, 0, 0);
     bend.speed = CRUISE;
@@ -165,13 +173,23 @@ describe('turning', () => {
     expect(bend.speed).toBeGreaterThan(CRUISE - 0.1);
   });
 
-  test('the bars ease round rather than snapping, and lean lags the turn', () => {
+  test('the bars ease round rather than snapping, quickly, and lean lags the turn', () => {
     const r = createRider(0, 0, 0);
     r.speed = CRUISE;
     stepRider(r, STEP, input({ throttle: 1, turn: -1 }), open);
     expect(r.steer).toBeGreaterThan(0);
     expect(r.steer).toBeLessThan(maxSteer(CRUISE) / 4);
     expect(Math.abs(r.lean)).toBeLessThan(0.01);
+    // Full lock (95%) in about 0.13 s, where it took 0.21.
+    const t = ride(
+      r,
+      1,
+      { throttle: 1, turn: -1 },
+      open,
+      (q) => q.steer > 0.95 * maxSteer(q.speed),
+    );
+    expect(t).toBeGreaterThan(0.08);
+    expect(t).toBeLessThan(0.15);
   });
 
   test('below a crawl it walks the bike round on the spot', () => {

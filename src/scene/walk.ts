@@ -722,6 +722,8 @@ export function createWalk(host: WalkHost): Walk {
   document.addEventListener('visibilitychange', onVisibility);
 
   function wake(): void {
+    // Woken, keep going until a step says all is still: the first frame may be too soon for one.
+    moving = true;
     if (frame) return;
     last = performance.now();
     frame = requestAnimationFrame(tick);
