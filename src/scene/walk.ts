@@ -602,8 +602,15 @@ export function createWalk(host: WalkHost): Walk {
         const right = sticking ? stick.right : keyRight;
         const up = sticking ? stick.up : keyUp;
         // Steered by the camera as it was when the input last changed, give or take looks by
-        // hand: the camera swinging round behind doesn't turn a held key's way with it.
-        const yaw = steerYaw(steerFrame, boom.aimYaw, right, up);
+        // hand: the camera swinging round behind doesn't turn a held key's way with it. A new
+        // input while it's still coming round goes by where it will rest, behind the walker.
+        const following =
+          !reducedMotion &&
+          walker.speed > 0.1 &&
+          followStrength((now - lastLook) / 1000) > 0 &&
+          recentreWeight(walker.heading, boom.aimYaw) > 0.5;
+        const settle = following ? wrap(walker.heading + Math.PI) : Number.NaN;
+        const yaw = steerYaw(steerFrame, boom.aimYaw, right, up, settle);
         const fx = -Math.sin(yaw);
         const fz = -Math.cos(yaw);
         const sx = -fz * right + fx * up;
