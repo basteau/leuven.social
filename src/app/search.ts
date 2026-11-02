@@ -3,9 +3,12 @@
  * matching somewhere, and ranking the label above what's said about it. Pure.
  */
 
-/** Lower case without accents, so "sint-pieter" finds "Sint-Pieterskerk" and "e" finds "é". */
+/**
+ * Lower case without accents, so "sint-pieter" finds "Sint-Pieterskerk" and "e" finds "é"; and
+ * a typed hyphen for the minus sign the keycaps show, so "-" finds Zoom out as "+" finds Zoom in.
+ */
 export function fold(text: string): string {
-  return text.normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+  return text.normalize('NFD').replace(/\p{M}/gu, '').replaceAll('\u2212', '-').toLowerCase();
 }
 
 /** Whether `needle`'s letters appear in `hay` in order: "rst" in "reset". */

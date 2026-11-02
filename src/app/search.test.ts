@@ -12,6 +12,11 @@ describe('fold', () => {
   test('drops case and accents', () => {
     expect(fold('Café Élysée')).toBe('cafe elysee');
   });
+
+  test('reads the minus sign as the hyphen a keyboard types', () => {
+    expect(fold('\u2212')).toBe('-');
+    expect(score('-', item('Zoom out', { keys: [['\u2212']] }))).toBe(50);
+  });
 });
 
 describe('score', () => {
