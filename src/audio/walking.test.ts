@@ -1,7 +1,15 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { Voice } from './sound.ts';
-import { createWalkSounds, flight, footstep, routeEnd, routeStart } from './walking.ts';
+import {
+  blocked,
+  createWalkSounds,
+  flight,
+  footstep,
+  landing,
+  routeEnd,
+  routeStart,
+} from './walking.ts';
 
 const mid = () => 0.5;
 const notes = (voices: Voice[]) => voices.filter((v) => v.wave !== 'noise').map(startPitch);
@@ -63,6 +71,14 @@ describe('footsteps', () => {
     expectSane(flight(false));
     expectSane(routeStart());
     expectSane(routeEnd());
+    expectSane(landing());
+    expectSane(blocked());
+  });
+
+  test('a landing is a low thud, and a blocked spot falls', () => {
+    expect(notes(landing())[0]).toBeLessThan(200);
+    const [first, second] = notes(blocked());
+    expect(second).toBeLessThan(first!);
   });
 });
 
@@ -73,7 +89,16 @@ test('the cues play their own sounds, going down rising and coming up falling', 
   sounds.leave();
   sounds.routeStart();
   sounds.routeEnd();
-  expect(play).toEqual([flight(true), flight(false), expect.any(Array), routeEnd()]);
+  sounds.land();
+  sounds.blocked();
+  expect(play).toEqual([
+    flight(true),
+    flight(false),
+    expect.any(Array),
+    routeEnd(),
+    landing(),
+    blocked(),
+  ]);
   const [down, up] = [notes(play[0]!), notes(play[1]!)];
   expect(down[1]).toBeGreaterThan(down[0]!);
   expect(up[1]).toBeLessThan(up[0]!);
