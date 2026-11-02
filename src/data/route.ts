@@ -26,6 +26,8 @@ const NEIGHBOURS = [
   [-1, -1, Math.SQRT2],
 ] as const;
 
+const NO_CELLS: ReadonlySet<number> = new Set();
+
 /** Reuses its buffers across searches: a route is asked for on every click. */
 export class Router {
   readonly #grid: WalkGrid;
@@ -42,14 +44,25 @@ export class Router {
 
   /**
    * Waypoints [x0, z0, x1, z1, …] from one walkable point to another, starting and ending at
-   * them exactly, or null when there is no way within reach.
+   * them exactly, or null when there is no way within reach. It goes round `avoid`, circles
+   * [x, z, radius, …] that come and go (the bikes left about the city), closing the cells whose
+   * centres they cover as solids do, unless a route starts or ends there.
    */
-  route(fromX: number, fromZ: number, toX: number, toZ: number): Float32Array | null {
+  route(
+    fromX: number,
+    fromZ: number,
+    toX: number,
+    toZ: number,
+    avoid: ArrayLike<number> = [],
+  ): Float32Array | null {
     const grid = this.#grid;
     const start = grid.cellAt(fromX, fromZ);
     const goal = grid.cellAt(toX, toZ);
     if (!grid.open(start) || !grid.open(goal)) return null;
     if (start === goal) return Float32Array.of(fromX, fromZ, toX, toZ);
+    const blocked = coveredCells(grid, avoid);
+    blocked.delete(start);
+    blocked.delete(goal);
 
     const pad = Math.ceil(MARGIN / WALK_CELL);
     const [sc, sr] = [start % grid.cols, Math.floor(start / grid.cols)];
@@ -78,7 +91,12 @@ export class Router {
       return Math.max(dx, dy) + (Math.SQRT2 - 1) * Math.min(dx, dy);
     };
     const open = (c: number, r: number) =>
-      c >= 0 && r >= 0 && c < grid.cols && r < grid.rows && grid.open(r * grid.cols + c);
+      c >= 0 &&
+      r >= 0 &&
+      c < grid.cols &&
+      r < grid.rows &&
+      grid.open(r * grid.cols + c) &&
+      !blocked.has(r * grid.cols + c);
     const nearEdge = (c: number, r: number) =>
       !open(c + 1, r) || !open(c - 1, r) || !open(c, r + 1) || !open(c, r - 1);
 
@@ -159,27 +177,58 @@ export class Router {
     const points = cells.map((cell) => grid.centre(cell));
     points[0] = [fromX, fromZ];
     points[points.length - 1] = [toX, toZ];
-    return Float32Array.from(taut(grid, points).flat());
+    return Float32Array.from(taut(grid, points, blocked).flat());
   }
 }
 
-/** Whether a straight walk from a to b stays on open cells, with room on both sides. */
-export function clearLine(grid: WalkGrid, ax: number, az: number, bx: number, bz: number): boolean {
+/** The cells whose centres circles [x, z, radius, …] cover. */
+function coveredCells(grid: WalkGrid, circles: ArrayLike<number>): Set<number> {
+  const cells = new Set<number>();
+  for (let i = 0; i + 2 < circles.length; i += 3) {
+    const [x, z, radius] = [circles[i]!, circles[i + 1]!, circles[i + 2]!];
+    for (let cz = z - radius; cz <= z + radius + WALK_CELL; cz += WALK_CELL) {
+      for (let cx = x - radius; cx <= x + radius + WALK_CELL; cx += WALK_CELL) {
+        const cell = grid.cellAt(cx, cz);
+        if (cell < 0) continue;
+        const [mx, mz] = grid.centre(cell);
+        if (Math.hypot(mx - x, mz - z) <= radius) cells.add(cell);
+      }
+    }
+  }
+  return cells;
+}
+
+/**
+ * Whether a straight walk from a to b stays on open cells, with room on both sides, and off the
+ * `blocked` ones.
+ */
+export function clearLine(
+  grid: WalkGrid,
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  blocked = NO_CELLS,
+): boolean {
+  const walkable = (x: number, z: number) => grid.walkable(x, z) && !blocked.has(grid.cellAt(x, z));
   const length = Math.hypot(bx - ax, bz - az);
-  if (length === 0) return grid.walkable(ax, az);
+  if (length === 0) return walkable(ax, az);
   const [ux, uz] = [(bx - ax) / length, (bz - az) / length];
   const [px, pz] = [-uz * CLEARANCE, ux * CLEARANCE];
   const steps = Math.ceil(length / (WALK_CELL / 4));
   for (let i = 0; i <= steps; i++) {
     const [x, z] = [ax + ((bx - ax) * i) / steps, az + ((bz - az) * i) / steps];
-    if (!grid.walkable(x, z) || !grid.walkable(x + px, z + pz) || !grid.walkable(x - px, z - pz))
-      return false;
+    if (!walkable(x, z) || !walkable(x + px, z + pz) || !walkable(x - px, z - pz)) return false;
   }
   return true;
 }
 
 /** Keeps only the corners a straight line can't skip: string-pulling over the cell path. */
-function taut(grid: WalkGrid, points: [number, number][]): [number, number][] {
+function taut(
+  grid: WalkGrid,
+  points: [number, number][],
+  blocked: ReadonlySet<number>,
+): [number, number][] {
   const kept = [points[0]!];
   let anchor = 0;
   while (anchor < points.length - 1) {
@@ -188,7 +237,7 @@ function taut(grid: WalkGrid, points: [number, number][]): [number, number][] {
     const [ax, az] = points[anchor]!;
     while (next + 1 < points.length) {
       const [bx, bz] = points[next + 1]!;
-      if (!clearLine(grid, ax, az, bx, bz)) break;
+      if (!clearLine(grid, ax, az, bx, bz, blocked)) break;
       next++;
     }
     kept.push(points[next]!);

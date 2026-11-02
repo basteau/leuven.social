@@ -51,6 +51,27 @@ describe('Router', () => {
     expect(router.route(15, 45, 155, 105)).toBeNull(); // the square nothing reaches
   });
 
+  test('goes round a bike left in the street, unless it stands at an end', () => {
+    // The straight street from 12 to 31 along z = 47.3, with a bike across its middle.
+    const bike = [21.5, 47.5, 0.55];
+    const route = router.route(12.2, 47.3, 30.8, 47.3, bike)!;
+    expect(route.length).toBeGreaterThan(4);
+    const passes = (x: number, z: number) => Math.hypot(x - bike[0]!, z - bike[1]!);
+    for (let i = 0; i + 3 < route.length; i += 2) {
+      for (let t = 0; t <= 1; t += 0.05) {
+        const [x, z] = [
+          route[i]! + (route[i + 2]! - route[i]!) * t,
+          route[i + 1]! + (route[i + 3]! - route[i + 1]!) * t,
+        ];
+        expect(passes(x, z)).toBeGreaterThan(0.55);
+      }
+    }
+    // Walking up to it, or away from it, still works.
+    expect(router.route(12.2, 47.3, 21.5, 47.5, bike)).not.toBeNull();
+    expect(router.route(21.5, 47.5, 30.8, 47.3, bike)).not.toBeNull();
+    expect(clearLine(grid, 12.2, 47.3, 30.8, 47.3)).toBe(true);
+  });
+
   test('a start and goal in one cell is a single step', () => {
     expect(Array.from(router.route(15.1, 45.1, 15.6, 45.6)!)).toHaveLength(4);
   });

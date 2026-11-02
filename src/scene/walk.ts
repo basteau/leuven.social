@@ -73,6 +73,7 @@ import {
   spawnMarker,
   wave,
 } from './spawn.ts';
+import { loose } from './collide.ts';
 import { clock, decay, spring, springTo, ticks } from './motion.ts';
 import { SKY } from './palette.ts';
 import { DROPPED_KEY, nearestParked } from './parked.ts';
@@ -540,7 +541,8 @@ export function createWalk(host: WalkHost): Walk {
     const from = grid.walkable(walker.x, walker.z)
       ? [walker.x, walker.z]
       : grid.nearest(walker.x, walker.z, 2);
-    const route = from && router.route(from[0]!, from[1]!, x, z);
+    // Round the bikes left about the city, which the walker meets as it meets a trunk.
+    const route = from && router.route(from[0]!, from[1]!, x, z, loose);
     if (!route) {
       host.onBlocked?.();
       return;
