@@ -2,7 +2,7 @@
 // and everything under /data/ (the city, and walk mode's plates) are network-first, so a rebake
 // or a new icon shows up on the next online visit. Bump CACHE to drop everything after a format
 // change.
-const CACHE = 'leuven-v21'; // walk format v3: shop name boards
+const CACHE = 'leuven-v22'; // city format v22: the traffic's ways measure their kerbs and pavements
 
 self.addEventListener('install', () => self.skipWaiting());
 

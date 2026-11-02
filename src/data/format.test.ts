@@ -296,6 +296,16 @@ describe('terrain', () => {
   });
 });
 
+const wayFields = (w: City['ways'][number]) => [
+  w.kind,
+  w.oneway,
+  w.bikesBoth,
+  w.surface,
+  w.right,
+  w.left,
+  [...w.line],
+];
+
 describe('ways', () => {
   test('round-trip with their kind, direction and cycle-street flag, to the decimetre', () => {
     const ways: City['ways'] = [
@@ -304,22 +314,22 @@ describe('ways', () => {
         oneway: true,
         bikesBoth: true,
         surface: 'asphalt',
-        halfWidth: 4.5,
+        right: { kerb: 3.5, edge: 6 },
+        left: { kerb: 3, edge: 4.5 },
         line: new Float32Array([0, 0, 120.5, -30]),
       },
       {
-        kind: 'cycle',
+        kind: 'pedestrian',
         oneway: false,
         bikesBoth: false,
-        surface: 'earth',
-        halfWidth: 1.2,
+        surface: 'grass',
+        right: { kerb: 0, edge: 1.2 },
+        left: { kerb: 0, edge: 0 },
         line: new Float32Array([5, 5, 6, 7, 9, 9]),
       },
     ];
     const decoded = decodeCity(encodeCity({ ...city, ways }));
-    expect(
-      decoded.ways.map((w) => [w.kind, w.oneway, w.bikesBoth, w.halfWidth, [...w.line]]),
-    ).toEqual(ways.map((w) => [w.kind, w.oneway, w.bikesBoth, w.halfWidth, [...w.line]]));
+    expect(decoded.ways.map(wayFields)).toEqual(ways.map(wayFields));
   });
 });
 

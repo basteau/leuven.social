@@ -2,9 +2,12 @@ import { describe, expect, test } from 'bun:test';
 
 import type { Way } from './city.ts';
 import {
+  PAVEMENT,
   alongEdge,
+  pavementOf,
   roadGraph,
   roadRouter,
+  sidesOf,
   splitAtJunctions,
   turnBetween,
   wayFromOsm,
@@ -18,7 +21,7 @@ describe('wayFromOsm', () => {
     expect(wayFromOsm({ highway: 'living_street' })?.kind).toBe('street');
     expect(wayFromOsm({ highway: 'tertiary_link' })?.kind).toBe('street');
     expect(wayFromOsm({ highway: 'cycleway' })?.kind).toBe('cycle');
-    expect(wayFromOsm({ highway: 'pedestrian' })?.kind).toBe('cycle');
+    expect(wayFromOsm({ highway: 'pedestrian' })?.kind).toBe('pedestrian');
   });
 
   test('paths of their own carry people, not sidewalks and crossings on the road', () => {
@@ -95,12 +98,20 @@ describe('splitAtJunctions', () => {
   });
 });
 
+/**
+ * An eastward street at z = 0: the carriageway 3 m either side, the facades 6 m to the south
+ * (right) and 4.5 m to the north, but for a house at the west end 2 m from the line.
+ */
+const open = (x: number, z: number) => (x < 20 ? z > -2 : z > -4.5) && z < 6;
+const carriageway = (_x: number, z: number) => Math.abs(z) < 3;
+
 const way = (over: Partial<Omit<Way, 'line'>> & { line: number[] }): Way => ({
   kind: 'street',
   oneway: false,
   bikesBoth: false,
   surface: 'asphalt',
-  halfWidth: 4,
+  right: { kerb: 2.5, edge: 4 },
+  left: { kerb: 2.5, edge: 4 },
   ...over,
   line: new Float32Array(over.line),
 });
@@ -119,7 +130,14 @@ describe('roadGraph', () => {
     ]);
     expect(both.nodes[0]!.out).toEqual([0]);
     expect(both.edges.every((e) => e.cars && e.bikes && e.feet && e.length === 100)).toBe(true);
-    expect(both.edges[0]!.halfWidth).toBe(4);
+    // The backward edge's right side is the way's left.
+    const sided = roadGraph([
+      way({ line: [0, 0, 100, 0], right: { kerb: 3, edge: 5 }, left: { kerb: 2, edge: 2.5 } }),
+    ]);
+    expect(sided.edges.map((e) => [e.right.edge, e.left.edge])).toEqual([
+      [5, 2.5],
+      [2.5, 5],
+    ]);
     // One way: cars and bikes forward only; people walk back along the pavement.
     expect(who([way({ line: [0, 0, 100, 0], oneway: true })])).toEqual([
       [true, true, true],
@@ -134,10 +152,33 @@ describe('roadGraph', () => {
       [false, true, true],
       [false, true, true],
     ]);
+    expect(who([way({ line: [0, 0, 50, 0], kind: 'pedestrian' })])).toEqual([
+      [false, true, true],
+      [false, true, true],
+    ]);
     expect(who([way({ line: [0, 0, 50, 0], kind: 'path' })])).toEqual([
       [false, false, true],
       [false, false, true],
     ]);
+  });
+
+  test('nobody walks a main road without a pavement on either side', () => {
+    const main = (right: Way['right'], left: Way['left']) =>
+      who([way({ line: [0, 0, 50, 0], kind: 'main', right, left })]).map((w) => w[2]);
+    // Kerb to facade on one side is enough; a kerb at the facade on both is not.
+    expect(main({ kerb: 7, edge: 7.2 }, { kerb: 7, edge: 7 })).toEqual([false, false]);
+    expect(main({ kerb: 7, edge: 7 }, { kerb: 7, edge: 9 })).toEqual([true, true]);
+    // Without a kerb the ground is shared, and a street is always walked.
+    expect(main({ kerb: 0, edge: 7 }, { kerb: 0, edge: 7 })).toEqual([true, true]);
+    expect(
+      who([
+        way({ line: [0, 0, 50, 0], right: { kerb: 3, edge: 3 }, left: { kerb: 3, edge: 3 } }),
+      ])[0]![2],
+    ).toBe(true);
+    expect(pavementOf({ kerb: 3, edge: 5 })).toBe(2);
+    expect(pavementOf({ kerb: 0, edge: 5 })).toBe(0);
+    expect(pavementOf({ kerb: 4, edge: 3 })).toBe(0);
+    expect(PAVEMENT).toBeLessThan(1.5);
   });
 
   test('routes the shortest way for a class, or none where it may not go', () => {
@@ -174,6 +215,28 @@ describe('roadGraph', () => {
     expect(g.edges).toHaveLength(4);
     // From the corner, on down the second street or back along the first.
     expect(g.nodes[1]!.out).toHaveLength(2);
+  });
+
+  test('sidesOf measures the kerb and the facade either side, the narrowest of three probes', () => {
+    const [right, left] = sidesOf([0, 0, 100, 0], open, carriageway);
+    expect(right).toEqual({ kerb: 2.5, edge: 5.5 });
+    // The kerb is never past the facade.
+    expect(left).toEqual({ kerb: 1.5, edge: 1.5 });
+    // A centre line a little off its carriageway still finds it; a line on none has no kerb.
+    expect(sidesOf([0, 0, 100, 0], open, (_x, z) => z > 0.6 && z < 3)[0]!.kerb).toBe(2.5);
+    expect(sidesOf([0, 0, 100, 0], open, (_x, z) => z > 1.6 && z < 3)[0]!.kerb).toBe(0);
+    expect(sidesOf([0, 0, 100, 0], open, () => false)[0]!.kerb).toBe(0);
+    // Open ground all the way out stops at the probe.
+    expect(
+      sidesOf(
+        [0, 0, 100, 0],
+        () => true,
+        () => true,
+        12,
+      )[1],
+    ).toEqual({ kerb: 12, edge: 12 });
+    // Run westward, the sides swap.
+    expect(sidesOf([100, 0, 0, 0], open, carriageway)[0]).toEqual({ kerb: 1.5, edge: 1.5 });
   });
 
   test('alongEdge walks the polyline and heads along it; turnBetween measures the corner', () => {

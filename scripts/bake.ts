@@ -43,7 +43,6 @@ import { PROUD, STREET_PLATE_HEIGHT, packWalk } from '../src/data/plates.ts';
 import {
   areaIndex,
   clipLine,
-  pointAlong,
   uncoveredPieces,
   clipRingToArea,
   joinRings,
@@ -77,7 +76,7 @@ import { placeBoards } from '../src/data/boards.ts';
 import { fitTerraces, markShopFronts, placeFronts } from '../src/data/shops.ts';
 import { bridgeParapets, tankOutline } from '../src/data/structures.ts';
 import { joinLines, nameTable, streetName } from '../src/data/streets.ts';
-import { splitAtJunctions, wayFromOsm } from '../src/data/traffic.ts';
+import { sidesOf, splitAtJunctions, wayFromOsm } from '../src/data/traffic.ts';
 import type { Way } from '../src/data/city.ts';
 import { clearCrowns, mergeTrees, trunkRadius } from '../src/data/trees.ts';
 import { DATA } from './data-files.ts';
@@ -674,36 +673,16 @@ const city: City = {
 // pedestrian streets and paths, turned to run the way their traffic does, split where they
 // meet (on OSM's own shared nodes, before anything moves them), clipped to the area,
 // simplified to 1 m, and cut wherever they would run through a building (an archway the GRB
-// draws solid, a misdrawn way), so nothing drives through a house. Each piece measures how
-// far the open ground reaches either side of its line, to the nearer facade, so lanes and
-// pavements keep inside the street however narrow it is.
+// draws solid, a misdrawn way), so nothing drives through a house. Each piece measures both
+// its sides: how far the carriageway reaches from its line before the GRB's kerb, and how
+// far the open ground goes on to a facade, so cars keep to the carriageway and people to the
+// pavement between, however narrow the street. A path's sides are a metre of its own.
 const WAY_SIMPLIFY = 1;
-/** How far out from a way's line the ground is probed for a facade (m), and how finely. */
-const WAY_PROBE = 12;
-const WAY_PROBE_STEP = 0.5;
 /** Whether a spot is open ground: the road surface or a square, and not inside a house. */
 const openGround = (x: number, z: number) =>
   publicGround.contains(x, z) && !footprints.contains(x, z);
-const halfWidthOf = (line: readonly number[]): number => {
-  let narrowest = WAY_PROBE;
-  for (const t of [0.15, 0.5, 0.85]) {
-    const [x, z, dx, dz] = pointAlong(line, t);
-    for (const side of [1, -1]) {
-      let reach = 0;
-      while (
-        reach < narrowest &&
-        openGround(
-          x - dz * side * (reach + WAY_PROBE_STEP),
-          z + dx * side * (reach + WAY_PROBE_STEP),
-        )
-      ) {
-        reach += WAY_PROBE_STEP;
-      }
-      narrowest = Math.min(narrowest, reach);
-    }
-  }
-  return narrowest;
-};
+const onCarriageway = (x: number, z: number) => carriagewayGround.contains(x, z);
+const PATH_SIDE = { kerb: 0, edge: 1 } as const;
 const drivable = osmRoads.features.flatMap((f) => {
   const style = wayFromOsm(f.properties);
   if (!style || f.geometry.type !== 'LineString') return [];
@@ -721,14 +700,11 @@ const ways: Way[] = splitAtJunctions(drivable)
       .flatMap((piece) => uncoveredPieces(piece, (x, z) => footprints.contains(x, z), 1))
       .map((piece) => {
         const simplified = simplifyLine(piece, WAY_SIMPLIFY);
-        return {
-          kind,
-          oneway,
-          bikesBoth,
-          surface,
-          halfWidth: kind === 'path' ? 1 : halfWidthOf(simplified),
-          line: simplified,
-        };
+        const [right, left] =
+          kind === 'path'
+            ? [{ ...PATH_SIDE }, { ...PATH_SIDE }]
+            : sidesOf(simplified, openGround, onCarriageway);
+        return { kind, oneway, bikesBoth, surface, right, left, line: simplified };
       }),
   )
   .filter((w) => w.line.length >= 4)
@@ -736,14 +712,7 @@ const ways: Way[] = splitAtJunctions(drivable)
     (a, b) =>
       Math.floor(a.line[1]! / STRIP) - Math.floor(b.line[1]! / STRIP) || a.line[0]! - b.line[0]!,
   )
-  .map(({ kind, oneway, bikesBoth, surface, halfWidth, line }) => ({
-    kind,
-    oneway,
-    bikesBoth,
-    surface,
-    halfWidth,
-    line: new Float32Array(line),
-  }));
+  .map((w) => Object.assign(w, { line: new Float32Array(w.line) }) as unknown as Way);
 city.ways = ways;
 
 const bytes = await packCity(city);

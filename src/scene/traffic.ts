@@ -87,10 +87,10 @@ const ROUTE_BUDGET = 4;
 export const LENGTH: Record<VehicleKind, number> = { car: 4.2, bus: 12, bike: 1.8, person: 0.5 };
 /** Cruising speed (m/s) by kind of way; 0 where it may not go. */
 const CRUISE: Record<VehicleKind, Record<WayKind, number>> = {
-  car: { main: 12, street: 8, cycle: 0, path: 0 },
-  bus: { main: 10, street: 7, cycle: 0, path: 0 },
-  bike: { main: 5, street: 4.5, cycle: 4.5, path: 0 },
-  person: { main: 1.4, street: 1.4, cycle: 1.3, path: 1.3 },
+  car: { main: 12, street: 8, cycle: 0, pedestrian: 0, path: 0 },
+  bus: { main: 10, street: 7, cycle: 0, pedestrian: 0, path: 0 },
+  bike: { main: 5, street: 4.5, cycle: 4.5, pedestrian: 3.5, path: 0 },
+  person: { main: 1.4, street: 1.4, cycle: 1.3, pedestrian: 1.3, path: 1.3 },
 };
 /** How much slower than its cruise a vehicle goes off the paved surfaces: gravel, earth, grass. */
 const OFF_ROAD: Partial<Record<Surface, number>> = { gravel: 0.7, earth: 0.55, grass: 0.5 };
@@ -145,7 +145,7 @@ const srgb = (hex: number): [number, number, number] => [
  * they keep near its line. Each one's `jitter` strays a little either side.
  */
 export function laneFor(kind: VehicleKind, e: RoadEdge, twoWay: boolean, jitter: number): number {
-  const w = e.halfWidth;
+  const w = e.right.edge;
   switch (kind) {
     case 'car':
     case 'bus':
@@ -155,7 +155,7 @@ export function laneFor(kind: VehicleKind, e: RoadEdge, twoWay: boolean, jitter:
       return (twoWay ? Math.min(2.8, w * 0.7) : Math.min(1.5, w * 0.5)) + 0.25 * jitter;
     default:
       if (e.kind === 'path') return 0.4 * jitter;
-      if (e.kind === 'cycle') return w * 0.5 * jitter;
+      if (e.kind === 'pedestrian') return w * 0.5 * jitter;
       return Math.max(0.6, Math.min(4, w - 1)) + 0.4 * jitter;
   }
 }

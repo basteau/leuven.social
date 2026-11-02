@@ -22,7 +22,8 @@ const way = (line: number[], over: Partial<Omit<Way, 'line'>> = {}): Way => ({
   oneway: false,
   bikesBoth: false,
   surface: 'asphalt',
-  halfWidth: 4,
+  right: { kerb: 0, edge: 4 },
+  left: { kerb: 0, edge: 4 },
   ...over,
   line: new Float32Array(line),
 });
@@ -41,7 +42,7 @@ const rawTown = [
   raw([0, 200, 0, 100, 0, 0]),
   raw([100, 0, 100, 200], { oneway: true, bikesBoth: true }),
   raw([0, 100, 200, 100], { kind: 'cycle' }),
-  raw([0, 0, 100, 100], { kind: 'path', halfWidth: 1 }),
+  raw([0, 0, 100, 100], { kind: 'path', right: { kerb: 0, edge: 1 }, left: { kerb: 0, edge: 1 } }),
   raw([200, 100, 300, 100]), // off the map: a dead end
 ];
 const town = build(rawTown);
@@ -59,9 +60,10 @@ const counts = (over: Partial<Record<VehicleKind, number>>) => ({
   person: 0,
   ...over,
 });
-/** An edge of a street this wide, for the lanes. */
-const edgeOf = (halfWidth: number, kind: Way['kind'] = 'street') =>
-  roadGraph([way([0, 0, 50, 0], { halfWidth, kind })]).edges[0]!;
+/** An edge of a street this wide, without kerbs, for the lanes. */
+const edgeOf = (edge: number, kind: Way['kind'] = 'street') =>
+  roadGraph([way([0, 0, 50, 0], { right: { kerb: 0, edge }, left: { kerb: 0, edge }, kind })])
+    .edges[0]!;
 
 /** Puts a vehicle on an edge, this far from its end, rolling, bound for `next`. */
 const put = (
@@ -315,7 +317,7 @@ describe('Traffic', () => {
     expect(laneFor('person', edgeOf(5), true, 0)).toBe(4);
     expect(laneFor('person', edgeOf(2), true, 0)).toBe(1);
     expect(laneFor('person', edgeOf(1, 'path'), true, 1)).toBe(0.4);
-    expect(Math.abs(laneFor('person', edgeOf(4, 'cycle'), true, -1))).toBe(2);
+    expect(Math.abs(laneFor('person', edgeOf(4, 'pedestrian'), true, -1))).toBe(2);
   });
 
   test('keeps the fleet round the focus: out of its view in, parked beyond what it deserves', () => {

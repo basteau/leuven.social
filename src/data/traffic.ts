@@ -1,4 +1,5 @@
-import type { Surface, Way, WayKind } from './city.ts';
+import type { Side, Surface, Way, WayKind } from './city.ts';
+import { pointAlong } from './geometry.ts';
 import { GraphRouter } from './graph-route.ts';
 import { surfaceOf } from './roads.ts';
 
@@ -16,9 +17,9 @@ const MAIN = new Set(['motorway', 'trunk', 'primary', 'secondary']);
 const STREET = new Set(['tertiary', 'residential', 'unclassified', 'living_street']);
 /** Paths of their own, for people on foot. */
 const PATH = new Set(['footway', 'path', 'steps', 'track', 'bridleway']);
-/** Where only bikes go: cycle tracks and pedestrian streets (open to bikes in Leuven). */
-const CYCLE = new Set(['cycleway', 'pedestrian']);
 const CLOSED = new Set(['no', 'private']);
+/** A pavement at least this wide (m) is one people walk along, rather than the street. */
+export const PAVEMENT = 0.9;
 
 export interface WayStyle {
   kind: WayKind;
@@ -39,15 +40,18 @@ export interface WayStyle {
 export function wayFromOsm(tags: Tags): WayStyle | null {
   const highway = (tags.highway ?? '').replace(/_link$/, '');
   if (tags.tunnel === 'yes' || Number(tags.layer) < 0 || tags.area === 'yes') return null;
+  // Cycle tracks for bikes; pedestrian streets for people, and bikes too, as in Leuven.
   const kind: WayKind | null = MAIN.has(highway)
     ? 'main'
     : STREET.has(highway)
       ? 'street'
-      : CYCLE.has(highway)
+      : highway === 'cycleway'
         ? 'cycle'
-        : PATH.has(highway)
-          ? 'path'
-          : null;
+        : highway === 'pedestrian'
+          ? 'pedestrian'
+          : PATH.has(highway)
+            ? 'path'
+            : null;
   if (!kind) return null;
   // Only paths of their own: not sidewalks and crossings, which lie on the road surface.
   if (kind === 'path' && (tags.footway === 'sidewalk' || tags.footway === 'crossing')) {
@@ -65,6 +69,45 @@ export function wayFromOsm(tags: Tags): WayStyle | null {
     bikesBoth: oneway && tags['oneway:bicycle'] === 'no',
     surface: surfaceOf(tags),
   };
+}
+
+/**
+ * Measures a way's two sides from its line: at three points along it, how far out the ground
+ * is open (`open`: the road surface or a square, not a house) before a facade, and how far the
+ * carriageway reaches (`carriageway`: the GRB's kerb-cut faces) before its kerb, each the
+ * narrowest of the three, in steps of `step` up to `probe` metres. A line a little off its
+ * carriageway (OSM's centre line beside the GRB's face) still finds it within a metre; past a
+ * kerb the pavement is wherever the open ground goes on. Right is right of the way it runs.
+ */
+export function sidesOf(
+  line: ArrayLike<number>,
+  open: (x: number, z: number) => boolean,
+  carriageway: (x: number, z: number) => boolean,
+  probe = 12,
+  step = 0.5,
+): [right: Side, left: Side] {
+  const sides: [Side, Side] = [
+    { kerb: probe, edge: probe },
+    { kerb: probe, edge: probe },
+  ];
+  for (const t of [0.15, 0.5, 0.85]) {
+    const [x, z, dx, dz] = pointAlong(line, t);
+    for (const [k, side] of [1, -1].entries()) {
+      // Right of the heading in (x east, z south) is (-dz, dx).
+      const at = (r: number, test: (x: number, z: number) => boolean) =>
+        test(x - dz * side * r, z + dx * side * r);
+      let edge = 0;
+      while (edge < probe && at(edge + step, open)) edge += step;
+      let kerb = 0;
+      for (let r = 0, gap = 0; r <= edge; r += step) {
+        if (at(r, carriageway)) [kerb, gap] = [r, 0];
+        else if ((gap += step) > 1) break;
+      }
+      sides[k]!.edge = Math.min(sides[k]!.edge, edge);
+      sides[k]!.kerb = Math.min(sides[k]!.kerb, kerb);
+    }
+  }
+  return sides;
 }
 
 const key = (x: number, z: number) => `${x},${z}`;
@@ -128,9 +171,14 @@ export interface RoadEdge {
   bikes: boolean;
   feet: boolean;
   surface: Surface;
-  /** Half the open ground across it (m): how far out lanes and pavements may lie. */
-  halfWidth: number;
+  /** Either side of its line, right and left of the way it runs: its kerb and its facade. */
+  right: Side;
+  left: Side;
 }
+
+/** How wide the pavement on a side is (m): from the kerb to the facade, where there is a kerb. */
+export const pavementOf = (side: Side): number =>
+  side.kerb > 0 ? Math.max(0, side.edge - side.kerb) : 0;
 
 export interface RoadGraph {
   nodes: RoadNode[];
@@ -143,8 +191,9 @@ const nodeKey = (x: number, z: number) => `${Math.round(x * 10)},${Math.round(z 
 /**
  * Joins the ways into a graph of directed edges: every way forward and backward, with who may
  * go that way: cars both ways on a two-way street and one way on a one-way one, bikes the same
- * (both ways on a cycle street, and on cycle tracks), people on foot every way on everything,
- * paths included. Nodes are the ways' ends, met to the decimetre.
+ * (both ways on a cycle street, and on cycle tracks), people on foot every way on everything
+ * but a main road with no pavement on either side (the ring's carriageways, a slip road). The
+ * backward edge's right side is the way's left. Nodes are the ways' ends, met to the decimetre.
  */
 export function roadGraph(ways: readonly Way[]): RoadGraph {
   const nodes: RoadNode[] = [];
@@ -159,7 +208,15 @@ export function roadGraph(ways: readonly Way[]): RoadGraph {
     }
     return id;
   };
-  const add = (points: Float32Array, way: Way, cars: boolean, bikes: boolean): void => {
+  const add = (
+    points: Float32Array,
+    way: Way,
+    cars: boolean,
+    bikes: boolean,
+    feet: boolean,
+    right: Side,
+    left: Side,
+  ): void => {
     const n = points.length / 2;
     if (n < 2) return;
     const cum = new Float32Array(n);
@@ -173,31 +230,28 @@ export function roadGraph(ways: readonly Way[]): RoadGraph {
     const from = nodeAt(points[0]!, points[1]!);
     const to = nodeAt(points[n * 2 - 2]!, points[n * 2 - 1]!);
     nodes[from]!.out.push(edges.length);
-    const { kind, halfWidth, surface } = way;
-    edges.push({
-      from,
-      to,
-      kind,
-      points,
-      cum,
-      length,
-      cars,
-      bikes,
-      feet: true,
-      surface,
-      halfWidth,
-    });
+    const { kind, surface } = way;
+    edges.push({ from, to, kind, points, cum, length, cars, bikes, feet, surface, right, left });
   };
   for (const way of ways) {
     const cars = way.kind === 'main' || way.kind === 'street';
     const bikes = way.kind !== 'path';
-    add(way.line, way, cars, bikes);
+    // A main road without a pavement is one nobody walks; without a kerb at all, the ground
+    // is shared and the verge is walked.
+    const kerbed = way.right.kerb > 0 || way.left.kerb > 0;
+    const feet =
+      way.kind !== 'main' ||
+      !kerbed ||
+      pavementOf(way.right) >= PAVEMENT ||
+      pavementOf(way.left) >= PAVEMENT;
+    add(way.line, way, cars, bikes, feet, way.right, way.left);
     const back = new Float32Array(way.line.length);
     for (let i = 0; i < way.line.length; i += 2) {
       back[i] = way.line[way.line.length - 2 - i]!;
       back[i + 1] = way.line[way.line.length - 1 - i]!;
     }
-    add(back, way, cars && !way.oneway, bikes && (!way.oneway || way.bikesBoth));
+    const backBikes = bikes && (!way.oneway || way.bikesBoth);
+    add(back, way, cars && !way.oneway, backBikes, feet, way.left, way.right);
   }
   return { nodes, edges };
 }

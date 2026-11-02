@@ -38,9 +38,10 @@
  * from the front before), the edge of its ring it is on, how far along it (decimetres), and its
  * kind's place in SHOP_KINDS with the top bit set for a terrace. A building's first front is its
  * main one: the decoder hangs it on the building as `front`.
- * The ways traffic moves along (v19) come last: each a byte (its kind in WAY_KINDS, then a
- * one-way bit and a bikes-both-ways bit, and its surface above them), its half-width in
- * decimetres (v20) and a centre line, delta-coded like the streets.
+ * The ways traffic moves along (v19) come last: each a byte (its kind in WAY_KINDS in three
+ * bits, then a one-way bit and a bikes-both-ways bit, and its surface in the top three), its
+ * two sides (v22: right and left of the way it runs, each the kerb and the facade in
+ * decimetres) and a centre line, delta-coded like the streets.
  */
 
 import * as Binary from '@portable/binary';
@@ -68,6 +69,7 @@ import type {
   Prop,
   Rail,
   ShopFront,
+  Side,
   TerrainGrid,
 } from './city.ts';
 import { boundsOf } from './geometry.ts';
@@ -78,7 +80,7 @@ import { SHOP_KINDS } from './shop-kinds.ts';
 const MAGIC = 'LVN1';
 // v16: a byte per bike rack, its fill (`Prop.fill`). v17: the shop fronts. v18: pitch surfaces
 // and the fields painted on them, after the polygon layers. Bump the cache in public/sw.js with it.
-const VERSION = 21;
+const VERSION = 22;
 const DM = 10; // units per metre
 const GROUND = 20; // terrain heights per metre: 5 cm
 const ZIGZAG = { encoding: 'zigzag' } as const;
@@ -342,11 +344,14 @@ export function encodeCity(city: City): Uint8Array {
   for (const way of city.ways) {
     w.uint8(
       WAY_KINDS.indexOf(way.kind) |
-        (way.oneway ? 4 : 0) |
-        (way.bikesBoth ? 8 : 0) |
-        (SURFACES.indexOf(way.surface) << 4),
+        (way.oneway ? 8 : 0) |
+        (way.bikesBoth ? 16 : 0) |
+        (SURFACES.indexOf(way.surface) << 5),
     );
-    w.varint(Math.round(way.halfWidth * DM));
+    for (const side of [way.right, way.left]) {
+      w.varint(Math.round(side.kerb * DM));
+      w.varint(Math.round(side.edge * DM));
+    }
     writeRing(w, way.line, at);
   }
   return w.toBytes();
@@ -519,16 +524,18 @@ export function decodeCity(bytes: Uint8Array): City {
   const fronts = readFronts(r, buildings);
   const ways = list((from) => {
     const flags = r.uint8();
-    const kind = WAY_KINDS[flags & 3]!; // two bits, four kinds: every value is one
-    const surface = SURFACES[(flags >> 4) & 7];
+    const kind = WAY_KINDS[flags & 7];
+    if (!kind) throw new CityFormatError('Bad way kind.');
+    const surface = SURFACES[flags >> 5];
     if (!surface) throw new CityFormatError('Bad way surface.');
-    const halfWidth = r.varint() / DM;
+    const side = (): Side => ({ kerb: r.varint() / DM, edge: r.varint() / DM });
     return {
       kind,
-      oneway: !!(flags & 4),
-      bikesBoth: !!(flags & 8),
+      oneway: !!(flags & 8),
+      bikesBoth: !!(flags & 16),
       surface,
-      halfWidth,
+      right: side(),
+      left: side(),
       line: readRing(r, from),
     };
   });

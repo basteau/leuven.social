@@ -147,12 +147,23 @@ export interface Marking {
 
 /**
  * A way traffic moves along (src/data/traffic.ts): ring and main roads, where buses run too,
- * the other streets, cycle tracks and pedestrian streets (bikes and people), and paths of
- * their own (people alone). One piece between two junctions, so the traffic's graph joins
- * them at their ends, cut where it would run through a building.
+ * the other streets, cycle tracks (bikes, and people beside them), pedestrian streets (people
+ * across them, bikes among them) and paths of their own (people alone). One piece between two
+ * junctions, so the traffic's graph joins them at their ends, cut where it would run through
+ * a building.
  */
-export const WAY_KINDS = ['main', 'street', 'cycle', 'path'] as const;
+export const WAY_KINDS = ['main', 'street', 'cycle', 'pedestrian', 'path'] as const;
 export type WayKind = (typeof WAY_KINDS)[number];
+
+/**
+ * One side of a way, measured out from its line (m): how far the carriageway reaches before
+ * its kerb (the GRB's kerb lines; 0 where it cut none along the way, a street without kerbs or
+ * a path), and how far the open ground reaches before a facade. The pavement lies between.
+ */
+export interface Side {
+  kerb: number;
+  edge: number;
+}
 
 export interface Way {
   kind: WayKind;
@@ -162,11 +173,9 @@ export interface Way {
   bikesBoth: boolean;
   /** What it is made of: cars slow down off the asphalt. */
   surface: Surface;
-  /**
-   * Half the open ground across the way (m), measured from its line to the nearest facade on
-   * either side (the narrower one): how far out lanes and pavements may lie.
-   */
-  halfWidth: number;
+  /** Either side of the line, right and left of the way it runs. */
+  right: Side;
+  left: Side;
   /** Centre line as flat [x0, z0, x1, z1, …]. */
   line: Float32Array;
 }
