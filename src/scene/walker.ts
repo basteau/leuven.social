@@ -22,10 +22,12 @@ export const STEP = 1 / 120;
 export const STRIDE_WALK = 2.6;
 export const STRIDE_RUN = 6.4;
 /** Seconds the idle animation plays after stopping, before the scene can rest. */
-export const IDLE_SECONDS = 4;
+export const IDLE_SECONDS = 7;
 /** Half-lives (s) of the speed easing up, and down; below this speed (m/s) it stands. */
 const SPEED_UP = 0.13;
 const SLOW_DOWN = 0.06;
+/** How quickly the lean follows the acceleration (s, a time constant). */
+const SURGE_EASE = 0.1;
 const STANDING = 0.1;
 /** Half-lives (s) of the heading turning toward where it goes: standing, and running. */
 const TURN_STANDING = 0.07;
@@ -44,6 +46,11 @@ export interface Walker {
   speed: number;
   /** How fast the speed is changing (m/s²). */
   accel: number;
+  /**
+   * The same eased over a few hundredths of a second (m/s²), which leans the body setting off
+   * and stopping: letting go, `accel` leaps in a step, and the lean would with it.
+   */
+  surge: number;
   /** Gait phase in radians: the legs swing with its sine. */
   phase: number;
   /** Unit direction of the last move, kept while easing to a stop. */
@@ -69,6 +76,7 @@ export function createWalker(x: number, z: number, heading = 0): Walker {
     heading,
     speed: 0,
     accel: 0,
+    surge: 0,
     phase: 0,
     dirX: Math.sin(heading),
     dirZ: Math.cos(heading),
@@ -154,6 +162,8 @@ export function stepWalker(
   // A spring only ever nears its goal: close enough to standing, it stands.
   w.speed = want === 0 && speedSpring.x < STANDING ? 0 : Math.max(0, speedSpring.x);
   w.accel = w.speed > 0 ? speedSpring.v : 0;
+  w.surge += (w.accel - w.surge) * (1 - Math.exp(-dt / SURGE_EASE));
+  if (Math.abs(w.surge) < 1e-3) w.surge = 0;
 
   const turn = wrap(facing - w.heading);
   headingSpring.x = w.heading;
@@ -188,6 +198,7 @@ export function stepWalker(
     w.route !== null ||
     Math.abs(turn) > 0.01 ||
     Math.abs(w.turning) > 0.01 ||
+    w.surge !== 0 ||
     w.still < IDLE_SECONDS
   );
 }

@@ -705,9 +705,18 @@ const LIFT = [0.09, 0.3] as const;
 const HIPS = [0.73, 0.62] as const;
 const CENTRE = [0.07, 0] as const;
 const TOES = [0.45, 0.45] as const;
+/** How much of its swing a foot takes to let go of the hips: slowly walking, at once running. */
+const RELEASE = [0.5, 0.1] as const;
 const LEAN = [0.07, 0.24] as const;
-/** How far the arms swing either way (radians). */
-const ARMS = 0.55;
+/** How far the arms swing either way, and the shoulders twist with them, walking and running. */
+const ARMS = [0.55, 0.8] as const;
+const TWIST = [0.2, 0.12] as const;
+/** The hips turn against the shoulders by this share of the torso's twist (see applyPose). */
+const PELVIS = 0.5;
+/** A walk's hips dip on the side of the foot in the air (radians of roll). */
+const SWAY = 0.05;
+/** The most the legs' reach pulls the hips below where they ride (model metres). */
+const DIP = 0.12;
 /** Below this speed (m/s) steps shorten toward standing still. */
 const STEPPING = 1.5;
 /** Turning on the spot: a full cycle of two steps for each quarter turn. */
@@ -725,17 +734,22 @@ const softMin = (a: number, b: number, k: number) => {
   const h = Math.max(k - Math.abs(a - b), 0) / k;
   return Math.min(a, b) - (h * h * k) / 4;
 };
+/** Up from 0 to 1 and back between `from` and `to`, easing in and out at both ends. */
+const bump = (t: number, from: number, to: number) =>
+  Math.sin(Math.PI * clamp01((t - from) / (to - from))) ** 2;
 /** The fraction of the way through a cycle of length `n`, from `start`. */
 const cycle = (p: number, start: number, n = 1) => (((p - start) % n) + n) % n;
 
 /** The gait at this speed: a walk's and a run's, blended (see DUTY and below). */
-const gait = { sweep: 0, duty: 0, centre: 0, lift: 0, toes: 0 };
+const gait = { sweep: 0, duty: 0, centre: 0, lift: 0, toes: 0, release: 0 };
 
 /** Where a foot is: its ankle forward of the root and above the ground, and its pitch. */
 interface Foot {
   z: number;
   y: number;
   pitch: number;
+  /** How far it lets go of the hips (0 to 1): not at all while down, wholly mid-swing. */
+  free: number;
 }
 
 /**
@@ -759,6 +773,7 @@ function footAt(out: Foot, q: number): Foot {
   out.z = centre + sweep * (0.5 - u) - BALL * Math.cos(pitch) + ANKLE * Math.sin(pitch);
   out.y = clearance(pitch);
   out.pitch = pitch;
+  out.free = 0;
   if (q < duty) return out;
   // Up, it swings from where it left the ground to where it lands next.
   const s = (q - duty) / (1 - duty);
@@ -774,33 +789,59 @@ function footAt(out: Foot, q: number): Foot {
   // Highest early in the swing, the heel kicking up behind.
   const y = y0 + (ANKLE - y0) * s + lift * Math.sin(Math.PI * s ** 0.65);
   out.y = Math.max(y, clearance(out.pitch));
+  // It lets go of the hips gradually after lifting off, and takes hold again before landing, so
+  // the hips rise and sink rather than jump as feet come and go.
+  out.free = smoothstep(s / gait.release) * smoothstep((1 - s) / 0.6);
   return out;
 }
 
-const footL: Foot = { z: 0, y: 0, pitch: 0 };
-const footR: Foot = { z: 0, y: 0, pitch: 0 };
+const footL: Foot = { z: 0, y: 0, pitch: 0, free: 0 };
+const footR: Foot = { z: 0, y: 0, pitch: 0, free: 0 };
 const limb: Limb = { root: 0, joint: 0 };
 
 /**
  * The highest the hips can be with the ankle at `foot` still in reach. A foot well off the ground
  * doesn't hold them down: out of reach, it just stops short, higher up.
  */
-function reachAbove(foot: Foot, hipsZ: number): number {
-  const off = smoothstep((foot.y - clearance(foot.pitch)) / 0.06);
-  return foot.y + Math.sqrt(Math.max(0, REACH * REACH - (foot.z - hipsZ) ** 2)) + off;
+function reachAbove(foot: Foot, hipZ: number): number {
+  const off = 0.5 * foot.free ** 2;
+  return foot.y + Math.sqrt(Math.max(0, REACH * REACH - (foot.z - hipZ) ** 2)) + off;
+}
+
+/** Seconds the idle plays (walker.ts); its breaths, its glance about and its weight shift. */
+const BREATH = IDLE_SECONDS / 3;
+const GLANCE = [1, 2.8] as const;
+const SHIFT = [2.4, 6.2] as const;
+/** How far the hips drop onto one leg as the weight shifts (radians of roll). */
+const SHIFT_ROLL = 0.11;
+
+/**
+ * How far the knees give on landing (1 at the deepest), `settle` of the way from the feet
+ * touching down (0) to standing settled (1): a quick dip and a small rebound, gone by the end.
+ */
+export function landing(settle: number): number {
+  const s = clamp01(settle);
+  return 1.8 * (1 - s) ** 3 * Math.sin(2.5 * Math.PI * s);
 }
 
 /**
  * The pose for a moment of walking, running or standing, written into `out` (no allocation per
  * frame). Feet first: each foot goes where the gait cycle puts it (`phase`, which the walker turns
  * at its stride's pace), and the legs reach for them by IK, so a foot on the ground stays where it
- * landed. The hips ride as high as both legs allow, which bobs a walk; a run sinks onto each step
- * and springs off it into a moment with both feet in the air. Arms swing against the legs.
- * Speeding up (`accel`, m/s²) leans the body in and carries the hips ahead of the feet; slowing
- * down leans it back. Standing, it steps on the spot as it turns (`turning`, rad/s, the steps
- * keeping time with its `heading`). The torso banks into turns and the head turns toward `look`
- * (radians from straight ahead). Stopped, for a few seconds it breathes and glances about, and
- * then stands still.
+ * landed. The hips ride as high as both legs allow, which bobs a walk, and dip on the side of the
+ * foot in the air; a run sinks onto each step and springs off it into a moment with both feet in
+ * the air. Arms swing against the legs, the forward one bending at the elbow, and the shoulders
+ * twist with them while the hips turn the other way. Speeding up (`accel`, m/s²) leans the body
+ * in and carries the hips ahead of the feet; slowing down leans it back, and stopped it rocks
+ * forward and back once, the head nodding after it. Standing, it steps on the spot as it turns
+ * (`turning`, rad/s, the steps keeping time with its `heading`), its head leading the way. The
+ * torso banks into turns and the head turns toward `look` (radians from straight ahead).
+ * Stopped, for IDLE_SECONDS it breathes, glances about and shifts its weight onto one leg and
+ * back, and then stands still. With `idle` false (reduced motion) none of that, only the steps.
+ *
+ * `settle` lands the figure, as when it is set down into walk mode: from 0, the moment its feet
+ * touch the ground, to 1 (the default), settled. The knees give and the arms come forward, then
+ * it straightens with a small rebound (`landing`). The feet stay planted throughout.
  */
 export function poseAt(
   out: Pose,
@@ -812,6 +853,7 @@ export function poseAt(
   look = 0,
   accel = 0,
   heading = 0,
+  settle = 1,
 ): Pose {
   const run = runBlend(speed);
   const step = smoothstep(speed / STEPPING);
@@ -822,6 +864,7 @@ export function poseAt(
   gait.centre = lerp(CENTRE, run);
   gait.lift = lerp(LIFT, run);
   gait.toes = lerp(TOES, run);
+  gait.release = lerp(RELEASE, run);
   const p = phase / (Math.PI * 2);
   // The left foot lands a quarter of the way through the cycle, the right at three quarters, as
   // the footsteps sound.
@@ -837,11 +880,31 @@ export function poseAt(
     foot.z *= step;
     foot.y = ANKLE + (foot.y - ANKLE) * step + 0.07 * turn * Math.max(0, Math.sin(pivot + side));
     foot.pitch *= step;
+    foot.free *= step;
   }
 
-  const surge = idle && speed > 0 ? Math.tanh(accel / SURGE) : 0;
+  // Standing still: breathing, a glance and a weight shift, faded in and out over the idle, and
+  // not while turning on the spot. Which way it glances and leans goes by where it faces.
+  const idling = idle && speed === 0 && still < IDLE_SECONDS;
+  const fade = idling
+    ? smoothstep(still / 0.6) * smoothstep((IDLE_SECONDS - still) / 1.2) * (1 - turn)
+    : 0;
+  const breath = idling ? fade * (0.5 - 0.5 * Math.cos((2 * Math.PI * still) / BREATH)) : 0;
+  const side = Math.cos(heading * 3) < 0 ? -1 : 1;
+  const shift = idling ? side * bump(still, ...SHIFT) * (1 - turn) : 0;
+  // Stopping (or set down), the body rocks on forward and back once, then is still.
+  const rock = idling ? Math.exp(-6 * still) * Math.sin(11 * still) : 0;
+  const land = landing(settle);
+
+  // Eased by the walker (its `surge`), so it carries on a moment after stopping.
+  const surge = idle ? Math.tanh(accel / SURGE) : 0;
   out.hipsZ = SURGE_HIPS * surge;
-  out.roll = 0; // the walker keeps its hips level; a rider rolls them
+  // A walk's hips dip on the side of the swinging foot; standing, they drop onto one leg.
+  out.roll = -SWAY * step * (1 - run) * Math.cos(phase) + SHIFT_ROLL * shift;
+  const swing = Math.sin(phase);
+  out.twist = lerp(TWIST, run) * step * swing;
+  // The hips turn against the shoulders (see applyPose), which moves each hip joint a little.
+  const pelvis = -PELVIS * out.twist;
   // A run sinks onto each step and springs off it, highest midway between steps; a walk's bob
   // comes from the legs' reach alone.
   const q = cycle(p, 0.25, 0.5);
@@ -851,39 +914,44 @@ export function poseAt(
   if (q < duty) hips -= bounce * Math.sin((Math.PI * q) / duty);
   else if (flight > 0)
     hips += ((bounce * flight) / duty) * Math.sin((Math.PI * (q - duty)) / flight);
-  hips = REST_HIPS + (hips - REST_HIPS) * step;
-  hips = softMin(hips, reachAbove(footL, out.hipsZ), 0.04);
-  out.hips = softMin(hips, reachAbove(footR, out.hipsZ), 0.04);
+  hips = REST_HIPS + (hips - REST_HIPS) * step - 0.14 * land;
+  const hipY = HIP_X * Math.sin(out.roll);
+  const hipZ = HIP_X * Math.cos(out.roll) * Math.sin(pelvis);
+  // Never more than DIP below where they ride: speeding up, the stride lengthens faster than a
+  // swinging foot comes down, and reaching all the way for it would drop the hips in a step.
+  const floor = hips - DIP;
+  hips = softMin(hips, Math.max(floor, reachAbove(footL, out.hipsZ - hipZ) - hipY), 0.04);
+  out.hips = softMin(hips, Math.max(floor, reachAbove(footR, out.hipsZ + hipZ) + hipY), 0.04);
   for (const [foot, x] of [
-    [footL, HIP_X],
-    [footR, -HIP_X],
+    [footL, 1],
+    [footR, -1],
   ] as const) {
-    limbIK(limb, foot.z - out.hipsZ, foot.y - out.hips, THIGH, SHIN, 1);
+    limbIK(limb, foot.z - out.hipsZ + x * hipZ, foot.y - out.hips - x * hipY, THIGH, SHIN, 1);
     const ankle = foot.pitch - limb.root - limb.joint;
     if (x > 0) [out.legL, out.kneeL, out.footL] = [limb.root, limb.joint, ankle];
     else [out.legR, out.kneeR, out.footR] = [limb.root, limb.joint, ankle];
   }
 
-  const swing = Math.sin(phase);
-  const arms = ARMS * step * swing;
-  // A run pumps the arms mostly behind the body.
-  out.armL = 0.3 * run + arms;
-  out.armR = 0.3 * run - arms;
-  // A run holds the elbows bent.
-  out.elbowL = out.elbowR = REST_ELBOW - 0.2 * step - 1.05 * run;
-  out.lean = lerp(LEAN, run) * step + SURGE_LEAN * surge;
-  out.twist = (0.16 - 0.1 * run) * step * swing;
-  out.bank = Math.max(-0.3, Math.min(0.3, (-0.12 * turning * speed) / WALK_SPEED));
-  out.nod = -0.6 * out.lean;
-  out.look = Math.max(-LOOK_LIMIT, Math.min(LOOK_LIMIT, look));
-  if (idle && speed === 0 && still < IDLE_SECONDS) {
-    const u = still / IDLE_SECONDS;
-    const fade = Math.sin(Math.PI * u);
-    const breath = 0.5 - 0.5 * Math.cos(Math.PI * 6 * u);
-    out.look += 0.5 * Math.sin(Math.PI * 2 * u) * fade;
-    out.armL = 0.05 * breath * fade;
-    out.armR = -out.armL;
-  }
+  const arms = lerp(ARMS, run) * step * swing;
+  // A run pumps the arms mostly behind the body; landing, they come forward for balance.
+  out.armL = 0.3 * run + arms - 0.3 * land;
+  out.armR = 0.3 * run - arms - 0.3 * land;
+  // A run holds the elbows bent; walking, the arm swinging forward bends a little more.
+  const elbow = REST_ELBOW - 0.2 * step - 1.05 * run - 0.06 * breath - 0.5 * land;
+  const reach = 0.35 * step * (1 - run);
+  out.elbowL = elbow - reach * Math.max(0, -swing);
+  out.elbowR = elbow - reach * Math.max(0, swing);
+  // Breathing in lifts the chest a little; landing folds the body over the knees.
+  out.lean =
+    lerp(LEAN, run) * step + SURGE_LEAN * surge - 0.025 * breath + 0.05 * rock + 0.3 * land;
+  // The shoulders level against the hips' roll, standing or walking, and bank into turns.
+  out.bank = Math.max(-0.3, Math.min(0.3, (-0.12 * turning * speed) / WALK_SPEED)) - 1.3 * out.roll;
+  // The head stays level as the body leans and nods after it as it rocks to a stop.
+  out.nod = -0.6 * out.lean + 0.02 * breath + 0.12 * rock - 0.15 * land;
+  // It leads a turn on the spot, and glances aside a moment while standing.
+  const lead = idle ? (1 - step) * Math.max(-0.4, Math.min(0.4, 0.15 * turning)) : 0;
+  const glance = idling ? 0.55 * side * bump(still, ...GLANCE) * (1 - turn) : 0;
+  out.look = Math.max(-LOOK_LIMIT, Math.min(LOOK_LIMIT, look + lead + glance));
   return out;
 }
 
@@ -893,14 +961,21 @@ export function restPose(): Pose {
   return poseAt(pose, 0, 0, Infinity, false);
 }
 
+/**
+ * Puts the figure in a pose. The hips turn against the torso's twist by PELVIS of it, so the
+ * shoulders turn by `twist` and the hips the other way, as a walk counter-rotates them; a pose
+ * without twist (the rider's) keeps the hips square.
+ */
 export function applyPose({ bones }: Character, pose: Pose): void {
+  const pelvis = -PELVIS * pose.twist;
   bones.hips.position.set(0, pose.hips, pose.hipsZ);
-  bones.hips.rotation.z = pose.roll;
-  bones.torso.rotation.set(pose.lean, pose.twist, pose.bank);
+  bones.hips.rotation.set(0, pelvis, pose.roll);
+  bones.torso.rotation.set(pose.lean, pose.twist - pelvis, pose.bank);
   bones.head.rotation.set(pose.nod, pose.look - pose.twist, 0);
-  // The legs undo the roll first (they turn Z, then X), so they swing in the root's plane.
-  bones.legL.rotation.set(pose.legL, 0, -pose.roll);
-  bones.legR.rotation.set(pose.legR, 0, -pose.roll);
+  // The legs undo the hips' roll and turn first (they turn Z, then Y, then X), so they swing in
+  // the root's plane.
+  bones.legL.rotation.set(pose.legL, -pelvis, -pose.roll);
+  bones.legR.rotation.set(pose.legR, -pelvis, -pose.roll);
   bones.shinL.rotation.x = pose.kneeL;
   bones.shinR.rotation.x = pose.kneeR;
   bones.footL.rotation.x = pose.footL;

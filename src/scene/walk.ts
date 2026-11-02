@@ -751,7 +751,7 @@ export function createWalk(host: WalkHost): Walk {
               !reducedMotion,
               walker.turning,
               head,
-              walker.accel,
+              walker.surge,
               heading,
             ),
       );
