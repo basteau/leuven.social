@@ -1,14 +1,16 @@
 import type { Bounds, Building, Carriageway, City, Path, Prop, Rail, Tank } from '../data/city.ts';
 import { areaOutline, clipLine, clipRing } from '../data/geometry.ts';
+import type { Field } from '../data/pitches.ts';
 import { propFootprint } from '../data/props.ts';
 import { FLAT } from '../data/terrain.ts';
 import type { Terrain } from '../data/terrain.ts';
 import { addBuilding, footing } from './buildings.ts';
 import type { PartyWalls } from './buildings.ts';
 import { addGround, addSlabInk, slabBottom } from './ground.ts';
+import type { Pitch } from './ground.ts';
 import { GROUND_RINGS } from './ground.ts';
 import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
-import { addFinePaint } from './paint.ts';
+import { addFieldLines, addFinePaint } from './paint.ts';
 import type { Marking } from './paint.ts';
 import { addProp, isLarge } from './props.ts';
 import {
@@ -41,6 +43,9 @@ export interface Cell {
     carriageways: Carriageway[];
     markings: Marking[];
     paths: Path[];
+    pitches: Pitch[];
+    /** Whole fields, each in the cell of its centre, so its lines keep their layout. */
+    fields: Field[];
   };
   /** Flat [x, z, seed, height, …]: the seed keeps a tree's look when the cell changes. */
   trees: number[];
@@ -109,6 +114,7 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
             plazas: [],
             railLand: [],
             paths: [],
+            fields: [],
           },
           trees: [],
           parasols: [],
@@ -172,6 +178,11 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
   for (const { kind, ring } of city.carriageways) {
     cut(ring, (cell, piece) => cell.ground.carriageways.push({ kind, ring: piece }));
   }
+  for (const [i, ring] of city.pitches.entries()) {
+    const surface = city.pitchSurfaces[i] ?? 'grass';
+    cut(ring, (cell, piece) => cell.ground.pitches.push({ surface, ring: piece }));
+  }
+  for (const f of city.fields) at(f.x, f.z)?.ground.fields.push(f);
   // Paths, tracks and lane lines are cut the same way, piece by piece along the cells they cross.
   const cutLine = (line: Float32Array, add: (cell: Cell, piece: Float32Array) => void) => {
     for (const cell of span(line)) {
@@ -318,6 +329,7 @@ export function buildCell(
   const fineVertices = mesh.indices;
   mesh.drape = terrain;
   addFinePaint(mesh, cell.ground.markings);
+  addFieldLines(mesh, cell.ground.fields);
   return { mesh, lines, trunksFrom, shadowFrom, fineVertices, detail };
 }
 

@@ -5,6 +5,7 @@
 
 import type { CarriagewayKind, Kind, Material } from '../data/city.ts';
 import { fromOklab, toOklab } from '../data/colour.ts';
+import type { PitchSurface } from '../data/pitches.ts';
 
 export const WALLS: Record<Kind, readonly number[]> = {
   // Red and dark brown brick, yellow brick, whitewash, cream and sand plaster.
@@ -134,8 +135,6 @@ export const GROUND = {
   green: 0x86b064,
   /** The floor of woods and scrub: a deeper, cooler green under the trees. */
   woods: 0x6a9450,
-  /** Sports pitches: mown, the brightest green on the map. */
-  pitch: 0x8fbd5a,
   /** Car parks: asphalt like the streets, a shade lighter. */
   parking: 0x97938b,
   /** The road surface where no carriageway lies on it: pale slabs, like the footpaths. */
@@ -151,6 +150,22 @@ export const GROUND = {
   /** Railway land: the gravel between and beside the tracks, paler than their ballast. */
   railway: 0xaca291,
 } as const;
+
+/**
+ * Sports pitches by what they're made of (src/data/pitches.ts): mown grass the brightest green on
+ * the map, artificial turf brighter and bluer still, tennis clay a red-orange, running tracks a
+ * deeper brick red, hard courts a grey a shade cooler than the car parks, beach volleyball sand
+ * and boules gravel the pale yellows of the trails.
+ */
+export const PITCH: Record<PitchSurface, number> = {
+  grass: 0x8fbd5a,
+  turf: 0x5fb552,
+  clay: 0xc9693f,
+  tartan: 0xb0503d,
+  hard: 0x9a9c98,
+  sand: 0xe6d29c,
+  gravel: 0xcfbb92,
+};
 
 /**
  * Railways: running lines on grey ballast and concrete sleepers, yards on rusty ballast and
