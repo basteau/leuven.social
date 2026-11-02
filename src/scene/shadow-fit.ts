@@ -70,9 +70,9 @@ export function fitShadow(need: ShadowSquare, mapSize: number, margin = 1.3): Sh
 
 /**
  * Whether a rendered square still serves the need: covers it, and isn't over `coarser` times too
- * coarse (4× from the map, where a zoom in shouldn't redraw shadows; much less up close).
+ * coarse (the viewer allows 2× from the map, so a small zoom in reuses it, and less from the street).
  */
-export function shadowCovers(fit: ShadowSquare, need: ShadowSquare, coarser = 4): boolean {
+export function shadowCovers(fit: ShadowSquare, need: ShadowSquare, coarser = 2): boolean {
   return (
     Math.abs(need.x - fit.x) + need.half <= fit.half &&
     Math.abs(need.y - fit.y) + need.half <= fit.half &&

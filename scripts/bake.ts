@@ -16,6 +16,7 @@ import {
   roofFromSurvey,
 } from '../src/data/city.ts';
 import type {
+  Bounds,
   Building,
   Carriageway,
   City,
@@ -23,6 +24,7 @@ import type {
   Path,
   Rail,
   Tank,
+  TerrainGrid,
   Tier,
 } from '../src/data/city.ts';
 import { packCity } from '../src/data/format.ts';
@@ -105,6 +107,38 @@ interface RoadZones {
   lines: { kind: 'dashed' | 'solid' | 'cycle-lane'; line: [number, number][] }[];
   crossings: { tags: Props; line: [number, number][] }[];
 }
+/** tools/build_leuven_data.py: the landform (m TAW), node (i, j) at ((i0 + i) step, (j0 + j) step). */
+interface TerrainJson {
+  step: number;
+  i0: number;
+  j0: number;
+  cols: number;
+  rows: number;
+  heights: number[];
+}
+
+/**
+ * The part of the landform that covers the map, a node past every edge, as heights above the
+ * ground at Grote Markt (the node on the origin): y = 0 stays at the map's centre.
+ */
+function terrainOver(t: TerrainJson, { minX, minZ, maxX, maxZ }: Bounds): TerrainGrid {
+  const [i0, j0] = [Math.floor(minX / t.step), Math.floor(minZ / t.step)];
+  const [cols, rows] = [Math.ceil(maxX / t.step) - i0 + 1, Math.ceil(maxZ / t.step) - j0 + 1];
+  const at = (i: number, j: number) => {
+    const [c, r] = [i - t.i0, j - t.j0];
+    if (c < 0 || r < 0 || c >= t.cols || r >= t.rows) {
+      throw new Error(`data/derived/terrain.json stops short of the map at node ${i}, ${j}.`);
+    }
+    return t.heights[r * t.cols + c]!;
+  };
+  const datum = at(0, 0);
+  const heights = new Float32Array(cols * rows);
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) heights[r * cols + c] = at(i0 + c, j0 + r) - datum;
+  }
+  return { step: t.step, minX: i0 * t.step, minZ: j0 * t.step, cols, rows, heights };
+}
+
 interface LocalBuilding {
   id: number;
   h: number;
@@ -176,6 +210,7 @@ const [
   osmPoints,
   osmPlatforms,
   osmBuildings,
+  landform,
 ] = await Promise.all([
   read<{ buildings: LocalBuilding[] }>('derived/leuven_buildings_local.json'),
   read<{ trees: [number, number, number][] }>('derived/lidar_trees.json'),
@@ -191,6 +226,7 @@ const [
   read<Collection>('derived/osm_points.geojson'),
   read<Overpass>('osm/rail_platforms.json'),
   read<Overpass>('osm/buildings.json'),
+  read<TerrainJson>('derived/terrain.json'),
 ]);
 
 const buildings: Building[] = [];
@@ -533,6 +569,7 @@ const city: City = {
   streetNames: names.table,
   streets,
   plazaNames,
+  terrain: terrainOver(landform, VIEW_AREA),
 };
 
 const bytes = await packCity(city);
@@ -630,6 +667,7 @@ console.log(
       .join(', ')}`,
     `tanks ${tanks.length}, bridge decks ${bridges.length}, parapets ${parapets.length}`,
     `church towers ${buildings.filter((b) => b.tower).length}`,
+    `terrain ${city.terrain.cols} × ${city.terrain.rows} nodes every ${city.terrain.step} m, ${Math.min(...city.terrain.heights).toFixed(1)} to ${Math.max(...city.terrain.heights).toFixed(1)} m about Grote Markt`,
     `street names ${names.table.length}: ${streets.length} streets (${streets.reduce((sum, s) => sum + s.line.length / 2, 0)} points), ${plazaNames.filter((n) => n >= 0).length} of ${plazas.length} squares named`,
     `public/data/city.bin ${(bytes.length / 1024).toFixed(0)} KB gzipped`,
     `house numbers ${houses.plates.length} of ${addresses.length} addresses: ${reasons(houses.placed)} (skipped ${reasons(houses.skipped)})`,

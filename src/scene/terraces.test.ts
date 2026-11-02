@@ -6,6 +6,7 @@ import { CHARACTER_SCALE } from './character.ts';
 import { LineBuilder, MeshBuilder, unindexed } from './mesh-builder.ts';
 import { PARASOLS } from './palette.ts';
 import { PARASOL_RIM, addParasol, terraceParasols } from './terraces.ts';
+import { FLAT_GRID } from '../data/terrain.ts';
 
 /** A 100 × 40 m square centred on the origin. */
 const SQUARE = new Float32Array([-50, -20, 50, -20, 50, 20, -50, 20]);
@@ -37,6 +38,7 @@ const city = (over: Partial<City> = {}): City => ({
   streetNames: ['Grote Markt', 'Oude Markt'],
   streets: [],
   plazaNames: [1],
+  terrain: FLAT_GRID,
   ...over,
 });
 

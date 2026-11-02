@@ -56,8 +56,9 @@ describe('fitting the shadow map to the view', () => {
     expect(shadowCovers(fit, { x: 400, y: 0, half: 300 })).toBe(false);
     expect(shadowCovers(fit, { x: 0, y: 0, half: 1000 })).toBe(false);
     expect(shadowCovers(fit, { x: 0, y: 0, half: 50 })).toBe(false);
-    // Up close it asks for sharper: 2× too coarse is already too coarse.
-    expect(shadowCovers(fit, { x: 0, y: 0, half: 120 })).toBe(true);
+    // Zoomed in, a square 3.6× too coarse is drawn again; one allowed 4× would have stayed.
+    expect(shadowCovers(fit, { x: 0, y: 0, half: 120 }, 4)).toBe(true);
+    expect(shadowCovers(fit, { x: 0, y: 0, half: 120 })).toBe(false);
     expect(shadowCovers(fit, { x: 0, y: 0, half: 120 }, 1.6)).toBe(false);
   });
 });

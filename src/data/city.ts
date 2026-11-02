@@ -183,6 +183,21 @@ export interface Bounds {
   maxZ: number;
 }
 
+/**
+ * The lie of the land (src/data/terrain.ts reads it as triangles): heights on a square grid,
+ * node (i, j) at x = minX + i · step, z = minZ + j · step. The grid is anchored at Grote Markt:
+ * `minX` and `minZ` are whole steps from it.
+ */
+export interface TerrainGrid {
+  step: number;
+  minX: number;
+  minZ: number;
+  cols: number;
+  rows: number;
+  /** Metres above the ground at Grote Markt, a row (along x) at a time. */
+  heights: Float32Array;
+}
+
 export interface City {
   /** Abutting rectangles that make up the map (see area.ts); `bounds` surrounds them. */
   area: Bounds[];
@@ -228,6 +243,8 @@ export interface City {
   streets: Street[];
   /** Each square's name in `streetNames`, in the order of `plazas`; -1 where it has none. */
   plazaNames: number[];
+  /** The ground's height, smoothed to the landform: y = 0 is the ground at Grote Markt. */
+  terrain: TerrainGrid;
 }
 
 const KIND_BY_OSM: Record<string, Kind> = {

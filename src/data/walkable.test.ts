@@ -17,6 +17,7 @@ const house = (ring: Float32Array): Building => ({
   ring,
   holes: [],
 });
+import { Terrain } from './terrain.ts';
 import { WalkGrid, pickWalkable } from './walkable.ts';
 
 describe('WalkGrid', () => {
@@ -237,6 +238,24 @@ describe('pickWalkable', () => {
     expect(pickWalkable(grid, [75, 300, 70], [0, -1, 0], 2)).toEqual([75.5, 70.5]);
     expect(pickWalkable(grid, [50, 300, 42], [0, -1, 0], 2)).toBeNull();
     expect(pickWalkable(grid, [15, 0, 45], [0, 1, 0], 4)).toBeNull();
+  });
+
+  test('on raised ground, the ray meets the ground and the roofs on it higher up', () => {
+    const plateau = new Terrain({
+      step: 1000,
+      minX: -1000,
+      minZ: -1000,
+      cols: 3,
+      rows: 3,
+      heights: new Float32Array(9).fill(10),
+    });
+    // Ten metres up, the ray lands where it did on level ground.
+    expect(pickWalkable(grid, [15, 510, 545], down, 4, false, plateau)).toEqual([15.5, 45.5]);
+    const [x, z] = pickWalkable(grid, [50, 510, 540], down, 6, false, plateau)!;
+    expect(x).toBeCloseTo(50.5);
+    expect(z).toBeGreaterThan(45);
+    // From the eye, the ground ahead is no longer at 0.
+    expect(pickWalkable(grid, [65, 12, 42], [1, -0.1, 0], 2, false, plateau)![0]).toBeCloseTo(85.5);
   });
 
   test('a ray onto a garden finds nothing if no street is near', () => {

@@ -33,34 +33,49 @@ export interface RouteMarker {
   dots: Float32Array;
 }
 
-const corner = (x: number, z: number, r: number, i: number, sides: number) =>
-  [
-    x + Math.cos((i * Math.PI * 2) / sides) * r,
-    Y,
-    z + Math.sin((i * Math.PI * 2) / sides) * r,
-  ] as const;
+/** The ground's height at a point. */
+type Ground = (x: number, z: number) => number;
 
-function disc(mesh: MeshBuilder, x: number, z: number, r: number, sides: number): void {
+/**
+ * A corner on the ground, each lifted by the ground under it: a dot is far smaller than the
+ * terrain's triangles, so it lies on them without being cut, and keeps its count of vertices.
+ */
+const corner = (ground: Ground, x: number, z: number, r: number, i: number, sides: number) => {
+  const [cx, cz] = [
+    x + Math.cos((i * Math.PI * 2) / sides) * r,
+    z + Math.sin((i * Math.PI * 2) / sides) * r,
+  ];
+  return [cx, Y + ground(cx, cz), cz] as const;
+};
+
+function disc(mesh: MeshBuilder, ground: Ground, x: number, z: number, r: number, sides: number) {
   for (let i = 1; i < sides - 1; i++) {
     const [a, b, c] = [
-      corner(x, z, r, 0, sides),
-      corner(x, z, r, i, sides),
-      corner(x, z, r, i + 1, sides),
+      corner(ground, x, z, r, 0, sides),
+      corner(ground, x, z, r, i, sides),
+      corner(ground, x, z, r, i + 1, sides),
     ];
     mesh.triangle(a, b, c, ROUTE, UP);
   }
 }
 
-function ring(mesh: MeshBuilder, x: number, z: number): void {
+function ring(mesh: MeshBuilder, ground: Ground, x: number, z: number): void {
   const [outer, inner] = RING;
   for (let i = 0; i < RING_SIDES; i++) {
-    const [a, b] = [corner(x, z, outer, i, RING_SIDES), corner(x, z, outer, i + 1, RING_SIDES)];
-    const [c, d] = [corner(x, z, inner, i + 1, RING_SIDES), corner(x, z, inner, i, RING_SIDES)];
+    const [a, b] = [
+      corner(ground, x, z, outer, i, RING_SIDES),
+      corner(ground, x, z, outer, i + 1, RING_SIDES),
+    ];
+    const [c, d] = [
+      corner(ground, x, z, inner, i + 1, RING_SIDES),
+      corner(ground, x, z, inner, i, RING_SIDES),
+    ];
     mesh.quad(a, b, c, d, ROUTE, UP);
   }
 }
 
-export function routeMarker(route: Float32Array): RouteMarker {
+/** The hint along `route`, on the ground `ground` gives (level by default). */
+export function routeMarker(route: Float32Array, ground: Ground = () => 0): RouteMarker {
   const mesh = new MeshBuilder();
   const dots: number[] = [];
   let total = 0;
@@ -75,14 +90,14 @@ export function routeMarker(route: Float32Array): RouteMarker {
     for (; next <= walked + length && next <= total - LEAD; next += SPACING) {
       const t = (next - walked) / length;
       const r = DOT_START + (DOT_END - DOT_START) * (next / total);
-      disc(mesh, ax + (bx - ax) * t, az + (bz - az) * t, r, DOT_SIDES);
+      disc(mesh, ground, ax + (bx - ax) * t, az + (bz - az) * t, r, DOT_SIDES);
       dots.push(next);
     }
     walked += length;
   }
   const [x, z] = [route.at(-2)!, route.at(-1)!];
-  ring(mesh, x, z);
-  disc(mesh, x, z, CENTRE, DOT_SIDES);
+  ring(mesh, ground, x, z);
+  disc(mesh, ground, x, z, CENTRE, DOT_SIDES);
   return { geometry: mesh.build(), dots: Float32Array.from(dots) };
 }
 

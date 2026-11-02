@@ -14,6 +14,7 @@ import type { MapControls } from 'three/addons/controls/MapControls.js';
 
 import { createWalkSounds } from '../audio/walking.ts';
 import type { City } from '../data/city.ts';
+import type { Terrain } from '../data/terrain.ts';
 import { Router } from '../data/route.ts';
 import { WalkGrid, pickWalkable } from '../data/walkable.ts';
 import { walkSolids } from './solids.ts';
@@ -50,7 +51,7 @@ import {
   zoomStop,
 } from './chase.ts';
 import type { Boom, Lens, Shot, Vec3 } from './chase.ts';
-import { nearFade } from './facade-material.ts';
+import { nearFade, nearGround } from './facade-material.ts';
 import { linearVertexColors } from './mesh-builder.ts';
 import { clock, decay, spring, springTo, ticks } from './motion.ts';
 import { SKY } from './palette.ts';
@@ -87,7 +88,7 @@ const APPEAR = 0.3;
 const NEAR_FADE = 2.4;
 /**
  * Feet just above the squares, the highest ground layer, so the outline under the soles never
- * dips below the street (where the x-ray would show it).
+ * dips below the street (where the x-ray would show it). Over the terrain's height there.
  */
 const GROUND_Y = 0.32;
 /** The city fades into the haze from FOG_NEAR to FOG_FAR beyond the walker (m). */
@@ -137,6 +138,8 @@ export interface WalkHost {
   /** A layer over the canvas that takes no pointer events, for the thumb stick. */
   overlay: HTMLElement;
   city: City;
+  /** The ground the walker walks on: `city.terrain`, read as triangles. */
+  terrain: Terrain;
   gradientMap: Texture;
   /** The scene's fog, kept far off on the map: walking draws it in to the haze. */
   fog: Fog;
@@ -222,7 +225,10 @@ export function createWalk(host: WalkHost): Walk {
   // The walk grid is built the first time someone wants to walk, not with the map.
   let grid: WalkGrid | undefined;
   let router: Router | undefined;
-  const heightAt = (x: number, z: number) => grid!.buildingHeight(x, z);
+  const { terrain } = host;
+  const ground = (x: number, z: number) => terrain.height(x, z);
+  /** What the flight keeps over: the roofs, standing on the ground. */
+  const heightAt = (x: number, z: number) => ground(x, z) + grid!.buildingHeight(x, z);
   const ensureGrid = () => {
     // Trunks, benches and lamp posts stand in the way as drawn (src/scene/solids.ts).
     grid ??= new WalkGrid(host.city, walkSolids(host.city));
@@ -334,7 +340,7 @@ export function createWalk(host: WalkHost): Walk {
     appear = reducedMotion ? 1 : 0;
     head = 0;
     clearRoute();
-    [lookAt[0], lookAt[1], lookAt[2]] = [x, GROUND_Y + LOOK_HEIGHT, z];
+    [lookAt[0], lookAt[1], lookAt[2]] = [x, ground(x, z) + GROUND_Y + LOOK_HEIGHT, z];
     const t = controls.target;
     Object.assign(mapShot, { yaw, pitch: ISO_PITCH, fov: MAP_FOV, span: mapSpan(camera.zoom) });
     [mapShot.look[0], mapShot.look[1], mapShot.look[2]] = [t.x, t.y, t.z];
@@ -372,6 +378,7 @@ export function createWalk(host: WalkHost): Walk {
       [direction.x, direction.y, direction.z],
       reach,
       street,
+      terrain,
     );
   }
 
@@ -390,7 +397,7 @@ export function createWalk(host: WalkHost): Walk {
     sounds.routeStart();
     moving = true;
     hint.geometry.dispose();
-    marker = routeMarker(route);
+    marker = routeMarker(route, ground);
     hint.geometry = marker.geometry;
     hint.visible = true;
     wake();
@@ -577,7 +584,7 @@ export function createWalk(host: WalkHost): Walk {
     fog.near = 1e7;
     nearFade.value = 0;
     fog.far = 1e7 + 1;
-    if (walker) controls.target.set(walker.x, 0, walker.z);
+    if (walker) controls.target.set(walker.x, ground(walker.x, walker.z), walker.z);
     walker = undefined;
     if (character) character.mesh.visible = false;
     clearRoute();
@@ -681,7 +688,8 @@ export function createWalk(host: WalkHost): Walk {
       // Pops up with a little overshoot.
       const pop = appear < 1 ? 1 + 2.7 * (appear - 1) ** 3 + 1.7 * (appear - 1) ** 2 : 1;
       character.mesh.scale.setScalar(CHARACTER_SCALE * pop);
-      character.mesh.position.set(x, GROUND_Y, z);
+      const floor = ground(x, z);
+      character.mesh.position.set(x, floor + GROUND_Y, z);
       character.mesh.rotation.y = heading;
       busy ||= appear < 1;
 
@@ -693,7 +701,8 @@ export function createWalk(host: WalkHost): Walk {
       const lead = reducedMotion ? 0 : walker.speed * LOOK_AHEAD;
       springTo(followX, x + Math.sin(heading) * lead, ease, dt);
       springTo(followZ, z + Math.cos(heading) * lead, ease, dt);
-      [lookAt[0], lookAt[1], lookAt[2]] = [followX.x, GROUND_Y + LOOK_HEIGHT, followZ.x];
+      const look = ground(followX.x, followZ.x) + GROUND_Y + LOOK_HEIGHT;
+      [lookAt[0], lookAt[1], lookAt[2]] = [followX.x, look, followZ.x];
       busy ||= Math.abs(followX.v) + Math.abs(followZ.v) > 0.005;
       if (reducedMotion) {
         [boom.yaw, boom.pitch] = [boom.aimYaw, boom.aimPitch];
@@ -702,7 +711,7 @@ export function createWalk(host: WalkHost): Walk {
       // Eased every frame: `busy ||= easeBoom(…)` would skip it whenever something else moved.
       const easing = easeBoom(boom, sprint, dt);
       busy ||= easing;
-      controls.target.set(walker.x, 0, walker.z);
+      controls.target.set(walker.x, ground(walker.x, walker.z), walker.z);
 
       if (flying) {
         flown = Math.min(1, Math.max(0, flown + (flying * elapsed) / FLIGHT));
@@ -716,7 +725,7 @@ export function createWalk(host: WalkHost): Walk {
       placeView(dt);
       // A camera squeezed up against the walker sees through it rather than into its head.
       const eye = view.position;
-      fade.value = flying ? 1 : figureOpacity(eye.x - x, eye.y - GROUND_Y, eye.z - z);
+      fade.value = flying ? 1 : figureOpacity(eye.x - x, eye.y - floor - GROUND_Y, eye.z - z);
       if (flying === -1 && flown === 0) land();
     }
 
@@ -729,7 +738,12 @@ export function createWalk(host: WalkHost): Walk {
   function placeView(dt = 0): void {
     const fov = chaseFov(canvas.clientWidth / Math.max(1, canvas.clientHeight), sprint);
     chaseShot.yaw = boom.yaw;
-    chaseShot.pitch = boomPitch(boom.pitch, boom.length);
+    // Kept a metre over the street under the camera, which on a slope isn't the walker's.
+    const pitch = boomPitch(boom.pitch, boom.length);
+    boomDirection(boom.yaw, pitch, out);
+    const under = ground(lookAt[0] + out[0] * boom.length, lookAt[2] + out[2] * boom.length);
+    const rise = under - (lookAt[1] - GROUND_Y - LOOK_HEIGHT);
+    chaseShot.pitch = boomPitch(boom.pitch, boom.length, rise);
     chaseShot.fov = fov;
     chaseShot.span = spanAt(boom.length, fov);
     flight(mapShot, chaseShot, flown, lens);
@@ -773,6 +787,14 @@ export function createWalk(host: WalkHost): Walk {
     // anything nearer than NEAR_FADE dithers away.
     const eye = view.position;
     nearFade.value = NEAR_FADE;
+    // The ground round the camera as a plane, from its slope there.
+    const floor = ground(eye.x, eye.z);
+    const [sx, sz] = [ground(eye.x + 1, eye.z) - floor, ground(eye.x, eye.z + 1) - floor];
+    [nearGround.value[0], nearGround.value[1], nearGround.value[2]] = [
+      floor - sx * eye.x - sz * eye.z,
+      sx,
+      sz,
+    ];
     const near = Math.min(d, Math.hypot(eye.x - lookAt[0], eye.y - lookAt[1], eye.z - lookAt[2]));
     const high = (1 - flown) * 4000;
     view.fov = lens.fov;
@@ -846,7 +868,11 @@ export function createWalk(host: WalkHost): Walk {
       // Fly back up to the map, turned to the nearest of its four views.
       const zoom = Math.min(controls.maxZoom, Math.max(controls.minZoom, mapZoomBefore));
       Object.assign(mapShot, { yaw: mapYaw(boom.yaw), span: mapSpan(zoom) });
-      [mapShot.look[0], mapShot.look[1], mapShot.look[2]] = [walker.x, 0, walker.z];
+      [mapShot.look[0], mapShot.look[1], mapShot.look[2]] = [
+        walker.x,
+        ground(walker.x, walker.z),
+        walker.z,
+      ];
       if (reducedMotion || document.hidden) {
         land();
         host.render();

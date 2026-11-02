@@ -62,7 +62,7 @@ Leuven as a tiny city you could hold in your hands: a warm, crisp, low-poly dior
 - **Masts only where they'd stand.** Every 60 m along electrified running lines, on the side with room, so a yard's inner tracks stay clear.
 - **The station is the wave roof.** Leuven's platform roof is the most recognisable thing from above: four white vaults across the tracks, rising from the valleys to the crowns at their real LiDAR heights. Railway land is gravel, never lawn, except where OSM maps grass or scrub on it (the embankments).
 - **Not walkable:** tracks, railway land and platforms. Platforms are raised to train-floor height and the walker stays at street level; roads under rail bridges stay walkable.
-- Tunnels and covered tracks aren't drawn. Bridges get a paved deck over the water and a capped parapet on each open side; the ground is flat, so roads just pass underneath.
+- Tunnels and covered tracks aren't drawn. Bridges get a paved deck over the water and a capped parapet on each open side; the ground follows the lie of the land, smoothed so the city's own steps (quays, cuttings, embankments) are gone, so roads stay at grade and pass underneath.
 
 ### Palette
 

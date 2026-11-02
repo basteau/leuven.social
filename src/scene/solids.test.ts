@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 
 import type { City, Prop } from '../data/city.ts';
 import { signedArea } from '../data/geometry.ts';
+import { FLAT_GRID } from '../data/terrain.ts';
 import { WalkGrid } from '../data/walkable.ts';
 import { MeshBuilder, unindexed } from './mesh-builder.ts';
 import { walkSolids } from './solids.ts';
@@ -43,6 +44,7 @@ const city: City = {
   streetNames: ['Oude Markt'],
   streets: [],
   plazaNames: [0],
+  terrain: FLAT_GRID,
 };
 
 /** How far the drawn mesh reaches from (x, z) at its foot, below `y`. */

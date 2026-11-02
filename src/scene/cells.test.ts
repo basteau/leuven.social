@@ -1,10 +1,20 @@
 import { expect, test } from 'bun:test';
 
 import type { Building, City } from '../data/city.ts';
-import { partyWalls } from './buildings.ts';
-import { CELL_SIZE, along, buildCell, buildFurniture, partition } from './cells.ts';
+import { footing, partyWalls } from './buildings.ts';
+import {
+  CELL_SIZE,
+  along,
+  buildCell,
+  buildFurniture,
+  groundRange,
+  partition,
+  propBase,
+} from './cells.ts';
+import { slabBottom } from './ground.ts';
 import { unindexed } from './mesh-builder.ts';
 import type { MeshBuilder } from './mesh-builder.ts';
+import { FLAT, FLAT_GRID, Terrain } from '../data/terrain.ts';
 
 const S = CELL_SIZE;
 const box = (x: number, z: number, w: number, d: number) =>
@@ -70,6 +80,7 @@ const city: City = {
   streetNames: [],
   streets: [],
   plazaNames: [],
+  terrain: FLAT_GRID,
 };
 
 test('the area is cut into cells, and each thing goes to one', () => {
@@ -182,4 +193,79 @@ test('along: how far a point on a line lies from its start', () => {
   expect(along(line, 4, 0)).toBe(4);
   expect(along(line, 10, 6)).toBe(16);
   expect(along([0, 0, 0, 0, 5, 0], 3, 0)).toBe(3);
+});
+
+test('on the terrain, the ground drapes, houses stand at their foot, props on the ground', () => {
+  // Rising a metre every 10 m to the east, across both cells.
+  const slope = new Terrain({
+    step: 50,
+    minX: 0,
+    minZ: 0,
+    cols: (2 * S) / 50 + 1,
+    rows: S / 50 + 1,
+    heights: Float32Array.from(
+      { length: ((2 * S) / 50 + 1) * (S / 50 + 1) },
+      (_, k) => (k % ((2 * S) / 50 + 1)) * 5,
+    ),
+  });
+  const [west, east] = partition(city, [{ x: S + 5, z: 5, ux: 1, uz: 0, color: 0xffffff }]);
+  const walls = partyWalls(city.buildings, (b) => footing(slope, b.ring));
+  const { mesh, trunksFrom } = buildCell(west!, city.area, walls, slope);
+  // A parasol and a tank stand over the ground east, high up the slope.
+  const e = buildCell(east!, city.area, walls, slope).mesh.build();
+  e.computeBoundingBox();
+  expect(e.boundingBox!.max.y).toBeGreaterThan(slope.height(S + 100, 100) + 15 - 1e-3);
+  const p = unindexed(mesh.build()).getAttribute('position');
+  // The ground, up to the trunks, lies on the slope (or hangs down to the slab's underside).
+  let lowest = Infinity;
+  for (let i = 0; i < trunksFrom; i++) {
+    const over = p.getY(i) - slope.height(p.getX(i), p.getZ(i));
+    lowest = Math.min(lowest, p.getY(i));
+    // Track beds are the highest, a little over the squares.
+    if (p.getY(i) > slabBottom(slope) + 1e-3) expect(Math.abs(over - 0.15)).toBeLessThan(0.16);
+  }
+  expect(lowest).toBeCloseTo(slabBottom(slope));
+  // The first house, x 10 to 18, stands at 1 m, its 10 m roof at 11.
+  const first = Array.from({ length: p.count }, (_, i) => i).filter(
+    (i) => p.getX(i) >= 10 && p.getX(i) <= 18 && p.getZ(i) >= 10 && p.getZ(i) <= 18,
+  );
+  expect(Math.max(...first.map((i) => p.getY(i)))).toBeCloseTo(11);
+  const props = buildFurniture(east!, slope).build();
+  props.computeBoundingBox();
+  expect(props.boundingBox!.min.y).toBeGreaterThan(slope.height(S, 0) - 1);
+});
+
+test('a cell guesses its height from its own ground, down to the slab at the edge', () => {
+  const slope = new Terrain({
+    step: S,
+    minX: 0,
+    minZ: 0,
+    cols: 3,
+    rows: 2,
+    heights: Float32Array.of(0, 10, 20, 0, 10, 20),
+  });
+  const wide = [{ minX: -S, minZ: -S, maxX: 3 * S, maxZ: 2 * S }];
+  const [west, east] = partition(city);
+  expect(groundRange(west!, wide, slope, 0)).toEqual([0, 10]);
+  expect(groundRange(east!, wide, slope, 10)).toEqual([0, 20]);
+  // The area's edge runs through: the slab hangs to its flat underside.
+  expect(groundRange(west!, city.area, slope, 0)).toEqual([slabBottom(slope), 10]);
+});
+
+test('a prop stands on the lowest ground under its footprint', () => {
+  // Rising 0.1 m a metre to the east.
+  const slope = new Terrain({
+    step: 100,
+    minX: -100,
+    minZ: -100,
+    cols: 3,
+    rows: 3,
+    heights: Float32Array.of(-10, 0, 10, -10, 0, 10, -10, 0, 10),
+  });
+  const plinth = { kind: 'statue' as const, x: 20, z: 0, angle: 0, size: 4, width: 4, depth: 2 };
+  const base = propBase(slope, plinth);
+  // A little under the ground at its middle: its west edge is lower.
+  expect(base).toBeLessThan(slope.height(20, 0));
+  expect(base).toBeGreaterThan(slope.height(20, 0) - 0.5);
+  expect(propBase(FLAT, plinth)).toBe(0);
 });

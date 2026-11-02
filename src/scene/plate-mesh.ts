@@ -10,6 +10,8 @@
  * texture is drawn per plate: the atlas is drawn once, from the letters the plates use.
  */
 
+import { pointInRing } from '../data/geometry.ts';
+
 /** Where a slice of the atlas is (0–1 texture coordinates) and how wide it is in plate heights. */
 export interface Slice {
   u0: number;
@@ -283,4 +285,56 @@ export function packCells(
     row = Math.max(row, cell.height);
   }
   return { at, height: 2 ** Math.ceil(Math.log2(Math.max(1, y + row + gutter))) };
+}
+
+/** Squares (m) the footprints are filed in, to find the one a plate hangs on. */
+const FOOTPRINT_CELL = 32;
+const cellKey = (i: number, j: number) => (i + 32768) * 65536 + (j + 32768);
+
+/** Where a house stands, from its footprint, and the ground at a point (m). */
+export interface Ground {
+  footing(ring: ArrayLike<number>): number;
+  height(x: number, z: number): number;
+}
+
+/**
+ * Where the house a plate hangs on stands (`footing`, as the cells lift it), so a plate keeps its
+ * height on the wall wherever the ground is: found from a point just behind the plate, inside
+ * the footprint. Plates on no footprint hang over the ground at their point.
+ */
+export class Footings {
+  readonly #rings: readonly ArrayLike<number>[];
+  readonly #ground: Ground;
+  readonly #cells = new Map<number, number[]>();
+
+  constructor(rings: readonly ArrayLike<number>[], ground: Ground) {
+    this.#rings = rings;
+    this.#ground = ground;
+    const s = FOOTPRINT_CELL;
+    for (const [b, ring] of rings.entries()) {
+      let [minX, minZ, maxX, maxZ] = [Infinity, Infinity, -Infinity, -Infinity];
+      for (let i = 0; i < ring.length; i += 2) {
+        [minX, maxX] = [Math.min(minX, ring[i]!), Math.max(maxX, ring[i]!)];
+        [minZ, maxZ] = [Math.min(minZ, ring[i + 1]!), Math.max(maxZ, ring[i + 1]!)];
+      }
+      for (let i = Math.floor(minX / s); i <= Math.floor(maxX / s); i++) {
+        for (let j = Math.floor(minZ / s); j <= Math.floor(maxZ / s); j++) {
+          const list = this.#cells.get(cellKey(i, j));
+          if (list) list.push(b);
+          else this.#cells.set(cellKey(i, j), [b]);
+        }
+      }
+    }
+  }
+
+  /** The foot of the wall a plate at (x, z), facing `angle`, hangs on. */
+  at(x: number, z: number, angle: number): number {
+    const [px, pz] = [x - Math.cos(angle) * 0.25, z - Math.sin(angle) * 0.25];
+    const s = FOOTPRINT_CELL;
+    for (const b of this.#cells.get(cellKey(Math.floor(px / s), Math.floor(pz / s))) ?? []) {
+      const ring = this.#rings[b]!;
+      if (pointInRing(ring, px, pz)) return this.#ground.footing(ring);
+    }
+    return this.#ground.height(x, z);
+  }
 }

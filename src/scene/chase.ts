@@ -111,14 +111,16 @@ export function zoomStop(distance: number, closer: boolean): number {
 /**
  * The pitch the boom is drawn at, from the one it's aimed at and its length: tilted down as it
  * lengthens (ZOOM_TILT), squeezed toward the top so that looking straight down stays the limit
- * and a drag never meets a dead end, and never so low that the camera sinks under EYE_FLOOR.
+ * and a drag never meets a dead end, and never so low that the camera sinks under EYE_FLOOR over
+ * the street: `rise` is how much higher the ground under the camera is than under the walker.
  */
-export function boomPitch(pitch: number, length: number): number {
+export function boomPitch(pitch: number, length: number, rise = 0): number {
   const top = PITCH_RANGE[1];
   const out = Math.log(length / DISTANCE) / Math.log(DISTANCE_RANGE[1] / DISTANCE);
   const tilt = ZOOM_TILT * clamp(out, [-1, 1]) * (out < 0 ? 0.5 : 1);
   const tilted = pitch + tilt * clamp((top - pitch) / (top - PITCH), [0, 1]);
-  return Math.max(tilted, Math.asin(Math.max(-1, (EYE_FLOOR - LOOK_HEIGHT) / length)));
+  const floor = (EYE_FLOOR + rise - LOOK_HEIGHT) / length;
+  return Math.max(tilted, Math.asin(Math.min(1, Math.max(-1, floor))));
 }
 
 /**
