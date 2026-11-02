@@ -185,7 +185,7 @@ Opening the game should feel like opening a box with a little town in it. The lo
 - **The name on an enamel plate**, a line on what this is, then the **progress**: a striped accent bar and the step under way, each one the app really waits on: "Fetching the map · 286 of 767 KB" (the city file, as its bytes arrive), "Unpacking the city", "Starting the 3D engine" (if its code is still on its way), "Building the streets · 16,367 buildings", then the first frame. Building has no progress of its own, so the bar heads slowly for its end while it works. Screen readers hear each step once, not each kilobyte (`src/app/loading.ts`, `intro.ts`).
 - **The keys** while it loads: click any street to walk there, W A S D (as the keyboard types them), Shift, and ⌘K or Ctrl+K for the rest; on touch, tap a street, left thumb walks, right thumb looks. Under them one tip of four, picked at random.
 - **The reveal:** the words and the town leave like the menu does (opacity, 4 px of blur, 12 px up, 150 ms), and the sky lifts off the first frame (400 ms); then the screen leaves the page.
-- **An error** replaces the progress on the same screen: a plain cause and a focused **Try again**. Never a blank screen.
+- **An error** replaces the progress on the same screen: a plain cause and a focused **Try again**. Never a blank screen. A slow link is no error: only 20 s with nothing arriving (no bytes of the city, no engine) gives up, however long a steady download takes.
 
 ### States
 

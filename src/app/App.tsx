@@ -24,15 +24,19 @@ import { BikeIcon, MenuIcon } from './icons.tsx';
 import { createTurnHold, KEYCAPS, layoutKeycaps, modKey } from './input.ts';
 import type { KeyboardLayout, Keycaps } from './input.ts';
 import { introErrorSlot, removeIntro, showKeys, showStep } from './intro.ts';
-import { loadStep } from './loading.ts';
+import { loadStep, stallWatch, unlessAborted } from './loading.ts';
 import type { LoadState } from './loading.ts';
 import { useShortcuts } from './shortcuts.ts';
 import { StreetSign } from './street-sign.tsx';
 
 type Status = { state: 'loading' } | { state: 'ready' } | { state: 'error'; message: string };
 
-/** A stalled network must end in the retry state, never in an endless loading screen. */
-const LOAD_TIMEOUT_MS = 20_000;
+/**
+ * A stalled network must end in the retry state, never in an endless loading screen: this long
+ * with no bytes and no step done is a stall. A slow link that keeps delivering never trips it
+ * (a deadline for the whole load would fail it on every try).
+ */
+const LOAD_STALL_MS = 20_000;
 
 /** The menu is its own chunk: fetched once the map is up, or as someone reaches for it. */
 const loadMenu = () => import('./command-menu.tsx');
@@ -274,11 +278,15 @@ export function App() {
 
     // A retry skips any cached failure.
     const url = attempt === 0 ? CITY_URL : `${CITY_URL}?retry=${attempt}`;
-    const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(LOAD_TIMEOUT_MS)]);
+    // Every download counts as a sign of life: the city's bytes, and the engine's arrival.
+    const watch = stallWatch(LOAD_STALL_MS);
+    const signal = AbortSignal.any([abort.signal, watch.signal]);
     const city = loadCity(url, signal, (received, total) => {
+      watch.alive();
       [progress.received, progress.total] = [received, total];
       report();
     }).then((loaded) => {
+      watch.alive();
       progress.buildings = loaded.buildings.length;
       report();
       // The network is free while the city is built: the menu's chunk comes now, not later.
@@ -289,12 +297,16 @@ export function App() {
     });
     // The 3D engine is its own chunk: it downloads alongside the city.
     const engine = import('../scene/viewer.ts').then((module) => {
+      watch.alive();
       progress.engine = true;
       report();
       return module;
     });
-    Promise.all([city, engine])
+    // The engine's import can't be aborted, but a stall still ends the wait for it.
+    unlessAborted(Promise.all([city, engine]), signal)
       .then(([loaded, { createViewer }]) => {
+        // Both are here; building the first frame is the device's work, not the network's.
+        watch.stop();
         if (abort.signal.aborted) return;
         const viewer = createViewer({
           canvas,
@@ -342,6 +354,7 @@ export function App() {
         });
       })
       .catch((error: unknown) => {
+        watch.stop();
         if (abort.signal.aborted) return;
         // People get a plain cause and a next step; the console keeps the technical detail.
         const message =
@@ -354,6 +367,7 @@ export function App() {
       });
 
     return () => {
+      watch.stop();
       abort.abort();
       viewerRef.current?.dispose();
       viewerRef.current = null;

@@ -1,7 +1,8 @@
 /**
  * What the loading screen says while the city loads: the step under way, a detail and how far
  * along the bar is. Every step is one the app really waits on: the city file's bytes, unpacking
- * it, the 3D engine's download and building the first frame. Pure.
+ * it, the 3D engine's download and building the first frame. And how the load notices it has
+ * stalled. Pure, but for the timers the stall watch is handed.
  */
 
 export interface LoadState {
@@ -54,4 +55,53 @@ export function loadStep(s: LoadState): LoadStep {
   return s.engine
     ? { step: 'Building the streets', detail: buildings, fraction: BUILDING }
     : { step: 'Starting the 3D engine', detail: buildings, fraction: UNPACKED };
+}
+
+/** What a stall watch waits with: the platform's timers, or a test's. */
+export interface Timers {
+  set(then: () => void, ms: number): unknown;
+  clear(timer: unknown): void;
+}
+
+const TIMERS: Timers = {
+  set: (then, ms) => setTimeout(then, ms),
+  clear: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
+};
+
+export interface StallWatch {
+  /** Aborts, with a TimeoutError, once nothing has happened for the watch's time. */
+  signal: AbortSignal;
+  /** A sign of life (bytes arrived, a step done): the wait starts again. */
+  alive(): void;
+  /** Done: no more waiting. */
+  stop(): void;
+}
+
+/**
+ * Notices a load that has stopped moving, rather than one that is slow: a slow link that keeps
+ * delivering never trips it, however long the whole download takes, and a dead one always does.
+ */
+export function stallWatch(ms: number, timers: Timers = TIMERS): StallWatch {
+  const controller = new AbortController();
+  let timer: unknown;
+  const stop = () => timers.clear(timer);
+  const alive = () => {
+    if (controller.signal.aborted) return;
+    stop();
+    timer = timers.set(() => {
+      controller.abort(new DOMException('The download stalled', 'TimeoutError'));
+    }, ms);
+  };
+  alive();
+  return { signal: controller.signal, alive, stop };
+}
+
+/** `promise`, unless `signal` aborts first: then its reason. For work that can't be aborted. */
+export function unlessAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    if (signal.aborted) return onAbort();
+    signal.addEventListener('abort', onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
+  });
 }
