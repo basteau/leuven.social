@@ -54,9 +54,11 @@ Leuven as a tiny city you could hold in your hands: a warm, crisp, low-poly dior
 
 ### Plates on the facades
 
-- **The city names itself, the way Leuven does.** Every house OSM gives a number carries it on a small enamel plate beside its front, and every street a long plate on a corner building where it meets another (and along any 150 m without a corner), as Belgian streets do. They are part of the city: lit by the sun, in the shade with their wall, hidden behind the houses in front. No labels float over the view.
-- **Enamel in the HUD's colours.** The street plate's `--sign` blue under a `--paper` rim, paper letters (7.6:1), and a thin ink edge so a plate reads on a pale plaster wall as well as on dark brick. Rounded corners and ink sides a few centimetres deep, so from an angle it is a plate, not a sticker. House numbers are bold (800) and fill their plate; street names take the HUD plate's letters (750, a hair of spacing) on a plate as long as the name.
-- **Half again larger than life,** a little more than the walker and the street furniture: a number 30 cm tall at 2.2 m, a street plate 45 cm tall at 3 m (or under a lower eave), so they read from the chase camera across the street, on a phone too.
+- **The city names itself, the way Leuven does.** Every house OSM gives a number carries it on a small enamel plate on its front, over its door where OSM maps the door, and every street a long plate on the corner buildings where it meets another, on both sides of it, so the name reads coming up the crossing street from either way (and along any 150 m without a corner), as Belgian streets do. Numbers that would touch move apart along the wall rather than overlap. They are part of the city: lit by the sun, in the shade with their wall, hidden behind the houses in front. No labels float over the view.
+- **Enamel in the HUD's colours.** The street plate's `--sign` blue under a `--paper` rim, paper letters (7.6:1), and a thin ink edge so a plate reads on a pale plaster wall as well as on dark brick. Rounded corners and ink sides a few centimetres deep, so from an angle it is a plate, not a sticker. House numbers are bold (800) and fill their plate; street names take the HUD plate's letters (750), spaced a little wider than on screen so they stay apart from across the street, on a plate as long as the name.
+- **Half again larger than life,** a little more than the walker and the street furniture: a number 30 cm tall, a street plate 45 cm tall, so they read from the chase camera across the street, on a phone too.
+- **On the plaster, never on the glass.** They hang in the band the windows leave bare between the ground floor and the first: a number just over the doors and windows (over the awning of a shop), the way many Leuven numbers sit on the lintel, and a street plate above it, both under the eaves of a low house. The heights follow each house's own storeys, from its foot, as its windows do.
+- **Flat on the wall.** Each plate takes the facing of the wall as it is drawn and stands a few centimetres off it, its inked sides reaching back into the wall, so none floats, sinks in or z-fights, on a slope or under a hipped roof whose walls stand on a simplified outline.
 - **Only on foot, only nearby:** numbers within 40 m, street plates within 60 m. They don't show on the map or during the flight, and as part of the scene they don't move, so there is nothing to reduce for reduced motion and nothing for screen readers (the street sign names the street).
 
 ### Railways
@@ -98,7 +100,7 @@ Values live in `src/scene/palette.ts`; change them there only. Each building's c
 
 ## HUD
 
-The HUD is a frame round the city: a corner at the top start, the credits and Mute at the top end, a rail of map controls at the bottom end and the mode's one or two actions in the middle of the bottom edge. The middle of the screen stays city.
+The HUD is a frame round the city, the same in every mode: a corner panel at the top start (where you are, and the way back), the credits and Mute at the top end, the hint under them, the mode's one action in the middle of the bottom edge and a rail of view controls at the bottom end. The middle of the screen stays city.
 
 ### Tokens
 
@@ -111,6 +113,7 @@ Tokens are oklch, in `src/app/app.css`:
 | `--accent`, `--accent-press` | KU Leuven-ish blue (the walker's x-ray): the mode's primary action and a toggle that's on                                                      |
 | `--sign`                     | The street plate: the accent's hue a shade deeper. Deeper shades are set by lightness, never mixed with ink, which would turn the blue purple. |
 | `--control`, `--control-big` | 44 px round controls; 60 px for Run                                                                                                            |
+| `--bar`                      | 48 px: the action pills and the corner panel                                                                                                   |
 | `--radius`, `--radius-inner` | 14 px panels; 10 px for what sits inside one, concentric                                                                                       |
 | `--lift`, `--shadow-hard`    | The 3 px hard shadow every control stands on, and the 1 px one it sinks to when pressed                                                        |
 | `--gutter`                   | Edge spacing, 12–20 px with the screen, plus the safe-area insets                                                                              |
@@ -118,7 +121,8 @@ Tokens are oklch, in `src/app/app.css`:
 ### Surfaces
 
 - 2 px ink border and a **hard 3 px drop shadow** with no blur: a nod to pixel UI that needs no transparency.
-- **Pills** for actions and the brand, **circles** for map controls, a 14 px radius (`--radius`) for panels (the walking corner, the loading and error notice, hints). Things that belong together share one outline: the rail's controls one capsule split by a hairline, the walking corner one panel. What sits inside a panel is 2 px in from its 2 px border, with 10 px corners (`--radius-inner`), so they stay concentric.
+- **Pills** for actions, **circles** for view controls, a 14 px radius (`--radius`) for panels (the corner, the loading and error notice, hints). Things that belong together share one outline: zoom and turn are one capsule split by hairlines, the corner one panel. What sits inside a panel is 2 px in from its 2 px border, with 10 px corners (`--radius-inner`), so they stay concentric.
+- **Enamel plates say where you are:** Leuven on the map, the street on foot, in the same place, the HUD's version of the plates on the facades. Nothing that looks like a plate is pressable.
 - Inner radii are concentric (outer radius minus padding).
 
 ### Type
@@ -129,26 +133,28 @@ Tokens are oklch, in `src/app/app.css`:
 
 ### Controls
 
-- **Actions** are pills with an icon and a visible name: the one or two things a mode is for. The primary one is filled with the accent. The shortcut shows as a keycap on devices that have hover.
-- **Map controls** are round, icon only, in a rail at the bottom end, the same place in every mode and in reach of a right thumb: a **compass** whose needle points north on the map and resets the view (R); **zoom in / zoom out** (+ / −; closer and further while walking), so pinch is never the only way to zoom; **turn left / turn right** (Q / E). Each has an accessible name, and shows it with its key as a tip on hover and keyboard focus.
+- **One action per mode**, a pill in the middle of the bottom edge with an icon and a visible name, filled with the accent: Walk, Start here (and Ride or Get off, when riding comes). The shortcut shows as a keycap on devices that have hover.
+- **The way back** is a bare button in the corner panel, before the plate, in every mode that has one: Cancel while picking a start, Map on foot (Esc). Top start is where apps put "back", and it keeps the bottom edge to one action.
+- **View controls** are round, icon only, in a rail at the bottom end, in reach of a right thumb: a **compass** on the map whose needle points north and resets the view (R); then one capsule of **zoom in / zoom out** (+ / −; closer and further while walking), so pinch is never the only way to zoom, and **turn left / turn right** (Q / E). Each has an accessible name, and shows it with its key as a tip on hover and keyboard focus.
+- **A mode's own controls join the rail under the capsule,** nearest the thumb: Run on foot; when riding, Bell, with Run as Sprint. The rail stands on the bottom edge, so what a mode adds pushes nothing sideways and the capsule moves only by the height of what joined.
 - **Turning** acts as the button goes down. A tap is one step, a quarter turn on the map and an eighth on foot; held past 300 ms, the button or key keeps turning (on foot at the held Q/E rate, on the map steadily through the quarter views) until let go, when the map slows onto the next quarter view. Enter and Space press it once. Keys go by keydown and keyup, not the browser's auto-repeat. A sliding thumb or a long press doesn't end the hold or open a menu; letting go, the window losing focus or the mode changing does.
-- Every control is at least 44 px. On narrow screens the rail stands above the actions; on wide ones they share the bottom row. On short screens (a phone on its side) the rail lies down in a row, with Run where the compass was, so it never reaches up to Mute.
-- **Map:** the brand in the corner, the rail, and **Walk** (W) as the primary action. Walking downloads on first use; if that takes over a quarter of a second, the hint says "Getting ready to walk…", and if it fails, "Walking couldn’t load. Check your connection and try again."
-- **Picking a start:** a reticle in the middle of the view, a hint ("Click a street to start there, or press Enter for the middle." / "Tap a street, or move the map and tap Start here."), and **Cancel** (Esc) / **Start here** (Enter).
-- **Walking:** the corner is one panel, 48 px tall like the actions: a bare **Map** button (Esc) and the street plate beside it. The rail turns and zooms the camera, with **Run** under it: a big round toggle, filled while on, labelled, under the right thumb.
+- Every control is at least 44 px. The action and the rail share the bottom row at every width (the action in the middle, the rail at the end), so a hint never pushes the controls about. On short screens (a phone on its side) the rail and its capsule lie down in a row, with Run where the compass was, so it never reaches up to Mute; tips then open above.
+- **Map:** the Leuven plate in the corner, the rail, and **Walk** (W). Walking downloads on first use; if that takes over a quarter of a second, the hint says "Getting ready to walk…", and if it fails, "Walking couldn’t load. Check your connection and try again."
+- **Picking a start:** a reticle in the middle of the view, a hint ("Click a street to start there, or press Enter for the middle." / "Tap a street, or move the map and tap Start here."), **Cancel** (Esc) in the corner and **Start here** (Enter). The rail stays as it was on the map.
+- **Walking:** the corner holds a bare **Map** button (Esc) and the street plate. The compass goes, and **Run** joins the rail under the capsule: a big round toggle, filled while on, labelled, under the right thumb.
 - **On touch,** a thumb that lands on the left of the screen grows a stick under it (ink ring, paper knob) and steers; anywhere else it looks around. Pushed to the rim, the stick runs.
 - A spot that can't be walked to says so in the hint ("Can’t walk there. Pick a street or square.") until the next try.
 
 ### The street plate
 
 - **Only while walking**, and only when the walker is on a named square or within 20 m of a named street. Names are OpenStreetMap's (`src/data/streets.ts`): a square wins over the streets round it, and at a corner the street already on the plate stays until another is 4 m closer, so it doesn't flicker.
-- **An enamel plate inset in the corner panel,** beside the Map button: accent-blue (`--sign`) under a paper rim, paper text, 14 px, centred, two balanced lines at most (up to 17 rem wide). It has no border or shadow of its own: the panel's ink outline and hard shadow hold both, so it reads as part of the HUD, and never sits in the middle of the view. The Map button keeps its size; a long name wraps instead.
+- **An enamel plate inset in the corner panel,** beside the Map button, where the Leuven plate is on the map: accent-blue (`--sign`) under a paper rim, paper text, 14 px, centred, two balanced lines at most (up to 17 rem wide). It has no border or shadow of its own: the panel's ink outline and hard shadow hold both, so it reads as part of the HUD, and never sits in the middle of the view. The Map button keeps its size; a long name wraps instead.
 - It slides in from the Map button's side, and each new name slides in after it (240–300 ms ease-out); with reduced motion, names only fade.
 - It's a polite live region ("On Brusselsestraat"), so screen readers hear each new street once.
 
 ### Hints and coaching
 
-- One line, in a paper panel above the actions, always in the page (empty when there's nothing to say) so screen readers hear it change. It lets taps through to the map.
+- One or two lines, in a paper panel centred under the top corners, clear of both thumbs and the controls, always in the page (empty when there's nothing to say) so screen readers hear it change. It lets taps through to the map.
 - **The first walk** is coached: keycaps (W A S D, Shift, drag, click) where there's a fine pointer; "Left thumb walks, right thumb looks" and a dashed ghost of the stick where the left thumb goes on touch. It stays until four seconds after the first step, and isn't shown again on that device (`localStorage`; if storage is blocked, it shows each walk). Everything it teaches is also on the controls' tips and in the map's description.
 
 ### States
@@ -164,7 +170,7 @@ Tokens are oklch, in `src/app/app.css`:
 
 - The data licences (ODbL for OpenStreetMap, GRB terms) require visible credit. OSM's attribution guidelines allow it to collapse only after it was shown.
 - It sits in the top-end corner: "© OpenStreetMap" and "© Digitaal Vlaanderen" as two 10 px linked lines with a paper halo (each a 24 px target, reaching out above and below), beside (or, on narrow headers, under) a 20 px © button with a 44 px hit area.
-- It collapses to just the © after 5 seconds or on the first pan, zoom or click; the © brings it back. The smoke test fails if the credit isn't visible at start.
+- It collapses to just the © after 5 seconds, on the first pan, zoom or click, or when a walk starts; the © brings it back. The smoke test fails if the credit isn't visible at start.
 
 ### No labels on the map
 
@@ -173,7 +179,7 @@ Places aren't named over the city: floating tags covered the very streets they n
 ### Keyboard
 
 - The map is one focusable widget (`role="application"`, focused on load without a ring).
-- Arrow keys pan, `+`/`-` zoom, Q/E turn, R resets, W starts a walk. M mutes or unmutes, in every mode.
+- Arrow keys pan, `+`/`-` zoom, Q/E turn, R resets (also while picking a start), W starts a walk. M mutes or unmutes, in every mode.
 - W A S D and Q E go by where they sit on the keyboard, on the map as on foot, so on AZERTY they are Z Q S D and A E. Hints, tips and the map's description name them as the keyboard in use types them, where the browser can say (QWERTY's letters otherwise). Keys named for what they do (M, R) go by letter.
 - Picking a start: Enter starts in the middle of the view, Escape cancels.
 - Walking: W A S D or the arrow keys walk relative to the screen, Shift runs, holding Q/E turns the view, `+`/`-` bring the camera closer or further, Escape returns to the map. Clicking or tapping a street walks there along a route, shown as a quiet trail of small dots that shrink toward a thin ring. On the move the camera drifts back behind the walker a moment after the last look around.

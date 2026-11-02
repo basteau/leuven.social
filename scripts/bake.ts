@@ -34,9 +34,10 @@ import {
   junctions,
   placeHouseNumbers,
   placeStreetPlates,
+  plateText,
   streetSegments,
 } from '../src/data/plate-placement.ts';
-import type { Address } from '../src/data/plate-placement.ts';
+import type { Address, Door } from '../src/data/plate-placement.ts';
 import { STREET_PLATE_HEIGHT, packWalk } from '../src/data/plates.ts';
 import {
   areaIndex,
@@ -214,6 +215,7 @@ const [
   osmPlatforms,
   osmBuildings,
   landform,
+  osmEntrances,
 ] = await Promise.all([
   read<{ buildings: LocalBuilding[] }>('derived/leuven_buildings_local.json'),
   read<{ trees: [number, number, number][] }>('derived/lidar_trees.json'),
@@ -230,6 +232,7 @@ const [
   read<Overpass>('osm/rail_platforms.json'),
   read<Overpass>('osm/buildings.json'),
   read<TerrainJson>('derived/terrain.json'),
+  read<{ elements: { lat: number; lon: number; tags: Props }[] }>('osm/entrances.json'),
 ]);
 
 const buildings: Building[] = [];
@@ -673,10 +676,19 @@ const addresses: Address[] = [
       : [],
   ),
 ];
+// The doors people walk in by: not garages, service or emergency doors.
+const DOOR = /^(yes|main|home|staircase|shop|office)$/;
+const doors: Door[] = osmEntrances.elements.flatMap(({ lat, lon, tags }) => {
+  if (!DOOR.test(tags.entrance ?? '')) return [];
+  const [x, z] = toLocal(lon, lat);
+  const number = tags['addr:housenumber'];
+  return [{ x, z, number: number ? plateText(number) : null }];
+});
 const houses = placeHouseNumbers(addresses, facades, segments, {
   squares: namedSquares,
   open: (x, z) => publicGround.contains(x, z),
   skip: landmarks,
+  doors,
 });
 const streetPlates = placeStreetPlates({
   junctions: junctions(

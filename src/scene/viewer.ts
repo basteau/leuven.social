@@ -30,7 +30,7 @@ import type { City } from '../data/city.ts';
 import { clampToArea } from '../data/geometry.ts';
 import type { StreetIndex } from '../data/streets.ts';
 import { Terrain } from '../data/terrain.ts';
-import { footing, partyWalls, wallTop } from './buildings.ts';
+import { facadeOf, footing, partyWalls, wallTop } from './buildings.ts';
 import { AWNING } from './facade-codes.ts';
 import type { PartyWalls } from './buildings.ts';
 import { buildCell, groundRange, partition } from './cells.ts';
@@ -860,10 +860,8 @@ export function createViewer(options: ViewerOptions): Viewer {
           },
           scene,
           city,
-          ground: {
-            footing: (ring) => footing(terrain, ring),
-            height: (x, z) => terrain.height(x, z),
-          },
+          facade: (b) => ({ ...facadeOf(b), foot: footing(terrain, b.ring) }),
+          height: (x, z) => terrain.height(x, z),
           gradientMap,
           anisotropy: Math.min(8, renderer.capabilities.getMaxAnisotropy()),
           compile: (object) => renderer.compileAsync(object, view, scene),

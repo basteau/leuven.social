@@ -191,6 +191,19 @@ export const SOURCES: readonly Source[] = [
     usedBy: 'tools/build_leuven_data.py: the axis and length of benches and racks drawn as ways',
   },
   {
+    id: 'osm-entrances',
+    provider: 'osm',
+    kind: 'overpass',
+    title: 'Entrances mapped on buildings: the doors house numbers hang by',
+    // A regex, not a bare key, as in osm-points: read from history, Overpass would look the key
+    // up worldwide before cutting it to the box.
+    statements: 'node["entrance"~"."];',
+    out: 'tags center',
+    tile: OVERPASS_TILE,
+    output: 'osm/entrances.json',
+    usedBy: 'bake: the doors the house numbers hang over',
+  },
+  {
     id: 'osm-rail-platforms',
     provider: 'osm',
     kind: 'overpass',

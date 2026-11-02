@@ -5,7 +5,7 @@
  */
 
 import { pointInRing } from './geometry.ts';
-import { PROUD } from './plates.ts';
+import { HOUSE_PLATE_HEIGHT, PROUD } from './plates.ts';
 import type { HousePlate, StreetPlate } from './plates.ts';
 
 /** Walls shorter than this (m) take no plate: corners, bay windows, survey noise. */
@@ -20,8 +20,14 @@ export const NUMBER_REACH = 40;
 const FRONT = 2;
 /** A wall faces a street when its normal is within 60° of the way to the street. */
 const NUMBER_FACING = 0.5;
-/** Two house numbers closer than this (m) would overlap: the later one is left out. */
-const CROWDED = 0.45;
+/** Space (m) kept between two house numbers' plates. */
+const NUMBER_GAP = 0.1;
+/** How far (m) a number may move along its wall to clear one already there, either way. */
+const SLIDES = [0, 0.25, -0.25, 0.5, -0.5, 0.75, -0.75, 1, -1];
+/** A mapped door this far (m) off a front wall's line is in it (OSM's outlines and the GRB's differ). */
+const DOOR_OFF = 1;
+/** ...and is its address's door when this far along the wall (m) from the address, at most. */
+const DOOR_ALONG = 6;
 /** Longer house numbers would make the plate a street sign. */
 export const MAX_TEXT = 8;
 
@@ -37,8 +43,10 @@ export const STRETCH = 150;
 const STRETCH_STEP = 25;
 /** Plates of one street are at least this far apart (m) at junctions. */
 const SAME_NAME_GAP = 30;
-/** A street plate hangs this high (m), or half a metre under a lower eave. */
-export const STREET_PLATE_Y = 3;
+/** Buildings lower than this (m) take no street plate: garages, sheds, kiosks. */
+export const MIN_EAVE = 3;
+/** Plates of one street on opposite sides: their walls face at least this far apart (cosine). */
+const OPPOSITE = -0.5;
 /** Line of sight from a wall to its street is checked every this many metres. */
 const SIGHT_STEP = 1;
 
@@ -67,6 +75,10 @@ export function plateText(raw: string): string | null {
  */
 export const streetPlateWidth = (name: string, height: number) =>
   height * (0.6 + 0.3 * name.length);
+
+/** A house number's plate width (m), estimated the same way: its caps and bold figures. */
+export const housePlateWidth = (text: string, height = HOUSE_PLATE_HEIGHT) =>
+  height * Math.max(1.45, 0.56 + 0.36 * text.length);
 
 const key = (i: number, j: number) => (i + 32768) * 65536 + (j + 32768);
 
@@ -360,6 +372,18 @@ class Spots {
     if (list) list.push([x, z, tag]);
     else this.#cells.set(k, [[x, z, tag]]);
   }
+  /** Whether a plate `half` wide either side of (x, z) would touch one filed with its half width. */
+  touches(x: number, z: number, half: number, gap: number): boolean {
+    const [ci, cj] = [Math.floor(x / 8), Math.floor(z / 8)];
+    for (let i = ci - 1; i <= ci + 1; i++) {
+      for (let j = cj - 1; j <= cj + 1; j++) {
+        for (const [sx, sz, h] of this.#cells.get(key(i, j)) ?? []) {
+          if (Math.hypot(sx - x, sz - z) < half + h + gap) return true;
+        }
+      }
+    }
+    return false;
+  }
   /** Whether a spot (with this tag, unless -1) lies within `reach` (at most 8 m) of (x, z). */
   near(x: number, z: number, reach: number, tag = -1): boolean {
     const [ci, cj] = [Math.floor(x / 8), Math.floor(z / 8)];
@@ -374,13 +398,72 @@ class Spots {
   }
 }
 
+/** A door OSM maps on a building (`entrance`), with the number it carries, if any. */
+export interface Door {
+  x: number;
+  z: number;
+  number: string | null;
+}
+
+/** Mapped doors filed by square, each taken by one number at most. */
+class Doors {
+  readonly #doors: readonly Door[];
+  readonly #cells = new Map<number, number[]>();
+  readonly #taken = new Set<number>();
+
+  constructor(doors: readonly Door[]) {
+    this.#doors = doors;
+    for (const [i, { x, z }] of doors.entries())
+      push(this.#cells, key(Math.floor(x / 8), Math.floor(z / 8)), i);
+  }
+
+  /**
+   * The door in wall `w` for the number `text` whose address meets the wall `t` metres along:
+   * one carrying that number, else the nearest within DOOR_ALONG. Returns how far along the wall
+   * it is, and takes it, or null.
+   */
+  take(facades: Facades, w: number, t: number, text: string): number | null {
+    const { ax, az, ux, uz, nx, nz, length } = facades.walls[w]!;
+    let best: { i: number; along: number; rank: number } | undefined;
+    const [x0, z0, x1, z1] = [ax, az, ax + ux * length, az + uz * length];
+    for (
+      let ci = Math.floor((Math.min(x0, x1) - DOOR_OFF) / 8);
+      ci <= Math.floor((Math.max(x0, x1) + DOOR_OFF) / 8);
+      ci++
+    ) {
+      for (
+        let cj = Math.floor((Math.min(z0, z1) - DOOR_OFF) / 8);
+        cj <= Math.floor((Math.max(z0, z1) + DOOR_OFF) / 8);
+        cj++
+      ) {
+        for (const i of this.#cells.get(key(ci, cj)) ?? []) {
+          if (this.#taken.has(i)) continue;
+          const door = this.#doors[i]!;
+          const along = (door.x - ax) * ux + (door.z - az) * uz;
+          const off = Math.abs((door.x - ax) * nx + (door.z - az) * nz);
+          if (off > DOOR_OFF || along < 0 || along > length) continue;
+          const rank = door.number === text ? -1 : Math.abs(along - t);
+          if (rank > DOOR_ALONG) continue;
+          if (!best || rank < best.rank || (rank === best.rank && i < best.i))
+            best = { i, along, rank };
+        }
+      }
+    }
+    if (!best) return null;
+    this.#taken.add(best.i);
+    return best.along;
+  }
+}
+
 /**
  * Hangs each address's number on its footprint: the drawn footprint it lies in (or the nearest
- * within FOOTPRINT_REACH), where the address's own point meets the wall (so a block with several
- * addresses spreads them along its front). The wall is the one on its square, else the nearest
- * that faces its street and sees it past the other buildings, else (a house down a lane or in a
- * court) the one nearest its street that opens onto public ground. Duplicates (a building and a
- * shop inside it with the same address) hang once.
+ * within FOOTPRINT_REACH), over its door where OSM maps one in that wall, else where the address's
+ * own point meets the wall (so a block with several addresses spreads them along its front). The
+ * wall is the one on its square, else the nearest that faces its street and sees it past the
+ * other buildings, else (a house down a lane or in a court) the one nearest its street that opens
+ * onto public ground. A number that would touch one already there moves along its wall to clear
+ * it, a metre at most. Duplicates (a building and a shop inside it with the same address) hang
+ * once.
  */
 export function placeHouseNumbers(
   addresses: readonly Address[],
@@ -393,10 +476,13 @@ export function placeHouseNumbers(
     open?: (x: number, z: number) => boolean;
     /** Buildings that take no plate: landmark models stand proud of their footprints. */
     skip?: ReadonlySet<number>;
+    /** The doors OSM maps on buildings. */
+    doors?: readonly Door[];
   } = {},
 ): Placed<HousePlate> {
   const { squares = new Map<number, ArrayLike<number>[]>(), open = () => false } = around;
   const { skip = new Set<number>() } = around;
+  const doors = new Doors(around.doors ?? []);
   const plates: HousePlate[] = [];
   const skipped: Record<string, number> = {};
   const placed: Record<string, number> = {};
@@ -432,15 +518,26 @@ export function placeHouseNumbers(
       miss('no wall facing the street');
       continue;
     }
-    const { nx, nz } = facades.walls[found.w]!;
-    const [px, pz] = [found.px + nx * PROUD, found.pz + nz * PROUD];
-    if (spots.near(px, pz, CROWDED)) {
+    const { nx, nz, length } = facades.walls[found.w]!;
+    const half = housePlateWidth(text) / 2;
+    const margin = Math.min(length / 2, Math.max(NUMBER_MARGIN, half + NUMBER_GAP));
+    const door = doors.take(facades, found.w, facades.project(found.w, found.px, found.pz), text);
+    const t = door ?? facades.project(found.w, found.px, found.pz);
+    const clear = SLIDES.map((o) => Math.min(length - margin, Math.max(margin, t + o)))
+      .map((u) => {
+        const [px, pz] = facades.along(found.w, u);
+        return [px + nx * PROUD, pz + nz * PROUD] as const;
+      })
+      .find(([px, pz]) => !spots.touches(px, pz, half, NUMBER_GAP));
+    if (!clear) {
       miss('crowded');
       continue;
     }
+    const [px, pz] = clear;
     seen.add(id);
-    spots.add(px, pz, 0);
+    spots.add(px, pz, half);
     placed[found.how] = (placed[found.how] ?? 0) + 1;
+    if (door !== null) placed['over a mapped door'] = (placed['over a mapped door'] ?? 0) + 1;
     plates.push({ x: px, z: pz, angle: Math.atan2(nz, nx), text });
   }
   return { plates, skipped, placed };
@@ -488,7 +585,7 @@ export interface StreetPlateInput {
   lines: readonly { name: number; line: ArrayLike<number> }[];
   /** The name table, for each plate's width. */
   names: readonly string[];
-  /** Each building's eave (m), by its place in the list: a plate hangs under it. */
+  /** Each building's eave (m), by its place in the list: a low one takes no plate. */
   eaves: ArrayLike<number>;
   /** A street plate's height (m), for its width. */
   height: number;
@@ -496,9 +593,11 @@ export interface StreetPlateInput {
 }
 
 /**
- * A plate for each street at each junction, on the corner building nearest it: the wall that
- * faces that street squarely, the point on it nearest the junction (its ends kept clear). Then
- * one wherever a street runs STRETCH metres without one.
+ * Plates for each street at each junction, on the corner buildings nearest it: the wall that
+ * faces that street squarely, the point on it nearest the junction (its ends kept clear), and
+ * then one on the street's other side, so the name reads coming up the crossing street either
+ * way. A side that has a plate of the name within SAME_NAME_GAP already takes none. Then one
+ * wherever a street runs STRETCH metres without one.
  */
 export function placeStreetPlates(input: StreetPlateInput): Placed<StreetPlate> {
   const { facades, streets, names, eaves, height, skip = new Set() } = input;
@@ -506,13 +605,22 @@ export function placeStreetPlates(input: StreetPlateInput): Placed<StreetPlate> 
   const skipped: Record<string, number> = {};
   const counts = { junction: 0, stretch: 0 };
   const spots = new Spots();
-  /** Plates placed per street, for the gap between plates of one name. */
-  const byName = new Map<number, [number, number][]>();
-  const nearSame = (name: number, x: number, z: number, gap: number) =>
-    (byName.get(name) ?? []).some(([px, pz]) => Math.hypot(px - x, pz - z) < gap);
+  /** Plates placed per street, for the gap between plates of one name (on one side). */
+  const byName = new Map<number, StreetPlate[]>();
+  const nearSame = (name: number, x: number, z: number, gap: number, nx?: number, nz = 0) =>
+    (byName.get(name) ?? []).some(
+      (p) =>
+        Math.hypot(p.x - x, p.z - z) < gap &&
+        (nx === undefined || Math.cos(p.angle) * nx + Math.sin(p.angle) * nz > 0.5),
+    );
 
-  /** The best wall near (x, z) for a plate of `name`, or null. */
-  function hang(name: number, x: number, z: number): StreetPlate | null {
+  /** The best wall near (x, z) for a plate of `name` whose facing `fits`, or null. */
+  function hang(
+    name: number,
+    x: number,
+    z: number,
+    fits: (nx: number, nz: number) => boolean = () => true,
+  ): StreetPlate | null {
     const segments = streets.get(name);
     if (!segments) return null;
     const half = streetPlateWidth(names[name]!, height) / 2 + 0.15;
@@ -528,11 +636,10 @@ export function placeStreetPlates(input: StreetPlateInput): Placed<StreetPlate> 
     for (const { w, px, pz } of options) {
       if (facesStreet(facades, w, px, pz, segments, STREET_REACH, STREET_FACING) < 0) continue;
       const { nx, nz, building } = facades.walls[w]!;
+      if (!fits(nx, nz) || (eaves[building] ?? 0) < MIN_EAVE) continue;
       const [sx, sz] = [px + nx * PROUD, pz + nz * PROUD];
       if (spots.near(sx, sz, half * 2)) continue;
-      const y = Math.min(STREET_PLATE_Y, (eaves[building] ?? 0) - 0.5);
-      if (y < height) continue;
-      return { x: sx, z: sz, y, angle: Math.atan2(nz, nx), name };
+      return { x: sx, z: sz, angle: Math.atan2(nz, nx), name };
     }
     return null;
   }
@@ -540,18 +647,44 @@ export function placeStreetPlates(input: StreetPlateInput): Placed<StreetPlate> 
     plates.push(plate);
     spots.add(plate.x, plate.z, plate.name);
     const list = byName.get(plate.name) ?? [];
-    list.push([plate.x, plate.z]);
+    list.push(plate);
     byName.set(plate.name, list);
   };
 
   for (const j of input.junctions) {
     for (const name of j.names) {
-      if (nearSame(name, j.x, j.z, SAME_NAME_GAP)) continue;
-      const plate = hang(name, j.x, j.z);
-      if (plate) {
-        add(plate);
+      if (nearSame(name, j.x, j.z, SAME_NAME_GAP)) {
+        // One side has its plate: the other may still want one.
+        const had = (byName.get(name) ?? []).find(
+          (p) => Math.hypot(p.x - j.x, p.z - j.z) < SAME_NAME_GAP,
+        );
+        const [hx, hz] = [Math.cos(had!.angle), Math.sin(had!.angle)];
+        const other = hang(
+          name,
+          j.x,
+          j.z,
+          (nx, nz) =>
+            nx * hx + nz * hz < OPPOSITE && !nearSame(name, j.x, j.z, SAME_NAME_GAP, nx, nz),
+        );
+        if (other) {
+          add(other);
+          counts.junction++;
+        }
+        continue;
+      }
+      const first = hang(name, j.x, j.z);
+      if (!first) {
+        skipped['no corner wall'] = (skipped['no corner wall'] ?? 0) + 1;
+        continue;
+      }
+      add(first);
+      counts.junction++;
+      const [fx, fz] = [Math.cos(first.angle), Math.sin(first.angle)];
+      const other = hang(name, j.x, j.z, (nx, nz) => nx * fx + nz * fz < OPPOSITE);
+      if (other) {
+        add(other);
         counts.junction++;
-      } else skipped['no corner wall'] = (skipped['no corner wall'] ?? 0) + 1;
+      }
     }
   }
   for (const { name, line } of input.lines) {
