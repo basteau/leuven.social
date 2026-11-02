@@ -521,6 +521,64 @@ def furniture_shape(e):
     return middle, math.degrees(math.atan2(bx - ax, by - ay)) % 360, sum(math.dist(a, b) for a, b in segments)
 
 
+# --- Monuments: the plinth the GRB maps under each, and its height in the LiDAR ---------------------------------------
+# GRB structures of type 3 ("cultuur-historisch monument") are the plinths and basins of statues and fountains. A
+# monument point within 2 m of one takes its rectangle: the bearing of its long side, its length and width (m). The
+# LiDAR's height (DSM - DTM, plinth included) counts only for a compact object with open ground round it: on its plinth,
+# or within 1.5 m of the point, its highest pixel of 0.8 m and up; then, under 12 m without a plinth (a taller one is a
+# crown), at most 8 pixels within 2.5 m above 0.3 of that (no crown, no wall), and under a quarter of the ring 2-4 m out
+# from it (3.5-5.5 m without one) over 1.5 m. Statues set up after the 2013-15 flight, or under a tree, get none.
+MONUMENT_POINT = lambda t: (t.get('tourism') == 'artwork' or 'memorial' in t or t.get('amenity') == 'fountain'
+                            or t.get('man_made') == 'water_well' or t.get('historic') in ('memorial', 'monument', 'wayside_shrine', 'wayside_cross'))
+plinths = [make_valid(shape(f['geometry'])) for f in json.load(open(DATA / 'grb/grb_KNW.geojson'))['features']
+           if f['properties']['TYPE'] == 3]
+plinths = [g for g in plinths if g.geom_type == 'Polygon']
+plinths_local = [shapely.transform(g, lambda a: np.column_stack(((a[:, 0] - ORIGIN[0]) * kx, (a[:, 1] - ORIGIN[1]) * kz)))
+                 for g in plinths]  # x east, y north
+plinths_l72 = [shapely.transform(g, lambda a: np.column_stack(to_lambert(a[:, 0], a[:, 1]))) for g in plinths]
+plinth_index = STRtree(plinths_local)
+
+
+def heights_in(area):
+    """LiDAR heights (DSM - DTM, m, gaps as 0) of the pixels whose centres lie in an area (Lambert 72)."""
+    minx, miny, maxx, maxy = area.bounds
+    c0, c1 = max(0, int((minx - X0) / RES)), min(dtm.shape[1], int((maxx - X0) / RES) + 1)
+    r0, r1 = max(0, int((Y1 - maxy) / RES)), min(dtm.shape[0], int((Y1 - miny) / RES) + 1)
+    if c1 <= c0 or r1 <= r0:
+        return np.zeros(0, np.float32)
+    cs, rs = np.meshgrid(np.arange(c0, c1), np.arange(r0, r1))
+    h = np.nan_to_num(ndsm[r0:r1, c0:c1][contains_xy(area, X0 + (cs + 0.5) * RES, Y1 - (rs + 0.5) * RES)])
+    return h
+
+
+def monument_survey(lon, lat):
+    """`_bearing`, `_length` and `_width` of the GRB plinth under a monument, and its LiDAR `_height`, as tags."""
+    tags = {}
+    here = Point((lon - ORIGIN[0]) * kx, (lat - ORIGIN[1]) * kz)
+    near = sorted(((plinths_local[i].distance(here), int(i)) for i in plinth_index.query(here.buffer(2))))
+    x, y = to_lambert(lon, lat)
+    if near and near[0][0] <= 2:
+        i = near[0][1]
+        box = shapely.oriented_envelope(plinths_local[i])
+        c = box.exterior.coords
+        (ax, ay), (bx, by) = max([(c[0], c[1]), (c[1], c[2])], key=lambda s: math.dist(*s))
+        tags |= {'_bearing': f'{math.degrees(math.atan2(bx - ax, by - ay)) % 180:.1f}', '_length': f'{math.dist((ax, ay), (bx, by)):.1f}',
+                 '_width': f'{min(math.dist(c[0], c[1]), math.dist(c[1], c[2])):.1f}'}
+        g = plinths_l72[i]
+        top, body, ring, most = g.buffer(0.5), None, g.buffer(4).difference(g.buffer(2)), 40
+    else:
+        p = Point(x, y)
+        top, body, ring, most = p.buffer(1.5), p.buffer(2.5), p.buffer(5.5).difference(p.buffer(3.5)), 12
+    h = heights_in(top)
+    peak = float(h.max()) if len(h) else 0.0
+    around = heights_in(ring)
+    open_round = len(around) and float((around > 1.5).mean()) < 0.25
+    compact = body is None or int((heights_in(body) > max(0.5, 0.3 * peak)).sum()) <= 8
+    if 0.8 <= peak <= most and open_round and compact:
+        tags['_height'] = f'{peak:.1f}'
+    return tags
+
+
 furniture = {e['id']: e for e in osm_elements('furniture_ways')}
 pts = []
 for e in osm_elements('points'):
@@ -532,12 +590,15 @@ for e in osm_elements('points'):
     if shaped:  # as strings, like the tags they sit among
         ll = shaped[0] or ll
         props |= {'_bearing': f'{shaped[1]:.1f}', '_length': f'{shaped[2]:.1f}'}
+    if MONUMENT_POINT(props):
+        props |= monument_survey(*ll)
     pts.append({'type': 'Feature', 'properties': props, 'geometry': mapping(Point(ll))})
 json.dump({'type': 'FeatureCollection', 'features': pts}, open(OUT / 'osm_points.geojson', 'w'), separators=(',', ':'))
 cnt = lambda k, v=None: sum(1 for p in pts if (k in p['properties']) and (v is None or p['properties'][k] in v))
 print(f'roads {len(roads)}, areas {len(areas)}, points {len(pts)}: trees {cnt("natural", ["tree"])}, '
       f'bars/pubs/cafes {cnt("amenity", ["bar", "pub", "cafe"])}, restaurants {cnt("amenity", ["restaurant", "fast_food"])}, '
-      f'bike parkings {cnt("amenity", ["bicycle_parking"])}, historic {cnt("historic")}, tourism {cnt("tourism")}')
+      f'bike parkings {cnt("amenity", ["bicycle_parking"])}, historic {cnt("historic")}, tourism {cnt("tourism")}, '
+      f'monuments on a GRB plinth {cnt("_width")}, with a LiDAR height {cnt("_height")}')
 
 # --- Road surfaces ---------------------------------------------------------------------------------------------------
 import build_road_zones  # tools/build_road_zones.py, beside this script
