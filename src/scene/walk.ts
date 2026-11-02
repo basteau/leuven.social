@@ -29,8 +29,10 @@ import { CHARACTER_SCALE, applyPose, createCharacter, poseAt, restPose } from '.
 import type { Character } from './character.ts';
 import {
   CHASE_FOV,
+  DISTANCE,
   LOOK_HEIGHT,
   MAP_FOV,
+  PITCH,
   boomDirection,
   boomPitch,
   chaseFov,
@@ -44,6 +46,7 @@ import {
   freeLength,
   headLook,
   mapYaw,
+  openYaw,
   recentre,
   recentreWeight,
   spanAt,
@@ -447,7 +450,13 @@ export function createWalk(host: WalkHost): Walk {
     if (cut) crossFade();
     // From wherever the camera is: the map, or part way along a flight.
     const midway = !cut && flying !== 0;
-    const yaw = midway ? lens.yaw : host.yaw();
+    const from = midway ? lens.yaw : host.yaw();
+    // Behind the walker, unless a house is in the way there: then from the nearest side that
+    // sees it, rather than landing straight overhead, with the street ahead of the walker.
+    [lookAt[0], lookAt[1], lookAt[2]] = [x, host.groundAt(x, z) + FEET_Y + LOOK_HEIGHT, z];
+    const ahead = (at: number) =>
+      [1.5, 3, 4.5].every((d) => ensureGrid().walkable(x - Math.sin(at) * d, z - Math.cos(at) * d));
+    const yaw = openYaw(heightAt, lookAt, from, DISTANCE, boomPitch(PITCH, DISTANCE), ahead);
     // Stepping into the picture: facing away from the camera, which stays behind.
     walker = createWalker(x, z, wrap(yaw + Math.PI));
     onFeet = false;
@@ -469,7 +478,6 @@ export function createWalk(host: WalkHost): Walk {
     } catch {}
     head = 0;
     clearRoute();
-    [lookAt[0], lookAt[1], lookAt[2]] = [x, host.groundAt(x, z) + FEET_Y + LOOK_HEIGHT, z];
     if (midway) {
       Object.assign(mapShot, {
         yaw: lens.yaw,
@@ -480,7 +488,12 @@ export function createWalk(host: WalkHost): Walk {
       [mapShot.look[0], mapShot.look[1], mapShot.look[2]] = lens.look;
     } else {
       const t = controls.target;
-      Object.assign(mapShot, { yaw, pitch: ISO_PITCH, fov: MAP_FOV, span: mapSpan(camera.zoom) });
+      Object.assign(mapShot, {
+        yaw: from,
+        pitch: ISO_PITCH,
+        fov: MAP_FOV,
+        span: mapSpan(camera.zoom),
+      });
       [mapShot.look[0], mapShot.look[1], mapShot.look[2]] = [t.x, t.y, t.z];
     }
     flown = cut ? 1 : 0;
