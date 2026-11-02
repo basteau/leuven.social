@@ -45,6 +45,7 @@ const city: City = {
   streets: [],
   plazaNames: [0],
   terrain: FLAT_GRID,
+  fronts: [],
 };
 
 /** How far the drawn mesh reaches from (x, z) at its foot, below `y`. */
