@@ -13,8 +13,9 @@ import { drawnGround } from './drawn-ground.ts';
 import type { LayerHeights } from './ground.ts';
 import type { MeshBuilder } from './mesh-builder.ts';
 import { addProp, isLarge } from './props.ts';
-import { addStorefronts } from './storefronts.ts';
+import { addCafeTable, addStorefronts } from './storefronts.ts';
 import type { StorefrontKit } from './storefronts.ts';
+import { PARASOLS, PROPS } from './palette.ts';
 
 /**
  * Where a prop stands: the lowest ground under its footprint's corners, as drawn (the terrain
@@ -68,6 +69,13 @@ export function buildFurniture(cell: Cell, kit: FurnitureKit): Furniture {
     const mesh = isLarge(p) ? (tall ??= new MeshBuilder()) : near;
     mesh.lift = propBase(drawn, p);
     addProp(mesh, p, mesh === near ? bikes : undefined, drawn.height);
+  }
+  // A table under each café parasol, its chairs in the café's colour (wood under cream).
+  for (const p of cell.parasols) {
+    const seed = Math.round(p.x * 7.3 + p.z * 13.1);
+    near.lift = drawn.height(p.x, p.z);
+    const chair = p.color === PARASOLS[0] ? PROPS.wood : p.color;
+    addCafeTable(near, p.x, p.z, p.ux, p.uz, 2 + (((seed % 3) + 3) % 3), chair, seed, false);
   }
   const awnings = cell.fronts.length > 0 ? new MeshBuilder() : null;
   if (awnings) addStorefronts(near, awnings, cell.fronts, kit, drawn.height);

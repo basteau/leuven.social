@@ -14,7 +14,7 @@ import { FLAT } from '../data/terrain.ts';
 import type { Terrain } from '../data/terrain.ts';
 import { addBuilding, footing } from './buildings.ts';
 import type { PartyWalls } from './buildings.ts';
-import { addGround, addSlabInk, slabBottom } from './ground.ts';
+import { LAYER_Y, addGround, addSlabInk, slabBottom } from './ground.ts';
 import type { Pitch } from './ground.ts';
 import { GROUND_RINGS } from './ground.ts';
 import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
@@ -331,7 +331,8 @@ export function buildCell(
   }
   for (let i = 0; i < trees.length; i += 4) tree(i, ['crown']);
   for (const p of cell.parasols) {
-    at(p.x, p.z);
+    // On the square's setts, which lie a little over the terrain.
+    mesh.lift = lines.lift = terrain.height(p.x, p.z) + LAYER_Y.plazas;
     addParasol(mesh, lines, p);
   }
   for (const t of cell.tanks) {

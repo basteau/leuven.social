@@ -11,7 +11,7 @@ import {
   planRoof,
 } from './buildings.ts';
 import { LANDMARK_MODELS } from './landmark-models.ts';
-import { LANCETS, shopFront } from './facade-codes.ts';
+import { LANCETS, ORNATE, shopFront } from './facade-codes.ts';
 import { Terrain } from '../data/terrain.ts';
 import { LIFT_UNIT, LineBuilder, MeshBuilder, unindexed } from './mesh-builder.ts';
 import { pick } from './palette.ts';
@@ -311,7 +311,11 @@ describe('landmarks', () => {
     g.computeBoundingBox();
     expect(g.boundingBox!.max.y).toBeGreaterThan(model.base + 10);
     const facade = g.getAttribute('facade');
-    expect(Array.from({ length: facade.count }, (_, i) => facade.getX(i))).toContain(model.base);
+    // The Stadhuis: civic Gothic niches on its walls.
+    expect(model.windows).toBe('ornate');
+    expect(Array.from({ length: facade.count }, (_, i) => facade.getX(i))).toContain(
+      model.base + ORNATE,
+    );
   });
 });
 
@@ -387,7 +391,7 @@ test('café parasols ride along in the buildings geometry', () => {
   const parasol = { x: 0, z: 0, ux: 1, uz: 0, color: 0xffffff };
   const without = buildingsGeometry([]).surfaces.getAttribute('position').count;
   expect(buildingsGeometry([], [parasol]).surfaces.getAttribute('position').count).toBe(
-    without + 26 * 3,
+    without + 34 * 3,
   );
 });
 

@@ -32,7 +32,10 @@ const BUDGETS: {
   {
     label: '3D engine JS (three.js)',
     pattern: 'assets/{viewer,palette}-*.js',
-    limit: 166 * KB,
+    // 168: livelier facades asked for (1.4 KB): frames, sills and flower boxes on ordinary
+    // windows, the Stadhuis's tiers of niches with their statues, tracery in the churches'
+    // lancets, the parasols' valances and the café guests' colours.
+    limit: 168 * KB,
     gzip: true,
   },
   // 3.5: just above 3.1 KB.
@@ -66,7 +69,8 @@ const BUDGETS: {
   {
     label: 'Walk mode JS (on first walk)',
     pattern: 'assets/walk-*.js',
-    limit: 20 * KB,
+    // 20.5: walk mode meets the café tables and the bay trees by café doors (0.1 KB).
+    limit: 20.5 * KB,
     gzip: true,
   },
   // The street-name lookup for the sign, a chunk beside walk mode's that loads with it.
@@ -110,7 +114,9 @@ const BUDGETS: {
   {
     label: 'Furniture JS (after first frame)',
     pattern: 'assets/{furniture,props,shops}-*.js',
-    limit: 7 * KB,
+    // 8: a table under each of Oude Markt's parasols, chairs round it and people at them with
+    // their drinks, and bay trees by café doors, asked for to liven the square (0.9 KB).
+    limit: 8 * KB,
     gzip: true,
   },
   // About 11.6k house numbers and 1.8k street plates are 67 KB, and 1.1k shop name boards 17 KB
@@ -124,11 +130,11 @@ const BUDGETS: {
   // moved to a chunk of their own, taking what they share with the engine as a kit, as plates.ts
   // does; only the palette, which scene/props.ts imports, loads as a chunk of its own beside it.
   // 250: panning and zooming with our own map controls (map-controls.ts) took 4.4 KB off; the
-  // load, menu and key fixes put 0.4 back: 249.2 KB.
+  // load, menu and key fixes put 0.4 back: 249.2 KB. 251: the livelier facades (1.4 KB).
   {
     label: 'First-load JS',
     pattern: 'assets/{index,viewer}-*.js',
-    limit: 250 * KB,
+    limit: 251 * KB,
     gzip: true,
     closure: true,
   },

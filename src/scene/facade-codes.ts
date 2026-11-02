@@ -5,6 +5,7 @@
  * - 0: no detail (roofs, trees, the ground's plain layers).
  * - up to 90: a wall with windows in its building's own rhythm.
  * - LANCETS + top: a church wall, with pointed lancets.
+ * - ORNATE + top: civic Gothic, as on the Stadhuis: tiers of pointed niches, each with a statue.
  * - SHOP_FRONT + 100 · kind + top: a wall over a shop front of `SHOP_KINDS[kind]`
  *   (src/data/shop-kinds.ts): a glazed ground floor under the kind's awning or fascia.
  * - AWNING + kind: the canvas of a shop's awning (storefronts.ts), striped as its kind is.
@@ -14,6 +15,7 @@
  */
 
 export const LANCETS = 400;
+export const ORNATE = 600;
 export const SHOP_FRONT = 1000;
 export const AWNING = 3000;
 

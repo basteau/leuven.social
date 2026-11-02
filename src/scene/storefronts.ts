@@ -9,12 +9,12 @@
 import type { Building, ShopFront } from '../data/city.ts';
 import { SHOP_KINDS } from '../data/shop-kinds.ts';
 import type { ShopKind } from '../data/shop-kinds.ts';
-import { END_GAP, MIN_ROOM, awningRoom } from '../data/awnings.ts';
-import { TERRACE, frontPoint } from '../data/shops.ts';
+import { DOOR_PLANT, END_GAP, MIN_ROOM, awningRoom, doorPlants } from '../data/awnings.ts';
+import { CAFE_TABLE, TERRACE, frontPoint } from '../data/shops.ts';
 import type { FrontPoint } from '../data/shops.ts';
 import type { MeshBuilder, V3 } from './mesh-builder.ts';
-import { FRONTS, PROPS } from './palette.ts';
-import { box } from './prop-shapes.ts';
+import { FRONTS, GUESTS, PROPS, pick } from './palette.ts';
+import { box, prism } from './prop-shapes.ts';
 import type { Frame } from './prop-shapes.ts';
 
 /** The ground floor's height (m) of a wall `top` high, as the facade shader draws its storeys. */
@@ -207,20 +207,100 @@ function triangleColumn(
 
 /**
  * A café table with two chairs, along the wall, inside `TERRACE` (src/data/shops.ts): the pale
- * table on an iron leg, the chairs in the café's colour, their backs outward. 148 vertices.
+ * table on an iron leg, the chairs in the café's colour turned to it, and guests on some.
  */
-export function addTerrace(mesh: MeshBuilder, p: FrontPoint, kind: ShopKind): void {
-  const f = frame({ ...p, x: p.x + p.nx * TERRACE.out, z: p.z + p.nz * TERRACE.out });
-  const chair = FRONTS[kind].canvas;
+export function addTerrace(mesh: MeshBuilder, p: FrontPoint, kind: ShopKind, seed = 0): void {
+  const [x, z] = [p.x + p.nx * TERRACE.out, p.z + p.nz * TERRACE.out];
+  addCafeTable(mesh, x, z, p.nx, p.nz, 2, FRONTS[kind].canvas, seed, true);
+}
+
+/** Pots in terracotta or anthracite, and the bay's two greens. */
+const POTS = [0xb5653f, 0x4a4e57] as const;
+const BAY = [0x3f7a3a, 0x2f6436] as const;
+
+/**
+ * A clipped bay tree in a pot beside a café's door (`doorPlants`): a pot a little wider at the
+ * top and a cone of leaves on it. 50 vertices.
+ */
+export function addDoorPlant(mesh: MeshBuilder, f: Frame, seed: number): void {
+  const r = DOOR_PLANT.radius;
+  prism(mesh, f, [0, 0], [r * 0.8, r * 0.8], [0, 0.5], POTS[seed % 2]!, 1.25);
+  prism(mesh, f, [0, 0], [r * 1.25, r * 1.25], [0.5, 1.6], BAY[(seed >> 1) % 2]!, 0.15, 6);
+}
+
+/** Of the chairs at a table, the share someone sits on. */
+const TAKEN = 0.55;
+/** A small, stable number in [0, 1) from a seed, for which chairs are taken and by whom. */
+const roll = (seed: number) => {
+  const h = Math.sin(seed * 12.9898 + 78.233) * 43758.5453;
+  return h - Math.floor(h);
+};
+
+/**
+ * A café table as seen from all round it: its pale top (on an iron leg, unless a parasol's pole
+ * holds it), `seats` chairs in the café's colour turned to it, their backs outward, guests on
+ * some of them and a glass in front of each guest. `fx`, `fz` turn it; with two seats they stand
+ * either side across that direction, as along a wall. 20 vertices (36 with its leg), 56 a chair,
+ * 156 a guest with their glass.
+ */
+export function addCafeTable(
+  mesh: MeshBuilder,
+  x: number,
+  z: number,
+  fx: number,
+  fz: number,
+  seats: number,
+  chair: number,
+  seed: number,
+  leg: boolean,
+): void {
+  const f: Frame = { x, z, fx, fz, scale: 1 };
   box(mesh, f, [-0.42, 0.42], [-0.42, 0.42], [0.9, 0.95], PAPER);
-  box(mesh, f, [-0.05, 0.05], [-0.05, 0.05], [0, 0.9], PROPS.iron, false);
-  for (const s of [-1, 1]) {
-    const c = s * 0.85;
-    box(mesh, f, [c - 0.22, c + 0.22], [-0.22, 0.22], [0.52, 0.58], chair);
-    const back = s * 1.08;
-    box(mesh, f, [back - 0.04, back + 0.04], [-0.22, 0.22], [0.58, 1.15], chair);
-    box(mesh, f, [c - 0.04, c + 0.04], [-0.04, 0.04], [0, 0.52], PROPS.iron, false);
+  if (leg) box(mesh, f, [-0.05, 0.05], [-0.05, 0.05], [0, 0.9], PROPS.iron, false);
+  for (let s = 0; s < seats; s++) {
+    const t = Math.PI / 2 + (s * 2 * Math.PI) / seats + (seats === 2 ? 0 : Math.PI / 4);
+    const [dx, dz] = [Math.cos(t) * fx - Math.sin(t) * fz, Math.cos(t) * fz + Math.sin(t) * fx];
+    const c: Frame = {
+      x: x + dx * CAFE_TABLE.chair,
+      z: z + dz * CAFE_TABLE.chair,
+      fx: dx,
+      fz: dz,
+      scale: 1,
+    };
+    box(mesh, c, [-0.22, 0.22], [-0.22, 0.22], [0.52, 0.58], chair);
+    box(mesh, c, [-0.22, 0.22], [0.19, 0.27], [0.58, 1.15], chair);
+    box(mesh, c, [-0.04, 0.04], [-0.04, 0.04], [0, 0.52], PROPS.iron, false);
+    const who = seed * 7 + s;
+    if (roll(who) < TAKEN) {
+      addGuest(mesh, c, who);
+      addGlass(mesh, { ...f, x: x + dx * 0.24, z: z + dz * 0.24 }, who);
+    }
   }
+}
+
+/**
+ * Someone sitting on a chair in frame `c`, its back at +v, facing the table at -v: thighs and
+ * shins, a torso in a shirt, forearms on the table's edge, a head and its hair. 116 vertices.
+ */
+export function addGuest(mesh: MeshBuilder, c: Frame, seed: number): void {
+  const legs = pick(GUESTS.legs, seed * 5 + 1);
+  const skin = pick(GUESTS.skin, seed * 11 + 2);
+  const shirt = pick(GUESTS.shirts, seed * 3 + 3);
+  box(mesh, c, [-0.15, 0.15], [-0.38, 0.08], [0.58, 0.72], legs);
+  box(mesh, c, [-0.14, 0.14], [-0.44, -0.32], [0, 0.62], legs, false);
+  box(mesh, c, [-0.2, 0.2], [-0.04, 0.18], [0.72, 1.32], shirt);
+  box(mesh, c, [-0.19, 0.19], [-0.5, -0.06], [0.95, 1.02], shirt);
+  box(mesh, c, [-0.13, 0.13], [-0.06, 0.18], [1.36, 1.62], skin);
+  box(mesh, c, [-0.14, 0.14], [-0.03, 0.21], [1.56, 1.69], pick(GUESTS.hair, seed * 13 + 4));
+}
+
+/** A glass on the table: a pils under its head, a Trappist, a white wine, or a coffee cup. 40 vertices. */
+function addGlass(mesh: MeshBuilder, f: Frame, seed: number): void {
+  const drink = pick(GUESTS.drinks, seed * 17 + 5);
+  const cup = drink === GUESTS.drinks.at(-1);
+  const top = cup ? 1.02 : 1.12;
+  box(mesh, f, [-0.045, 0.045], [-0.045, 0.045], [0.95, top], drink);
+  box(mesh, f, [-0.05, 0.05], [-0.05, 0.05], [top, top + 0.035], cup ? 0x6a3220 : GUESTS.foam);
 }
 
 /**
@@ -267,9 +347,15 @@ export function addStorefronts(
       (t) => front.along + t >= END_GAP && front.along + t <= p.length - END_GAP,
     );
     if (SIGNS.has(front.kind) && end !== undefined) addSign(mesh, frame(p, end), front.kind, top);
+    const plants = doorPlants(p, front, room);
+    for (let i = 0; i < plants.length; i += 2) {
+      const [x, z] = [plants[i]!, plants[i + 1]!];
+      mesh.lift = ground(x, z);
+      addDoorPlant(mesh, { x, z, fx: p.nx, fz: p.nz, scale: 1 }, front.building + i);
+    }
     if (front.terrace) {
       mesh.lift = ground(p.x + p.nx * TERRACE.out, p.z + p.nz * TERRACE.out);
-      addTerrace(mesh, p, front.kind);
+      addTerrace(mesh, p, front.kind, front.building * 31 + Math.round(front.along * 10));
     }
   }
   [mesh.lift, awnings.lift] = [lift, awningLift];

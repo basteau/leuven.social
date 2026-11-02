@@ -2,7 +2,7 @@ import { Color, MeshToonMaterial, Vector4 } from 'three';
 import type { LineBasicMaterial, Material, Texture } from 'three';
 
 import { SHOP_KINDS } from '../data/shop-kinds.ts';
-import { AWNING, LANCETS, SHOP_FRONT } from './facade-codes.ts';
+import { AWNING, LANCETS, ORNATE, SHOP_FRONT } from './facade-codes.ts';
 import { LUMA, SHADE_CHROMA, SHADE_HUE, SHADE_RANGE } from './lighting.ts';
 import { LIFT_UNIT, linearVertexColors } from './mesh-builder.ts';
 import {
@@ -215,12 +215,14 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
           float band = mix(0.5, step(0.5, fract(along)), 1.0 - smoothstep(0.2, 0.35, fwidth(along)));
           diffuseColor.rgb = mix(diffuseColor.rgb, second, band);
         } else if (vFacade > 0.0) {
-          // Walls carry their top height, plus LANCETS on churches or SHOP_FRONT + 100 · kind over
-          // a shop front (facade-codes.ts).
+          // Walls carry their top height, plus LANCETS on churches, ORNATE on civic Gothic or
+          // SHOP_FRONT + 100 · kind over a shop front (facade-codes.ts).
           float shop = step(${f(SHOP_FRONT - 0.5)}, vFacade);
-          float church = step(${f(LANCETS - 0.5)}, vFacade) - shop;
+          float ornate = step(${f(ORNATE - 0.5)}, vFacade) - shop;
+          float church = step(${f(LANCETS - 0.5)}, vFacade) - ornate - shop;
           float kind = shop * floor((vFacade - ${f(SHOP_FRONT)}) / 100.0);
-          float top = vFacade - church * ${f(LANCETS)} - shop * (${f(SHOP_FRONT)} + 100.0 * kind);
+          float top = vFacade - church * ${f(LANCETS)} - ornate * ${f(ORNATE)} -
+            shop * (${f(SHOP_FRONT)} + 100.0 * kind);
           // Each building's own rhythm, seeded by its wall height: bay width, window width,
           // and as many storeys as fit, so the top row always sits under the eaves.
           float seed = fract(sin(top * 91.345) * 43758.5453);
@@ -243,6 +245,12 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
             step(abs(g.x - 0.5) * size.x, 0.75 * sqrt(clamp((apex - p.y) / 1.6, 0.0, 1.0)));
           window = mix(window, lancet, church);
           average = mix(average, 2.0 * halfWidth * step(3.0, p.y) * step(p.y, apex), church);
+          // A lancet's tracery: a stone mullion down its middle and a transom every 2.4 m.
+          float fromMiddle = abs(g.x - 0.5) * size.x;
+          window *= 1.0 - church * max(step(fromMiddle, 0.06), step(fract(p.y / 2.4), 0.05));
+          // Civic Gothic draws niches of its own instead of windows (below).
+          window *= 1.0 - ornate;
+          average *= 1.0 - ornate;
           vec3 glass = uGlass;
           // A shop front: one wide pane per bay on the ground floor, under its kind's canvas.
           float ground = shop * (1.0 - step(storey, p.y));
@@ -269,6 +277,53 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
           float glow = step(0.93, fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453)) * (1.0 - ground - church);
           diffuseColor.rgb = mix(diffuseColor.rgb, mix(glass, uLit, glow * detail), coverage * 0.8);
           diffuseColor.rgb = mix(diffuseColor.rgb, canvas, awning * (1.0 - smoothstep(0.3, 0.6, pixel)));
+          // A lancet's stone surround, a little paler than the wall, once it spans a few pixels.
+          float surround = church * (1.0 - lancet) * step(2.85, p.y) * step(p.y, apex + 0.15) *
+            step(fromMiddle, 0.9 * sqrt(clamp((apex + 0.15 - p.y) / 1.75, 0.0, 1.0)));
+          diffuseColor.rgb *= 1.0 + 0.12 * surround * (1.0 - smoothstep(0.1, 0.2, pixel));
+          // Civic Gothic, as on the Stadhuis: tiers 3.6 m tall of pointed niches 1.6 m apart, each
+          // with a statue on its plinth, over a moulded band, from the first tier to the eaves.
+          if (ornate > 0.5) {
+            vec2 bay = vec2(1.6, 3.6);
+            float nx = abs(fract(p.x / bay.x) - 0.5) * bay.x;
+            float ny = fract((p.y - 1.0) / bay.y) * bay.y;
+            float arch = 2.6 + 0.45 * sqrt(clamp(1.0 - nx / 0.42, 0.0, 1.0));
+            float niche = step(nx, 0.42) * step(0.5, ny) * step(ny, arch);
+            float figure = step(nx, 0.15) * step(0.75, ny) * step(ny, 2.15) +
+              step(length(vec2(nx, ny - 2.32)), 0.13) + step(nx, 0.24) * step(0.5, ny) * step(ny, 0.75);
+            vec3 stone = diffuseColor.rgb;
+            vec3 carved = mix(stone, stone * 1.15, step(ny, 0.18));
+            carved = mix(carved, stone * 0.45, niche);
+            carved = mix(carved, min(stone * 1.25, vec3(1.0)), clamp(figure, 0.0, 1.0) * niche);
+            float sharp = 1.0 - smoothstep(0.17, 0.28, pixel);
+            diffuseColor.rgb = mix(stone, mix(stone * 0.82, carved, sharp),
+              step(1.0, p.y) * step(p.y, top - 1.2));
+          }
+          // Round an ordinary window, a frame and a bluestone sill, and under one in five a
+          // box of flowers, red, pink, white or yellow: houses that look lived in, at no geometry.
+          // A frame fades out before it's thinner than a pixel, a flower box a little later.
+          float plain = (1.0 - church) * (1.0 - ornate) * (1.0 - ground) *
+            step(1.0, (cell.y + 0.32) * size.y) * step((cell.y + 0.8) * size.y, top - 0.7);
+          vec2 rim = vec2(0.09) / size;
+          float inX = step(0.5 - halfWidth - rim.x, g.x) * step(g.x, 0.5 + halfWidth + rim.x);
+          float frame = inX * step(0.32 - rim.y, g.y) * step(g.y, 0.8 + rim.y) * (1.0 - window);
+          float sill = step(0.5 - halfWidth - 2.0 * rim.x, g.x) * step(g.x, 0.5 + halfWidth + 2.0 * rim.x) *
+            step(0.32 - 2.0 * rim.y, g.y) * step(g.y, 0.32 - rim.y);
+          float bloom = step(0.8, hash2(cell + vec2(3.7, 1.3)));
+          float flowerBox = bloom * inX * step(0.32 - 5.0 * rim.y, g.y) * step(g.y, 0.32 - 2.0 * rim.y);
+          float fine = plain * (1.0 - smoothstep(0.05, 0.12, pixel));
+          // White frames on brick; on a pale render, painted wood: bottle green, oxblood or charcoal.
+          float paint = fract(seed * 7.31);
+          vec3 wood = paint < 0.4 ? vec3(0.04, 0.12, 0.07) : paint < 0.7 ? vec3(0.22, 0.04, 0.03) : vec3(0.06, 0.06, 0.07);
+          vec3 frameColour = dot(vColor.rgb, vec3(0.2126, 0.7152, 0.0722)) > 0.4 ? wood : vec3(0.88, 0.85, 0.79);
+          diffuseColor.rgb = mix(diffuseColor.rgb, frameColour, frame * fine);
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.42, 0.43, 0.44), sill * fine);
+          float hue = hash2(cell + vec2(9.1, 4.2));
+          vec3 petals = hue < 0.4 ? vec3(0.72, 0.07, 0.05) : hue < 0.65 ? vec3(0.86, 0.33, 0.45)
+            : hue < 0.85 ? vec3(0.9, 0.87, 0.8) : vec3(0.9, 0.68, 0.1);
+          float petal = step(0.5, hash2(floor(p / 0.1)));
+          diffuseColor.rgb = mix(diffuseColor.rgb, mix(vec3(0.06, 0.18, 0.04), petals, petal),
+            flowerBox * plain * (1.0 - smoothstep(0.1, 0.22, pixel)));
         } else if (vFacade < ${f(-SLEEPER_CODE + 0.5)}) {
           float along = (-vFacade - ${f(SLEEPER_CODE)}) / SLEEPER_PITCH;
           float detail = 1.0 - smoothstep(0.25, 0.4, fwidth(along));

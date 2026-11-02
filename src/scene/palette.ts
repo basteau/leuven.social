@@ -59,6 +59,22 @@ export const PROPS = {
   beetle: 0x2f8a6e,
 } as const;
 /**
+ * People on the café terraces: shirts in the colours a sunny Leuven evening wears, jeans and
+ * chinos, a range of skin and hair, and what's on the tables (a pils with its head, a dark
+ * Trappist, a white wine, a coffee cup).
+ */
+export const GUESTS = {
+  shirts: [
+    0xf6eedc, 0x4a77a8, 0xd2553f, 0xe8b94a, 0x2f6b4f, 0x3d4250, 0xf0b3c0, 0x8fb6d6, 0x9a6a42,
+  ],
+  legs: [0x3b4a6b, 0x2b2f3a, 0xc9b48e, 0x5a6270, 0x3b4a6b],
+  skin: [0xf0c49c, 0xe2ad84, 0xc68a62, 0x9a6444, 0x6e4630],
+  hair: [0x2b2420, 0x5a3a24, 0x7a4a2c, 0xc79a5a, 0xb5402f, 0x8a8a86],
+  drinks: [0xe8a838, 0xe8a838, 0x6a3220, 0xf0e6b0, 0xf6eedc],
+  foam: 0xfbf6ea,
+} as const;
+
+/**
  * What monuments are made of (OSM `material`): dark warm bronze, pale stone and marble, Belgian
  * bluestone (pumps, and what a pale figure stands on), cool steel, rusty weathering steel,
  * concrete, wood and brick; a fountain's jet is pale water.

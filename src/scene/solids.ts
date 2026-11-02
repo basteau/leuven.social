@@ -1,8 +1,9 @@
 import type { City } from '../data/city.ts';
 import { propFootprint } from '../data/props.ts';
-import { frontPoint, terraceFootprint } from '../data/shops.ts';
+import { DOOR_PLANT, awningRoom, doorPlants } from '../data/awnings.ts';
+import { CAFE_TABLE, frontPoint, terraceFootprint } from '../data/shops.ts';
 import type { Solids } from '../data/walkable.ts';
-import { terraceParasols, PARASOL_FOOT } from './terraces.ts';
+import { terraceParasols } from './terraces.ts';
 import { trunkFoot } from './trees.ts';
 
 /**
@@ -37,12 +38,21 @@ export function walkSolids(city: City): Solids {
     else box(f.x, f.z, f.fx, f.fz, [f.u0, f.u1, f.v0, p.kind === 'bench' ? -f.v0 : f.v1]);
   }
   for (const front of city.fronts) {
+    const p = frontPoint(city.buildings[front.building]!.ring, front);
+    // The bay trees by a café's door (storefronts.ts), met as posts.
+    const others = city.fronts
+      .filter((o) => o.building === front.building && o.edge === front.edge && o !== front)
+      .map((o) => o.along);
+    const plants = doorPlants(p, front, awningRoom(front.along, p.length, others));
+    for (let i = 0; i < plants.length; i += 2)
+      posts.push(plants[i]!, plants[i + 1]!, DOOR_PLANT.radius);
     if (!front.terrace) continue;
-    const f = terraceFootprint(frontPoint(city.buildings[front.building]!.ring, front));
+    const f = terraceFootprint(p);
     box(f.x, f.z, f.fx, f.fz, [f.u0, f.u1, f.v0, f.v1]);
   }
+  // A parasol's table and the chairs round it (storefronts.ts).
   for (const p of terraceParasols(city)) {
-    const h = PARASOL_FOOT;
+    const h = CAFE_TABLE.reach;
     box(p.x, p.z, p.uz, -p.ux, [-h, h, -h, h]);
   }
   return { posts, rings };
