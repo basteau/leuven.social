@@ -61,7 +61,9 @@ Movement and the camera follow the rules third-person games have settled on, so 
 - **The camera keeps the distance you chose.** Nothing pulls it in: a spring arm that shortens for every wall between it and the walker zooms in and out on its own in streets as narrow as Leuven's, and that was the most annoying thing about walking. A house or a tree may hide the walker for a moment; its x-ray silhouette shows through anything opaque (it draws wherever something nearer filled the depth buffer, trees and lamp posts included), and what the camera backs into dithers away (above). Only the street keeps it out: the boom never brings it lower than 1 m over the ground under it (on a slope, not the walker's), by raising the pitch (a smooth function of length, so no pop). The flight down still climbs over the roofs (`clearPitch`), so it lands with the walker in view.
 - **Zoom is smooth, with steps for the buttons.** A mouse notch lengthens or shortens the boom by about a sixth, whatever unit the browser counts in (Firefox counts lines), a trackpad pinch or two fingers as far as they go, and the length eases there with a 90 ms half-life, so notches blend into one glide. The + and − buttons and keys step between stops 2.5, 4.4, 7.5, 13, 23 and 40 m (each about 1.7× the last), from over the shoulder to a high follow view, starting from wherever a pinch left it. Zooming out tilts the view down, up to 0.45 rad more at 40 m, and zooming in brings it a little nearer level, as map and globe apps do; the tilt is squeezed toward straight down so a drag never meets a dead end. Nothing automatic changes the length, so zoom never fights the camera. At the closest stop at a run the look point leads the walker toward the lens, so the figure dithers away as the camera comes within a metre of it and the inside of a head never shows.
 - **A run feels faster without moving faster.** The lens widens by 5° and the boom lengthens by 12%, both following the speed spring, so the change comes on and wears off with the stride. There is no camera bob.
-- **A brisk pace.** Walking is 4 m/s and running 10.6 m/s, a cartoon figure a little larger than life, with strides lengthened to match so the legs keep an easy cadence. Pitch stays between looking slightly up and straight down.
+- **A brisk pace.** Walking is 4 m/s and running 10.6 m/s, a cartoon figure a little larger than life. Pitch stays between looking slightly up and straight down.
+- **Feet stay where they land.** The pose is placed feet first (`poseAt` in `character.ts`): the gait cycle puts each ankle where it should be, and the legs reach it by two-bone IK. A foot that is down slides back under the hips exactly as fast as the walker moves on, so in the world it stays put: flat, then rolling over the ball of the foot as the heel lifts. Its swing is a Hermite curve that leaves and lands at most of that speed, so it neither scuffs off nor skids in. The hips ride as high as both legs reach (a soft minimum), which bobs a walk; a run, down under a third of each cycle, sinks onto each step and springs into half a step with both feet in the air. A stride is what the leg can sweep: 2.1 m walking (229 steps a minute) and 4.8 m running (265). With the old swinging legs the planted foot slid about 1.2 m a step walking and 2.2 m running; now under a centimetre, which a test holds below 0.1 m against the real walker. Below 1.5 m/s the steps shrink to standing, the walker's acceleration leans the body and moves the hips ahead of the feet or behind them, and turning on the spot lifts the feet in turn, a step for every 45° of heading.
+- **One rig for walking and riding.** `Pose` swings and bends each arm on its own, moves the hips forward (`hipsZ`) and rolls the body about its forward axis (`roll`) with the legs kept plumb, and `limbIK` solves any two-bone limb in its plane, so the coming bike rider can put feet on pedals and hands on bars with the same figure.
 
 ### What other apps do, and what we took
 
@@ -79,23 +81,23 @@ How third-person games and map apps handle the camera and movement, and the simp
 
 The size and render budgets are enforced by `bun run verify`; if one is exceeded, the run fails:
 
-| What                                            | Limit   | Checked by          |
-| ----------------------------------------------- | ------- | ------------------- |
-| App shell JS (React + HUD), gzipped             | 90 KB   | `scripts/budget.ts` |
-| 3D engine JS (three.js chunk, palette), gzipped | 171 KB  | `scripts/budget.ts` |
-| Furniture JS (after the first frame)            | 6 KB    | `scripts/budget.ts` |
-| Walk mode JS (loaded on first walk)             | 14.5 KB | `scripts/budget.ts` |
-| Facade plates JS (after walk mode)              | 5 KB    | `scripts/budget.ts` |
-| Plates data (`walk.bin`), gzipped               | 96 KB   | `scripts/budget.ts` |
-| First-load JS (shell + engine)                  | 252 KB  | `scripts/budget.ts` |
-| CSS, gzipped                                    | 6 KB    | `scripts/budget.ts` |
-| City data                                       | 1 MB    | `scripts/budget.ts` |
-| Draw calls per frame                            | 100     | `scripts/smoke.ts`  |
-| Triangles per frame                             | 600k    | `scripts/smoke.ts`  |
-| Vertices, every cell built                      | 2.75M   | `scripts/smoke.ts`  |
-| Geometry on the GPU, every cell built           | 65 MB   | `scripts/smoke.ts`  |
-| Longest main-thread task while loading          | 750 ms  | `scripts/smoke.ts`  |
-| Console errors and warnings                     | 0       | `scripts/smoke.ts`  |
+| What                                            | Limit  | Checked by          |
+| ----------------------------------------------- | ------ | ------------------- |
+| App shell JS (React + HUD), gzipped             | 90 KB  | `scripts/budget.ts` |
+| 3D engine JS (three.js chunk, palette), gzipped | 171 KB | `scripts/budget.ts` |
+| Furniture JS (after the first frame)            | 6 KB   | `scripts/budget.ts` |
+| Walk mode JS (loaded on first walk)             | 15 KB  | `scripts/budget.ts` |
+| Facade plates JS (after walk mode)              | 5 KB   | `scripts/budget.ts` |
+| Plates data (`walk.bin`), gzipped               | 96 KB  | `scripts/budget.ts` |
+| First-load JS (shell + engine)                  | 252 KB | `scripts/budget.ts` |
+| CSS, gzipped                                    | 6 KB   | `scripts/budget.ts` |
+| City data                                       | 1 MB   | `scripts/budget.ts` |
+| Draw calls per frame                            | 100    | `scripts/smoke.ts`  |
+| Triangles per frame                             | 600k   | `scripts/smoke.ts`  |
+| Vertices, every cell built                      | 2.75M  | `scripts/smoke.ts`  |
+| Geometry on the GPU, every cell built           | 65 MB  | `scripts/smoke.ts`  |
+| Longest main-thread task while loading          | 750 ms | `scripts/smoke.ts`  |
+| Console errors and warnings                     | 0      | `scripts/smoke.ts`  |
 
 Every frame keeps the same cap, shadow redraws included. A redraw draws the casting cells a second time, so when the view and the redraw together would pass the cap, the redraw gets a frame of its own: it draws only the shadow map, the screen keeps showing the last frame, and the view follows on the next one (`FRAME_CALLS`, `FRAME_TRIANGLES` in `viewer.ts`). Smaller redraws, such as those while walking, share their frame with the view as before.
 
