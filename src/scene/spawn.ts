@@ -24,7 +24,7 @@ export const DROP = 3.5;
 export const MARK = 0.22;
 export const MARK_FROM = 2.4;
 /** The marker's radius: this share of the view's height, and never under MARK_MIN (m). */
-const MARK_SHARE = 0.025;
+const MARK_SHARE = 0.032;
 export const MARK_MIN = 0.55;
 /** The puff of dust spreads to this many times the marker's last size over PUFF (s). */
 export const PUFF = 0.42;
@@ -92,7 +92,7 @@ export function wave(t: number): [arm: number, elbow: number] | null {
   if (!(t >= 0 && t < WAVE)) return null;
   const up = clamp01(t / 0.15) * clamp01((WAVE - t) / 0.2);
   const lift = up * up * (3 - 2 * up);
-  return [-2.7 * lift, (-0.5 - 0.45 * Math.sin(t * Math.PI * 5)) * lift];
+  return [-2.7 * lift, (-0.3 - 0.35 * Math.sin(t * Math.PI * 5)) * lift];
 }
 
 const UP = [0, 1, 0] as const;

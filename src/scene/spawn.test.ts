@@ -43,8 +43,8 @@ describe('the spawn', () => {
   });
 
   test('keeps the marker one size on screen, but never smaller than a step', () => {
-    expect(markerRadius(560)).toBeCloseTo(14);
-    expect(markerRadius(56)).toBeCloseTo(1.4);
+    expect(markerRadius(560)).toBeCloseTo(17.9, 1);
+    expect(markerRadius(56)).toBeCloseTo(1.79, 2);
     expect(markerRadius(4)).toBe(MARK_MIN);
   });
 
