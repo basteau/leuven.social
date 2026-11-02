@@ -227,7 +227,16 @@ async function expectMenu(): Promise<void> {
   );
   await browser('press', 'Control+k');
   await browser('wait', '--fn', menu.closed);
-  console.log(`ok  menu: ${rows.length} rows; searched, ran Mute and Unmute, opened the controls`);
+  // Opened with its button, a command still gives focus to the map, not back to the button.
+  await browser('click', 'button.menu-trigger');
+  await browser('wait', '--fn', `${menu.open} && document.activeElement?.matches('.menu-search')`);
+  await browser('keyboard', 'type', 'zoom in');
+  await browser('wait', '--fn', `${menu.first} === 'Zoom in'`);
+  await browser('press', 'Enter');
+  await browser('wait', '--fn', menu.closed);
+  console.log(
+    `ok  menu: ${rows.length} rows; searched, ran Mute and Unmute, opened the controls, closed to the map`,
+  );
 }
 
 /** Where the keys the smoke test holds sit on the keyboard: walking reads `code`, not `key`. */
@@ -466,8 +475,8 @@ try {
   await browser('wait', '500');
   await browser('screenshot', `${ARTIFACTS}smoke-phone-menu.png`);
   await browser('click', 'button.menu-close');
-  await browser('wait', '--fn', `!document.querySelector('dialog.menu')?.open`);
-  console.log('ok  phone: the menu button opens the menu, and its close button shuts it');
+  await browser('wait', '--fn', menu.closed);
+  console.log('ok  phone: the menu button opens the menu; its close button shuts it, to the map');
   console.log(`screenshots in .artifacts/`);
 } catch (error) {
   console.error(`\nSMOKE FAILED  ${error instanceof Error ? error.message : String(error)}`);

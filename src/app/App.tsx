@@ -1,4 +1,14 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Component,
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 import { sound } from '../audio/sound.ts';
@@ -14,19 +24,41 @@ import { BikeIcon, MenuIcon } from './icons.tsx';
 import { createTurnHold, KEYCAPS, layoutKeycaps, modKey } from './input.ts';
 import type { KeyboardLayout, Keycaps } from './input.ts';
 import { introErrorSlot, removeIntro, showKeys, showStep } from './intro.ts';
-import { loadStep } from './loading.ts';
+import { loadStep, stallWatch, unlessAborted } from './loading.ts';
 import type { LoadState } from './loading.ts';
 import { useShortcuts } from './shortcuts.ts';
 import { StreetSign } from './street-sign.tsx';
 
 type Status = { state: 'loading' } | { state: 'ready' } | { state: 'error'; message: string };
 
-/** A stalled network must end in the retry state, never in an endless loading screen. */
-const LOAD_TIMEOUT_MS = 20_000;
+/**
+ * A stalled network must end in the retry state, never in an endless loading screen: this long
+ * with no bytes and no step done is a stall. A slow link that keeps delivering never trips it
+ * (a deadline for the whole load would fail it on every try).
+ */
+const LOAD_STALL_MS = 20_000;
 
 /** The menu is its own chunk: fetched once the map is up, or as someone reaches for it. */
 const loadMenu = () => import('./command-menu.tsx');
-const CommandMenu = lazy(() => loadMenu().then((m) => ({ default: m.CommandMenu })));
+/** React keeps a failed lazy component failed: each try after a failure gets a fresh one. */
+const lazyMenu = () => lazy(() => loadMenu().then((m) => ({ default: m.CommandMenu })));
+
+/**
+ * The menu's chunk can fail to download (a flaky link). Without this, React would take the whole
+ * app down with it, map and all; instead the menu stays shut and the shell says so.
+ */
+class MenuGuard extends Component<{ onError: () => void; children: ReactNode }> {
+  override state = { failed: false };
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+  override componentDidCatch() {
+    this.props.onError();
+  }
+  override render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
 
 /** The map's description, naming the keys as this keyboard types them. */
 const mapLabels = (k: Keycaps, mod: string): Record<WalkMode, string> => ({
@@ -176,15 +208,35 @@ export function App() {
   const menuOpenRef = useRef(false);
   /** What was typed while the menu was on its way, for its search. */
   const typedRef = useRef('');
+  const [CommandMenu, setCommandMenu] = useState(lazyMenu);
+  const [menuFailed, setMenuFailed] = useState(false);
   const openMenu = useCallback((page: MenuPage = 'list') => {
     menuOpenRef.current = true;
     typedRef.current = '';
+    setMenuFailed(false);
     setMenu({ open: true, page, used: true });
+  }, []);
+  /** Its chunk didn't come: shut, out of the page, and a fresh download on the next try. */
+  // (React logs the error itself.)
+  const onMenuError = useCallback(() => {
+    menuOpenRef.current = false;
+    setMenu({ open: false, page: 'list', used: false });
+    setCommandMenu(() => lazyMenu());
+    setMenuFailed(true);
   }, []);
   const closeMenu = useCallback(() => {
     menuOpenRef.current = false;
     setMenu((m) => ({ ...m, open: false }));
   }, []);
+  // Closed, however it closed, the menu gives focus to the map, not back to its button (where the
+  // dialog would put it), so the arrows pan and Enter walks at once.
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (wasOpen.current && !menu.open) {
+      mapRef.current?.focus({ focusVisible: false } as FocusOptions);
+    }
+    wasOpen.current = menu.open;
+  }, [menu.open]);
   const takeTyped = useCallback(() => {
     const typed = typedRef.current;
     typedRef.current = '';
@@ -226,11 +278,15 @@ export function App() {
 
     // A retry skips any cached failure.
     const url = attempt === 0 ? CITY_URL : `${CITY_URL}?retry=${attempt}`;
-    const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(LOAD_TIMEOUT_MS)]);
+    // Every download counts as a sign of life: the city's bytes, and the engine's arrival.
+    const watch = stallWatch(LOAD_STALL_MS);
+    const signal = AbortSignal.any([abort.signal, watch.signal]);
     const city = loadCity(url, signal, (received, total) => {
+      watch.alive();
       [progress.received, progress.total] = [received, total];
       report();
     }).then((loaded) => {
+      watch.alive();
       progress.buildings = loaded.buildings.length;
       report();
       // The network is free while the city is built: the menu's chunk comes now, not later.
@@ -241,12 +297,16 @@ export function App() {
     });
     // The 3D engine is its own chunk: it downloads alongside the city.
     const engine = import('../scene/viewer.ts').then((module) => {
+      watch.alive();
       progress.engine = true;
       report();
       return module;
     });
-    Promise.all([city, engine])
+    // The engine's import can't be aborted, but a stall still ends the wait for it.
+    unlessAborted(Promise.all([city, engine]), signal)
       .then(([loaded, { createViewer }]) => {
+        // Both are here; building the first frame is the device's work, not the network's.
+        watch.stop();
         if (abort.signal.aborted) return;
         const viewer = createViewer({
           canvas,
@@ -264,7 +324,12 @@ export function App() {
             // Keep the keys working, whatever started or ended the walk.
             map.focus({ focusVisible: false } as FocusOptions);
           },
-          onWalkBlocked: () => setBlocked(performance.now()),
+          onWalkBlocked: () => {
+            // Refused, so nothing is getting ready: the hint mustn't say so once this clears.
+            clearTimeout(walkLoadTimer.current);
+            setWalkLoad('idle');
+            setBlocked(performance.now());
+          },
           onWalkUnavailable: () => {
             clearTimeout(walkLoadTimer.current);
             setWalkLoad('failed');
@@ -289,6 +354,7 @@ export function App() {
         });
       })
       .catch((error: unknown) => {
+        watch.stop();
         if (abort.signal.aborted) return;
         // People get a plain cause and a next step; the console keeps the technical detail.
         const message =
@@ -301,6 +367,7 @@ export function App() {
       });
 
     return () => {
+      watch.stop();
       abort.abort();
       viewerRef.current?.dispose();
       viewerRef.current = null;
@@ -330,6 +397,7 @@ export function App() {
     turnHold,
     openMenu,
     menuOpen: menuOpenRef,
+    closeMenu,
     typeAhead: (key) => (typedRef.current += key),
   });
 
@@ -369,7 +437,7 @@ export function App() {
     bell: () => viewerRef.current?.ride('bell'),
     sound: () => toggleSoundRef.current(),
   }));
-  /** A command from the menu: the menu closes first, so focus is back on the map for its keys. */
+  /** A command from the menu: the menu closes first, and focus goes to the map for its keys. */
   const run = useCallback(
     (action: ActionId) => {
       if (action === 'help' || action === 'about') return; // pages of the menu itself
@@ -400,6 +468,17 @@ export function App() {
         : undefined,
     [placeCity, closeMenu],
   );
+
+  // The Ride pill goes once no bike is near. Pressed, it had focus, which would fall to the page
+  // and take the keys with it: back to the map, as after a walk starts or ends.
+  const pill = ready && walkMode === 'walk' && !!ride;
+  const hadPill = useRef(false);
+  useEffect(() => {
+    if (hadPill.current && !pill && document.activeElement === document.body) {
+      mapRef.current?.focus({ focusVisible: false } as FocusOptions);
+    }
+    hadPill.current = pill;
+  }, [pill]);
 
   const coaching = walkMode === 'walk' && coach && !blocked;
   const errorSlot = status.state === 'error' ? introErrorSlot() : null;
@@ -455,6 +534,8 @@ export function App() {
             'Getting ready to walk…'
           ) : walkLoad === 'failed' ? (
             'Walking couldn’t load. Check your connection and try again.'
+          ) : menuFailed ? (
+            'The menu couldn’t load. Check your connection and try again.'
           ) : said ? (
             <span key={said.at}>{said.text}</span>
           ) : walkMode === 'walk' && riding && rideCoach ? (
@@ -486,7 +567,7 @@ export function App() {
       <footer className="hud hud-bottom">
         {/* By a bike, or on one: the one thing the moment offers, where a thumb finds it. */}
         <div className="bar">
-          {ready && walkMode === 'walk' && ride && (
+          {pill && (
             <ActionButton
               label={riding ? 'Get off' : 'Ride'}
               shortcut="F"
@@ -519,18 +600,20 @@ export function App() {
       {errorSlot ? createPortal(errorNotice, errorSlot) : errorNotice}
 
       {menu.used && (
-        <Suspense fallback={null}>
-          <CommandMenu
-            open={menu.open}
-            page={menu.page}
-            onPage={onPage}
-            onClose={closeMenu}
-            takeTyped={takeTyped}
-            state={commandState}
-            run={run}
-            places={places}
-          />
-        </Suspense>
+        <MenuGuard onError={onMenuError}>
+          <Suspense fallback={null}>
+            <CommandMenu
+              open={menu.open}
+              page={menu.page}
+              onPage={onPage}
+              onClose={closeMenu}
+              takeTyped={takeTyped}
+              state={commandState}
+              run={run}
+              places={places}
+            />
+          </Suspense>
+        </MenuGuard>
       )}
     </main>
   );

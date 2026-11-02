@@ -53,14 +53,27 @@ export function menuKey(event: Chord): 'chord' | 'key' | null {
   return key === '/' || key === '?' ? 'key' : null;
 }
 
+/** The keys whose auto-repeat does something: zoom goes on while + or - is held. */
+const REPEATING = /^[-+=]$/;
+
+/**
+ * Whether a keydown is a held key's auto-repeat that does nothing. Everything but zoom is one
+ * press however long the key is held: held keys walk and turn by their keydown and keyup, and a
+ * repeat mustn't press a toggle again (W walking straight back in after Esc, F getting off the
+ * bike it just got on, M muting and unmuting).
+ */
+export function idleRepeat(event: { key: string; repeat: boolean }): boolean {
+  return event.repeat && !REPEATING.test(event.key);
+}
+
 /** The menu's chord as this platform writes it: ⌘ on Apple's, Ctrl everywhere else. */
 export function modKey(platform: string): string {
   return /mac|iphone|ipad|ipod/i.test(platform) ? '⌘' : 'Ctrl';
 }
 
 /**
- * A button that appears where another was just pressed (Walk, then Cancel and Start here under
- * it) would take the rest of a double-click or double-tap. Ignore the second click of a
+ * A button that appears where something was just pressed (the Ride pill, under a tap on the map
+ * by a bike) would take the rest of a double-click or double-tap. Ignore the second click of a
  * multi-click and any pointer press in its first moments; keyboard presses (detail 0) always go.
  */
 export const SETTLE_MS = 300;

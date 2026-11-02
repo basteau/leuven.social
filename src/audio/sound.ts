@@ -6,7 +6,7 @@
  * vary its pitch a little, so repeats don't sound mechanical.
  */
 
-/** The loudest voice (a running step) peaks around a twelfth of full scale: felt more than heard. */
+/** The loudest voice (a landing) peaks around a twelfth of full scale: felt more than heard. */
 export const MASTER = 0.4;
 const KEY = 'leuven.sound';
 /** Exponential ramps can't reach zero; this is silence to the ear. */

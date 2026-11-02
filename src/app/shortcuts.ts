@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import type { RefObject } from 'react';
 
 import type { Viewer, WalkMode } from '../scene/viewer.ts';
-import { menuKey } from './input.ts';
+import { idleRepeat, menuKey } from './input.ts';
 import type { TurnHold } from './input.ts';
 
 /**
@@ -39,6 +39,8 @@ export interface ShortcutTarget {
   openMenu: (page: 'list' | 'help') => void;
   /** The menu is open or on its way: its keys aren't the map's. */
   menuOpen: RefObject<boolean>;
+  /** Calls off a menu that is still on its way. */
+  closeMenu: () => void;
   /** A character typed while the menu was on its way, for its search. */
   typeAhead: (key: string) => void;
 }
@@ -76,9 +78,14 @@ export function useShortcuts(target: ShortcutTarget): void {
       // The menu's own keys (its search, arrows, Escape) are the menu's.
       if (event.target instanceof Element && event.target.closest('dialog')) return;
       // From the moment it's asked for, too: a search typed before its code arrives goes into
-      // its search, and mustn't walk or mute.
+      // its search, and mustn't walk or mute. Escape or the chord again calls it off, as they
+      // would close it once it's open.
       if (target.menuOpen.current) {
         event.preventDefault();
+        if (event.key === 'Escape' || menuKey(event) === 'chord') {
+          if (!event.repeat) target.closeMenu();
+          return;
+        }
         const typed = event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey;
         if (typed) target.typeAhead(event.key);
         return;
@@ -86,6 +93,7 @@ export function useShortcuts(target: ShortcutTarget): void {
       const menu = menuKey(event);
       if (menu && target.viewer.current) {
         event.preventDefault(); // ⌘P would print
+        if (event.repeat) return;
         release();
         target.openMenu(event.key === '?' ? 'help' : 'list');
         return;
@@ -112,10 +120,12 @@ export function useShortcuts(target: ShortcutTarget): void {
       }
       // Turning and walking go by position here too, so a key does the same on the map as on
       // foot; the rest are named for what they do (M mutes, R resets), so they go by letter.
-      // A held key's repeats are no new presses: the hold goes by its keydown and keyup.
+      // A held key's repeats are no new presses: the hold goes by its keydown and keyup, and only
+      // zoom goes on while its key is held.
+      if (idleRepeat(event)) return;
       const turn = LOOK_KEYS[code];
       if (turn) {
-        if (!event.repeat) target.turnHold.press(code, turn, viewer);
+        target.turnHold.press(code, turn, viewer);
         return;
       }
       const byCode: Record<string, () => void> = {
