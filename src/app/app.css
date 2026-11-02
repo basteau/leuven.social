@@ -20,6 +20,8 @@
   --gutter: clamp(0.75rem, 2.5vw, 1.25rem);
   --control: 44px;
   --control-big: 60px;
+  /* The actions and the corner panel: a little taller than a round control. */
+  --bar: 48px;
   --radius: 14px;
   /* Inside a panel, 2px in from its 2px border: concentric with it. */
   --radius-inner: calc(var(--radius) - 4px);
@@ -178,66 +180,42 @@ kbd {
   border-radius: var(--radius);
 }
 
-/* Top: the corner (who we are, or the way back and the street) and the credits. */
+/* Top: the corner (the way back, where you are), the credits and Mute; the hint under them. */
 .hud-top {
   inset-block-start: 0;
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
   padding-block-start: calc(var(--gutter) + env(safe-area-inset-top, 0px));
 }
 
 /*
- * Walking, the corner is one panel: the Map button and the street plate inside it, 2px in from
- * its border, with concentric corners, as tall as the actions (48px).
+ * The corner is one panel in every mode, as tall as the actions: the way back (once there is
+ * one) and a plate, 2px in from its border, with concentric corners.
  */
 .corner {
   display: flex;
-  align-items: stretch;
-}
-
-.corner.panel {
+  min-block-size: var(--bar);
   padding: 2px;
 }
 
-.brand {
-  display: flex;
-  align-items: center;
-  gap: var(--space-s);
-  min-block-size: var(--control);
-  padding-inline: var(--space-m) var(--space-l);
-  border-radius: 999px;
-}
-
-.brand h1 {
-  margin: 0;
-  font-size: 1.125rem;
-  font-weight: 800;
-  line-height: 1;
-  letter-spacing: -0.01em;
-}
-
-/* Bottom: the map controls in a rail at the end edge, the mode's hint and actions in the middle. */
+/* Bottom: the mode's action in the middle, the view's controls in a rail at the end edge. */
 .hud-bottom {
   inset-block-end: 0;
   display: grid;
   grid-template-columns: 1fr auto 1fr;
-  grid-template-areas: '. bar rail';
   align-items: end;
   padding-block-end: calc(var(--gutter) + env(safe-area-inset-bottom, 0px));
 }
 
-/* Narrow screens: the rail stands above the bar, so the two never squeeze each other. */
-@container (inline-size < 40rem) {
-  .hud-bottom {
-    grid-template-columns: 1fr;
-    grid-template-areas: 'rail' 'bar';
-  }
+.bar {
+  grid-column: 2;
+  display: flex;
 }
 
-/* Lined up on the end edge, so the controls stay put when Run (wider) joins them. */
+/* Standing on the bottom edge and lined up on the end edge, so a control a mode adds under them
+ * (Run, wider) moves nothing else sideways. */
 .rail {
-  grid-area: rail;
   justify-self: end;
   display: flex;
   flex-direction: column;
@@ -247,11 +225,15 @@ kbd {
 
 /*
  * Short screens (a phone on its side): a column would reach up to Mute in the corner, so the rail
- * lies down in a row. Run takes the compass's place at its start, so zoom and turn stay put.
+ * lies down in a row, Run at its start where the compass was, so the view's controls stay put.
  */
 @media (max-height: 26rem) {
-  .rail {
+  .rail,
+  .rail .stack {
     flex-direction: row;
+  }
+
+  .rail {
     /* The reset lets grid items shrink; a row of controls never should. */
     min-inline-size: max-content;
   }
@@ -259,30 +241,25 @@ kbd {
   .rail .big {
     order: -1;
   }
-}
 
-.bar {
-  grid-area: bar;
-  justify-self: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-s);
-  max-inline-size: 100%;
+  .stack .round + .round::before {
+    inset-block: 10px;
+    inset-inline: 0 auto;
+    inline-size: 1px;
+    block-size: auto;
+  }
+
+  .rail .tip {
+    inset-block: auto calc(100% + var(--space-m));
+    inset-inline-end: 50%;
+    translate: 50% 0;
+  }
 }
 
 fieldset {
   min-inline-size: 0;
   margin: 0;
   padding: 0;
-}
-
-.actions {
-  display: flex;
-  border: 0;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: var(--space-s);
 }
 
 .notice {
@@ -308,7 +285,7 @@ fieldset {
   align-items: center;
   justify-content: center;
   gap: var(--space-s);
-  min-block-size: 48px;
+  min-block-size: var(--bar);
   padding-inline: var(--space-l) 1.125rem;
   border-radius: 999px;
   color: var(--ink);
@@ -330,7 +307,7 @@ fieldset {
 .action.quiet {
   position: relative;
   flex: none;
-  min-block-size: 40px;
+  min-block-size: 0;
   padding-inline: var(--space-s) var(--space-m);
   border: 0;
   border-radius: var(--radius-inner);
@@ -511,7 +488,10 @@ fieldset {
   }
 }
 
-/* The street plate: inset in the corner panel, the accent's enamel under a paper rim. */
+/*
+ * The corner's plate, Leuven on the map and the street on foot: inset in the corner panel, the
+ * accent's enamel under a paper rim.
+ */
 .sign-slot {
   display: flex;
 }
@@ -520,9 +500,9 @@ fieldset {
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: var(--space-s);
   max-inline-size: 17rem;
-  min-block-size: 40px;
-  margin-inline-start: 2px;
+  margin: 0;
   padding-block: var(--space-xs);
   padding-inline: var(--space-m);
   border-radius: var(--radius-inner);
@@ -540,13 +520,26 @@ fieldset {
   text-wrap: balance;
 }
 
+.action ~ .sign,
+.action ~ * .sign {
+  margin-inline-start: 2px;
+}
+
+h1.sign {
+  padding-inline-end: var(--space-l);
+  font-size: 1.125rem;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.01em;
+}
+
 .sign-name {
   animation: fade-in 200ms var(--ease-out);
 }
 
 /* It slides in from the Map button's side; each new name follows it in. */
 @media (prefers-reduced-motion: no-preference) {
-  .sign {
+  .sign-slot .sign {
     animation: sign-in 240ms var(--ease-out);
   }
 
@@ -576,6 +569,8 @@ fieldset {
 }
 
 .hint {
+  grid-column: 1 / -1;
+  justify-self: center;
   display: block;
   max-inline-size: min(30rem, 100%);
   margin: 0;
@@ -674,10 +669,13 @@ fieldset {
   stroke-width: 6;
 }
 
+/* Mute and the © centred on the corner panel's row: 44px controls on a 48px panel. */
 .corner-end {
+  justify-self: end;
   display: flex;
   align-items: flex-start;
   gap: var(--space-s);
+  padding-block-start: calc((var(--bar) - var(--control)) / 2);
 }
 
 .credits {
@@ -687,7 +685,7 @@ fieldset {
 }
 
 /*
- * Narrow headers: the credit tucks under its button, so it stays clear of the brand panel, and
+ * Narrow headers: the credit tucks under its button, so it stays clear of the corner panel, and
  * Mute's tip stacks its key under its name, as narrow as the button, so it doesn't cover them.
  */
 @container (inline-size < 26rem) {
@@ -744,7 +742,7 @@ fieldset {
   margin-block-end: calc(1lh - 24px);
 }
 
-/* Centred on the brand's row; its 44px hit area reaches past the visual (below). */
+/* Centred on the corner panel's row; its 44px hit area reaches past the visual (below). */
 .credits-toggle {
   position: relative;
   display: grid;
