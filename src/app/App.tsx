@@ -264,7 +264,12 @@ export function App() {
             // Keep the keys working, whatever started or ended the walk.
             map.focus({ focusVisible: false } as FocusOptions);
           },
-          onWalkBlocked: () => setBlocked(performance.now()),
+          onWalkBlocked: () => {
+            // Refused, so nothing is getting ready: the hint mustn't say so once this clears.
+            clearTimeout(walkLoadTimer.current);
+            setWalkLoad('idle');
+            setBlocked(performance.now());
+          },
           onWalkUnavailable: () => {
             clearTimeout(walkLoadTimer.current);
             setWalkLoad('failed');
