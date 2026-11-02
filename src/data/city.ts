@@ -4,6 +4,7 @@
  * counter-clockwise in (x, z), without a closing duplicate point.
  */
 
+import type { Field, PitchSurface } from './pitches.ts';
 import type { ShopKind } from './shop-kinds.ts';
 
 export const TIERS = ['hero', 'core', 'fringe'] as const;
@@ -237,8 +238,12 @@ export interface City {
   water: Float32Array[];
   /** Woods and scrub: a darker floor under the trees. */
   woods: Float32Array[];
-  /** Sports pitches. */
+  /** Sports pitches and running tracks. */
   pitches: Float32Array[];
+  /** Each pitch's surface, in the order of `pitches` (src/data/pitches.ts). */
+  pitchSurfaces: PitchSurface[];
+  /** The lines painted on the pitches: soccer fields, tennis and basketball courts, track lanes. */
+  fields: Field[];
   /** Car parks outside the road surface. */
   parking: Float32Array[];
   paths: Path[];

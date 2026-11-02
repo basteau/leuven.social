@@ -50,7 +50,10 @@ const city: City = {
   green: [box(10, 200, 20, 20)],
   water: [],
   woods: [],
-  pitches: [],
+  // A tennis park across the seam, its courts' lines whole in the cell of their centre.
+  pitches: [box(S - 10, 230, 40, 36)],
+  pitchSurfaces: ['clay'],
+  fields: [{ sport: 'tennis', x: S + 10, z: 248, angle: 0, length: 36, width: 40, count: 2 }],
   parking: [],
   // A path from one cell into the other.
   paths: [{ width: 2, paved: true, line: new Float32Array([S - 20, 50, S + 20, 50]) }],
@@ -128,6 +131,21 @@ test('the area is cut into cells, and each thing goes to one', () => {
   expect(Math.min(...east.platforms[0]!.filter((_, i) => i % 2 === 0))).toBe(S);
   expect([west.ground.railLand.length, east.ground.railLand.length]).toEqual([1, 1]);
   expect([west.canopies.length, east.canopies.length]).toEqual([1, 1]);
+  // Pitches are cut like the ground, keeping their surface; a field's lines stay whole.
+  expect([...west.ground.pitches, ...east.ground.pitches].map((p) => p.surface)).toEqual([
+    'clay',
+    'clay',
+  ]);
+  expect([west.ground.fields.length, east.ground.fields.length]).toEqual([0, 1]);
+});
+
+test("a field's lines are fine paint, on the pitch", () => {
+  const [, east] = partition(city);
+  const { mesh, fineVertices } = buildCell(east!, city.area, partyWalls(city.buildings));
+  const p = unindexed(mesh.build()).getAttribute('position');
+  const ys = Array.from({ length: p.count - fineVertices }, (_, i) => p.getY(fineVertices + i));
+  // Two courts of ten lines past the road's paint.
+  expect(ys.filter((y) => Math.abs(y - 0.07) < 1e-6)).toHaveLength(2 * 10 * 6);
 });
 
 test('a cell builds into one mesh and one set of outlines', () => {
