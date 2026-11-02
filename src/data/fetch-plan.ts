@@ -63,10 +63,19 @@ export interface OverpassResult {
  * Parses an Overpass answer. A `remark` means the server gave up part-way (timeout, memory)
  * and the elements are incomplete, so it counts as a failure, not as data.
  */
-export function checkOverpass(text: string): OverpassResult {
+/**
+ * A complete Overpass answer, or a SourceError. With `asOf`, the server's own data must reach
+ * that moment: a mirror whose database ends earlier can't answer for it, and silently gives
+ * what it has (a July copy answered an October query once), so its answer is refused.
+ */
+export function checkOverpass(text: string, asOf?: string): OverpassResult {
   const json = parseJson(text, 'Overpass');
   if (typeof json.remark === 'string') throw new SourceError(`Overpass remark: ${json.remark}`);
   if (!Array.isArray(json.elements)) throw new SourceError('Overpass answer has no elements');
+  const base = (json.osm3s as { timestamp_osm_base?: unknown } | undefined)?.timestamp_osm_base;
+  if (asOf && !(typeof base === 'string' && base >= asOf)) {
+    throw new SourceError(`Overpass data ends at ${String(base)}, before ${asOf}`);
+  }
   return json as unknown as OverpassResult;
 }
 

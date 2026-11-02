@@ -95,6 +95,9 @@ test('overpassQuery reads the tile at the pinned date, south-west-north-east', (
   );
 });
 
+/** An empty Overpass answer from a server whose data ends at `base`. */
+const at = (base: string) => `{"elements":[],"osm3s":{"timestamp_osm_base":"${base}"}}`;
+
 test('checkOverpass refuses partial answers, non-JSON and missing elements', () => {
   expect(checkOverpass('{"elements":[]}').elements).toEqual([]);
   expect(() => checkOverpass('{"elements":[],"remark":"runtime error: timeout"}')).toThrow(
@@ -103,6 +106,12 @@ test('checkOverpass refuses partial answers, non-JSON and missing elements', () 
   expect(() => checkOverpass('<html>busy</html>')).toThrow('did not answer JSON');
   expect(() => checkOverpass('[]')).toThrow('not an object');
   expect(() => checkOverpass('{}')).toThrow('no elements');
+  // A server whose data ends before the moment asked for can't answer for it.
+  expect(checkOverpass(at('2026-11-02T14:51:41Z'), '2026-10-31T16:30:00Z').elements).toEqual([]);
+  expect(() => checkOverpass(at('2026-07-24T11:04:51Z'), '2026-10-31T16:30:00Z')).toThrow(
+    'before 2026-10-31',
+  );
+  expect(() => checkOverpass('{"elements":[]}', '2026-10-31T16:30:00Z')).toThrow('ends at');
 });
 
 test('mergeOverpass keeps one of each element, in type and id order, whatever the tiling', () => {
