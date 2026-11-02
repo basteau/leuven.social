@@ -2,7 +2,9 @@ import { expect, test } from 'bun:test';
 
 import type { BufferAttribute } from 'three';
 
+import { Terrain } from '../data/terrain.ts';
 import {
+  LIFT_UNIT,
   LineBuilder,
   MeshBuilder,
   corners,
@@ -162,9 +164,9 @@ test("a vertex is 24 bytes: colours as the palette's sRGB bytes, normals as sign
     0x80, 0x40, 0xc0,
   ]);
   expect(g.getAttribute('normal').getY(0)).toBe(1);
-  const sizes = Object.values(g.attributes).map((a) =>
-    'data' in a ? bytes(a.data as never) : bytes(a as never),
-  );
+  // The lift rides in the normals' spare byte: a buffer counts once.
+  const buffers = new Set(Object.values(g.attributes).map((a) => ('data' in a ? a.data : a)));
+  const sizes = [...buffers].map((b) => bytes(b as never));
   expect(sizes.reduce((s, b) => s + b, 0) / 3).toBe(24);
   // Plus two bytes an index.
   expect(geometryBytes(g)).toBe(24 * 3 + 2 * 3);
@@ -226,4 +228,110 @@ test('lines count their segments', () => {
   lines.segment([0, 0, 0], [1, 0, 0]);
   lines.segment([0, 0, 0], [0, 1, 0]);
   expect(lines.segments).toBe(2);
+});
+
+// A slope up to the east with a bump in the middle, in 10 m squares.
+const hill = new Terrain({
+  step: 10,
+  minX: -10,
+  minZ: -10,
+  cols: 3,
+  rows: 3,
+  heights: Float32Array.of(0, 1, 2, 0, 4, 2, 0, 1, 2),
+});
+
+/** Every vertex's height over the terrain under it. */
+function overGround(geometry: ReturnType<MeshBuilder['build']>): number[] {
+  const p = geometry.getAttribute('position');
+  return Array.from({ length: p.count }, (_, i) => p.getY(i) - hill.height(p.getX(i), p.getZ(i)));
+}
+
+test('draped, a flat polygon lies on the terrain, its cut points shared, lit as level', () => {
+  const mesh = new MeshBuilder();
+  mesh.drape = hill;
+  mesh.lift = 5; // ignored while draping
+  const ring = [-7, -7, 7, -7, 7, 7, -7, 7];
+  const points = [0, 1, 2, 3].map((i) => [ring[i * 2]!, 0.1, ring[i * 2 + 1]!] as const);
+  mesh.polygon(points, [], 0x808080, UP, -2);
+  const g = mesh.build({ facade: true });
+  for (const y of overGround(g)) expect(y).toBeCloseTo(0.1, 5);
+  const normal = g.getAttribute('normal');
+  for (let i = 0; i < normal.count; i++) expect(normal.getY(i)).toBe(1);
+  // Eight pieces, but one vertex per point: 4 corners, 8 cut on the edges, 1 node inside.
+  expect(g.getAttribute('position').count).toBe(13);
+  expect(g.index!.count / 3).toBeGreaterThanOrEqual(8);
+  expect(g.getAttribute('lift').getX(0)).toBe(0);
+  // The pieces cover the square once: their areas add up to its own.
+  const soup = unindexed(g).getAttribute('position');
+  let area = 0;
+  for (let i = 0; i < soup.count; i += 3) {
+    const [ax, az, bx, bz, cx, cz] = [0, 1, 2].flatMap((k) => [soup.getX(i + k), soup.getZ(i + k)]);
+    area += Math.abs((bx! - ax!) * (cz! - az!) - (cx! - ax!) * (bz! - az!)) / 2;
+  }
+  expect(area).toBeCloseTo(14 * 14);
+});
+
+test('draped, quads with a value per corner carry it to the cuts, and walls stay upright', () => {
+  const mesh = new MeshBuilder();
+  mesh.drape = hill;
+  mesh.quad([-5, 0.2, -1], [5, 0.2, -1], [5, 0.2, 1], [-5, 0.2, 1], 0, UP, [-10, -20, -20, -10]);
+  const flat = mesh.build({ facade: true });
+  for (const y of overGround(flat)) expect(y).toBeCloseTo(0.2, 5);
+  const p = flat.getAttribute('position');
+  const facade = flat.getAttribute('facade');
+  // The value ran from -10 at x = -5 to -20 at x = 5.
+  for (let i = 0; i < p.count; i++) expect(facade.getX(i)).toBeCloseTo(-15 - p.getX(i));
+
+  const walls = new MeshBuilder();
+  walls.drape = hill;
+  walls.quad([-5, 0, -2], [5, 0, -2], [5, 1, -2], [-5, 1, -2], 0, [0, 0, -1]);
+  const wall = walls.build();
+  const n = wall.getAttribute('normal');
+  for (let i = 0; i < n.count; i++) expect([n.getX(i), n.getY(i), n.getZ(i)]).toEqual([0, 0, -1]);
+  // Its foot follows the ground, its top a metre over it.
+  for (const y of overGround(wall)) expect([0, 1]).toContain(Math.round(y * 1e4) / 1e4);
+});
+
+test('draped triangles are cut too', () => {
+  const mesh = new MeshBuilder();
+  mesh.drape = hill;
+  mesh.triangle([-5, 0, -5], [5, 0, -5], [5, 0, 5], 0, UP);
+  mesh.triangle([-5, 0, 5], [5, 0, 5], [-5, 0, -5], 0, UP, [0, 0, 0]);
+  const g = mesh.build();
+  expect(g.index!.count / 3).toBeGreaterThan(2);
+  for (const y of overGround(g)) expect(y).toBeCloseTo(0, 5);
+});
+
+test('lifted, everything rises by one height, which the lift attribute holds in units', () => {
+  const mesh = new MeshBuilder();
+  mesh.lift = 3.5;
+  mesh.triangle([0, 0, 0], [1, 0, 0], [0, 2, 0], 0, [0, 0, 1], 6);
+  expect(mesh.lift).toBe(3.5);
+  const g = mesh.build({ facade: true });
+  expect(
+    Array.from(g.getAttribute('position').array as Float32Array).filter((_, i) => i % 3 === 1),
+  ).toEqual([3.5, 3.5, 5.5]);
+  expect(g.getAttribute('lift').getX(2)).toBe(3.5 / LIFT_UNIT);
+  // Far past what a byte holds, it stops at the byte's end.
+  mesh.lift = -1000;
+  mesh.triangle([0, 0, 0], [1, 0, 0], [0, 2, 0], 0, [0, 0, 1], 6);
+  expect(mesh.build({ facade: true }).getAttribute('lift').getX(3)).toBe(-128);
+});
+
+test('outlines drape over the terrain, or rise by one height', () => {
+  const lines = new LineBuilder();
+  lines.drape = hill;
+  lines.segment([-8, 0.2, -1], [8, 0.2, -1]);
+  const g = lines.build();
+  const p = g.getAttribute('position');
+  // Cut at x = -1 (the diagonal) and x = 0: three segments, four points.
+  expect(p.count).toBe(4);
+  expect(g.index!.count).toBe(6);
+  for (let i = 0; i < p.count; i++) {
+    expect(p.getY(i) - hill.height(p.getX(i), p.getZ(i))).toBeCloseTo(0.2, 5);
+  }
+  const lifted = new LineBuilder();
+  lifted.lift = 2;
+  lifted.segment([0, 0, 0], [0, 1, 0]);
+  expect(Array.from(lifted.build().getAttribute('position').array)).toEqual([0, 2, 0, 0, 3, 0]);
 });
