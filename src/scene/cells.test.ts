@@ -2,21 +2,14 @@ import { expect, test } from 'bun:test';
 
 import type { Building, City } from '../data/city.ts';
 import { footing, partyWalls } from './buildings.ts';
-import {
-  CELL_SIZE,
-  along,
-  buildCell,
-  buildFurniture,
-  groundRange,
-  partition,
-  propBase,
-} from './cells.ts';
+import { CELL_SIZE, along, buildCell, groundRange, partition } from './cells.ts';
+import { buildFurniture, propBase } from './furniture.ts';
 import { slabBottom } from './ground.ts';
-import { unindexed } from './mesh-builder.ts';
-import type { MeshBuilder } from './mesh-builder.ts';
+import { MeshBuilder, unindexed } from './mesh-builder.ts';
 import { FLAT, FLAT_GRID, Terrain } from '../data/terrain.ts';
 
 const S = CELL_SIZE;
+const kit = { MeshBuilder, terrain: FLAT };
 const box = (x: number, z: number, w: number, d: number) =>
   new Float32Array([x, z, x + w, z, x + w, z + d, x, z + d]);
 const house = (id: number, ring: Float32Array): Building => ({
@@ -179,13 +172,16 @@ const height = (m: MeshBuilder) => {
   return g.boundingBox!.max.y;
 };
 
-test('small props get a mesh of their own, built apart; tall ones join the cell', () => {
+test('props are built apart from the cell: small ones up close, tall ones at every zoom', () => {
   const [west, east] = partition(city);
   const walls = partyWalls(city.buildings);
   const e = buildCell(east!, city.area, walls);
-  expect(height(buildFurniture(west!))).toBeLessThan(2); // a bench
-  expect(height(buildFurniture(east!))).toBeLessThan(2); // only the bench: the needle is in the main mesh
-  expect(height(e.mesh)).toBeGreaterThan(20);
+  expect(height(buildFurniture(west!, kit).near)).toBeLessThan(2); // a bench
+  expect(buildFurniture(west!, kit).tall).toBeNull();
+  const { near, tall } = buildFurniture(east!, kit);
+  expect(height(near)).toBeLessThan(2); // only the bench
+  expect(height(tall!)).toBeGreaterThan(20); // the needle
+  expect(height(e.mesh)).toBeLessThan(20);
 });
 
 test('along: how far a point on a line lies from its start', () => {
@@ -231,7 +227,7 @@ test('on the terrain, the ground drapes, houses stand at their foot, props on th
     (i) => p.getX(i) >= 10 && p.getX(i) <= 18 && p.getZ(i) >= 10 && p.getZ(i) <= 18,
   );
   expect(Math.max(...first.map((i) => p.getY(i)))).toBeCloseTo(11);
-  const props = buildFurniture(east!, slope).build();
+  const props = buildFurniture(east!, { MeshBuilder, terrain: slope }).near.build();
   props.computeBoundingBox();
   expect(props.boundingBox!.min.y).toBeGreaterThan(slope.height(S, 0) - 1);
 });

@@ -1,6 +1,5 @@
 import type { Bounds, Building, Carriageway, City, Path, Prop, Rail, Tank } from '../data/city.ts';
 import { areaOutline, clipLine, clipRing } from '../data/geometry.ts';
-import { propFootprint } from '../data/props.ts';
 import { FLAT } from '../data/terrain.ts';
 import type { Terrain } from '../data/terrain.ts';
 import { addBuilding, footing } from './buildings.ts';
@@ -10,7 +9,6 @@ import { GROUND_RINGS } from './ground.ts';
 import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
 import { addFinePaint } from './paint.ts';
 import type { Marking } from './paint.ts';
-import { addProp, isLarge } from './props.ts';
 import {
   addCanopyBay,
   addMasts,
@@ -45,7 +43,7 @@ export interface Cell {
   /** Flat [x, z, seed, height, …]: the seed keeps a tree's look when the cell changes. */
   trees: number[];
   parasols: Parasol[];
-  /** Street furniture, drawn in a mesh of its own that hides when zoomed out; tall ones aren't. */
+  /** Street furniture and monuments, drawn apart once the furniture chunk loads (furniture.ts). */
   props: Prop[];
   tanks: Tank[];
   parapets: Float32Array[];
@@ -236,8 +234,8 @@ export interface DetailMarks {
 }
 
 /**
- * Everything in one cell as one mesh and one set of outlines (two draw calls), but its small
- * street furniture (see `buildFurniture`). In the main mesh the flat
+ * Everything in one cell as one mesh and one set of outlines (two draw calls), but its street
+ * furniture and monuments (`buildFurniture` in furniture.ts). In the main mesh the flat
  * ground comes first, then the tree trunks (from `trunksFrom`), and the rest from `shadowFrom`, so
  * the shadow pass can skip them: the ground can't shade anything, and seen from above a trunk's
  * shadow hides in its crown's. The fine road paint comes last (from `fineVertices`), so a
@@ -245,8 +243,8 @@ export interface DetailMarks {
  *
  * On the terrain, what lies on the ground is draped over it: the ground layers, paths, paint, track
  * beds and the rails' and slab's ink, platforms and parapets. Houses and tanks stand on the
- * lowest ground under their corners, trees, parasols, platform roofs and props on the ground at
- * their point.
+ * lowest ground under their corners, trees, parasols and platform roofs on the ground at their
+ * point.
  */
 export function buildCell(
   cell: Cell,
@@ -309,41 +307,9 @@ export function buildCell(
     mesh.lift = lines.lift = terrain.base(t.ring);
     addTank(mesh, lines, t);
   }
-  for (const p of cell.props) {
-    if (!isLarge(p)) continue;
-    mesh.lift = propBase(terrain, p);
-    addProp(mesh, p);
-  }
   mesh.lift = lines.lift = 0;
   const fineVertices = mesh.indices;
   mesh.drape = terrain;
   addFinePaint(mesh, cell.ground.markings);
   return { mesh, lines, trunksFrom, shadowFrom, fineVertices, detail };
-}
-
-/**
- * Where a prop stands: the lowest ground under its footprint's corners, so a bench or a
- * monument's plinth runs into a slope rather than over it.
- */
-export function propBase(terrain: Terrain, p: Prop): number {
-  const { x, z, fx, fz, u0, u1, v0, v1 } = propFootprint(p);
-  const ring = [u0, u1].flatMap((u) =>
-    [v0, v1].flatMap((v) => [x - fz * u + fx * v, z + fx * u + fz * v]),
-  );
-  return terrain.base(ring);
-}
-
-/**
- * A cell's small street furniture, as a mesh of its own that hides when zoomed out. It only
- * shows up close, so it's built apart from the rest, after the first frame. Each piece stands
- * on the ground under it (`propBase`).
- */
-export function buildFurniture(cell: Cell, terrain: Terrain = FLAT): MeshBuilder {
-  const props = new MeshBuilder();
-  for (const p of cell.props) {
-    if (isLarge(p)) continue;
-    props.lift = propBase(terrain, p);
-    addProp(props, p);
-  }
-  return props;
 }
