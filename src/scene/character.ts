@@ -42,8 +42,11 @@ export const BONES = [
 export type BoneName = (typeof BONES)[number];
 
 /** Hip to knee, and knee to sole (model metres). */
-const THIGH = 0.37;
-const SHIN = 0.45;
+export const THIGH = 0.37;
+export const SHIN = 0.45;
+/** Shoulder to elbow, and elbow to the middle of the hand (model metres). */
+export const UPPER_ARM = 0.24;
+export const FOREARM = 0.27;
 
 /** Each bone's pivot relative to its parent, in model metres (y up, facing +z). */
 const JOINTS: Record<BoneName, { parent: BoneName | null; at: V3 }> = {
@@ -235,6 +238,8 @@ export function createCharacter(body: Material, xray: Material): Character {
   for (const name of BONES) {
     const { parent, at } = JOINTS[name];
     bones[name].name = name;
+    // Undoing the body's roll before their own swing keeps the legs plumb (see applyPose).
+    if (name === 'legL' || name === 'legR') bones[name].rotation.order = 'ZYX';
     bones[name].position.set(...at);
     if (parent) bones[parent].add(bones[name]);
   }
@@ -255,8 +260,14 @@ export function createCharacter(body: Material, xray: Material): Character {
 }
 
 export interface Pose {
-  /** Hip height above the feet, model metres. */
+  /** Hip height above the feet, and how far forward of the root they sit (model metres). */
   hips: number;
+  hipsZ: number;
+  /**
+   * Roll of the body about its forward axis (radians, positive dips the left hip). The legs
+   * hang plumb whatever the roll, so feet stay put on pedals or the ground.
+   */
+  roll: number;
   /** Forward lean of the torso, its twist with each stride, and its bank into a turn (radians). */
   lean: number;
   twist: number;
@@ -266,9 +277,11 @@ export interface Pose {
   legR: number;
   kneeL: number;
   kneeR: number;
-  /** Swing of the left arm (the right mirrors it), and the bend of both elbows (negative folds forward). */
-  arm: number;
-  elbow: number;
+  /** Swing of each arm (positive is back), and the bend of each elbow (negative folds forward). */
+  armL: number;
+  armR: number;
+  elbowL: number;
+  elbowR: number;
   /** Head nod and turn. */
   nod: number;
   look: number;
@@ -279,6 +292,8 @@ const REST_ELBOW = -0.12;
 
 export const restPose = (): Pose => ({
   hips: JOINTS.hips.at[1],
+  hipsZ: 0,
+  roll: 0,
   lean: 0,
   twist: 0,
   bank: 0,
@@ -286,8 +301,10 @@ export const restPose = (): Pose => ({
   legR: 0,
   kneeL: 0,
   kneeR: 0,
-  arm: 0,
-  elbow: REST_ELBOW,
+  armL: 0,
+  armR: 0,
+  elbowL: REST_ELBOW,
+  elbowR: REST_ELBOW,
   nod: 0,
   look: 0,
 });
@@ -339,11 +356,14 @@ export function poseAt(
   const give = 0.04 * walk + 0.2 * run;
   out.kneeL = fold * Math.max(0, through) ** 2 + land * loading(swing, through) + give;
   out.kneeR = fold * Math.max(0, -through) ** 2 + land * loading(-swing, -through) + give;
-  out.arm = (0.55 * walk + 0.35 * run) * swing;
-  out.elbow = REST_ELBOW - 0.15 * walk - 1.1 * run;
+  out.armL = (0.55 * walk + 0.35 * run) * swing;
+  out.armR = -out.armL;
+  out.elbowL = out.elbowR = REST_ELBOW - 0.15 * walk - 1.1 * run;
   out.hips =
     Math.max(legReach(out.legL, out.kneeL), legReach(out.legR, out.kneeR)) +
     0.03 * walk * Math.abs(through);
+  out.hipsZ = 0;
+  out.roll = 0;
   out.lean = 0.08 * walk + 0.22 * run;
   out.twist = (0.16 * walk + 0.06 * run) * swing;
   out.bank = Math.max(-0.3, Math.min(0.3, -0.03 * turning * speed));
@@ -355,21 +375,58 @@ export function poseAt(
     const breath = 0.5 - 0.5 * Math.cos(Math.PI * 6 * u);
     out.look += 0.5 * Math.sin(Math.PI * 2 * u) * fade;
     out.hips += 0.015 * breath * fade;
-    out.arm = 0.05 * breath * fade;
+    out.armL = 0.05 * breath * fade;
+    out.armR = -out.armL;
   }
   return out;
 }
 
 export function applyPose({ bones }: Character, pose: Pose): void {
-  bones.hips.position.y = pose.hips;
+  bones.hips.position.set(0, pose.hips, pose.hipsZ);
+  bones.hips.rotation.z = pose.roll;
   bones.torso.rotation.set(pose.lean, pose.twist, pose.bank);
   bones.head.rotation.set(pose.nod, pose.look - pose.twist, 0);
-  bones.legL.rotation.x = pose.legL;
-  bones.legR.rotation.x = pose.legR;
+  // The legs undo the roll first (they turn Z, then X), so they swing in the root's plane.
+  bones.legL.rotation.set(pose.legL, 0, -pose.roll);
+  bones.legR.rotation.set(pose.legR, 0, -pose.roll);
   bones.shinL.rotation.x = pose.kneeL;
   bones.shinR.rotation.x = pose.kneeR;
-  bones.armL.rotation.x = pose.arm;
-  bones.armR.rotation.x = -pose.arm;
-  bones.foreL.rotation.x = pose.elbow;
-  bones.foreR.rotation.x = pose.elbow;
+  bones.armL.rotation.x = pose.armL;
+  bones.armR.rotation.x = pose.armR;
+  bones.foreL.rotation.x = pose.elbowL;
+  bones.foreR.rotation.x = pose.elbowR;
+}
+
+/** Angles for a two-bone limb: its root's swing and its middle joint's bend (radians). */
+export interface Limb {
+  root: number;
+  joint: number;
+}
+
+/**
+ * Two-bone inverse kinematics in a limb's plane: the swing of its root and the bend of its middle
+ * joint that put the end of a limb (`upper` then `lower` long, hanging straight down at rest) at
+ * `z` forward and `y` up from its root, written into `out`. Angles turn about x as the bones do:
+ * a positive swing carries the end back. `bend` 1 bends the joint forward, as a knee does (a
+ * positive bend); -1 back, as an elbow does. Out of reach, the limb points at the target as far
+ * as it goes; too close, it folds as far as it can.
+ */
+export function limbIK(
+  out: Limb,
+  z: number,
+  y: number,
+  upper: number,
+  lower: number,
+  bend: 1 | -1,
+): Limb {
+  const d = Math.min(
+    upper + lower - 1e-6,
+    Math.max(Math.abs(upper - lower) + 1e-6, Math.hypot(z, y)),
+  );
+  const aim = Math.atan2(-z, -y);
+  const atRoot = Math.acos((upper * upper + d * d - lower * lower) / (2 * upper * d));
+  const atJoint = Math.acos((upper * upper + lower * lower - d * d) / (2 * upper * lower));
+  out.root = aim - bend * atRoot;
+  out.joint = bend * (Math.PI - atJoint);
+  return out;
 }

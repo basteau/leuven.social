@@ -7,7 +7,12 @@ import {
   applyPose,
   characterGeometry,
   createCharacter,
+  FOREARM,
+  SHIN,
+  THIGH,
+  UPPER_ARM,
   legReach,
+  limbIK,
   poseAt,
   restPose,
 } from './character.ts';
@@ -92,8 +97,9 @@ describe('createCharacter and poses', () => {
     const stride = poseAt(restPose(), WALK_SPEED, Math.PI / 2, 0, true);
     expect(stride.legL).toBeLessThan(-0.3);
     expect(stride.legR).toBeGreaterThan(0.3);
-    expect(stride.arm).toBeGreaterThan(0.4);
-    expect(Math.sign(stride.legL)).toBe(-Math.sign(stride.arm));
+    expect(stride.armL).toBeGreaterThan(0.4);
+    expect(stride.armR).toBeCloseTo(-stride.armL);
+    expect(Math.sign(stride.legL)).toBe(-Math.sign(stride.armL));
     const passing = poseAt(restPose(), WALK_SPEED, 0, 0, true);
     expect(passing.hips).toBeGreaterThan(stride.hips);
     expect(passing.lean).toBeGreaterThan(0);
@@ -112,8 +118,9 @@ describe('createCharacter and poses', () => {
     const run = poseAt(restPose(), RUN_SPEED, Math.PI / 2, 0, true);
     expect(run.legR - run.legL).toBeGreaterThan(walk.legR - walk.legL);
     expect(run.lean).toBeGreaterThan(walk.lean * 2);
-    expect(run.elbow).toBeLessThan(-1);
-    expect(walk.elbow).toBeGreaterThan(-0.5);
+    expect(run.elbowL).toBeLessThan(-1);
+    expect(run.elbowR).toBeLessThan(-1);
+    expect(walk.elbowL).toBeGreaterThan(-0.5);
     expect(poseAt(restPose(), RUN_SPEED, 0, 0, true).kneeL).toBeGreaterThan(1.2);
   });
 
@@ -163,4 +170,65 @@ describe('createCharacter and poses', () => {
     expect(foot('shinL').z).toBeCloseTo(0);
     expect(foot('shinL').y).toBeCloseTo(0);
   });
+});
+
+// The end of a limb hanging from its root, swung by `root` and bent by `joint` (as bones turn).
+const end = (root: number, joint: number, a: number, b: number) => ({
+  z: -a * Math.sin(root) - b * Math.sin(root + joint),
+  y: -a * Math.cos(root) - b * Math.cos(root + joint),
+});
+
+describe('limbIK', () => {
+  const limb = { root: 0, joint: 0 };
+
+  test('puts the end of the limb on any target in reach, a knee bent forward', () => {
+    for (const [z, y] of [
+      [0, -0.8],
+      [0.3, -0.6],
+      [-0.4, -0.5],
+      [0.2, -0.2],
+      [0.5, 0.1],
+    ] as const) {
+      limbIK(limb, z, y, THIGH, SHIN, 1);
+      const at = end(limb.root, limb.joint, THIGH, SHIN);
+      expect(at.z).toBeCloseTo(z, 6);
+      expect(at.y).toBeCloseTo(y, 6);
+      expect(limb.joint).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  test('bends an elbow the other way, onto the same target', () => {
+    limbIK(limb, 0.35, -0.2, UPPER_ARM, FOREARM, -1);
+    expect(limb.joint).toBeLessThan(0);
+    const at = end(limb.root, limb.joint, UPPER_ARM, FOREARM);
+    expect(at.z).toBeCloseTo(0.35, 6);
+    expect(at.y).toBeCloseTo(-0.2, 6);
+  });
+
+  test('out of reach it points straight at the target; too close it folds up', () => {
+    limbIK(limb, 2, -2, THIGH, SHIN, 1);
+    expect(limb.joint).toBeCloseTo(0, 2);
+    expect(limb.root).toBeCloseTo(-Math.PI / 4, 2);
+    limbIK(limb, 0, 0, THIGH, SHIN, 1);
+    expect(Number.isFinite(limb.root)).toBe(true);
+    expect(limb.joint).toBeGreaterThan(2.9);
+  });
+});
+
+test('a rolled body keeps its legs plumb and its hips shifted only up and down', () => {
+  const material = new MeshBasicMaterial();
+  const character = createCharacter(material, material);
+  const foot = (bone: 'shinL' | 'shinR') => {
+    character.mesh.updateMatrixWorld(true);
+    return character.bones[bone].localToWorld(new Vector3(0, -SHIN, 0));
+  };
+  applyPose(character, { ...restPose(), roll: 0.3, hipsZ: 0.2 });
+  const left = foot('shinL');
+  const right = foot('shinR');
+  expect(left.x).toBeCloseTo(0.1 * Math.cos(0.3), 6);
+  expect(left.z).toBeCloseTo(0.2, 6);
+  expect(left.y - right.y).toBeCloseTo(0.2 * Math.sin(0.3), 6);
+  // The shoulders roll with the body.
+  const shoulder = character.bones.armL.getWorldPosition(new Vector3());
+  expect(shoulder.x).toBeLessThan(0.27);
 });
