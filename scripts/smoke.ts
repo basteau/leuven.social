@@ -192,6 +192,10 @@ async function expectWalking(): Promise<void> {
     `JSON.stringify(document.querySelector('.sign-name').textContent)`,
   );
   console.log(`ok  street sign while walking: ${street}`);
+  // House numbers and street plates hang on the facades round the walker (walk.bin).
+  await browser('wait', '--fn', `Number(${canvasData('plates')}) > 0`);
+  const plates = await evalJson<string>(`JSON.stringify(${canvasData('plates')})`);
+  console.log(`ok  plates on the facades while walking: ${plates}`);
   await browser('screenshot', `${ARTIFACTS}smoke-walk.png`);
   // Dispatched rather than pressed: agent-browser's Escape leaves the page hidden, so the checks
   // after it would run in a background tab that draws no frames.
@@ -200,7 +204,7 @@ async function expectWalking(): Promise<void> {
   await browser(
     'wait',
     '--fn',
-    `${canvasData('walk')} === 'map' && ${canvasData('walker')} === ''`,
+    `${canvasData('walk')} === 'map' && ${canvasData('walker')} === '' && ${canvasData('plates')} === '0'`,
   );
   await expectHealthyPage('desktop back on the map');
 }

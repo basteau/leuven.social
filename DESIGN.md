@@ -48,6 +48,13 @@ Leuven as a tiny city you could hold in your hands: a warm, crisp, low-poly dior
 - **Hidden behind a building**, the figure shows as a checkerboard silhouette in coat blue.
 - **A picked destination** gets ink-ringed pale dots along the way and a square target, Street View style.
 
+### Plates on the facades
+
+- **The city names itself, the way Leuven does.** Every house OSM gives a number carries it on a small enamel plate beside its front, and every street a long plate on a corner building where it meets another (and along any 150 m without a corner), as Belgian streets do. They are part of the city: lit by the sun, in the shade with their wall, hidden behind the houses in front. No labels float over the view.
+- **Enamel in the HUD's colours.** The street plate's `--sign` blue under a `--paper` rim, paper letters (7.6:1), and a thin ink edge so a plate reads on a pale plaster wall as well as on dark brick. Rounded corners and ink sides a few centimetres deep, so from an angle it is a plate, not a sticker. House numbers are bold (800) and fill their plate; street names take the HUD plate's letters (750, a hair of spacing) on a plate as long as the name.
+- **Half again larger than life,** a little more than the walker and the street furniture: a number 30 cm tall at 2.2 m, a street plate 45 cm tall at 3 m (or under a lower eave), so they read from the chase camera across the street, on a phone too.
+- **Only on foot, only nearby:** numbers within 40 m, street plates within 60 m. They don't show on the map or during the flight, and as part of the scene they don't move, so there is nothing to reduce for reduced motion and nothing for screen readers (the street sign names the street).
+
 ### Railways
 
 - **Tracks read at every zoom, detail arrives as you zoom in.** Far out, a track is a light band (running lines) or a brown one (yards). As pixels get smaller than 0.9 m the catenary masts appear, under 0.5 m both rails as ink lines, and at the closest zoom the sleepers.
@@ -80,6 +87,7 @@ Values live in `src/scene/palette.ts`; change them there only. Each building's c
 | Road paint             | Off-white lane lines and zebras; a zebra's average grey from afar; red cyclist crossings                                                                                                                  | The ring reads as a boulevard, and paint never shimmers                                                                         |
 | Diorama slab           | Earth brown sides, inked along the top and bottom edges and down the corners                                                                                                                              | Frames the city as one object, drawn like the buildings on it                                                                   |
 | Outlines               | `#2b2420` warm ink                                                                                                                                                                                        | Ties scene and HUD together (same ink as the panels)                                                                            |
+| Facade plates          | `--sign` enamel `#14518c`, `--paper` rim and letters `#fbf6ec`, ink edge and sides `#2b2420`                                                                                                              | The HUD's street plate, hung on the walls it names                                                                              |
 | Walker                 | Coat `#2f62a8`, scarf `#e8b94a`, backpack `#b84c36`, hair `#7a4a2c`                                                                                                                                       | Reads against grey streets, sandy squares and green parks; the coat matches the HUD                                             |
 
 ## HUD

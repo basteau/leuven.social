@@ -10,6 +10,7 @@ const BROWSER_ONLY = new Set([
   'scene/facade-material.ts',
   'scene/character-material.ts',
   'scene/walk.ts',
+  'scene/plates.ts',
 ]);
 
 test('every pure module is measured by coverage', async () => {
