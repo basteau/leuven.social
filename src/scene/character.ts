@@ -245,20 +245,22 @@ export function figure(outfit: Outfit): Solid[] {
       level(0.13, 0.05, 0.15, -0.055, 0.055),
       level(0.53, 0.03, 0.17, -0.072, 0.072),
     ]),
-    // A sneaker that slopes down to the toe, springing up from the ball of the foot.
+    // A sneaker that slopes down to the toe, springing up from the ball of the foot: a dark upper
+    // with a padded collar at the ankle, on a paler sole a little wider all round, so its edge
+    // shows on dark cobbles. One ink hull goes round both.
     part(
       'footL',
-      WALKER.sneakers,
+      WALKER.sole,
       profile(
         [
           [-0.1, 0],
           [0.12, 0],
           [0.175, 0.035],
-          [0.165, 0.095],
-          [-0.09, 0.155],
+          [0.172, 0.05],
+          [-0.1, 0.045],
         ],
-        0.025,
-        0.175,
+        0.022,
+        0.178,
       ),
       {
         hull: profile(
@@ -267,12 +269,30 @@ export function figure(outfit: Outfit): Solid[] {
             [0.125, 0],
             [0.2, 0.04],
             [0.2, 0.095],
-            [-0.095, 0.155],
+            [0.05, 0.14],
+            [-0.097, 0.162],
           ],
           0.02,
           0.18,
         ),
       },
+    ),
+    part(
+      'footL',
+      WALKER.sneakers,
+      profile(
+        [
+          [-0.092, 0.04],
+          [0.165, 0.045],
+          [0.162, 0.095],
+          [0.05, 0.135],
+          [-0.02, 0.158],
+          [-0.092, 0.158],
+        ],
+        0.03,
+        0.17,
+      ),
+      NO_HULL,
     ),
   ];
   const arm = [

@@ -36,8 +36,8 @@ describe('characterGeometry', () => {
   const g = unindexed(characterGeometry());
   const position = g.getAttribute('position');
 
-  test('stays within 480 triangles, one bone to a vertex', () => {
-    expect(position.count / 3).toBeLessThanOrEqual(480);
+  test('stays within 900 triangles, one bone to a vertex', () => {
+    expect(position.count / 3).toBeLessThanOrEqual(900);
     const index = g.getAttribute('skinIndex');
     const weight = g.getAttribute('skinWeight');
     for (let i = 0; i < position.count; i++) {
@@ -114,7 +114,14 @@ describe('characterGeometry', () => {
       Array.from({ length: colours.count }, (_, i) => i).some((i) =>
         bytes(hex).every((c, k) => Math.abs(colours.getComponent(i, k) - c) < 1e-6),
       );
-    for (const hex of [outfit.shirt, outfit.shorts, outfit.hair, WALKER.skin, WALKER.sneakers]) {
+    for (const hex of [
+      outfit.shirt,
+      outfit.shorts,
+      outfit.hair,
+      WALKER.skin,
+      WALKER.sneakers,
+      WALKER.sole,
+    ]) {
       expect(has(hex)).toBe(true);
     }
   });
