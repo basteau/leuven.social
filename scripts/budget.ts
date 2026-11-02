@@ -54,10 +54,13 @@ const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[
   // Street furniture, monuments and the shop fronts' awnings, signs and terraces load once the
   // first frame is drawn, with the prop and terrace footprints they share with walk mode.
   // 6: the storefronts' shapes and the fronts' places on their walls added 1.6 KB.
+  // 7: standing each parked bike on the ground as drawn (the layers' outlines) and the bikes'
+  // detail asked for (round spoked wheels, cranks, chain guard, kickstand, lamp, basket) took it
+  // from 5.4 to 6.7 KB.
   {
     label: 'Furniture JS (after first frame)',
     pattern: 'assets/{furniture,props,shops}-*.js',
-    limit: 6 * KB,
+    limit: 7 * KB,
     gzip: true,
   },
   // About 11.6k house numbers and 1.8k street plates are 67 KB, and 1.1k shop name boards 17 KB

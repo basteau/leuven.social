@@ -3,7 +3,7 @@ import { expect, test } from 'bun:test';
 import type { Building, City } from '../data/city.ts';
 import { footing, partyWalls } from './buildings.ts';
 import { CELL_SIZE, along, buildCell, groundRange, partition } from './cells.ts';
-import { DrawnGround } from './drawn-ground.ts';
+import { drawnGround } from './drawn-ground.ts';
 import { buildFurniture, propBase } from './furniture.ts';
 import { LAYER_Y, slabBottom } from './ground.ts';
 import { MeshBuilder, unindexed } from './mesh-builder.ts';
@@ -227,7 +227,7 @@ test('each parked bike stands on the ground drawn under its wheels: a slope, a p
       plazas: [Float32Array.of(30.6, 30, 40, 30, 40, 50, 30.6, 50)],
     },
   };
-  const drawn = new DrawnGround(slope, cell, LAYER_Y);
+  const drawn = drawnGround(slope, cell, LAYER_Y);
   expect(drawn.layer(25, 40)).toBe(LAYER_Y.roads);
   expect(drawn.layer(35, 40)).toBe(LAYER_Y.plazas);
   expect(drawn.layer(60, 40)).toBe(0);
@@ -245,21 +245,30 @@ test('each parked bike stands on the ground drawn under its wheels: a slope, a p
       bikes[i + PARKED.z]!,
       bikes[i + PARKED.heading]!,
     ];
-    // The lowest point of each half of the bike, rear and front, is a tyre on the drawn ground.
-    const lowest = [Infinity, Infinity];
+    // In each half of the bike, rear and front, the point near its middle plane nearest the drawn
+    // ground is on it: a tyre. Off that plane, the kickstand's foot may dip a few millimetres
+    // into a slope across it, as the bike stands level across.
+    const [lowest, nearest] = [
+      [Infinity, Infinity],
+      [Infinity, Infinity],
+    ];
     const at: [number, number][] = [
       [0, 0],
       [0, 0],
     ];
+    const [cos, sin] = [Math.cos(heading), Math.sin(heading)];
     for (let k = from; k < to; k++) {
       const v = index.getX(k);
       const [px, py, pz] = [position.getX(v), position.getY(v), position.getZ(v)];
-      const half = (px - x) * Math.cos(heading) + (pz - z) * Math.sin(heading) > 0 ? 1 : 0;
-      if (py < lowest[half]!) [lowest[half], at[half]] = [py, [px, pz]];
+      const half = (px - x) * cos + (pz - z) * sin > 0 ? 1 : 0;
+      const over = py - drawn.height(px, pz);
+      expect(over).toBeGreaterThan(-0.01);
+      if (Math.abs((pz - z) * cos - (px - x) * sin) > 0.1) continue;
+      if (over < nearest[half]!) [nearest[half], lowest[half], at[half]] = [over, py, [px, pz]];
     }
     for (const half of [0, 1]) {
+      expect(nearest[half]).toBeCloseTo(0, 3);
       const [px, pz] = at[half]!;
-      expect(lowest[half]).toBeCloseTo(drawn.height(px, pz), 3);
       if (drawn.layer(px, pz) === LAYER_Y.plazas) onSquare++;
       if (drawn.layer(px, pz) === LAYER_Y.roads) onPavement++;
     }
@@ -274,7 +283,7 @@ test('each parked bike stands on the ground drawn under its wheels: a slope, a p
 
 test('the drawn ground is the highest layer at a point: a path, a pitch, a cell’s edge', () => {
   const [west] = partition(city);
-  const drawn = new DrawnGround(FLAT, west!, LAYER_Y);
+  const drawn = drawnGround(FLAT, west!, LAYER_Y);
   expect(drawn.layer(S - 10, 50)).toBe(LAYER_Y.paths);
   // A path runs on by half its width past its end, as drawn; the cell's edge is looked up inside.
   expect(drawn.layer(S - 20.9, 50)).toBe(LAYER_Y.paths);

@@ -50,7 +50,7 @@ test('every kind stands on the ground at its place, a few dozen triangles at mos
     const { triangles, box } = built(prop(kind, kind === 'bikes' ? { size: 6, fill: 1 } : {}));
     expect(triangles).toBeGreaterThan(0);
     // A group is a plinth and three figures; a statue a plinth and one; a rack its rail and bikes.
-    const most = { bikes: 12 + 6 * 51, group: 180, statue: 90, fountain: 90 }[kind as string] ?? 64;
+    const most = { bikes: 12 + 6 * 88, group: 180, statue: 90, fountain: 90 }[kind as string] ?? 64;
     expect([kind, triangles <= most]).toEqual([kind, true]);
     expect(box.min.y).toBeCloseTo(0);
     expect(box.max.y).toBeLessThan(kind === 'needle' ? 24 : 7);
@@ -116,26 +116,52 @@ function bikeTriangles(look: number): number {
   return mesh.indices / 3;
 }
 
-test('a bike is 41 triangles plain, 43 with a carrier, 51 with a crate', () => {
-  expect([0, LOOK.carrier, LOOK.crate, LOOK.crate | LOOK.carrier].map(bikeTriangles)).toEqual([
-    41, 43, 51, 51,
-  ]);
-  expect(bikeTriangles(LOOK.step | (6 * LOOK.colour))).toBe(41);
-  // In the city's racks, at most 51 and about 43 on average.
+test('a bike is 78 triangles plain, 84 with a carrier, 88 with a crate or a basket', () => {
+  expect(
+    [0, LOOK.carrier, LOOK.crate, LOOK.basket, LOOK.crate | LOOK.carrier].map(bikeTriangles),
+  ).toEqual([78, 84, 88, 88, 88]);
+  expect(bikeTriangles(LOOK.step | (6 * LOOK.colour))).toBe(78);
+  // In the city's racks, at most 88 and about 83 on average, every look among them.
   const { mesh, bikes } = parked(prop('bikes', { size: 24, fill: 1, x: 3.7 }));
-  expect(Math.max(...bikes.map(rangeTriangles))).toBeLessThanOrEqual(51);
+  expect(Math.max(...bikes.map(rangeTriangles))).toBeLessThanOrEqual(88);
   expect(bikes.at(-1)![PARKED.to]).toBe(mesh.indices);
-  // Each one notes where it stands and how it looks.
-  expect(bikes.every((b) => b[PARKED.y] === 0 && b[PARKED.look]! < 64)).toBe(true);
+  // Each one notes where it stands and how it looks, in a byte.
+  expect(bikes.every((b) => b[PARKED.y] === 0 && b[PARKED.look]! < 128)).toBe(true);
   expect(new Set(bikes.map((b) => b[PARKED.x])).size).toBe(24);
   let [sum, n] = [0, 0];
+  const looks = new Set<number>();
   for (let x = 0; x < 40; x++) {
     for (const b of parked(prop('bikes', { size: 24, fill: 1, x: x * 3.1 })).bikes) {
       [sum, n] = [sum + rangeTriangles(b), n + 1];
+      looks.add(b[PARKED.look]! % LOOK.colour);
     }
   }
-  expect(sum / n).toBeGreaterThan(42);
-  expect(sum / n).toBeLessThan(44);
+  expect(sum / n).toBeGreaterThan(81);
+  expect(sum / n).toBeLessThan(86);
+  for (const part of [LOOK.carrier, LOOK.crate, LOOK.basket])
+    expect([...looks].some((look) => look & part)).toBe(true);
+});
+
+test('its wheels are round, spoked inside a ring of tyre, and touch the ground', () => {
+  const mesh = new MeshBuilder();
+  addBike(mesh, { x: 0, z: 0, fx: 1, fz: 0, scale: 1 }, 0, 0);
+  const g = unindexed(mesh.build());
+  const [p, c] = [g.getAttribute('position'), g.getAttribute('color')];
+  const tyre = new Set<string>();
+  let reach = 0;
+  for (let i = 0; i < p.count; i++) {
+    const [x, y] = [p.getX(i), p.getY(i)];
+    // The rear wheel, round its axle at x -0.55, 0.34 up.
+    const r = Math.hypot(x + 0.55, y - 0.34);
+    if (r > 0.35 || Math.abs(p.getZ(i)) > 0.02) continue;
+    const pale = c.getX(i) > 0.5;
+    if (pale) reach = Math.max(reach, r);
+    else if (r > 0.33) tyre.add(`${x.toFixed(3)},${y.toFixed(3)}`);
+  }
+  expect(tyre.size).toBe(8); // an octagon
+  expect(reach).toBeGreaterThan(0.2); // spokes most of the way out, the tyre showing round them
+  expect(reach).toBeLessThan(0.3);
+  expect(Math.min(...Array.from({ length: p.count }, (_, i) => p.getY(i)))).toBeCloseTo(0, 6);
 });
 
 test('every look of bike, however it is parked, stays inside its rack footprint', () => {

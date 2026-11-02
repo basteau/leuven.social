@@ -1,4 +1,3 @@
-import type { Path } from '../data/city.ts';
 import type { Terrain } from '../data/terrain.ts';
 import type { Cell } from './cells.ts';
 import type { LayerHeights } from './ground.ts';
@@ -8,113 +7,89 @@ import type { LayerHeights } from './ground.ts';
  * square's setts, a pavement, a path, a lawn; `LAYER_Y` in ground.ts). What stands on the street
  * stands on this, not on the bare terrain under it: a pavement is drawn 0.15 m over the terrain
  * and a square 0.2 m, which would hide the bottom third of a parked bike's wheels.
- *
- * Lives in the furniture chunk, which takes the layer heights from the engine in its kit.
  */
-export class DrawnGround {
-  readonly #terrain: Terrain;
-  readonly #cell: Cell;
-  readonly #heights: LayerHeights;
-  /** Each layer's pieces, highest layer first: its height, bounding box and shape. */
-  #pieces: Piece[] | undefined;
-
-  constructor(terrain: Terrain, cell: Cell, heights: LayerHeights) {
-    [this.#terrain, this.#cell, this.#heights] = [terrain, cell, heights];
-  }
-
+export interface DrawnGround {
   /** The drawn ground's height at (x, z). */
-  height(x: number, z: number): number {
-    return this.#terrain.height(x, z) + this.layer(x, z);
-  }
-
+  height(x: number, z: number): number;
   /**
    * How high the top layer at (x, z) is drawn over the terrain, or 0 on bare ground. A cell's
    * layers are cut at its edges, so a point just past them is looked up just inside.
    */
-  layer(x: number, z: number): number {
-    const { minX, minZ, maxX, maxZ } = this.#cell.bounds;
-    const [px, pz] = [
-      Math.min(maxX - 1e-3, Math.max(minX + 1e-3, x)),
-      Math.min(maxZ - 1e-3, Math.max(minZ + 1e-3, z)),
-    ];
-    if (!this.#pieces) this.#pieces = this.#index();
-    for (const p of this.#pieces) {
-      if (px < p.minX || px > p.maxX || pz < p.minZ || pz > p.maxZ) continue;
-      if (p.path ? onPath(p.path, px, pz) : inRing(p.ring!, px, pz)) return p.y;
+  layer(x: number, z: number): number;
+}
+
+/** A layer's piece: its height, then its ring (flat [x, z, …]) and the ring's bounding box. */
+type Piece = [y: number, ring: ArrayLike<number>, box: number[]];
+
+/**
+ * A cell's drawn ground, in the furniture chunk, which takes the layer heights from the engine in
+ * its kit. Its pieces are gathered the first time it's asked, highest layer first.
+ */
+export function drawnGround(terrain: Terrain, cell: Cell, heights: LayerHeights): DrawnGround {
+  let pieces: Piece[] | undefined;
+  const { minX, minZ, maxX, maxZ } = cell.bounds;
+  const layer = (x: number, z: number) => {
+    x = Math.min(maxX - 1e-3, Math.max(minX + 1e-3, x));
+    z = Math.min(maxZ - 1e-3, Math.max(minZ + 1e-3, z));
+    pieces ??= gather(cell, heights);
+    for (const [y, ring, [x0, z0, x1, z1]] of pieces) {
+      if (x >= x0! && x <= x1! && z >= z0! && z <= z1! && inRing(ring, x, z)) return y;
     }
     return 0;
-  }
-
-  #index(): Piece[] {
-    const { ground } = this.#cell;
-    const h = this.#heights;
-    const pieces: Piece[] = [];
-    const rings = (list: readonly ArrayLike<number>[], y: number) => {
-      for (const ring of list) pieces.push({ y, ring, ...bounds(ring, 0) });
-    };
-    rings(ground.railLand, h.railLand);
-    rings(ground.green, h.green);
-    rings(ground.woods, h.woods);
-    for (const { surface, ring } of ground.pitches)
-      pieces.push({ y: surface === 'tartan' ? h.track : h.pitch, ring, ...bounds(ring, 0) });
-    rings(ground.parking, h.parking);
-    rings(ground.water, h.water);
-    for (const path of ground.paths)
-      pieces.push({ y: h.paths, path, ...bounds(path.line, path.width / 2) });
-    rings(ground.bridges, h.bridges);
-    rings(ground.roads, h.roads);
-    rings(
-      ground.carriageways.map((c) => c.ring),
-      h.carriageways,
-    );
-    rings(ground.plazas, h.plazas);
-    return pieces.toSorted((a, b) => b.y - a.y);
-  }
+  };
+  return { layer, height: (x, z) => terrain.height(x, z) + layer(x, z) };
 }
 
-interface Piece {
-  y: number;
-  minX: number;
-  minZ: number;
-  maxX: number;
-  maxZ: number;
-  ring?: ArrayLike<number>;
-  path?: Path;
-}
-
-/** The bounding box of flat [x, z, …] points, grown by `by`. */
-function bounds(points: ArrayLike<number>, by: number) {
-  let [minX, minZ, maxX, maxZ] = [Infinity, Infinity, -Infinity, -Infinity];
-  for (let i = 0; i + 1 < points.length; i += 2) {
-    [minX, maxX] = [Math.min(minX, points[i]!), Math.max(maxX, points[i]!)];
-    [minZ, maxZ] = [Math.min(minZ, points[i + 1]!), Math.max(maxZ, points[i + 1]!)];
+function gather({ ground }: Cell, h: LayerHeights): Piece[] {
+  const pieces: Piece[] = [];
+  const add = (y: number, ring: ArrayLike<number>) => {
+    const box = [Infinity, Infinity, -Infinity, -Infinity];
+    for (let i = 0; i + 1 < ring.length; i += 2) {
+      box[0] = Math.min(box[0]!, ring[i]!);
+      box[1] = Math.min(box[1]!, ring[i + 1]!);
+      box[2] = Math.max(box[2]!, ring[i]!);
+      box[3] = Math.max(box[3]!, ring[i + 1]!);
+    }
+    pieces.push([y, ring, box]);
+  };
+  for (const ring of ground.railLand) add(h.railLand, ring);
+  for (const ring of ground.green) add(h.green, ring);
+  for (const ring of ground.woods) add(h.woods, ring);
+  for (const { surface, ring } of ground.pitches)
+    add(surface === 'tartan' ? h.track : h.pitch, ring);
+  for (const ring of ground.parking) add(h.parking, ring);
+  for (const ring of ground.water) add(h.water, ring);
+  // A path is drawn as a ribbon a segment at a time, each running on by half its width.
+  for (const { width, line } of ground.paths) {
+    for (let i = 0; i + 3 < line.length; i += 2) {
+      const [ax, az, bx, bz] = [line[i]!, line[i + 1]!, line[i + 2]!, line[i + 3]!];
+      const k = width / 2 / (Math.hypot(bx - ax, bz - az) || Infinity);
+      const [ux, uz] = [(bx - ax) * k, (bz - az) * k];
+      add(h.paths, [
+        ax - ux + uz,
+        az - uz - ux,
+        bx + ux + uz,
+        bz + uz - ux,
+        bx + ux - uz,
+        bz + uz + ux,
+        ax - ux - uz,
+        az - uz + ux,
+      ]);
+    }
   }
-  return { minX: minX - by, minZ: minZ - by, maxX: maxX + by, maxZ: maxZ + by };
+  for (const ring of ground.bridges) add(h.bridges, ring);
+  for (const ring of ground.roads) add(h.roads, ring);
+  for (const { ring } of ground.carriageways) add(h.carriageways, ring);
+  for (const ring of ground.plazas) add(h.plazas, ring);
+  return pieces.toSorted((a, b) => b[0] - a[0]);
 }
 
 /** Whether (x, z) is inside a ring (flat [x, z, …]), by the even-odd rule. */
-export function inRing(ring: ArrayLike<number>, x: number, z: number): boolean {
+function inRing(ring: ArrayLike<number>, x: number, z: number): boolean {
   let inside = false;
   for (let i = 0, j = ring.length - 2; i + 1 < ring.length; j = i, i += 2) {
     const [xi, zi, xj, zj] = [ring[i]!, ring[i + 1]!, ring[j]!, ring[j + 1]!];
     if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
   }
   return inside;
-}
-
-/**
- * Whether (x, z) is on a path's ribbon as ground.ts draws it: each segment its width across and
- * running on by half of it at both ends.
- */
-function onPath({ width, line }: Path, x: number, z: number): boolean {
-  const half = width / 2;
-  for (let i = 0; i + 3 < line.length; i += 2) {
-    const [ax, az, bx, bz] = [line[i]!, line[i + 1]!, line[i + 2]!, line[i + 3]!];
-    const length = Math.hypot(bx - ax, bz - az);
-    if (length < 1e-6) continue;
-    const along = ((x - ax) * (bx - ax) + (z - az) * (bz - az)) / length;
-    const across = ((x - ax) * (bz - az) - (z - az) * (bx - ax)) / length;
-    if (along >= -half && along <= length + half && Math.abs(across) <= half) return true;
-  }
-  return false;
 }

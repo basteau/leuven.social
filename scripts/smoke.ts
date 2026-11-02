@@ -28,10 +28,13 @@ const MAX_DRAW_CALLS = 100;
 const MAX_TRIANGLES = 600_000;
 /**
  * What the whole city hands the GPU once every cell is built: 2.40M vertices and 57.7 MB since
- * racks park fewer bikes (it was 2.69M and 64.1 MB). Just above, so the saving stays won.
+ * racks park fewer bikes (it was 2.69M and 64.1 MB), 2.45M and 58.7 MB with what came since.
+ * Rounder, spoked wheels, cranks, a chain guard, a kickstand, a lamp and a basket on the 3,632
+ * parked bikes (83 triangles each where they were 43, asked for so they read up close) took it
+ * to 2.72M and 64.9 MB. Just above, so nothing grows unnoticed.
  */
-const MAX_VERTICES = 2_450_000;
-const MAX_GEOMETRY_MB = 59;
+const MAX_VERTICES = 2_750_000;
+const MAX_GEOMETRY_MB = 66;
 /** The longest the main thread may be busy at once while the page loads (ms). */
 const MAX_LONG_TASK_MS = 750;
 
