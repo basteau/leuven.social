@@ -1,3 +1,5 @@
+import { CREEP, moveBody } from './collide.ts';
+import type { Ground } from './collide.ts';
 import { springTo, springToAngle } from './motion.ts';
 import type { Spring } from './motion.ts';
 
@@ -8,11 +10,7 @@ import type { Spring } from './motion.ts';
  * and heading are critically damped springs, so starting, stopping and turning never snap;
  * step it at a fixed rate (`STEP`) and it walks the same path on any screen.
  *
- * Its body is a circle kept clear of walls, the way a game's character controller collides and
- * slides: a step that would run into a wall goes along it instead, and whatever it still
- * overlaps pushes it gently back out. Walls are met as drawn (`WalkGrid.wallOverlap`), not as
- * metre cells, so slanted facades and corners are glided round rather than caught on cell by
- * cell; the edge of the water or the tracks is a smooth field over the cells.
+ * Its body is a circle kept clear of walls by collide and slide (collide.ts).
  */
 
 /** Walking and running pace (m/s), for a figure a little larger than life. */
@@ -35,31 +33,8 @@ const TURN_RUNNING = 0.14;
 /** Slowing to a stop at the end of a route (m/s²), before the speed's own easing. */
 const ARRIVAL = 3;
 const ARRIVE = 0.05;
-/**
- * Half the body's width (m), kept clear of walls, and half its stance, kept off closed ground:
- * the edge of the water or the tracks is no wall, so it may walk right up to it.
- */
+/** Half the body's width (m), kept clear of walls (collide.ts). */
 const BODY = 0.45;
-const FEET = 0.15;
-/** A wall within this of the body (m) is touching: steps slide along it. */
-const SKIN = 0.04;
-/** Fastest a wall pushes the body back out (m/s), so being pushed is never a jump. */
-const PUSH = 2;
-/** Sliding along a wall at under this share of its pace, it stops instead of creeping. */
-const CREEP = 0.15;
-/** The eight ways round the body it feels for the edge of closed ground in. */
-const AROUND = Array.from({ length: 8 }, (_, k) => [
-  Math.sin((k * Math.PI) / 4),
-  Math.cos((k * Math.PI) / 4),
-]);
-
-/** The ground as a body meets it (a `WalkGrid`). */
-export interface Ground {
-  /** How far a circle reaches into walls (m), the way out written into `out`; 0 if clear. */
-  wallOverlap(x: number, z: number, radius: number, out: [number, number]): number;
-  /** How closed the ground is, 0 to 1, with its edge at a half. */
-  closed(x: number, z: number): number;
-}
 
 export interface Walker {
   x: number;
@@ -202,7 +177,7 @@ export function stepWalker(
     // At the end it lets go of the route and coasts the last few centimetres to a stop.
     if (step === leg && w.next === last) w.route = null;
   } else if (w.speed > 0 || steer > 1e-3) {
-    moveBody(w, w.speed * dt, dt, ground);
+    moveBody(w, w.speed * dt, dt, ground, BODY);
   }
 
   const stride = STRIDE_WALK + (STRIDE_RUN - STRIDE_WALK) * blend;
@@ -215,65 +190,4 @@ export function stepWalker(
     Math.abs(w.turning) > 0.01 ||
     w.still < IDLE_SECONDS
   );
-}
-
-const normal: [number, number] = [0, 0];
-const crease: [number, number] = [0, 0];
-
-const wall: [number, number] = [0, 0];
-
-/**
- * How far the body at (x, z), `skin` metres wider than it is, overlaps walls, or its feet
- * closed ground (m, about); 0 where it's clear, or squeezed equally from both sides as in a
- * narrow lane. Writes the way out into `out`.
- */
-function overlap(x: number, z: number, ground: Ground, skin: number, out: [number, number]) {
-  let deep = ground.wallOverlap(x, z, BODY + skin, wall);
-  let [sx, sz] = deep > 0 ? [wall[0] * deep, wall[1] * deep] : [0, 0];
-  for (const [dx, dz] of AROUND) {
-    const into = ground.closed(x + dx! * (FEET + skin), z + dz! * (FEET + skin)) - 0.5;
-    if (into <= 0) continue;
-    [sx, sz, deep] = [sx - dx! * into, sz - dz! * into, Math.max(deep, into)];
-  }
-  const length = Math.hypot(sx, sz);
-  if (length < 1e-6) return 0;
-  [out[0], out[1]] = [sx / length, sz / length];
-  return deep;
-}
-
-/**
- * Steps `step` metres along the walker's direction, less whatever of it runs into a wall the
- * body touches, so it slides along the wall (a second wall it then meets, in a corner, stops
- * it). `slide` keeps the share of its pace that leaves, for the speed to ease to; head on, it
- * stops at once. Then whatever the body still overlaps pushes it back out, no faster than
- * PUSH.
- */
-function moveBody(w: Walker, step: number, dt: number, ground: Ground): void {
-  let [mx, mz] = [w.dirX, w.dirZ];
-  const along = (n: [number, number]) => {
-    const into = mx * n[0] + mz * n[1];
-    if (into < 0) [mx, mz] = [mx - into * n[0], mz - into * n[1]];
-  };
-  const touching = overlap(w.x, w.z, ground, SKIN, normal) > 0;
-  if (touching) along(normal);
-  if (overlap(w.x + mx * step, w.z + mz * step, ground, SKIN, crease) > 0) {
-    along(crease);
-    // Back into the first wall: walls meeting in a corner, where it stops.
-    const corner = normal[0] * crease[0] + normal[1] * crease[1] < 0.7;
-    if (touching && corner && mx * normal[0] + mz * normal[1] < -1e-3) [mx, mz] = [0, 0];
-  }
-  w.slide = Math.hypot(mx, mz);
-  if (w.slide < CREEP) {
-    w.speed = 0;
-    w.accel = 0;
-  }
-  const move = w.slide < CREEP ? 0 : step / w.slide;
-  let [x, z] = [w.x + mx * move, w.z + mz * move];
-  const deep = overlap(x, z, ground, 0, normal);
-  if (deep > 0) {
-    const push = Math.min(deep, PUSH * dt);
-    [x, z] = [x + normal[0] * push, z + normal[1] * push];
-  }
-  // Never onto closed ground, nor further into it from a spot that was.
-  if (ground.closed(x, z) < Math.max(0.5, ground.closed(w.x, w.z))) [w.x, w.z] = [x, z];
 }

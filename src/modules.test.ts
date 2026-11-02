@@ -10,6 +10,7 @@ const BROWSER_ONLY = new Set([
   'scene/facade-material.ts',
   'scene/character-material.ts',
   'scene/walk.ts',
+  'scene/ride.ts',
   'scene/plates.ts',
 ]);
 

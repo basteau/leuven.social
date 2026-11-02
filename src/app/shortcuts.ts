@@ -38,7 +38,8 @@ export interface ShortcutTarget {
 
 /**
  * The keyboard: arrows pan, + and - zoom, Q and E turn, M mutes, R resets and W walks on the map
- * (Q, E and W by position, like walking's keys); held keys walk, run and look while walking.
+ * (Q, E and W by position, like walking's keys); held keys walk, run and look while walking, and
+ * ride a bike after F (W pedals, S brakes, A and D steer, Shift sprints, B rings the bell).
  * Shortcuts act while focus is anywhere in the app, not in the rest of the page.
  */
 export function useShortcuts(target: ShortcutTarget): void {
@@ -94,6 +95,11 @@ export function useShortcuts(target: ShortcutTarget): void {
       }
       const byCode: Record<string, () => void> = {
         ...(mode === 'map' && { KeyW: target.startWalk }),
+        // On foot, F gets on the nearest bike (or off it) and B rings its bell.
+        ...(mode === 'walk' && {
+          KeyF: () => viewer.ride('toggle'),
+          KeyB: () => viewer.ride('bell'),
+        }),
       };
       // Enter on a focused button or link presses that instead.
       const onControl = event.target instanceof Element && !!event.target.closest('button, a');

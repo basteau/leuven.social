@@ -109,3 +109,20 @@ export const SoundIcon = (props: { on: boolean }) => (
     )}
   </svg>
 );
+
+/** A city bike seen side on: two wheels, the frame between them, the bars up front. */
+export const BikeIcon = () => (
+  <svg {...base}>
+    <circle cx="5.5" cy="16" r="3.5" />
+    <circle cx="18.5" cy="16" r="3.5" />
+    <path d="M5.5 16L9 9h7l2.5 7M9 9l3 7 4-7M15 6h2.5l-1.5 3M8 6h3" />
+  </svg>
+);
+
+/** A bike's bell: a dome on a stalk, struck. */
+export const BellIcon = () => (
+  <svg {...base}>
+    <path d="M5 17a7 7 0 0 1 14 0z" />
+    <path d="M12 10V7M10 21h4" />
+  </svg>
+);

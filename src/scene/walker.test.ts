@@ -13,7 +13,7 @@ import {
   runBlend,
   stepWalker,
 } from './walker.ts';
-import type { Ground } from './walker.ts';
+import type { Ground } from './collide.ts';
 
 /** Ground walled by half-planes, each a point on its face and the way out of it (x, z). */
 function planes(...faces: [number, number, number, number][]): Ground {

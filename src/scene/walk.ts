@@ -1,15 +1,19 @@
 import {
   BackSide,
+  Bone,
   BufferAttribute,
+  BufferGeometry,
   Color,
   Mesh,
   MeshBasicMaterial,
   PerspectiveCamera,
   Raycaster,
+  Skeleton,
+  SkinnedMesh,
   SphereGeometry,
   Vector2,
 } from 'three';
-import type { Fog, OrthographicCamera, Scene, Texture } from 'three';
+import type { Fog, OrthographicCamera, Scene, Texture, WebGLRenderer } from 'three';
 import type { MapControls } from 'three/addons/controls/MapControls.js';
 
 import { createWalkSounds } from '../audio/walking.ts';
@@ -50,13 +54,15 @@ import {
   wrap,
   zoomStop,
 } from './chase.ts';
-import type { Boom, Lens, Shot, Vec3 } from './chase.ts';
+import type { Boom, Follow, Lens, Shot, Vec3 } from './chase.ts';
 import { nearFade, nearGround } from './facade-material.ts';
 import { linearVertexColors } from './mesh-builder.ts';
 import { clock, decay, spring, springTo, ticks } from './motion.ts';
 import { SKY } from './palette.ts';
+import { DROPPED_KEY, nearestParked } from './parked.ts';
 import { passedVertices, routeMarker } from './route-marker.ts';
 import type { RouteMarker } from './route-marker.ts';
+import type { Ride, RideAction, RideState } from './ride.ts';
 import { STEP, WALK_SPEED, createWalker, followRoute, runBlend, stepWalker } from './walker.ts';
 import type { Walker } from './walker.ts';
 
@@ -116,6 +122,8 @@ const STICK_RADIUS = 52;
 /** Touches that start in this share of the screen, from its left edge, steer. */
 const STICK_SHARE = 0.42;
 const ISO_PITCH = Math.atan(1 / Math.SQRT2);
+/** Within this of a parked bike (m), riding's chunk downloads, ready for F. */
+const RIDE_NEAR = 25;
 /** Within this distance of the walker (m), the flight checks it can still see it. */
 const FLIGHT_CHECK = 400;
 /**
@@ -156,6 +164,10 @@ export interface WalkHost {
   onModeChange?(mode: WalkMode): void;
   /** A click or start spot that can't be walked to. */
   onBlocked?(): void;
+  /** Draws the static shadow map again when a parked bike is taken or put back. */
+  renderer: WebGLRenderer;
+  /** A bike near enough to ride, riding, or neither. */
+  onRide?: ((state: RideState) => void) | undefined;
 }
 
 export interface Walk {
@@ -187,6 +199,8 @@ export interface Walk {
   turn(direction: 1 | -1): void;
   /** Brings the camera one zoom stop closer (factor above 1) or further. */
   zoom(factor: number): void;
+  /** Gets on or off the nearest bike, rings its bell, or gets riding ready to download. */
+  ride(action: RideAction | 'warm'): void;
   dispose(): void;
 }
 
@@ -289,6 +303,40 @@ export function createWalk(host: WalkHost): Walk {
   /** How high the flight climbs to see over the roofs (pitch, radians); NaN off the flight. */
   let lift = Number.NaN;
 
+  // Riding is a chunk of its own, downloaded near a rack (or on F), and retunes the camera.
+  const follow: Follow = {
+    ahead: LOOK_AHEAD,
+    ease: FOLLOW_EASE,
+    rate: FOLLOW_RATE,
+    early: 0,
+    fov: 0,
+    roll: 0,
+  };
+  let riding: Ride | undefined;
+  let rideLoad: Promise<void> | undefined;
+  const loadRide = () =>
+    (rideLoad ??= import('./ride.ts').then(
+      ({ createRide }) => {
+        riding = createRide({
+          three: { Bone, BufferAttribute, BufferGeometry, Skeleton, SkinnedMesh },
+          host,
+          grid: ensureGrid(),
+          character: character!,
+          body,
+          xray,
+          boom,
+          follow,
+          view,
+          lift: GROUND_Y,
+          walkTo,
+          wake,
+        });
+      },
+      () => {
+        rideLoad = undefined; // tried again near the next rack
+      },
+    ));
+
   let keyRight = 0;
   let keyUp = 0;
   let running = false;
@@ -337,6 +385,10 @@ export function createWalk(host: WalkHost): Walk {
     }
     character.mesh.visible = true;
     character.mesh.scale.setScalar(0);
+    try {
+      // Bikes left about the city earlier in the visit stand where they were left.
+      if (sessionStorage.getItem(DROPPED_KEY)) void loadRide();
+    } catch {}
     appear = reducedMotion ? 1 : 0;
     head = 0;
     clearRoute();
@@ -603,6 +655,7 @@ export function createWalk(host: WalkHost): Walk {
     const dt = Math.min(0.05, elapsed);
     last = now;
     let busy = false;
+    let ridden = false;
 
     if (walker && character) {
       if (mode === 'walk') {
@@ -616,7 +669,7 @@ export function createWalk(host: WalkHost): Walk {
         const following =
           !reducedMotion &&
           walker.speed > 0.1 &&
-          followStrength((now - lastLook) / 1000) > 0 &&
+          followStrength((now - lastLook) / 1000 + follow.early) > 0 &&
           recentreWeight(walker.heading, boom.aimYaw) > 0.5;
         const settle = following ? wrap(walker.heading + Math.PI) : Number.NaN;
         const yaw = steerYaw(steerFrame, boom.aimYaw, right, up, settle);
@@ -624,6 +677,10 @@ export function createWalk(host: WalkHost): Walk {
         const fz = -Math.cos(yaw);
         const sx = -fz * right + fx * up;
         const sz = fx * right + fz * up;
+        ridden =
+          riding?.frame(walker, sx, sz, right, up, sticking, running || stick.run, dt) ?? false;
+        if (!rideLoad && nearestParked(scene.children, walker.x, walker.z, RIDE_NEAR))
+          void loadRide();
         for (let n = ticks(sim, elapsed); n > 0; n--) {
           [prevX, prevZ, prevHeading, prevPhase] = [
             walker.x,
@@ -633,7 +690,9 @@ export function createWalk(host: WalkHost): Walk {
           ];
           const routed = walker.route !== null;
           // Keys steer the body clear of facades; routes keep their own distance.
-          moving = stepWalker(walker, STEP, sx, sz, grid!, running || stick.run);
+          moving = ridden
+            ? riding!.step(walker)
+            : stepWalker(walker, STEP, sx, sz, grid!, running || stick.run);
           sounds.stride(walker.phase, walker.speed, runBlend(walker.speed));
           // A route let go of without steering is a route walked to its end.
           if (routed && !walker.route && !sx && !sz) sounds.routeEnd();
@@ -655,14 +714,14 @@ export function createWalk(host: WalkHost): Walk {
         }
         // On the move, the camera comes round behind the walker's back, unless someone has
         // just looked about: then it waits a moment and eases back in.
-        const follow = followStrength((now - lastLook) / 1000);
-        if (follow > 0 && walker.speed > 0.1 && !reducedMotion) {
+        const strength = followStrength((now - lastLook) / 1000 + follow.early);
+        if (strength > 0 && walker.speed > 0.1 && !reducedMotion) {
           const pace = Math.min(1, walker.speed / WALK_SPEED) * (1 + runBlend(walker.speed));
           const rate = walker.route
             ? ROUTE_FOLLOW_RATE
-            : FOLLOW_RATE * recentreWeight(walker.heading, boom.aimYaw);
+            : follow.rate * recentreWeight(walker.heading, boom.aimYaw);
           steerFrame.drift = wrap(
-            steerFrame.drift + recentre(boom, walker.heading, rate * pace * follow, dt),
+            steerFrame.drift + recentre(boom, walker.heading, rate * pace * strength, dt),
           );
         }
       } else {
@@ -682,17 +741,19 @@ export function createWalk(host: WalkHost): Walk {
       busy ||= Math.abs(goal - head) > 0.01;
       applyPose(
         character,
-        poseAt(
-          pose,
-          walker.speed,
-          phase,
-          walker.still,
-          !reducedMotion,
-          walker.turning,
-          head,
-          walker.accel,
-          heading,
-        ),
+        ridden
+          ? riding!.pose(pose, head)
+          : poseAt(
+              pose,
+              walker.speed,
+              phase,
+              walker.still,
+              !reducedMotion,
+              walker.turning,
+              head,
+              walker.accel,
+              heading,
+            ),
       );
       if (flown > 0.5 || !flying) appear = Math.min(1, appear + dt / APPEAR);
       // Pops up with a little overshoot.
@@ -707,8 +768,8 @@ export function createWalk(host: WalkHost): Walk {
       if (marker) hint.geometry.setDrawRange(passedVertices(marker, walker.travelled), Infinity);
 
       // The look point springs after the walker, a little ahead of where it's going.
-      const ease = reducedMotion ? 0 : FOLLOW_EASE;
-      const lead = reducedMotion ? 0 : walker.speed * LOOK_AHEAD;
+      const ease = reducedMotion ? 0 : follow.ease;
+      const lead = reducedMotion ? 0 : walker.speed * follow.ahead;
       springTo(followX, x + Math.sin(heading) * lead, ease, dt);
       springTo(followZ, z + Math.cos(heading) * lead, ease, dt);
       const look = ground(followX.x, followZ.x) + GROUND_Y + LOOK_HEIGHT;
@@ -746,7 +807,8 @@ export function createWalk(host: WalkHost): Walk {
 
   /** Puts the walking camera where the boom (or the flight along it) says. */
   function placeView(dt = 0): void {
-    const fov = chaseFov(canvas.clientWidth / Math.max(1, canvas.clientHeight), sprint);
+    const fov =
+      chaseFov(canvas.clientWidth / Math.max(1, canvas.clientHeight), sprint) + follow.fov;
     chaseShot.yaw = boom.yaw;
     // Kept a metre over the street under the camera, which on a slope isn't the walker's.
     const pitch = boomPitch(boom.pitch, boom.length);
@@ -791,6 +853,7 @@ export function createWalk(host: WalkHost): Walk {
       }
     }
     view.lookAt(lens.look[0], lens.look[1], lens.look[2]);
+    view.rotateZ(follow.roll);
     // High up the flight there is no haze, and the whole map is in reach. Haze, sky and far
     // plane keep their order all the way: the haze ends inside the sky, the sky inside the far.
     // The walker is the nearest thing worth keeping in view, wherever the flight put the camera;
@@ -872,6 +935,7 @@ export function createWalk(host: WalkHost): Walk {
       presses.clear();
       setMode('map');
       if (!walked || !walker) return;
+      riding?.leave();
       sounds.leave();
       walker.route = null;
       clearRoute();
@@ -912,7 +976,13 @@ export function createWalk(host: WalkHost): Walk {
       boom.distance = zoomStop(boom.distance, factor > 1);
       wake();
     },
+    ride(action) {
+      if (mode === 'walk') {
+        void loadRide().then(() => action !== 'warm' && walker && riding?.act(action, walker));
+      }
+    },
     dispose() {
+      riding?.dispose();
       cancelAnimationFrame(frame);
       canvas.removeEventListener('pointerdown', onPointerDown);
       canvas.removeEventListener('pointermove', onPointerMove);

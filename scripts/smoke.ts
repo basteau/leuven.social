@@ -6,6 +6,9 @@
  *   bun run build && bun run smoke
  */
 
+import { unpackCity } from '../src/data/format.ts';
+import { bikesIn } from '../src/data/props.ts';
+
 // A free port and a browser session of our own, so parallel runs (worktrees, agents) never meet.
 const probe = Bun.serve({ port: 0, fetch: () => new Response() });
 const PORT = probe.port;
@@ -212,6 +215,84 @@ async function expectWalking(): Promise<void> {
   await expectHealthyPage('desktop back on the map');
 }
 
+/** The rack with bikes nearest the middle of the map, from the city file the page loads. */
+async function nearestRack(): Promise<[number, number]> {
+  const bytes = await Bun.file(new URL('../public/data/city.bin', import.meta.url)).bytes();
+  const city = await unpackCity(bytes);
+  const racks = city.props.filter((p) => p.kind === 'bikes' && bikesIn(p) > 0);
+  const rack = racks.toSorted((a, b) => Math.hypot(a.x, a.z) - Math.hypot(b.x, b.z))[0]!;
+  return [rack.x, rack.z];
+}
+
+const key = (type: string, code: string) =>
+  `document.querySelector('.map').dispatchEvent(new KeyboardEvent('${type}', { key: '${code.slice(3).toLowerCase()}', code: '${code}', bubbles: true }))`;
+const canvasNumber = async (name: string) =>
+  Number(await evalJson<string>(`JSON.stringify(${canvasData(name)} ?? '')`));
+
+/**
+ * Riding: start a walk by the rack nearest the middle (the map dragged so it's in the middle of
+ * the view), F walks to its nearest bike and gets on, W pedals and D turns, F gets off and leaves
+ * the bike standing there.
+ */
+async function expectRiding(): Promise<void> {
+  const [x, z] = await nearestRack();
+  await browser('press', 'r');
+  await browser('press', 'w');
+  await browser('wait', '--fn', `${canvasData('walk')} === 'pick'`);
+  // The map turned a quarter from north, at zoom 1: 800 px show 560 m. A drag moves the ground
+  // under the pointer, across by its screen width and along by its depth.
+  const k = 800 / 560;
+  const s = Math.SQRT1_2;
+  const [dx, dy] = [-(x * s - z * s) * k, ((-x * s - z * s) * k) / 2.82];
+  await browser('mouse', 'move', '640', '400');
+  await browser('mouse', 'down');
+  for (let i = 1; i <= 4; i++) {
+    await browser(
+      'mouse',
+      'move',
+      String(Math.round(640 + (dx * i) / 4)),
+      String(Math.round(400 + (dy * i) / 4)),
+    );
+  }
+  await browser('mouse', 'up');
+  await browser('press', 'Enter');
+  await browser('wait', '--fn', `${canvasData('walk')} === 'walk'`);
+  await browser('eval', key('keydown', 'KeyF'));
+  await browser('eval', key('keyup', 'KeyF'));
+  await browser('wait', '--timeout', '20000', '--fn', `${canvasData('ride')} === 'riding'`);
+  await browser('wait', '1000');
+  await browser('eval', key('keydown', 'KeyW'));
+  // The fastest it got within three seconds: the street may end in something in the way.
+  let speed = 0;
+  for (let i = 0; i < 12; i++) {
+    await browser('wait', '250');
+    speed = Math.max(speed, await canvasNumber('speed'));
+  }
+  await browser('eval', key('keydown', 'KeyD'));
+  await browser('wait', '400');
+  await browser('screenshot', `${ARTIFACTS}smoke-ride.png`);
+  await browser('eval', `${key('keyup', 'KeyD')};${key('keyup', 'KeyW')}`);
+  if (!(speed > 5)) throw new Error(`riding: ${speed} m/s at most pedalling 3 s (more than 5)`);
+  console.log(`ok  riding: ${speed} m/s pedalling 3 s`);
+  await expectHealthyPage('desktop riding');
+  await browser('eval', `${key('keydown', 'KeyF')};${key('keyup', 'KeyF')}`);
+  await browser(
+    'wait',
+    '--timeout',
+    '10000',
+    '--fn',
+    `${canvasData('ride')} !== 'riding' && ${canvasData('dropped')} === '1'`,
+  );
+  console.log('ok  got off and left the bike standing');
+  await expectHealthyPage('desktop after riding');
+  await holdKeys(['Escape'], 0);
+  await browser(
+    'wait',
+    '--fn',
+    `${canvasData('walk')} === 'map' && ${canvasData('walker')} === ''`,
+  );
+}
+
 async function waitForServer(): Promise<void> {
   for (let i = 0; i < 100; i++) {
     if (server.exitCode !== null) {
@@ -271,6 +352,7 @@ try {
   await expectHealthyPage('desktop zoomed out, panned');
 
   await expectWalking();
+  await expectRiding();
 
   await browser('set', 'viewport', '390', '844');
   await openFresh(BASE);
