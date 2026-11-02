@@ -12,6 +12,7 @@ import {
   boomDirection,
   boomPitch,
   chaseFov,
+  DIVE_LIMIT,
   clearPitch,
   createBoom,
   createSteerFrame,
@@ -376,6 +377,24 @@ describe('the flight between map and street', () => {
     }
     flight(map, street, 2, lens);
     expect(lens.fov).toBe(CHASE_FOV);
+  });
+
+  test('dives over the middle of the way, never straight down, and lands as without', () => {
+    const plain = { ...flight(map, street, 0.45, lens), look: [...lens.look] as Vec3 };
+    flight(map, street, 0.45, lens, 0.7);
+    expect(lens.pitch).toBeGreaterThan(plain.pitch + 0.5);
+    expect(lens.look).toEqual(plain.look);
+    expect(lens.distance).toBeCloseTo(plain.distance);
+    flight(map, street, 0.5, lens, 5);
+    expect(lens.pitch).toBe(DIVE_LIMIT);
+    for (const t of [0, 1]) {
+      const pitch = flight(map, street, t, lens).pitch;
+      expect(flight(map, street, t, lens, 0.7).pitch).toBeCloseTo(pitch);
+    }
+    // Already steeper than the limit, the dive leaves it be.
+    expect(flight({ ...map, pitch: 1.5 }, { ...street, pitch: 1.5 }, 0.5, lens, 0.7).pitch).toBe(
+      1.5,
+    );
   });
 
   test('turns the short way round', () => {
