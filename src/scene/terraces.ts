@@ -75,7 +75,7 @@ export function terraceParasols(city: City): Parasol[] {
 export const PARASOL_RIM = 2.5;
 /** The pole's half width, and the weighted foot's half width and height (m). */
 const POLE = 0.05;
-const FOOT = 0.28;
+export const PARASOL_FOOT = 0.28;
 const FOOT_HEIGHT = 0.12;
 
 /** An upright box square to the parasol's row: four sides and, if asked, a top. */
@@ -139,5 +139,5 @@ export function addParasol(mesh: MeshBuilder, lines: LineBuilder, p: Parasol): v
     mesh.triangle(corners[k]!, corners[(k + 1) % 4]!, apex, p.color, [0, -1, 0]);
   }
   post(mesh, p, POLE, [FOOT_HEIGHT, 2.95], PROPS.iron, false);
-  post(mesh, p, FOOT, [0, FOOT_HEIGHT], PROPS.iron, true);
+  post(mesh, p, PARASOL_FOOT, [0, FOOT_HEIGHT], PROPS.iron, true);
 }

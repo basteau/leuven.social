@@ -51,6 +51,11 @@ export function treeSize(seed: number, height = 0): { scale: number; wide: numbe
   return { scale, wide: 1.2 * scale ** 0.8 * pick([0.86, 0.94, 1, 1.06, 1.14], seed * 3) };
 }
 
+/** How far a tree's trunk reaches at its foot (m): its crown's spread, up to `MAX_TRUNK`. */
+export function trunkFoot(seed: number, height = 0): number {
+  return Math.min(TRUNK_BASE * treeSize(seed, height).wide, MAX_TRUNK);
+}
+
 export type TreePart = 'trunk' | 'crown';
 
 /** A side of the trunk as the cylinder writes it: triangles a, b, d and b, c, d. */
@@ -77,7 +82,7 @@ export function addTree(
   const turn = (seed * 2.399) % (Math.PI * 2);
   const [c, s] = [Math.cos(turn), Math.sin(turn)];
   for (const [part, shape, color, centreY, spread] of [
-    ['trunk', TRUNK, TREE.trunk, 1.5, Math.min(wide, MAX_TRUNK / TRUNK_BASE)],
+    ['trunk', TRUNK, TREE.trunk, 1.5, trunkFoot(seed, height) / TRUNK_BASE],
     ['crown', CROWN, crownColor(seed, height || scale * MODEL_HEIGHT), CROWN_Y, wide],
   ] as const) {
     if (!parts.includes(part)) continue;

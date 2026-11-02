@@ -16,6 +16,7 @@ import { createWalkSounds } from '../audio/walking.ts';
 import type { City } from '../data/city.ts';
 import { Router } from '../data/route.ts';
 import { WalkGrid, pickWalkable } from '../data/walkable.ts';
+import { walkSolids } from './solids.ts';
 import { createCharacterMaterial, createXrayMaterial } from './character-material.ts';
 import type { Fade } from './character-material.ts';
 import { CHARACTER_SCALE, applyPose, createCharacter, poseAt, restPose } from './character.ts';
@@ -223,7 +224,8 @@ export function createWalk(host: WalkHost): Walk {
   let router: Router | undefined;
   const heightAt = (x: number, z: number) => grid!.buildingHeight(x, z);
   const ensureGrid = () => {
-    grid ??= new WalkGrid(host.city);
+    // Trunks, benches and lamp posts stand in the way as drawn (src/scene/solids.ts).
+    grid ??= new WalkGrid(host.city, walkSolids(host.city));
     router ??= new Router(grid);
     return grid;
   };
