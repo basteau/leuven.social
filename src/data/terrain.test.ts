@@ -44,6 +44,12 @@ describe('Terrain', () => {
     expect(hill.height(-50, -50)).toBe(0);
   });
 
+  test('knows its steepest triangle', () => {
+    // The west square's north half climbs 4 m east and falls 3 m south across 10 m.
+    expect(hill.steepest).toBeCloseTo(0.5);
+    expect(FLAT.steepest).toBe(0);
+  });
+
   test('stands a ring on its lowest corner', () => {
     expect(hill.base([-1, -1, 1, -1, 1, 1, -1, 1])).toBeCloseTo(hill.height(-1, 1));
     expect(hill.base([0, 0])).toBe(4);

@@ -1,11 +1,14 @@
 import { describe, expect, test } from 'bun:test';
 
+import { unpackCity } from '../data/format.ts';
 import { LANE } from '../data/pitches.ts';
+import { Terrain } from '../data/terrain.ts';
 import type { Field } from '../data/pitches.ts';
 import type { Marking } from './paint.ts';
 import { MeshBuilder, unindexed } from './mesh-builder.ts';
 import {
   ANGLES,
+  PAINT_GRADE,
   PAINT_HALF,
   PAINT_KIND,
   addFieldLines,
@@ -18,6 +21,14 @@ import {
 import { PAINT } from './palette.ts';
 
 const line = (...xz: number[]) => new Float32Array(xz);
+
+test('widened lines are lifted enough for the steepest ground in public/data/city.bin', async () => {
+  const response = await fetch(new URL('../../public/data/city.bin', import.meta.url));
+  const city = await unpackCity(new Uint8Array(await response.arrayBuffer()));
+  const { steepest } = new Terrain(city.terrain);
+  expect(steepest).toBeGreaterThan(0.05);
+  expect(steepest).toBeLessThanOrEqual(PAINT_GRADE);
+});
 
 function draw(add: typeof addPaint, markings: Marking[]) {
   const mesh = new MeshBuilder();
