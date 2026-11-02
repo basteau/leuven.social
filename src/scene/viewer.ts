@@ -153,9 +153,17 @@ interface CellEntry {
 /** Golden hour from the south-west, low enough for long shadows. */
 const SUN_DIRECTION: V3 = [-0.55, 0.62, 0.56];
 const SHADOW_MAP = 2048;
-/** Tallest thing in the city (m), and the margin kept around the view for tall roofs. */
+/**
+ * Tallest thing in the city (m), and the margin kept around the view for tall roofs: at most a
+ * quarter of the view's height, so zoomed in the square stays tight and its texels fine.
+ */
 const MAX_HEIGHT = 90;
 const SHADOW_REACH = 60;
+/**
+ * From the map, the shadow square is drawn again once its texels are this much coarser than
+ * the view needs: zooming in to the street, about 9 cm a texel at zoom 4 instead of 35.
+ */
+const SHADOW_COARSER = 2;
 /**
  * Layer masks: the view draws layer 0, the shadow pass layer 1. A cell's shadow casters are only
  * on the shadow layer; its furniture joins whichever pass needs it (see `cull`). The lights are
@@ -468,10 +476,10 @@ export function createViewer(options: ViewerOptions): Viewer {
       }
     }
     const need = shadowNeeds(light, view === camera ? ground : around(t.x, t.z, reach));
-    need.half += view === camera ? SHADOW_REACH : WALK_SHADOW_REACH;
+    need.half += view === camera ? Math.min(SHADOW_REACH, span / 4) : WALK_SHADOW_REACH;
     propsShown = span <= VIEW_HEIGHT / PROP_ZOOM;
     const fromStreet = view !== camera && walk?.flightSpan === undefined;
-    const coarser = view === camera ? 4 : WALK_SHADOW_COARSER;
+    const coarser = view === camera ? SHADOW_COARSER : WALK_SHADOW_COARSER;
     const refit = !shadow || !shadowCovers(shadow, need, coarser);
     if (refit) fitShadowTo(need);
     // What casts into the view has to exist before the shadow pass draws: build it now, and
