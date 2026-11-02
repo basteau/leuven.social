@@ -297,16 +297,20 @@ export function turnBetween(a: RoadEdge, b: RoadEdge): number {
 }
 
 /**
- * A router over the road graph for one class of traffic: the shortest way from a node to a
- * node along the edges it may take, by length, with the straight-line distance as its guess.
+ * A router over the road graph for one class of traffic: the cheapest way from a node to a
+ * node along the edges it may take, by length times what each edge costs it a metre (`weight`,
+ * 1 by default, never less, so the straight-line distance stays its guess).
  */
-export function roadRouter(graph: RoadGraph): GraphRouter {
+export function roadRouter(
+  graph: RoadGraph,
+  weight: (edge: number) => number = () => 1,
+): GraphRouter {
   const { nodes, edges } = graph;
   return new GraphRouter({
     nodes: nodes.length,
     out: (node) => nodes[node]!.out,
     to: (edge) => edges[edge]!.to,
-    cost: (edge) => edges[edge]!.length,
+    cost: (edge) => edges[edge]!.length * weight(edge),
     estimate: (a, b) => Math.hypot(nodes[a]!.x - nodes[b]!.x, nodes[a]!.z - nodes[b]!.z),
   });
 }

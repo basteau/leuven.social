@@ -1,7 +1,14 @@
 import { PAVED } from '../data/city.ts';
 import type { Surface, Way, WayKind } from '../data/city.ts';
 import type { GraphRouter } from '../data/graph-route.ts';
-import { alongEdge, roadGraph, roadRouter, turnBetween } from '../data/traffic.ts';
+import {
+  PAVEMENT,
+  alongEdge,
+  pavementOf,
+  roadGraph,
+  roadRouter,
+  turnBetween,
+} from '../data/traffic.ts';
 import type { RoadEdge, RoadGraph } from '../data/traffic.ts';
 import { BUS, CARS, GUESTS } from './palette.ts';
 
@@ -138,27 +145,77 @@ const srgb = (hex: number): [number, number, number] => [
   (hex & 255) / 255,
 ];
 
+/** Half a car's width and a bike's, with a little air (m): whether two lanes overlap. */
+const CAR_HALF = 0.95;
+const BIKE_HALF = 0.35;
+/** People keep this far (m) from the kerb and from the facade on a pavement. */
+const PAVEMENT_MARGIN = 0.45;
+
 /**
- * The lane a kind keeps right of a way's line (m), inside the street's half-width: cars near
- * the middle of a two-way street and on the line of a one-way one, bikes further right, people
- * on the pavement by the facade; on a pedestrian street people spread across it, on a path
- * they keep near its line. Each one's `jitter` strays a little either side.
+ * The lane a kind keeps right of a way's line (m), from the way's measured sides. Where the
+ * GRB cut a kerb along it: cars in the carriageway's right half (on its line on a one-way
+ * street), bikes by the kerb, and people on the pavement beyond it, each at a place of their
+ * own across it, or on the left pavement (a negative lane) when the right has none. Where no
+ * kerb was cut (a street without one, a square's edge) the ground is shared: cars near the
+ * middle, bikes further right, people by the facade, inside the open ground. On a cycle track
+ * bikes keep to its right half and people walk beside it; on a pedestrian street people spread
+ * across it and bikes thread the middle; on a path everyone keeps near its line. `jitter` (-1 to
+ * 1) is each one's own place across its lane.
  */
 export function laneFor(kind: VehicleKind, e: RoadEdge, twoWay: boolean, jitter: number): number {
-  const w = e.right.edge;
+  const { right, left } = e;
+  const w = right.edge;
+  const kerb = right.kerb;
   switch (kind) {
     case 'car':
     case 'bus':
+      if (kerb > 0)
+        return twoWay ? Math.min(1.8, Math.max(0.3, kerb * 0.5)) : Math.min(0.4, kerb * 0.12);
       return twoWay ? Math.min(1.7, Math.max(0.3, w * 0.45)) : Math.min(0.3, w * 0.1);
     case 'bike':
-      if (e.kind === 'cycle') return (twoWay ? Math.min(0.8, w * 0.3) : 0) + 0.2 * jitter;
+      if (e.kind === 'cycle') {
+        return (twoWay ? Math.min(0.8, (kerb || w) * 0.3) : 0) + 0.2 * jitter;
+      }
+      if (e.kind === 'pedestrian') return Math.min(1.5, w * 0.3) + 0.3 * jitter;
+      if (kerb > 0) return Math.max(0.3, kerb - 0.7) + 0.2 * jitter;
       return (twoWay ? Math.min(2.8, w * 0.7) : Math.min(1.5, w * 0.5)) + 0.25 * jitter;
-    default:
+    default: {
       if (e.kind === 'path') return 0.4 * jitter;
-      if (e.kind === 'pedestrian') return w * 0.5 * jitter;
-      return Math.max(0.6, Math.min(4, w - 1)) + 0.4 * jitter;
+      if (e.kind === 'pedestrian') return Math.min(6, w) * 0.5 * jitter;
+      const across = (side: typeof right, pavement: number) =>
+        side.kerb + PAVEMENT_MARGIN + (pavement - 2 * PAVEMENT_MARGIN) * (0.5 + 0.5 * jitter);
+      const onRight = pavementOf(right);
+      if (onRight >= PAVEMENT) return across(right, onRight);
+      const onLeft = pavementOf(left);
+      if (onLeft >= PAVEMENT) return -across(left, onLeft);
+      // Shared ground, or a kerb at the facade: by the facade, never through it.
+      return Math.max(0.3, Math.min(4, w - 1) + 0.4 * jitter);
+    }
   }
 }
+
+/**
+ * Whether cars and bikes share a lane on an edge: the car's lane reaches over the bike's, as
+ * on a narrow street, so a car queues behind a cyclist rather than driving through it.
+ */
+export function sharesLane(e: RoadEdge, carsTwoWay: boolean, bikesTwoWay: boolean): boolean {
+  if (!e.cars || !e.bikes) return false;
+  return (
+    laneFor('car', e, carsTwoWay, 0) + CAR_HALF > laneFor('bike', e, bikesTwoWay, 0) - BIKE_HALF
+  );
+}
+
+/**
+ * What a metre of each kind of way costs each class to route along, over its length: cars
+ * keep to the through roads, bikes to the cycle tracks and quiet streets, people to the
+ * paths, pedestrian streets and pavements. Never under 1, so the straight-line guess the A*
+ * takes stays a lower bound.
+ */
+export const ROUTE_COST: Record<0 | 1 | 2, Record<WayKind, number>> = {
+  0: { main: 1, street: 1.3, cycle: 1, pedestrian: 1, path: 1 },
+  1: { main: 1.4, street: 1.15, cycle: 1, pedestrian: 1.3, path: 1 },
+  2: { main: 1.6, street: 1.1, cycle: 1.2, pedestrian: 1, path: 1 },
+};
 
 /** A pool of edges to spawn on, each with its cumulative length, for picking one by length. */
 interface Pool {
@@ -169,7 +226,8 @@ interface Pool {
 export class Traffic {
   readonly graph: RoadGraph;
   readonly vehicles: Vehicle[] = [];
-  readonly #router: GraphRouter;
+  /** A router per class, each with its own costs. */
+  readonly #routers: GraphRouter[];
   /** Which edges each class may take. */
   readonly #allowed: ((edge: number) => boolean)[];
   /** The edges each class may use anywhere, and those near the focus. */
@@ -177,6 +235,8 @@ export class Traffic {
   #near: Pool[] | null = null;
   /** Whether each edge has a twin the class may use the other way: where the lane is kept right. */
   readonly #twoWay: Uint8Array;
+  /** Edges where bikes queue with the cars (their lanes overlap), in the cars' bucket. */
+  readonly #shared: Uint8Array;
   /** Each edge's twin, the same way run the other way (-1: none): where a U-turn would go. */
   readonly #twin: Int32Array;
   readonly #random: () => number;
@@ -199,8 +259,10 @@ export class Traffic {
 
   constructor(ways: readonly Way[], seed = 1, counts: Record<VehicleKind, number> = COUNTS) {
     this.graph = roadGraph(ways);
-    this.#router = roadRouter(this.graph);
     const { edges, nodes } = this.graph;
+    this.#routers = [0, 1, 2].map((cls) =>
+      roadRouter(this.graph, (i) => ROUTE_COST[cls as 0 | 1 | 2][edges[i]!.kind]),
+    );
     this.#random = mulberry32(seed);
     this.#allowed = [(i) => edges[i]!.cars, (i) => edges[i]!.bikes, (i) => edges[i]!.feet];
     // A twin running the other way, for each class: the way is two-way for it.
@@ -214,6 +276,11 @@ export class Traffic {
       for (let cls = 0; cls < CLASSES; cls++) {
         if (this.#allowed[cls]!(twin)) this.#twoWay[i]! |= 1 << cls;
       }
+    }
+    this.#shared = new Uint8Array(edges.length);
+    for (const [i, e] of edges.entries()) {
+      const two = this.#twoWay[i]!;
+      if (sharesLane(e, (two & 1) !== 0, (two & 2) !== 0)) this.#shared[i] = 1;
     }
     this.#pools = this.#allowed.map((allowed) => {
       const list: number[] = [];
@@ -358,11 +425,12 @@ export class Traffic {
       const away = this.#fromFocus(spot[0], spot[1]);
       const hidden = anywhere ? away <= radius : away >= SPAWN_FROM * radius && away <= radius;
       if (radius > 0 && tries < 9 && !hidden) continue;
+      const bucket = this.#bucket(v, edge);
       const clear = this.vehicles.every(
         (o) =>
           !o.active ||
           o.edge !== edge ||
-          CLASS[o.kind] !== cls ||
+          this.#bucket(o, edge) !== bucket ||
           Math.abs(o.s - s) > SPAWN_GAP[v.kind],
       );
       if (!clear) continue;
@@ -427,7 +495,7 @@ export class Traffic {
     // Never back the way it came: a goal behind it is reached round the block, or not at all.
     const back = this.#twin[v.edge]!;
     const allowed = this.#allowed[cls]!;
-    const route = this.#router.route(from, goal, (i) => i !== back && allowed(i), most);
+    const route = this.#routers[cls]!.route(from, goal, (i) => i !== back && allowed(i), most);
     if (!route) return;
     v.goal = goal;
     v.route = route.toReversed();
@@ -490,7 +558,7 @@ export class Traffic {
     // Parked vehicles sort last, past every edge, and claim no place on one.
     const key = (i: number) => {
       const v = vehicles[i]!;
-      return v.active ? v.edge * CLASSES + CLASS[v.kind] : this.#first.length;
+      return v.active ? v.edge * CLASSES + this.#bucket(v, v.edge) : this.#first.length;
     };
     this.#order.sort((a, b) => key(a) - key(b) || vehicles[a]!.s - vehicles[b]!.s);
     this.#first.fill(-1);
@@ -547,6 +615,12 @@ export class Traffic {
     return node * CLASSES + cls;
   }
 
+  /** Whose queue a vehicle joins on an edge: its class's, or the cars' for a bike on a shared lane. */
+  #bucket(v: Vehicle, edge: number): number {
+    const cls = CLASS[v.kind];
+    return cls === 1 && this.#shared[edge] ? 0 : cls;
+  }
+
   /** Lets go of the junction a vehicle holds, if any. */
   #release(v: Vehicle): void {
     if (v.hold < 0) return;
@@ -595,19 +669,19 @@ export class Traffic {
       const v = vehicles[i]!;
       if (!v.active) break; // the parked ones sort last
       const e = edges[v.edge]!;
-      const cls = CLASS[v.kind];
-      // The one ahead: next in the order on the same edge and class, else first on the next edge.
+      const bucket = this.#bucket(v, v.edge);
+      // The one ahead: next in the order on the same edge and queue, else first on the next edge.
       let gap = Infinity;
       let ahead = 0;
       let gapBeyond = Infinity;
       const after = order[k + 1];
       const peer = after === undefined ? undefined : vehicles[after];
-      if (peer && peer.edge === v.edge && CLASS[peer.kind] === cls) {
+      if (peer && peer.edge === v.edge && this.#bucket(peer, v.edge) === bucket) {
         gap = peer.s - LENGTH[peer.kind] / 2 - (v.s + LENGTH[v.kind] / 2);
         ahead = peer.speed;
       }
       if (v.next >= 0) {
-        const first = this.#first[this.#slot(v.next, cls)]!;
+        const first = this.#first[this.#slot(v.next, this.#bucket(v, v.next))]!;
         if (first >= 0) {
           const o = vehicles[first]!;
           gapBeyond = e.length - v.s + o.s - LENGTH[o.kind] / 2 - LENGTH[v.kind] / 2;

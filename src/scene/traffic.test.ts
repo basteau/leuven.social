@@ -1,18 +1,21 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { Way } from '../data/city.ts';
-import { alongEdge, roadGraph, splitAtJunctions } from '../data/traffic.ts';
+import { alongEdge, roadGraph, roadRouter, splitAtJunctions } from '../data/traffic.ts';
+import type { RoadEdge } from '../data/traffic.ts';
 import {
   CLASS,
   COUNTS,
   DENSITY,
   FLOOR,
   LENGTH,
+  ROUTE_COST,
   Traffic,
   VEHICLE_KINDS,
   laneFor,
   motor,
   mulberry32,
+  sharesLane,
   turnTowards,
 } from './traffic.ts';
 import type { Vehicle, VehicleKind } from './traffic.ts';
@@ -60,6 +63,9 @@ const counts = (over: Partial<Record<VehicleKind, number>>) => ({
   person: 0,
   ...over,
 });
+/** An edge of a way with these sides. */
+const sided = (right: Way['right'], left: Way['left'], kind: Way['kind'] = 'street') =>
+  roadGraph([way([0, 0, 50, 0], { right, left, kind })]).edges[0]!;
 /** An edge of a street this wide, without kerbs, for the lanes. */
 const edgeOf = (edge: number, kind: Way['kind'] = 'street') =>
   roadGraph([way([0, 0, 50, 0], { right: { kerb: 0, edge }, left: { kerb: 0, edge }, kind })])
@@ -306,7 +312,7 @@ describe('Traffic', () => {
     expect(person.lane).toBeGreaterThan(car.lane);
   });
 
-  test('lanes keep inside the street: narrow streets put everyone nearer the line', () => {
+  test('without a kerb the ground is shared: narrow streets put everyone nearer the line', () => {
     expect(laneFor('car', edgeOf(5), true, 0)).toBe(1.7);
     expect(laneFor('car', edgeOf(2), true, 0)).toBeCloseTo(0.9);
     expect(laneFor('car', edgeOf(5), false, 0)).toBe(0.3);
@@ -318,6 +324,94 @@ describe('Traffic', () => {
     expect(laneFor('person', edgeOf(2), true, 0)).toBe(1);
     expect(laneFor('person', edgeOf(1, 'path'), true, 1)).toBe(0.4);
     expect(Math.abs(laneFor('person', edgeOf(4, 'pedestrian'), true, -1))).toBe(2);
+  });
+
+  test('with a kerb, cars keep to the carriageway, bikes by the kerb and people on the pavement', () => {
+    // A street 3.5 m to the kerb on the right and a 2 m pavement beyond it, 3 m and 1.2 m on the left.
+    const street = sided({ kerb: 3.5, edge: 5.5 }, { kerb: 3, edge: 4.2 });
+    expect(laneFor('car', street, true, 0)).toBe(1.75);
+    expect(laneFor('car', street, false, 0)).toBeCloseTo(0.4);
+    expect(laneFor('bus', sided({ kerb: 2, edge: 3 }, { kerb: 2, edge: 3 }), true, 0)).toBe(1);
+    expect(laneFor('bike', street, true, 0)).toBeCloseTo(2.8);
+    expect(laneFor('bike', street, true, 1)).toBeCloseTo(3);
+    // People spread across the pavement, 0.45 m off the kerb and off the facade.
+    expect(laneFor('person', street, true, -1)).toBeCloseTo(3.95);
+    expect(laneFor('person', street, true, 1)).toBeCloseTo(5.05);
+    // No pavement on the right (a kerb at the facade): the left one, as a negative lane.
+    const leftOnly = sided({ kerb: 4, edge: 4 }, { kerb: 3, edge: 5 });
+    expect(laneFor('person', leftOnly, true, 0)).toBeCloseTo(-4);
+    // None on either side: by the facade, never through it.
+    const none = sided({ kerb: 2.5, edge: 2.5 }, { kerb: 2.5, edge: 2.8 });
+    expect(laneFor('person', none, true, 0)).toBe(1.5);
+    expect(laneFor('person', sided({ kerb: 1, edge: 1 }, { kerb: 1, edge: 1 }), true, -1)).toBe(
+      0.3,
+    );
+    // A cycle track's kerb is its own edge: bikes keep to its right half, people walk beside it.
+    const track = sided({ kerb: 1.5, edge: 3 }, { kerb: 1.5, edge: 1.5 }, 'cycle');
+    expect(laneFor('bike', track, true, 0)).toBeCloseTo(0.45);
+    expect(laneFor('person', track, true, 0)).toBeCloseTo(2.25);
+    // A pedestrian street: people across it, bikes threading the middle.
+    const walk = sided({ kerb: 4, edge: 4 }, { kerb: 4, edge: 4 }, 'pedestrian');
+    expect(laneFor('bike', walk, true, 0)).toBeCloseTo(1.2);
+    expect(laneFor('person', walk, true, 1)).toBe(2);
+  });
+
+  test('on a narrow street a car queues behind a cyclist; on a wide one it passes', () => {
+    expect(sharesLane(sided({ kerb: 2.5, edge: 4 }, { kerb: 2.5, edge: 4 }), true, true)).toBe(
+      true,
+    );
+    expect(sharesLane(sided({ kerb: 5, edge: 7 }, { kerb: 5, edge: 7 }), true, true)).toBe(false);
+    expect(
+      sharesLane(sided({ kerb: 2.5, edge: 4 }, { kerb: 2.5, edge: 4 }, 'cycle'), true, true),
+    ).toBe(false);
+    // A car 20 m behind a cyclist on a narrow two-way street: it closes up and settles at the
+    // bike's pace, never through it.
+    const narrow = build([
+      raw([0, 0, 200, 0], { right: { kerb: 2.5, edge: 4 }, left: { kerb: 2.5, edge: 4 } }),
+      raw([200, 0, 200, 200], { right: { kerb: 2.5, edge: 4 }, left: { kerb: 2.5, edge: 4 } }),
+      raw([200, 200, 0, 200], { right: { kerb: 2.5, edge: 4 }, left: { kerb: 2.5, edge: 4 } }),
+      raw([0, 200, 0, 0], { right: { kerb: 2.5, edge: 4 }, left: { kerb: 2.5, edge: 4 } }),
+    ]);
+    const t = new Traffic(narrow, 1, counts({ car: 1, bike: 1 }));
+    t.focus(100, 100, 2000);
+    const { edges } = t.graph;
+    const east = edges.findIndex((e) => e.cars && t.graph.nodes[e.to]!.x === 200 && e.from === 0);
+    const [car, bike] = t.vehicles as [Vehicle, Vehicle];
+    put(t, car, east, -1, 180, 8);
+    put(t, bike, east, -1, 160, 4);
+    car.next = bike.next = -1;
+    for (let i = 0; i < 60 * 12; i++) {
+      t.step(1 / 60);
+      if (car.edge === east && bike.edge === east) expect(car.s).toBeLessThan(bike.s);
+    }
+    expect(car.speed).toBeLessThan(5);
+  });
+
+  test('routes each class by its own costs: bikes take the cycle track, people the quiet way', () => {
+    // West to east: a main road straight along the top, or a cycle track a little longer below.
+    const main = { kind: 'main', right: { kerb: 7, edge: 9 }, left: { kerb: 7, edge: 9 } } as const;
+    const two = build([
+      raw([0, 0, 200, 0], main),
+      raw([0, 0, 0, 20]),
+      raw([0, 20, 200, 20], { kind: 'cycle' }),
+      raw([200, 20, 200, 0]),
+      raw([200, 0, 300, 0], main),
+    ]);
+    const { edges, nodes } = roadGraph(two);
+    const at = (x: number, z: number) => nodes.findIndex((n) => n.x === x && n.z === z);
+    const kinds = (cls: 0 | 1 | 2) => {
+      const allowed = [(e: RoadEdge) => e.cars, (e: RoadEdge) => e.bikes, (e: RoadEdge) => e.feet];
+      const router = roadRouter({ nodes, edges }, (i) => ROUTE_COST[cls][edges[i]!.kind]);
+      return router
+        .route(at(0, 0), at(200, 0), (i) => allowed[cls]!(edges[i]!))!
+        .map((i) => edges[i]!.kind);
+    };
+    expect(kinds(0)).toEqual(['main']);
+    expect(kinds(1)).toEqual(['street', 'cycle', 'street']);
+    expect(kinds(2)).toEqual(['street', 'cycle', 'street']);
+    expect(Object.values(ROUTE_COST).every((c) => Object.values(c).every((k) => k >= 1))).toBe(
+      true,
+    );
   });
 
   test('keeps the fleet round the focus: out of its view in, parked beyond what it deserves', () => {
