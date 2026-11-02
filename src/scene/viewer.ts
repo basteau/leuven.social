@@ -328,7 +328,10 @@ export function createViewer(options: ViewerOptions): Viewer {
   function furnish(entry: CellEntry): void {
     // It shares the material and its program: one more draw call, only up close. It has no
     // windows, so it leaves out the facade attribute and the shader reads its default.
-    const furniture = new Mesh(buildFurniture(entry.cell, terrain).build(), material);
+    const { mesh, bikes } = buildFurniture(entry.cell, terrain);
+    const furniture = new Mesh(mesh.build(), material);
+    // Where each parked bike is drawn in it (`PARKED`), for the rideable bikes to come.
+    furniture.userData.bikes = bikes;
     furniture.castShadow = true;
     furniture.receiveShadow = true;
     furniture.frustumCulled = false;
