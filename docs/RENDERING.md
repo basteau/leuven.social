@@ -80,7 +80,7 @@ The size and render budgets are enforced by `bun run verify`; if one is exceeded
 | What                                   | Limit   | Checked by          |
 | -------------------------------------- | ------- | ------------------- |
 | App shell JS (React + HUD), gzipped    | 90 KB   | `scripts/budget.ts` |
-| 3D engine JS (three.js chunk), gzipped | 170 KB  | `scripts/budget.ts` |
+| 3D engine JS (three.js chunk), gzipped | 171 KB  | `scripts/budget.ts` |
 | Walk mode JS (loaded on first walk)    | 14.5 KB | `scripts/budget.ts` |
 | Facade plates JS (after walk mode)     | 5 KB    | `scripts/budget.ts` |
 | Plates data (`walk.bin`), gzipped      | 96 KB   | `scripts/budget.ts` |
