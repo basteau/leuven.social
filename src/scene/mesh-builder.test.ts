@@ -321,6 +321,7 @@ test('lifted, everything rises by one height, which the lift attribute holds in 
 test('outlines drape over the terrain, or rise by one height', () => {
   const lines = new LineBuilder();
   lines.drape = hill;
+  lines.lift = 5; // ignored while draping
   lines.segment([-8, 0.2, -1], [8, 0.2, -1]);
   const g = lines.build();
   const p = g.getAttribute('position');

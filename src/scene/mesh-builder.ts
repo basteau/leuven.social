@@ -523,13 +523,15 @@ export class LineBuilder {
       this.#indices.push(i, this.#point(b));
       return;
     }
-    const terrain = this.drape;
+    const [terrain, lift] = [this.drape, this.lift];
+    this.lift = 0;
     let last = -1;
     for (const p of terrain.cut(a, b)) {
       const i = this.#point([p[0]!, p[1]! + terrain.height(p[0]!, p[2]!), p[2]!]);
       if (last >= 0) this.#indices.push(last, i);
       last = i;
     }
+    this.lift = lift;
   }
 
   build(): BufferGeometry {

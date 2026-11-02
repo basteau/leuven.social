@@ -277,7 +277,7 @@ export function buildCell(
   mesh.drape = null;
   const trunksFrom = mesh.indices;
   for (let i = 0; i < trees.length; i += 4) tree(i, ['trunk']);
-  mesh.lift = 0;
+  mesh.lift = lines.lift = 0;
   const shadowFrom = mesh.indices;
   addRailLines(lines, cell.rails);
   const rails = lines.segments;
