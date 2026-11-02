@@ -3,7 +3,8 @@
  *
  * Layout: magic "LVN1", version, area rectangles, buildings, carriageways, markings, eleven polygon
  * layers (roads, plazas, green, water, platforms, railway land, platform roofs, woods, pitches,
- * car parks, bridge decks), paths, rails, trees, props, tanks, parapets, street names, church towers.
+ * car parks, bridge decks), pitch surfaces and fields, paths, rails, trees, props, tanks, parapets,
+ * street names, church towers.
  * Coordinates are decimetres, zigzag varints, delta-encoded within each ring. A ring starts from
  * where the ring before it in the same list started (the first from 0, 0): the bake writes
  * neighbours next to each other, so the jump is short.
@@ -11,6 +12,9 @@
  * (3 bits) and roof (3 bits) packed into one byte, then its height, roof rise and roof colour
  * (0 = none, else 0xRRGGBB + 1), outer ring and courtyards.
  * Carriageways and markings are a kind byte each, then a ring (markings: a line).
+ * Pitch surfaces (v16) follow the polygon layers, a byte per pitch ring in the order of the
+ * pitches, then the fields painted on them: a sport byte, centre (zigzag decimetres), the long
+ * side's direction (4096ths of half a turn), length and width (decimetres) and a count byte.
  * Paths are a width in decimetres shifted left one bit over a paved flag, then a centre line.
  * Rails are their kind shifted left two bits over an electrified and a bridge flag, then a
  * centre line: the gauge is standard everywhere, so a track needs no more.
@@ -25,10 +29,14 @@
  * Church towers (v13) come next, as few as there are churches with one: each is its building's
  * place in the list (the change from the tower before), its centre (zigzag decimetres), radius,
  * wall top and tip (decimetres). The decoder hangs each on its building as `tower`.
- * The terrain (v15) closes the file: its grid step (decimetres), its first node in whole steps
+ * The terrain (v15) comes next: its grid step (decimetres), its first node in whole steps
  * from the origin (zigzag), columns and rows, then each height in 5 cm as its difference from the
  * plane through its neighbours to the west, north and north-west (zigzag): the land is smooth,
  * so most of those take a byte.
+ * Shop fronts (v17) follow, by building: each is its building's place in the list (the change
+ * from the front before), the edge of its ring it is on, how far along it (decimetres), and its
+ * kind's place in SHOP_KINDS with the top bit set for a terrace. A building's first front is its
+ * main one: the decoder hangs it on the building as `front`.
  */
 
 import * as Binary from '@portable/binary';
@@ -53,17 +61,24 @@ import type {
   Marking,
   Prop,
   Rail,
+  ShopFront,
   TerrainGrid,
 } from './city.ts';
 import { boundsOf } from './geometry.ts';
+import { FIELD_SPORTS, PITCH_SURFACES } from './pitches.ts';
+import type { Field } from './pitches.ts';
+import { SHOP_KINDS } from './shop-kinds.ts';
 
 const MAGIC = 'LVN1';
-// v16: a byte per bike rack, its fill (`Prop.fill`). Bump the cache in public/sw.js with it.
-const VERSION = 16;
+// v16: a byte per bike rack, its fill (`Prop.fill`). v17: the shop fronts. v18: pitch surfaces
+// and the fields painted on them, after the polygon layers. Bump the cache in public/sw.js with it.
+const VERSION = 18;
 const DM = 10; // units per metre
 const GROUND = 20; // terrain heights per metre: 5 cm
 const ZIGZAG = { encoding: 'zigzag' } as const;
 const TURN = Math.PI * 2;
+/** A field's direction in 4096ths of half a turn: 4 cm off at the end of a 100 m pitch. */
+const FIELD_ANGLES = 4096;
 /** Refuse anything larger after decompression: the whole city must stay small. */
 export const MAX_CITY_BYTES = 16_000_000;
 
@@ -143,6 +158,38 @@ function readTerrain(r: Binary.Reader): TerrainGrid {
   return { step, minX, minZ, cols, rows, heights: Float32Array.from(q, (v) => v / GROUND) };
 }
 
+// Shop fronts (v17): a section of their own, after the terrain.
+const TERRACE_BIT = 0x80;
+
+function writeFronts(w: Binary.Writer, fronts: readonly ShopFront[]): void {
+  w.varint(fronts.length);
+  let place = 0;
+  for (const f of fronts) {
+    w.varint(f.building - place);
+    place = f.building;
+    w.varint(f.edge);
+    w.varint(Math.round(f.along * DM));
+    w.uint8(SHOP_KINDS.indexOf(f.kind) | (f.terrace ? TERRACE_BIT : 0));
+  }
+}
+
+/** Reads the fronts and hangs each building's first, its main one, on it as `front`. */
+function readFronts(r: Binary.Reader, buildings: Building[]): ShopFront[] {
+  let place = 0;
+  return Array.from({ length: r.varint() }, (): ShopFront => {
+    const building = (place += r.varint());
+    const [edge, along, packed] = [r.varint(), r.varint() / DM, r.uint8()];
+    const b = buildings[building];
+    const kind = SHOP_KINDS[packed & ~TERRACE_BIT];
+    if (!b || !kind || edge * 2 >= b.ring.length) {
+      throw new CityFormatError(`Bad shop front on building ${building}.`);
+    }
+    const front = { building, edge, along, kind, terrace: (packed & TERRACE_BIT) !== 0 };
+    b.front ??= front;
+    return front;
+  });
+}
+
 function writeString(w: Binary.Writer, text: string): void {
   w.varint(Binary.utf8Length(text));
   w.string(text);
@@ -204,6 +251,17 @@ export function encodeCity(city: City): Uint8Array {
     w.varint(layer.length);
     at = origin();
     for (const ring of layer) writeRing(w, ring, at);
+  }
+  for (const surface of city.pitchSurfaces) w.uint8(PITCH_SURFACES.indexOf(surface));
+  w.varint(city.fields.length);
+  for (const f of city.fields) {
+    w.uint8(FIELD_SPORTS.indexOf(f.sport));
+    w.varint(Math.round(f.x * DM), ZIGZAG);
+    w.varint(Math.round(f.z * DM), ZIGZAG);
+    w.varint(Math.round((f.angle / Math.PI) * FIELD_ANGLES) % FIELD_ANGLES);
+    w.varint(Math.round(f.length * DM));
+    w.varint(Math.round(f.width * DM));
+    w.uint8(f.count);
   }
 
   w.varint(city.paths.length);
@@ -272,6 +330,7 @@ export function encodeCity(city: City): Uint8Array {
     for (const v of [t.radius, t.top, t.tip]) w.varint(Math.round(v * DM));
   }
   writeTerrain(w, city.terrain);
+  writeFronts(w, city.fronts);
   return w.toBytes();
 }
 
@@ -359,6 +418,19 @@ export function decodeCity(bytes: Uint8Array): City {
     Rings,
     Rings,
   ];
+  const pitchSurfaces = pitches.map(() => {
+    const surface = PITCH_SURFACES[r.uint8()];
+    if (!surface) throw new CityFormatError('Bad pitch surface.');
+    return surface;
+  });
+  const fields = Array.from({ length: r.varint() }, (): Field => {
+    const sport = FIELD_SPORTS[r.uint8()];
+    if (!sport) throw new CityFormatError('Bad field sport.');
+    const [x, z] = [r.varint(ZIGZAG) / DM, r.varint(ZIGZAG) / DM];
+    const angle = (r.varint() / FIELD_ANGLES) * Math.PI;
+    const [length, width] = [r.varint() / DM, r.varint() / DM];
+    return { sport, x, z, angle, length, width, count: r.uint8() };
+  });
 
   const paths = list((from) => {
     const packed = r.varint();
@@ -423,6 +495,7 @@ export function decodeCity(bytes: Uint8Array): City {
     b.tower = { x, z, radius, top, tip };
   }
   const terrain = readTerrain(r);
+  const fronts = readFronts(r, buildings);
   if (r.remaining !== 0) throw new CityFormatError(`${r.remaining} trailing bytes.`);
   return {
     area,
@@ -436,6 +509,8 @@ export function decodeCity(bytes: Uint8Array): City {
     water,
     woods,
     pitches,
+    pitchSurfaces,
+    fields,
     parking,
     paths,
     rails,
@@ -452,6 +527,7 @@ export function decodeCity(bytes: Uint8Array): City {
     streets,
     plazaNames,
     terrain,
+    fronts,
   };
 }
 

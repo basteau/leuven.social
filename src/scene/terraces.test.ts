@@ -23,6 +23,8 @@ const city = (over: Partial<City> = {}): City => ({
   water: [],
   woods: [],
   pitches: [],
+  pitchSurfaces: [],
+  fields: [],
   parking: [],
   paths: [],
   rails: [],
@@ -39,6 +41,7 @@ const city = (over: Partial<City> = {}): City => ({
   streets: [],
   plazaNames: [1],
   terrain: FLAT_GRID,
+  fronts: [],
   ...over,
 });
 

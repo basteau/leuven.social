@@ -1,12 +1,7 @@
 import type { Tower } from '../data/city.ts';
 import { orientedRect } from '../data/geometry.ts';
+import { LANCETS } from './facade-codes.ts';
 import type { LineBuilder, MeshBuilder, V3 } from './mesh-builder.ts';
-
-/**
- * Added to a wall's `facade` value (its top height) on a church: the facade shader draws tall
- * pointed lancet windows instead of the window grid (facade-material.ts).
- */
-export const LANCETS = 400;
 
 /**
  * Hero landmarks as a few low-poly parts placed in their footprint's frame: u runs along the

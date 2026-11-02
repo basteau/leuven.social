@@ -2,16 +2,16 @@ import { describe, expect, test } from 'bun:test';
 
 import type { Building } from '../data/city.ts';
 import {
-  SHOP_FRONT,
   addBuilding,
   buildingsGeometry as indexed,
   cutAt,
+  facadeOf,
   footing,
   partyWalls,
   planRoof,
 } from './buildings.ts';
 import { LANDMARK_MODELS } from './landmark-models.ts';
-import { LANCETS } from './landmarks.ts';
+import { LANCETS, shopFront } from './facade-codes.ts';
 import { Terrain } from '../data/terrain.ts';
 import { LIFT_UNIT, LineBuilder, MeshBuilder, unindexed } from './mesh-builder.ts';
 import { pick } from './palette.ts';
@@ -161,11 +161,19 @@ describe('buildingsGeometry', () => {
     expect(values).toEqual(new Set([Math.fround(plan.eave), 0]));
   });
 
-  test('shops, cafés and offices mark their walls for a shop front', () => {
-    const b = building({ kind: 'retail' });
-    const facade = buildingsGeometry([b]).surfaces.getAttribute('facade');
-    const values = new Set(Array.from({ length: facade.count }, (_, i) => facade.getX(i)));
-    expect(values).toEqual(new Set([Math.fround(planRoof(b).eave + SHOP_FRONT), 0]));
+  test('a shop front marks the walls that face its street with its kind; the back stays plain', () => {
+    const front = { building: 0, edge: 0, along: 3, kind: 'bakery' as const, terrace: false };
+    const b = building({ kind: 'retail', roof: 'flat', front });
+    const g = buildingsGeometry([b]).surfaces;
+    const [facade, position] = [g.getAttribute('facade'), g.getAttribute('position')];
+    const bakery = shopFront(5, 10);
+    expect(facades(b)).toEqual(new Set([bakery, 10, 0]));
+    // Only the wall along z = 0, whose normal is the front's, carries it.
+    for (let i = 0; i < facade.count; i++) {
+      if (facade.getX(i) === bakery) expect(position.getZ(i)).toBe(0);
+    }
+    // A building tagged retail with no shop mapped in it has plain windows.
+    expect(facades(building({ kind: 'retail', roof: 'flat' }))).toEqual(new Set([10, 0]));
   });
 
   test('churches mark their walls for lancets; sheds get no windows', () => {
@@ -416,4 +424,30 @@ test('a house stands on the lowest ground under its corners, down to a whole lif
   expect(footing(slope, [3, 0, 8, 0, 8, 5, 3, 5])).toBe(0);
   expect(footing(slope, [7, 0, 9, 0, 9, 5])).toBe(0.5);
   expect(footing(slope, [-3, 0, 0, 0, 0, 5])).toBe(-LIFT_UNIT);
+});
+
+describe('facadeOf', () => {
+  test('gives the walls as drawn, their top, and which are over a shop front', () => {
+    // Its front on the first wall, from (0, 0) to (6, 0): facing -z.
+    const shop = building({
+      roof: 'flat',
+      front: { building: 0, edge: 0, along: 3, kind: 'bakery', terrace: false },
+    });
+    const facade = facadeOf(shop);
+    expect(facade.rings).toEqual([shop.ring]);
+    expect(facade.top).toBe(10);
+    expect(facade.shop(0, -1)).toBe(true);
+    expect(facade.shop(1, 0)).toBe(false);
+    expect(facadeOf(building({ roof: 'flat' })).shop(0, -1)).toBe(false);
+  });
+
+  test('a hipped roof draws its walls on its simplified ring, under its eave', () => {
+    const l = building({
+      roof: 'hipped',
+      ring: new Float32Array([0, 0, 12, 0, 12, 6, 6, 6, 6, 12, 0, 12]),
+    });
+    const facade = facadeOf(l);
+    expect(facade.top).toBeLessThan(10);
+    expect(facade.rings[0]!.length).toBeGreaterThanOrEqual(8);
+  });
 });

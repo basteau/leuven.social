@@ -73,6 +73,8 @@ const key = (i: number, j: number) => (i + 32768) * 65536 + (j + 32768);
 /** A wall of a footprint, outward normal included. */
 export interface Wall {
   building: number;
+  /** Which edge of its ring it is: from corner `edge` to the next. */
+  edge: number;
   ax: number;
   az: number;
   /** Along the wall, unit. */
@@ -115,7 +117,9 @@ export class Facades {
         const length = Math.hypot(bx - ax, bz - az);
         if (length < MIN_WALL) continue;
         const [ux, uz] = [(bx - ax) / length, (bz - az) / length];
-        const w = this.walls.push({ building: b, ax, az, ux, uz, nx: uz, nz: -ux, length }) - 1;
+        const w =
+          this.walls.push({ building: b, edge: i / 2, ax, az, ux, uz, nx: uz, nz: -ux, length }) -
+          1;
         this.byBuilding[b]!.push(w);
         for (
           let ci = Math.floor(Math.min(ax, bx) / ws);
@@ -247,6 +251,89 @@ function facesStreet(
   return facades.clear(px + nx * 0.3, pz + nz * 0.3, qx, qz) ? d : -1;
 }
 
+/**
+ * The drawn footprint a point (an address, a shop) belongs to: the one it lies in, else the one
+ * with a wall nearest it within FOOTPRINT_REACH. -1 when there is none.
+ */
+export function footprintOf(facades: Facades, x: number, z: number): number {
+  const inside = facades.buildingAt(x, z);
+  if (inside >= 0) return inside;
+  const nearest = facades
+    .near(x, z, FOOTPRINT_REACH)
+    .map((w) => {
+      const [px, pz] = facades.along(w, facades.project(w, x, z));
+      return { w, d: Math.hypot(px - x, pz - z) };
+    })
+    .toSorted((a, b) => a.d - b.d || a.w - b.w)[0];
+  return nearest ? facades.walls[nearest.w]!.building : -1;
+}
+
+/** How a front's wall was chosen (see `frontWall`). */
+export type Facing = 'facing its street' | 'facing its square' | 'onto public ground';
+
+/** A building's front: its wall, and the point on it nearest the address. */
+export interface Front {
+  w: number;
+  px: number;
+  pz: number;
+  how: Facing;
+}
+
+/**
+ * The wall of `building` that a door at (x, z) opens from, where the point meets it (kept
+ * NUMBER_MARGIN from its ends): the one on its square, else the nearest that faces its street
+ * and sees it past the other buildings, else (a house down a lane or in a court) the one nearest
+ * its street that opens onto public ground. House numbers and shop fronts share it.
+ */
+export function frontWall(
+  facades: Facades,
+  building: number,
+  x: number,
+  z: number,
+  street: {
+    /** The street's centre lines (`streetSegments`). */
+    segments: readonly number[];
+    /** The square's outlines, when the address is on a named square. */
+    square: readonly ArrayLike<number>[];
+    /** Whether (x, z) is public ground: a road, a square. */
+    open: (x: number, z: number) => boolean;
+  },
+): Front | null {
+  const { segments, square, open } = street;
+  const options = facades.byBuilding[building]!.map((w) => {
+    const { length, nx, nz } = facades.walls[w]!;
+    // Walls are at least MIN_WALL long, so both margins fit.
+    const t = Math.min(length - NUMBER_MARGIN, Math.max(NUMBER_MARGIN, facades.project(w, x, z)));
+    const [px, pz] = facades.along(w, t);
+    const [fx, fz] = [px + nx * FRONT, pz + nz * FRONT];
+    const onSquare = square.some((ring) => pointInRing(ring, fx, fz));
+    const d = onSquare ? 0 : segments.length > 0 ? nearestOn(segments, px, pz)[2] : Infinity;
+    return { w, px, pz, fx, fz, d, onSquare, away: Math.hypot(px - x, pz - z) };
+  });
+  options.sort((a, b) => a.d - b.d || a.away - b.away || a.w - b.w);
+  const inFront = (o: (typeof options)[number]) => {
+    const { nx, nz } = facades.walls[o.w]!;
+    return facades.clear(o.px + nx * 0.3, o.pz + nz * 0.3, o.fx, o.fz);
+  };
+  const found = options.find((o) =>
+    o.onSquare
+      ? inFront(o)
+      : o.d <= NUMBER_REACH &&
+        facesStreet(facades, o.w, o.px, o.pz, segments, NUMBER_REACH, NUMBER_FACING) >= 0,
+  );
+  if (found) {
+    return {
+      w: found.w,
+      px: found.px,
+      pz: found.pz,
+      how: found.onSquare ? 'facing its square' : 'facing its street',
+    };
+  }
+  // A house down a lane or a court: the wall whose door opens onto public ground.
+  const lane = options.find((o) => open(o.fx, o.fz) && inFront(o));
+  return lane ? { w: lane.w, px: lane.px, pz: lane.pz, how: 'onto public ground' } : null;
+}
+
 /** An address: where OSM puts it (a building's middle, or a point), its street and number. */
 export interface Address {
   x: number;
@@ -327,17 +414,7 @@ export function placeHouseNumbers(
       miss('duplicate');
       continue;
     }
-    let building = facades.buildingAt(x, z);
-    if (building < 0) {
-      const nearest = facades
-        .near(x, z, FOOTPRINT_REACH)
-        .map((w) => {
-          const [px, pz] = facades.along(w, facades.project(w, x, z));
-          return { w, d: Math.hypot(px - x, pz - z) };
-        })
-        .toSorted((a, b) => a.d - b.d || a.w - b.w)[0];
-      building = nearest ? facades.walls[nearest.w]!.building : -1;
-    }
+    const building = footprintOf(facades, x, z);
     if (building < 0) {
       miss('no footprint');
       continue;
@@ -346,36 +423,11 @@ export function placeHouseNumbers(
       miss('landmark');
       continue;
     }
-    const segments = streets.get(street) ?? [];
-    const square = squares.get(street) ?? [];
-    const options = facades.byBuilding[building]!.map((w) => {
-      const { length, nx, nz } = facades.walls[w]!;
-      // Walls are at least MIN_WALL long, so both margins fit.
-      const t = Math.min(length - NUMBER_MARGIN, Math.max(NUMBER_MARGIN, facades.project(w, x, z)));
-      const [px, pz] = facades.along(w, t);
-      const [fx, fz] = [px + nx * FRONT, pz + nz * FRONT];
-      const onSquare = square.some((ring) => pointInRing(ring, fx, fz));
-      const d = onSquare ? 0 : segments.length > 0 ? nearestOn(segments, px, pz)[2] : Infinity;
-      return { w, px, pz, fx, fz, d, onSquare, away: Math.hypot(px - x, pz - z) };
+    const found = frontWall(facades, building, x, z, {
+      segments: streets.get(street) ?? [],
+      square: squares.get(street) ?? [],
+      open,
     });
-    options.sort((a, b) => a.d - b.d || a.away - b.away || a.w - b.w);
-    const inFront = (o: (typeof options)[number]) => {
-      const { nx, nz } = facades.walls[o.w]!;
-      return facades.clear(o.px + nx * 0.3, o.pz + nz * 0.3, o.fx, o.fz);
-    };
-    let how = 'facing its street';
-    let found = options.find((o) =>
-      o.onSquare
-        ? inFront(o)
-        : o.d <= NUMBER_REACH &&
-          facesStreet(facades, o.w, o.px, o.pz, segments, NUMBER_REACH, NUMBER_FACING) >= 0,
-    );
-    if (found?.onSquare) how = 'facing its square';
-    if (!found) {
-      // A house down a lane or a court: the wall whose door opens onto public ground.
-      how = 'onto public ground';
-      found = options.find((o) => open(o.fx, o.fz) && inFront(o));
-    }
     if (!found) {
       miss('no wall facing the street');
       continue;
@@ -388,7 +440,7 @@ export function placeHouseNumbers(
     }
     seen.add(id);
     spots.add(px, pz, 0);
-    placed[how] = (placed[how] ?? 0) + 1;
+    placed[found.how] = (placed[found.how] ?? 0) + 1;
     plates.push({ x: px, z: pz, angle: Math.atan2(nz, nx), text });
   }
   return { plates, skipped, placed };

@@ -294,14 +294,14 @@ const cellKey = (i: number, j: number) => (i + 32768) * 65536 + (j + 32768);
 
 /**
  * A building's walls as they are drawn (src/scene/buildings.ts): the rings they stand on (a
- * hipped roof's are simplified), where the house stands, its wall top above that, and whether its
- * ground floor is a shop front.
+ * hipped roof's are simplified), where the house stands, its wall top above that, and which walls,
+ * by their outward normal, are over a shop front.
  */
 export interface Facade {
   rings: readonly ArrayLike<number>[];
   foot: number;
   top: number;
-  shop: boolean;
+  shop(nx: number, nz: number): boolean;
 }
 
 /** The buildings' facades by their place in the list, and the ground at a point (m). */
@@ -376,9 +376,9 @@ export class Walls {
     }
     // No house under it: as on a house of three storeys, over the ground at its point.
     if (building < 0) return { x, z, angle, foot: this.#ground.height(x, z), top: 9, shop: false };
-    const facade = this.#ground.facade(building);
+    const { rings, foot, top, shop } = this.#ground.facade(building);
     let best = { d: SNAP, x, z, angle };
-    for (const ring of facade.rings) {
+    for (const ring of rings) {
       const n = ring.length;
       for (let i = 0; i < n; i += 2) {
         const [ax, az] = [ring[i]!, ring[i + 1]!];
@@ -403,7 +403,8 @@ export class Walls {
         };
       }
     }
-    return { x: best.x, z: best.z, angle: best.angle, ...facade };
+    const a = best.angle;
+    return { x: best.x, z: best.z, angle: a, foot, top, shop: shop(Math.cos(a), Math.sin(a)) };
   }
 }
 
@@ -414,12 +415,13 @@ const GAP = 0.08;
  * How high plates hang above a house's foot (their middles, m), in the band the facade shader
  * leaves bare between the ground floor's openings and the first floor's sills
  * (facade-material.ts): a house number just over the doors and windows (over the awning on a
- * shop front), the way many Leuven numbers sit on the lintel, and a street name above it. So no
- * plate covers a window, whatever the rhythm of its house. Both stay under the eaves.
+ * shop front, where storefronts.ts hangs it), the way many Leuven numbers sit on the lintel, and a
+ * street name above it. So no plate covers a window, whatever the rhythm of its house. Both stay
+ * under the eaves.
  */
 export function plateHeights(top: number, shop: boolean): { house: number; street: number } {
   const storey = Math.min(4, Math.max(2.8, top / Math.max(1, Math.floor(top / 3.2 + 0.5))));
-  const lintel = (shop ? 0.92 : 0.8) * storey;
+  const lintel = shop ? Math.max(0.97 * storey, 3.2) : 0.8 * storey;
   const sill = Math.min(1.32 * storey, top);
   const [h, s] = [HOUSE_PLATE_HEIGHT / 2, STREET_PLATE_HEIGHT / 2];
   const under = (half: number) => top - 0.25 - half;

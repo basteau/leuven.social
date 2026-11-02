@@ -184,7 +184,7 @@ describe('Walls', () => {
       rings: [drawn[b]!],
       foot: footing(slope, rings[b]!),
       top: 9 + b,
-      shop: b === 1,
+      shop: (nx) => b === 1 && nx > -2,
     }),
     height: (x, z) => slope.height(x, z),
   });
@@ -252,7 +252,8 @@ describe('plateHeights', () => {
   });
 
   test('clears the awning over a shop front', () => {
-    expect(plateHeights(9.6, true).house - house).toBeGreaterThan(0.92 * 3.2);
+    expect(plateHeights(9.6, true).house - house).toBeGreaterThan(0.97 * 3.2);
+    expect(plateHeights(9.6, true).street + street).toBeLessThan(1.32 * 3.2);
     expect(plateHeights(9.6, true).street).toBeGreaterThan(plateHeights(9.6, false).street - 1e-9);
   });
 

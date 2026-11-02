@@ -29,6 +29,8 @@ const city: City = {
   water: [],
   woods: [],
   pitches: [],
+  pitchSurfaces: [],
+  fields: [],
   parking: [],
   paths: [],
   rails: [],
@@ -45,6 +47,7 @@ const city: City = {
   streets: [],
   plazaNames: [0],
   terrain: FLAT_GRID,
+  fronts: [],
 };
 
 /** How far the drawn mesh reaches from (x, z) at its foot, below `y`. */
@@ -102,6 +105,29 @@ test('a parasol foot is where it is drawn, turned with its row', () => {
     const near = drawn.some(([x, z]) => Math.hypot(x! - foot[k]!, z! - foot[k + 1]!) < 1e-4);
     expect(near).toBe(true);
   }
+});
+
+test("a café's terrace closes the pavement it stands on", () => {
+  const cafe = {
+    id: 1,
+    tier: 'core' as const,
+    kind: 'retail' as const,
+    roof: 'flat' as const,
+    height: 10,
+    eave: 10,
+    roofColor: null,
+    ring: new Float32Array([60, 60, 72, 60, 72, 70, 60, 70]),
+    holes: [],
+  };
+  const front = { building: 0, edge: 0, along: 6, kind: 'cafe' as const, terrace: true };
+  // No square, so no parasols: the terrace is the last footprint.
+  const solids = (terrace: boolean) =>
+    walkSolids({ ...city, plazas: [], buildings: [cafe], fronts: [{ ...front, terrace }] });
+  const terrace = solids(true).rings.at(-1)!;
+  // A table and two chairs along the wall, out in the street north of it.
+  expect(Math.abs(signedArea(terrace))).toBeCloseTo(2.3 * 0.9, 4);
+  expect(Math.max(...Array.from(terrace).filter((_, i) => i % 2 === 1))).toBeLessThan(60);
+  expect(solids(false).rings.length).toBe(solids(true).rings.length - 1);
 });
 
 test('a walker meets them in the walk grid', () => {

@@ -3,11 +3,12 @@ import { ShapeUtils, Vector2 } from 'three';
 import type { Bounds, Carriageway, Path } from '../data/city.ts';
 import { areaOutline } from '../data/geometry.ts';
 import type { OutlineEdge } from '../data/geometry.ts';
+import type { PitchSurface } from '../data/pitches.ts';
 import type { Terrain } from '../data/terrain.ts';
 import type { LineBuilder, MeshBuilder, V3 } from './mesh-builder.ts';
 import { SURFACE, SURFACE_OF, addPaint } from './paint.ts';
 import type { Marking } from './paint.ts';
-import { CARRIAGEWAYS, GROUND } from './palette.ts';
+import { CARRIAGEWAYS, GROUND, PITCH } from './palette.ts';
 
 /**
  * How far the diorama slab drops below street level, in metres: below the lowest ground, as its
@@ -22,7 +23,6 @@ const LIP = 0.2;
 export const GROUND_RINGS = [
   'green',
   'woods',
-  'pitches',
   'parking',
   'railLand',
   'water',
@@ -31,10 +31,22 @@ export const GROUND_RINGS = [
   'plazas',
 ] as const;
 
+/** A piece of a pitch, and what it's made of. */
+export interface Pitch {
+  surface: PitchSurface;
+  ring: Float32Array;
+}
+
+/**
+ * Pitches lie over woods (0.06) and under car parks (0.08): running tracks lowest, so the pitches
+ * mapped on their infields (or a stadium's, drawn whole) lie on them. Their lines go on top (paint.ts).
+ */
+export const PITCH_Y = { track: 0.062, pitch: 0.066 } as const;
+
 export interface GroundLayers {
   green: readonly Float32Array[];
   woods: readonly Float32Array[];
-  pitches: readonly Float32Array[];
+  pitches: readonly Pitch[];
   parking: readonly Float32Array[];
   water: readonly Float32Array[];
   bridges: readonly Float32Array[];
@@ -181,7 +193,9 @@ export function addGround(
   addRings(mesh, layers.railLand, 0.04, GROUND.railway);
   addRings(mesh, layers.green, 0.05, GROUND.green);
   addRings(mesh, layers.woods, 0.06, GROUND.woods);
-  addRings(mesh, layers.pitches, 0.065, GROUND.pitch);
+  for (const { surface, ring } of layers.pitches) {
+    addRing(mesh, ring, surface === 'tartan' ? PITCH_Y.track : PITCH_Y.pitch, PITCH[surface]);
+  }
   addRings(mesh, layers.parking, 0.08, GROUND.parking);
   addRings(mesh, layers.water, 0.1, GROUND.water);
   // Above the water (footbridges), under the road surfaces that already cover their crossings.
