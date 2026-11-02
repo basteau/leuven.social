@@ -46,16 +46,16 @@ test('the LiDAR slope survey decides the roof unless OSM tags it', () => {
 test('paths of their own are drawn, sidewalks, crossings and tunnels are not', () => {
   expect(pathFromOsm({ highway: 'footway', surface: 'paving_stones' })).toEqual({
     width: 2,
-    paved: true,
+    surface: 'paving',
   });
-  expect(pathFromOsm({ highway: 'path' })).toEqual({ width: 1.5, paved: false });
+  expect(pathFromOsm({ highway: 'path' })).toEqual({ width: 1.5, surface: 'earth' });
   expect(pathFromOsm({ highway: 'cycleway', width: '3.5', surface: 'asphalt' })).toEqual({
     width: 3.5,
-    paved: true,
+    surface: 'asphalt',
   });
   expect(pathFromOsm({ highway: 'track', width: 'narrow', surface: 'gravel' })).toEqual({
     width: 3,
-    paved: false,
+    surface: 'gravel',
   });
   expect(pathFromOsm({ highway: 'footway', footway: 'sidewalk' })).toBeNull();
   expect(pathFromOsm({ highway: 'footway', footway: 'crossing' })).toBeNull();

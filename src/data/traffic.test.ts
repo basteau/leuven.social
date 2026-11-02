@@ -99,6 +99,7 @@ const way = (over: Partial<Omit<Way, 'line'>> & { line: number[] }): Way => ({
   kind: 'street',
   oneway: false,
   bikesBoth: false,
+  surface: 'asphalt',
   halfWidth: 4,
   ...over,
   line: new Float32Array(over.line),

@@ -1,5 +1,6 @@
-import type { Way, WayKind } from './city.ts';
+import type { Surface, Way, WayKind } from './city.ts';
 import { GraphRouter } from './graph-route.ts';
+import { surfaceOf } from './roads.ts';
 
 /**
  * The streets as a road graph for the traffic (src/scene/traffic.ts): the driveable OpenStreetMap
@@ -27,6 +28,7 @@ export interface WayStyle {
   reverse: boolean;
   /** A one-way street bikes may ride both ways (`oneway:bicycle=no`, Leuven's cycle streets). */
   bikesBoth: boolean;
+  surface: Surface;
 }
 
 /**
@@ -61,6 +63,7 @@ export function wayFromOsm(tags: Tags): WayStyle | null {
     oneway,
     reverse: tags.oneway === '-1',
     bikesBoth: oneway && tags['oneway:bicycle'] === 'no',
+    surface: surfaceOf(tags),
   };
 }
 
@@ -124,6 +127,7 @@ export interface RoadEdge {
   cars: boolean;
   bikes: boolean;
   feet: boolean;
+  surface: Surface;
   /** Half the open ground across it (m): how far out lanes and pavements may lie. */
   halfWidth: number;
 }
@@ -169,8 +173,20 @@ export function roadGraph(ways: readonly Way[]): RoadGraph {
     const from = nodeAt(points[0]!, points[1]!);
     const to = nodeAt(points[n * 2 - 2]!, points[n * 2 - 1]!);
     nodes[from]!.out.push(edges.length);
-    const { kind, halfWidth } = way;
-    edges.push({ from, to, kind, points, cum, length, cars, bikes, feet: true, halfWidth });
+    const { kind, halfWidth, surface } = way;
+    edges.push({
+      from,
+      to,
+      kind,
+      points,
+      cum,
+      length,
+      cars,
+      bikes,
+      feet: true,
+      surface,
+      halfWidth,
+    });
   };
   for (const way of ways) {
     const cars = way.kind === 'main' || way.kind === 'street';

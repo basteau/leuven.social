@@ -41,7 +41,7 @@ const city: City = {
   // The second house starts in the first cell and overhangs into the second.
   buildings: [house(1, box(10, 10, 8, 8)), house(2, box(S - 4, 10, 8, 8))],
   roads: [box(S - 50, 100, 100, 10)],
-  carriageways: [{ kind: 'street', ring: box(S - 50, 100, 100, 10) }],
+  carriageways: [{ kind: 'street', surface: 'asphalt', ring: box(S - 50, 100, 100, 10) }],
   markings: [
     // Lane lines across the seam, and a crossing that straddles it.
     { kind: 'dashed', line: new Float32Array([S - 30, 105, S + 30, 105]) },
@@ -58,7 +58,7 @@ const city: City = {
   fields: [{ sport: 'tennis', x: S + 10, z: 248, angle: 0, length: 36, width: 40, count: 2 }],
   parking: [],
   // A path from one cell into the other.
-  paths: [{ width: 2, paved: true, line: new Float32Array([S - 20, 50, S + 20, 50]) }],
+  paths: [{ width: 2, surface: 'paving', line: new Float32Array([S - 20, 50, S + 20, 50]) }],
   // An electrified track across both cells, and a platform beside it across the seam.
   rails: [
     {

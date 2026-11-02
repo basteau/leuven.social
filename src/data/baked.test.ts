@@ -22,7 +22,14 @@ test('public/data/city.bin decodes into a plausible Leuven', async () => {
   expect(city.roads.length).toBeGreaterThan(50);
   // Road detail: carriageways of every kind, lane lines and crossings.
   const kinds = new Set(city.carriageways.map((c) => c.kind));
-  expect([...kinds].toSorted()).toEqual(['cycleway', 'main', 'paving', 'sett', 'street']);
+  expect([...kinds].toSorted()).toEqual(['cycleway', 'main', 'pedestrian', 'street']);
+  // Every surface the data knows, somewhere: Leuven has its setts, its paving and its dirt tracks.
+  const surfaces = new Set(
+    [...city.carriageways, ...city.paths, ...city.ways].map((s) => s.surface),
+  );
+  for (const s of ['asphalt', 'sett', 'paving', 'gravel', 'earth'] as const)
+    expect(surfaces.has(s)).toBe(true);
+  expect(city.carriageways.some((c) => c.surface === 'earth' || c.surface === 'gravel')).toBe(true);
   expect(city.markings.filter((m) => m.kind === 'dashed').length).toBeGreaterThan(50);
   expect(city.markings.filter((m) => m.kind === 'zebra').length).toBeGreaterThan(50);
   expect(city.water.length).toBeGreaterThan(0);

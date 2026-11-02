@@ -15,6 +15,7 @@ import {
   roofAcross,
   roofFromSurvey,
 } from '../src/data/city.ts';
+import { PAVED } from '../src/data/city.ts';
 import type {
   Bounds,
   Building,
@@ -68,7 +69,7 @@ import {
   rackFill,
 } from '../src/data/props.ts';
 import type { FillClass } from '../src/data/props.ts';
-import { carriagewayKind, crossingMarking } from '../src/data/roads.ts';
+import { carriagewayKind, surfaceOf, crossingMarking } from '../src/data/roads.ts';
 import type { RoadRole } from '../src/data/roads.ts';
 import { correctRoofColours } from '../src/data/roof-colours.ts';
 import { capShedsUnderTrees } from '../src/data/sheds.ts';
@@ -396,9 +397,10 @@ const underRoof = (x: number, z: number) =>
 // Carriageways come simplified as one coverage, so neighbours still share edges: only clip them.
 const carriageways: Carriageway[] = zones.faces.flatMap(({ role, tags, ring }) => {
   const kind = carriagewayKind(role, tags);
+  const surface = surfaceOf(tags);
   return clipRingToArea(normalizeRing(ring.flat()), AREA)
     .filter((r) => r.length >= 6)
-    .map((r) => ({ kind, ring: new Float32Array(r) }));
+    .map((r) => ({ kind, surface, ring: new Float32Array(r) }));
 });
 const lineInArea = (line: [number, number][]) =>
   AREA.flatMap((rect) => clipLine(line.flat(), rect)).filter((piece) => piece.length >= 4);
@@ -433,13 +435,14 @@ const squareRings = [
 const plazas = squareRings.map(({ ring }) => ring);
 const water = [...layer(wtz.features, () => true), ...coverLayer('water')];
 
-// A path under a road surface or a square is never seen (44% of their length): keep the rest.
-const paved = new RingIndex();
-for (const ring of [...roads, ...plazas]) paved.add(ring);
+// A path under a carriageway or a square is never seen: keep the rest, which runs over the
+// plain road surface too (a track the GRB surveyed as a road, an earth path in a verge).
+const hard = new RingIndex();
+for (const ring of [...carriageways.map((c) => c.ring), ...plazas]) hard.add(ring);
 const shownPaths: Path[] = paths.flatMap((p) =>
-  uncoveredPieces(p.line, (x, z) => paved.contains(x, z)).map((piece): Path => ({
+  uncoveredPieces(p.line, (x, z) => hard.contains(x, z)).map((piece): Path => ({
     width: p.width,
-    paved: p.paved,
+    surface: p.surface,
     line: new Float32Array(piece),
   })),
 );
@@ -713,7 +716,7 @@ const drivable = osmRoads.features.flatMap((f) => {
   return [{ ...style, line }];
 });
 const ways: Way[] = splitAtJunctions(drivable)
-  .flatMap(({ kind, oneway, bikesBoth, line }) =>
+  .flatMap(({ kind, oneway, bikesBoth, surface, line }) =>
     AREA.flatMap((rect) => clipLine(line, rect))
       .flatMap((piece) => uncoveredPieces(piece, (x, z) => footprints.contains(x, z), 1))
       .map((piece) => {
@@ -722,6 +725,7 @@ const ways: Way[] = splitAtJunctions(drivable)
           kind,
           oneway,
           bikesBoth,
+          surface,
           halfWidth: kind === 'path' ? 1 : halfWidthOf(simplified),
           line: simplified,
         };
@@ -732,10 +736,11 @@ const ways: Way[] = splitAtJunctions(drivable)
     (a, b) =>
       Math.floor(a.line[1]! / STRIP) - Math.floor(b.line[1]! / STRIP) || a.line[0]! - b.line[0]!,
   )
-  .map(({ kind, oneway, bikesBoth, halfWidth, line }) => ({
+  .map(({ kind, oneway, bikesBoth, surface, halfWidth, line }) => ({
     kind,
     oneway,
     bikesBoth,
+    surface,
     halfWidth,
     line: new Float32Array(line),
   }));
@@ -829,7 +834,7 @@ console.log(
       .join(', ')}`,
     `plazas ${city.plazas.length}, green ${city.green.length}, water ${city.water.length}`,
     `woods ${city.woods.length}, pitches ${city.pitches.length} (${fields.length} with lines: ${FIELD_SPORTS.map((s) => `${fields.filter((f) => f.sport === s).length} ${s}`).join(', ')}), parking ${city.parking.length}`,
-    `paths ${shownPaths.length} (${shownPaths.filter((p) => !p.paved).length} unpaved), ${(pathLength(shownPaths) / 1000).toFixed(0)} of ${(pathLength(paths) / 1000).toFixed(0)} km not under a road or square`,
+    `paths ${shownPaths.length} (${shownPaths.filter((p) => !PAVED.has(p.surface)).length} unpaved), ${(pathLength(shownPaths) / 1000).toFixed(0)} of ${(pathLength(paths) / 1000).toFixed(0)} km not under a road or square`,
     `rails ${rails.length} (${rails.filter((r) => r.bridge).length} on bridges, ${rails.reduce((sum, r) => sum + r.line.length / 2 - 1, 0)} segments), platforms ${city.platforms.length}, railway land ${railLand.length}, platform roofs ${canopies.length}`,
     `trees ${trees.heights.length} (${osmTrees.length / 2} mapped)`,
     `sheds under trees capped ${shedsCapped}, retail ${buildings.filter((b) => b.kind === 'retail').length} (${shopFronts} by their shop fronts)`,

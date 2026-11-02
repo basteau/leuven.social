@@ -11,11 +11,12 @@
  * A building is its id (zigzag, the change from the building before), then tier (2 bits), kind
  * (3 bits) and roof (3 bits) packed into one byte, then its height, roof rise and roof colour
  * (0 = none, else 0xRRGGBB + 1), outer ring and courtyards.
- * Carriageways and markings are a kind byte each, then a ring (markings: a line).
+ * Carriageways are a byte each (their kind in CARRIAGEWAY_KINDS in the low three bits, their
+ * surface in SURFACES above it, v21) and a ring; markings a kind byte and a line.
  * Pitch surfaces (v18) follow the polygon layers, a byte per pitch ring in the order of the
  * pitches, then the fields painted on them: a sport byte, centre (zigzag decimetres), the long
  * side's direction (4096ths of half a turn), length and width (decimetres) and a count byte.
- * Paths are a width in decimetres shifted left one bit over a paved flag, then a centre line.
+ * Paths are a width in decimetres shifted left three bits over their surface, then a centre line.
  * Rails are their kind shifted left two bits over an electrified and a bridge flag, then a
  * centre line: the gauge is standard everywhere, so a track needs no more.
  * Trees are a ring of positions followed by their heights in decimetres.
@@ -38,8 +39,8 @@
  * kind's place in SHOP_KINDS with the top bit set for a terrace. A building's first front is its
  * main one: the decoder hangs it on the building as `front`.
  * The ways traffic moves along (v19) come last: each a byte (its kind in WAY_KINDS, then a
- * one-way bit and a bikes-both-ways bit), its half-width in decimetres (v20) and a centre
- * line, delta-coded like the streets.
+ * one-way bit and a bikes-both-ways bit, and its surface above them), its half-width in
+ * decimetres (v20) and a centre line, delta-coded like the streets.
  */
 
 import * as Binary from '@portable/binary';
@@ -53,6 +54,7 @@ import {
   PROP_KINDS,
   RAIL_KINDS,
   ROOFS,
+  SURFACES,
   TIERS,
   WAY_KINDS,
   isMonument,
@@ -76,7 +78,7 @@ import { SHOP_KINDS } from './shop-kinds.ts';
 const MAGIC = 'LVN1';
 // v16: a byte per bike rack, its fill (`Prop.fill`). v17: the shop fronts. v18: pitch surfaces
 // and the fields painted on them, after the polygon layers. Bump the cache in public/sw.js with it.
-const VERSION = 20;
+const VERSION = 21;
 const DM = 10; // units per metre
 const GROUND = 20; // terrain heights per metre: 5 cm
 const ZIGZAG = { encoding: 'zigzag' } as const;
@@ -227,8 +229,8 @@ export function encodeCity(city: City): Uint8Array {
 
   w.varint(city.carriageways.length);
   at = origin();
-  for (const { kind, ring } of city.carriageways) {
-    w.uint8(CARRIAGEWAY_KINDS.indexOf(kind));
+  for (const { kind, surface, ring } of city.carriageways) {
+    w.uint8(CARRIAGEWAY_KINDS.indexOf(kind) | (SURFACES.indexOf(surface) << 3));
     writeRing(w, ring, at);
   }
   w.varint(city.markings.length);
@@ -271,7 +273,7 @@ export function encodeCity(city: City): Uint8Array {
   w.varint(city.paths.length);
   at = origin();
   for (const p of city.paths) {
-    w.varint((Math.round(p.width * DM) << 1) | (p.paved ? 1 : 0));
+    w.varint((Math.round(p.width * DM) << 3) | SURFACES.indexOf(p.surface));
     writeRing(w, p.line, at);
   }
 
@@ -338,7 +340,12 @@ export function encodeCity(city: City): Uint8Array {
   w.varint(city.ways.length);
   at = origin();
   for (const way of city.ways) {
-    w.uint8(WAY_KINDS.indexOf(way.kind) | (way.oneway ? 4 : 0) | (way.bikesBoth ? 8 : 0));
+    w.uint8(
+      WAY_KINDS.indexOf(way.kind) |
+        (way.oneway ? 4 : 0) |
+        (way.bikesBoth ? 8 : 0) |
+        (SURFACES.indexOf(way.surface) << 4),
+    );
     w.varint(Math.round(way.halfWidth * DM));
     writeRing(w, way.line, at);
   }
@@ -395,9 +402,10 @@ export function decodeCity(bytes: Uint8Array): City {
     return Array.from({ length: r.varint() }, () => read(from));
   };
   const carriageways = list((from): Carriageway => {
-    const kind = CARRIAGEWAY_KINDS[r.uint8()];
-    if (!kind) throw new CityFormatError('Bad carriageway kind.');
-    return { kind, ring: readRing(r, from) };
+    const byte = r.uint8();
+    const [kind, surface] = [CARRIAGEWAY_KINDS[byte & 7], SURFACES[byte >> 3]];
+    if (!kind || !surface) throw new CityFormatError('Bad carriageway kind.');
+    return { kind, surface, ring: readRing(r, from) };
   });
   const markings = list((from): Marking => {
     const kind = MARKING_KINDS[r.uint8()];
@@ -445,7 +453,9 @@ export function decodeCity(bytes: Uint8Array): City {
 
   const paths = list((from) => {
     const packed = r.varint();
-    return { width: (packed >> 1) / DM, paved: (packed & 1) === 1, line: readRing(r, from) };
+    const surface = SURFACES[packed & 7];
+    if (!surface) throw new CityFormatError('Bad path surface.');
+    return { width: (packed >> 3) / DM, surface, line: readRing(r, from) };
   });
 
   const rails = list((from): Rail => {
@@ -510,11 +520,14 @@ export function decodeCity(bytes: Uint8Array): City {
   const ways = list((from) => {
     const flags = r.uint8();
     const kind = WAY_KINDS[flags & 3]!; // two bits, four kinds: every value is one
+    const surface = SURFACES[(flags >> 4) & 7];
+    if (!surface) throw new CityFormatError('Bad way surface.');
     const halfWidth = r.varint() / DM;
     return {
       kind,
       oneway: !!(flags & 4),
       bikesBoth: !!(flags & 8),
+      surface,
       halfWidth,
       line: readRing(r, from),
     };

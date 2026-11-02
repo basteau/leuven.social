@@ -8,7 +8,7 @@ import type { Terrain } from '../data/terrain.ts';
 import type { LineBuilder, MeshBuilder, V3 } from './mesh-builder.ts';
 import { SURFACE, SURFACE_OF, addPaint } from './paint.ts';
 import type { Marking } from './paint.ts';
-import { CARRIAGEWAYS, GROUND, PITCH } from './palette.ts';
+import { GROUND, PITCH, SURFACE_COLOURS, carriagewayColor } from './palette.ts';
 
 /**
  * How far the diorama slab drops below street level, in metres: below the lowest ground, as its
@@ -28,10 +28,11 @@ export const LAYER_Y = {
   pitch: 0.066,
   parking: 0.08,
   water: 0.1,
-  paths: 0.12,
   bridges: 0.13,
   roads: 0.15,
-  carriageways: 0.155,
+  /** Over the plain road surface (a track the GRB surveyed as a road), under the carriageways. */
+  paths: 0.153,
+  carriageways: 0.156,
   plazas: 0.2,
 } as const;
 export type LayerHeights = typeof LAYER_Y;
@@ -96,9 +97,9 @@ function addRings(mesh: MeshBuilder, rings: readonly Float32Array[], y: number, 
  * ends, so bends need no join geometry: the overlaps share a colour and a height.
  */
 function addPaths(mesh: MeshBuilder, paths: readonly Path[], y: number) {
-  for (const { width, paved, line } of paths) {
+  for (const { width, surface, line } of paths) {
     const half = width / 2;
-    const color = paved ? GROUND.path : GROUND.trail;
+    const color = SURFACE_COLOURS[surface];
     for (let i = 0; i + 3 < line.length; i += 2) {
       const [ax, az, bx, bz] = [line[i]!, line[i + 1]!, line[i + 2]!, line[i + 3]!];
       const len = Math.hypot(bx - ax, bz - az);
@@ -225,8 +226,8 @@ export function addGround(
   // The road surface is pavement, with the carriageways and cycle tracks laid on it.
   for (const ring of layers.roads)
     addRing(mesh, ring, LAYER_Y.roads, GROUND.pavement, SURFACE.paving);
-  for (const { kind, ring } of layers.carriageways) {
-    addRing(mesh, ring, LAYER_Y.carriageways, CARRIAGEWAYS[kind], SURFACE_OF[kind]);
+  for (const { kind, surface, ring } of layers.carriageways) {
+    addRing(mesh, ring, LAYER_Y.carriageways, carriagewayColor(kind, surface), SURFACE_OF[surface]);
   }
   addPaint(mesh, layers.markings);
   // Squares are paved in setts, like the old streets round them.

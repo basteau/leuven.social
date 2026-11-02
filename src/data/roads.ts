@@ -4,13 +4,63 @@
  * the viewer paints it.
  */
 
-import type { CarriagewayKind, MarkingKind } from './city.ts';
+import type { CarriagewayKind, MarkingKind, Surface } from './city.ts';
 
 /** What runs along a carriageway face (see tools/build_road_zones.py). */
 export type RoadRole = 'car' | 'pedestrian' | 'cycle';
 
-const SETT = new Set(['sett', 'cobblestone', 'unhewn_cobblestone', 'cobblestone:flattened']);
-const PAVING = new Set(['paving_stones', 'bricks', 'concrete:plates', 'stone', 'paving_stones:30']);
+type Tags = Record<string, string | undefined>;
+
+/** OSM `surface` values, each to the surface the map draws (`SURFACES` in city.ts). */
+const SURFACE_OF_TAG: Record<string, Surface> = {
+  asphalt: 'asphalt',
+  paved: 'asphalt',
+  chipseal: 'asphalt',
+  concrete: 'concrete',
+  'concrete:lanes': 'concrete',
+  sett: 'sett',
+  cobblestone: 'sett',
+  unhewn_cobblestone: 'sett',
+  'cobblestone:flattened': 'sett',
+  paving_stones: 'paving',
+  'paving_stones:30': 'paving',
+  bricks: 'paving',
+  'concrete:plates': 'paving',
+  stone: 'paving',
+  gravel: 'gravel',
+  fine_gravel: 'gravel',
+  compacted: 'gravel',
+  pebblestone: 'gravel',
+  unpaved: 'earth',
+  dirt: 'earth',
+  earth: 'earth',
+  ground: 'earth',
+  mud: 'earth',
+  sand: 'earth',
+  woodchips: 'earth',
+  rock: 'earth',
+  grass: 'grass',
+  grass_paver: 'grass',
+};
+/** Without a surface tag, what a way of each kind is usually made of; any other way is asphalt. */
+const USUAL: Record<string, Surface> = {
+  track: 'earth',
+  path: 'earth',
+  bridleway: 'earth',
+  footway: 'paving',
+  steps: 'paving',
+  pedestrian: 'paving',
+};
+
+/**
+ * What a way is made of, from its `surface` tag (the first of several), else what its kind
+ * usually is: a track or a park path earth, a footway or a pedestrian street paving stones, a
+ * road asphalt. One rule for every road, path and square, so a dirt road is drawn as dirt.
+ */
+export function surfaceOf(tags: Tags): Surface {
+  const tagged = tags.surface?.split(';')[0]?.trim() ?? '';
+  return SURFACE_OF_TAG[tagged] ?? USUAL[tags.highway ?? ''] ?? 'asphalt';
+}
 /** Ring and through roads: darker asphalt, with lane markings. */
 const MAIN = new Set([
   'motorway',
@@ -23,17 +73,13 @@ const MAIN = new Set([
   'secondary_link',
 ]);
 
-type Tags = Record<string, string | undefined>;
-
 /**
- * A carriageway is asphalt (darker on main roads), setts or paving stones. Pedestrian streets are
- * paved unless they're cobbled, and cycle tracks are red.
+ * What a carriageway is for: a cycle track, a pedestrian street, a ring or main road (darker
+ * asphalt, lane markings) or any other street. What it's made of is `surfaceOf`.
  */
 export function carriagewayKind(role: RoadRole, tags: Tags): CarriagewayKind {
-  const surface = tags.surface ?? '';
   if (role === 'cycle') return 'cycleway';
-  if (SETT.has(surface)) return 'sett';
-  if (role === 'pedestrian' || PAVING.has(surface)) return 'paving';
+  if (role === 'pedestrian') return 'pedestrian';
   return MAIN.has(tags.highway ?? '') ? 'main' : 'street';
 }
 

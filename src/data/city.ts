@@ -5,6 +5,7 @@
  */
 
 import type { Field, PitchSurface } from './pitches.ts';
+import { surfaceOf } from './roads.ts';
 import type { ShopKind } from './shop-kinds.ts';
 
 export const TIERS = ['hero', 'core', 'fringe'] as const;
@@ -74,12 +75,29 @@ export interface ShopFront {
   terrace: boolean;
 }
 
+/**
+ * What a road, path or square is made of, as the map draws it: one table for every surface in
+ * the city, from OSM's `surface` tag or the usual surface of a way's kind (`surfaceOf` in
+ * src/data/roads.ts). Each has a colour (src/scene/palette.ts) and a texture (src/scene/paint.ts).
+ */
+export const SURFACES = [
+  'asphalt',
+  'concrete',
+  'sett',
+  'paving',
+  'gravel',
+  'earth',
+  'grass',
+] as const;
+export type Surface = (typeof SURFACES)[number];
+/** The surfaces a car drives at its cruise on; the rest slow it. */
+export const PAVED: ReadonlySet<Surface> = new Set(['asphalt', 'concrete', 'sett', 'paving']);
+
 /** A footpath, cycle path or park path, drawn as a ribbon on the ground. */
 export interface Path {
   /** Full width in metres. */
   width: number;
-  /** Paved (asphalt, setts, slabs) or a gravel or earth trail. */
-  paved: boolean;
+  surface: Surface;
   /** Centre line as flat [x0, z0, x1, z1, …]. */
   line: Float32Array;
 }
@@ -104,15 +122,16 @@ export interface Rail {
 }
 
 /**
- * What lies on the road surface beside the pavement, and what it's made of: the GRB surface cut
- * along its kerbs (tools/build_road_zones.py), named from the OSM ways on it (src/data/roads.ts).
- * Pedestrian streets count, by their paving; so do cycle tracks.
+ * What lies on the road surface beside the pavement: the GRB surface cut along its kerbs
+ * (tools/build_road_zones.py), named from the OSM ways on it (src/data/roads.ts) as a street, a
+ * ring or main road, a cycle track or a pedestrian street, each with what it's made of.
  */
-export const CARRIAGEWAY_KINDS = ['street', 'main', 'sett', 'paving', 'cycleway'] as const;
+export const CARRIAGEWAY_KINDS = ['street', 'main', 'cycleway', 'pedestrian'] as const;
 export type CarriagewayKind = (typeof CARRIAGEWAY_KINDS)[number];
 
 export interface Carriageway {
   kind: CarriagewayKind;
+  surface: Surface;
   ring: Float32Array;
 }
 
@@ -141,6 +160,8 @@ export interface Way {
   oneway: boolean;
   /** A one-way street bikes may ride both ways. */
   bikesBoth: boolean;
+  /** What it is made of: cars slow down off the asphalt. */
+  surface: Surface;
   /**
    * Half the open ground across the way (m), measured from its line to the nearest facade on
    * either side (the narrower one): how far out lanes and pavements may lie.
@@ -407,21 +428,6 @@ const PATH_WIDTH: Record<string, number> = {
   steps: 2,
   path: 1.5,
 };
-const UNPAVED = new Set([
-  'unpaved',
-  'compacted',
-  'gravel',
-  'fine_gravel',
-  'pebblestone',
-  'dirt',
-  'earth',
-  'ground',
-  'grass',
-  'sand',
-  'mud',
-  'woodchips',
-]);
-
 /**
  * Which OSM ways are paths worth drawing, and how. Roads are already GRB road surfaces, and
  * sidewalks and crossings lie inside them, so only paths of their own count: through parks,
@@ -435,9 +441,7 @@ export function pathFromOsm(tags: Record<string, string | undefined>): Omit<Path
   if (tags.cycleway === 'crossing' || Number(tags.layer) < 0) return null;
   const tagged = Number.parseFloat(tags.width ?? '');
   const width = tagged > 0.5 && tagged < 12 ? tagged : PATH_WIDTH[highway]!;
-  // Untagged paths: a park path is a trail, a footway in town is paved.
-  const surface = tags.surface ?? (highway === 'path' || highway === 'track' ? 'ground' : 'paved');
-  return { width, paved: !UNPAVED.has(surface) };
+  return { width, surface: surfaceOf(tags) };
 }
 
 const YARD_SERVICES = new Set(['yard', 'siding', 'spur']);

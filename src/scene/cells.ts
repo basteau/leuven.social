@@ -189,8 +189,8 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
   }
   // Platforms too: their walls and edges are left out along a cut (see `addPlatform`).
   for (const ring of city.platforms) cut(ring, (cell, piece) => cell.platforms.push(piece));
-  for (const { kind, ring } of city.carriageways) {
-    cut(ring, (cell, piece) => cell.ground.carriageways.push({ kind, ring: piece }));
+  for (const { kind, surface, ring } of city.carriageways) {
+    cut(ring, (cell, piece) => cell.ground.carriageways.push({ kind, surface, ring: piece }));
   }
   for (const [i, ring] of city.pitches.entries()) {
     const surface = city.pitchSurfaces[i] ?? 'grass';
@@ -203,8 +203,8 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
       for (const piece of clipLine(line, cell.bounds)) add(cell, Float32Array.from(piece));
     }
   };
-  for (const { width, paved, line } of city.paths) {
-    cutLine(line, (cell, piece) => cell.ground.paths.push({ width, paved, line: piece }));
+  for (const { width, surface, line } of city.paths) {
+    cutLine(line, (cell, piece) => cell.ground.paths.push({ width, surface, line: piece }));
   }
   for (const rail of city.rails) {
     cutLine(rail.line, (cell, piece) =>

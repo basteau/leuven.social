@@ -1,4 +1,5 @@
-import type { Way, WayKind } from '../data/city.ts';
+import { PAVED } from '../data/city.ts';
+import type { Surface, Way, WayKind } from '../data/city.ts';
 import type { GraphRouter } from '../data/graph-route.ts';
 import { alongEdge, roadGraph, roadRouter, turnBetween } from '../data/traffic.ts';
 import type { RoadEdge, RoadGraph } from '../data/traffic.ts';
@@ -91,6 +92,8 @@ const CRUISE: Record<VehicleKind, Record<WayKind, number>> = {
   bike: { main: 5, street: 4.5, cycle: 4.5, path: 0 },
   person: { main: 1.4, street: 1.4, cycle: 1.3, path: 1.3 },
 };
+/** How much slower than its cruise a vehicle goes off the paved surfaces: gravel, earth, grass. */
+const OFF_ROAD: Partial<Record<Surface, number>> = { gravel: 0.7, earth: 0.55, grass: 0.5 };
 /** Standing gap (m), time headway (s), acceleration and comfortable braking (m/s²). */
 const GAP: Record<VehicleKind, number> = { car: 2.5, bus: 4, bike: 1, person: 0.5 };
 const HEADWAY = 1.2;
@@ -384,9 +387,10 @@ export class Traffic {
     return srgb(list[Math.floor(this.#random() * list.length)]!);
   }
 
-  /** The cruise on an edge, each driver a little faster or slower. */
+  /** The cruise on an edge, each driver a little faster or slower, and slower off the paving. */
   #cruise(kind: VehicleKind, e: RoadEdge): number {
-    return CRUISE[kind][e.kind] * (0.9 + 0.2 * this.#random());
+    const pace = PAVED.has(e.surface) ? 1 : (OFF_ROAD[e.surface] ?? 0.6);
+    return CRUISE[kind][e.kind] * pace * (0.9 + 0.2 * this.#random());
   }
 
   #lane(v: Vehicle, edge: number): number {

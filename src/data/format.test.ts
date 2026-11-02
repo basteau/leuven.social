@@ -56,8 +56,8 @@ const city: City = {
   ],
   roads: [square(0, 0, 100)],
   carriageways: [
-    { kind: 'main', ring: square(0, 0, 100) },
-    { kind: 'cycleway', ring: square(100, 0, 4) },
+    { kind: 'main', surface: 'asphalt', ring: square(0, 0, 100) },
+    { kind: 'cycleway', surface: 'asphalt', ring: square(100, 0, 4) },
   ],
   markings: [
     { kind: 'dashed', line: new Float32Array([0, 50, 100, 50]) },
@@ -74,7 +74,7 @@ const city: City = {
     { sport: 'track', x: 0, z: 300, angle: 0, length: 158, width: 73, count: 6 },
   ],
   parking: [square(80, 40, 9)],
-  paths: [{ width: 2.5, paved: false, line: new Float32Array([0, 0, 10, 5, 20, 5]) }],
+  paths: [{ width: 2.5, surface: 'gravel', line: new Float32Array([0, 0, 10, 5, 20, 5]) }],
   rails: [
     { kind: 'main', bridge: true, electrified: true, line: new Float32Array([0, 0, 100, 40]) },
     { kind: 'yard', bridge: false, electrified: false, line: new Float32Array([5, 5, 50, 5]) },
@@ -303,6 +303,7 @@ describe('ways', () => {
         kind: 'main',
         oneway: true,
         bikesBoth: true,
+        surface: 'asphalt',
         halfWidth: 4.5,
         line: new Float32Array([0, 0, 120.5, -30]),
       },
@@ -310,6 +311,7 @@ describe('ways', () => {
         kind: 'cycle',
         oneway: false,
         bikesBoth: false,
+        surface: 'earth',
         halfWidth: 1.2,
         line: new Float32Array([5, 5, 6, 7, 9, 9]),
       },

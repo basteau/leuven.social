@@ -8,7 +8,7 @@ import { LineBuilder, MeshBuilder, unindexed } from './mesh-builder.ts';
 const square = new Float32Array([0, 0, 10, 0, 10, 10, 0, 10]);
 const layers = {
   roads: [square],
-  carriageways: [{ kind: 'sett' as const, ring: square }],
+  carriageways: [{ kind: 'street' as const, surface: 'sett' as const, ring: square }],
   markings: [],
   plazas: [square],
   green: [square],
@@ -53,13 +53,13 @@ test('paths are ribbons of their width, running on past their ends', () => {
   const line = new Float32Array([0, 0, 10, 0, 10, 0, 10, 6]);
   const mesh = new MeshBuilder();
   const within = { minX: -100, minZ: -100, maxX: 100, maxZ: 100 };
-  addGround(mesh, area, within, { ...layers, paths: [{ width: 2, paved: true, line }] });
+  addGround(mesh, area, within, { ...layers, paths: [{ width: 2, surface: 'paving', line }] });
   const g = unindexed(mesh.build());
   // The zero-length middle segment is skipped: two quads on top of the slab and layers.
   expect(g.getAttribute('position').count).toBe(((2 + 7) * 2 + 10 * 2 + 2 * 2) * 3);
   const p = g.getAttribute('position');
   const xs = Array.from({ length: p.count }, (_, i) =>
-    Math.abs(p.getY(i) - 0.12) < 1e-4 ? p.getX(i) : 5,
+    Math.abs(p.getY(i) - 0.153) < 1e-4 ? p.getX(i) : 5,
   );
   expect(Math.min(...xs)).toBeCloseTo(-1);
   expect(Math.max(...xs)).toBeCloseTo(11);
@@ -80,7 +80,7 @@ test('the road surface carries texture codes, and coarse paint lands on top', ()
         .map((i) => f.getX(i)),
     );
   expect([...at(0.15)]).toEqual([-3]); // pavement slabs
-  expect([...at(0.155)]).toEqual([-2]); // setts on top
+  expect([...at(0.156)]).toEqual([-2]); // setts on top
   expect(at(0.16).size).toBe(2); // the zebra's patch, both sides of it
   expect(at(0.17).size).toBe(0); // its bars are fine paint, drawn after the buildings
 });

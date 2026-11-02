@@ -30,7 +30,7 @@ export const town: WalkLayers = {
   water: [rect(0, 0, 200, 120)],
   roads: [rect(10, 40, 190, 50)],
   plazas: [rect(60, 50, 90, 80), rect(150, 100, 160, 110)],
-  paths: [{ width: 1, paved: true, line: Float32Array.of(20, 41, 20, 10, 40, 5) }],
+  paths: [{ width: 1, surface: 'paving', line: Float32Array.of(20, 41, 20, 10, 40, 5) }],
   buildings: [building(rect(40, 38, 60, 45), 15.2)],
   tanks: [{ height: 8, ring: rect(62, 70, 68, 78) }],
 };

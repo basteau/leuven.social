@@ -3,7 +3,7 @@
  * terracotta roofs, sandy cobbles. DESIGN.md explains the choices; change them here only.
  */
 
-import type { CarriagewayKind, Kind, Material } from '../data/city.ts';
+import type { CarriagewayKind, Kind, Material, Surface } from '../data/city.ts';
 import { fromOklab, toOklab } from '../data/colour.ts';
 import type { PitchSurface } from '../data/pitches.ts';
 import type { ShopKind } from '../data/shop-kinds.ts';
@@ -180,10 +180,6 @@ export const GROUND = {
   water: 0x5f9fc4,
   /** Bridge decks: the pavement's slabs a shade warmer, so a street runs on over the bridge. */
   bridge: 0xb8b0a1,
-  /** Paved footpaths: pale slabs, lighter than the roads. */
-  path: 0xb9b0a0,
-  /** Gravel and earth trails through the parks. */
-  trail: 0xd6bf90,
   /** Railway land: the gravel between and beside the tracks, paler than their ballast. */
   railway: 0xaca291,
 } as const;
@@ -220,17 +216,29 @@ export const RAIL = {
 } as const;
 
 /**
- * Carriageways, by what they're made of (src/data/roads.ts). Asphalt darkens on the ring and main
- * roads; setts are warm grey-brown and paving a pale stone, both greyer than the sand of the
- * squares; cycle tracks are Flemish red asphalt.
+ * Every surface a road or path is made of (`SURFACES` in src/data/city.ts): asphalt and
+ * concrete greys, warm grey-brown setts and pale stone paving (both greyer than the sand of the
+ * squares), pale gravel like the park trails, brown earth for a dirt road or a field track,
+ * green-grey grass pavers.
  */
-export const CARRIAGEWAYS: Record<CarriagewayKind, number> = {
-  cycleway: 0xa8604c,
-  street: 0x8b8780,
-  main: 0x77746f,
+export const SURFACE_COLOURS: Record<Surface, number> = {
+  asphalt: 0x8b8780,
+  concrete: 0xa9a69e,
   sett: 0xa69886,
   paving: 0xb3aa9a,
+  gravel: 0xd0b98c,
+  earth: 0x9f8460,
+  grass: 0x8fa870,
 };
+
+/**
+ * A carriageway's colour: its surface's, except that asphalt darkens on the ring and main roads
+ * and cycle tracks are Flemish red asphalt.
+ */
+export function carriagewayColor(kind: CarriagewayKind, surface: Surface): number {
+  if (surface !== 'asphalt') return SURFACE_COLOURS[surface];
+  return kind === 'main' ? 0x77746f : kind === 'cycleway' ? 0xa8604c : SURFACE_COLOURS.asphalt;
+}
 
 /** Road paint: white lines and bars, the grey they average to from afar, and cycle-lane red. */
 export const PAINT = { line: 0xf1ede2, patch: 0xb0aca4, bike: 0xa8604c } as const;

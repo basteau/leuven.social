@@ -37,7 +37,8 @@ CYCLE_LANE = 1.5  # painted cycle lane width (m): the common Flemish width, matc
 KEEP = ('highway', 'surface', 'service', 'cyclestreet', 'bicycle_road', 'surface:colour', 'crossing',
         'crossing:markings', 'footway', 'cycleway', 'name')
 CAR = {'motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'primary_link', 'secondary', 'secondary_link',
-       'tertiary', 'tertiary_link', 'unclassified', 'residential', 'living_street', 'service', 'busway', 'road'}
+       'tertiary', 'tertiary_link', 'unclassified', 'residential', 'living_street', 'service', 'busway', 'road',
+       'track'}
 MAIN = {'motorway', 'trunk', 'primary', 'secondary'}
 
 

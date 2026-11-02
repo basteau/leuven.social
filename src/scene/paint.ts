@@ -1,4 +1,4 @@
-import type { CarriagewayKind, Marking as CityMarking } from '../data/city.ts';
+import type { Marking as CityMarking, Surface } from '../data/city.ts';
 import { LANE } from '../data/pitches.ts';
 import type { Field } from '../data/pitches.ts';
 import type { MeshBuilder, V3 } from './mesh-builder.ts';
@@ -12,12 +12,15 @@ import { PAINT } from './palette.ts';
  */
 export const SURFACE = { plain: 0, asphalt: 1, sett: 2, paving: 3 } as const;
 
-export const SURFACE_OF: Record<CarriagewayKind, number> = {
-  cycleway: SURFACE.asphalt,
-  street: SURFACE.asphalt,
-  main: SURFACE.asphalt,
+/** The texture each surface gets: joints for stone, a grain for asphalt, nothing for the rest. */
+export const SURFACE_OF: Record<Surface, number> = {
+  asphalt: SURFACE.asphalt,
+  concrete: SURFACE.paving,
   sett: SURFACE.sett,
   paving: SURFACE.paving,
+  gravel: SURFACE.plain,
+  earth: SURFACE.plain,
+  grass: SURFACE.plain,
 };
 
 /**
