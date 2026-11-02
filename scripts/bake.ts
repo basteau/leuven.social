@@ -69,7 +69,7 @@ import { carriagewayKind, crossingMarking } from '../src/data/roads.ts';
 import type { RoadRole } from '../src/data/roads.ts';
 import { correctRoofColours } from '../src/data/roof-colours.ts';
 import { capShedsUnderTrees } from '../src/data/sheds.ts';
-import { isShopFront, markShopFronts } from '../src/data/shops.ts';
+import { fitTerraces, markShopFronts, placeFronts } from '../src/data/shops.ts';
 import { bridgeParapets, tankOutline } from '../src/data/structures.ts';
 import { joinLines, nameTable, streetName } from '../src/data/streets.ts';
 import { clearCrowns, mergeTrees, trunkRadius } from '../src/data/trees.ts';
@@ -275,14 +275,6 @@ for (const [i, b] of buildings.entries()) b.roofColor = roofSamples[i]!.roofColo
 
 // Garden sheds whose LiDAR height is the tree over them (src/data/sheds.ts).
 const shedsCapped = capShedsUnderTrees(buildings, crowns.trees);
-
-// Shop fronts where OSM maps a shop, café or restaurant inside the footprint.
-const shopFronts = markShopFronts(
-  buildings,
-  osmPoints.features
-    .filter((f) => isShopFront(f.properties) && f.geometry.type === 'Point')
-    .flatMap((f) => toLocal(...(f.geometry.coordinates as [number, number]))),
-);
 
 const closedPedestrianArea = (p: Props) =>
   (p.highway === 'pedestrian' || p.highway === 'footway') && p.area === 'yes';
@@ -568,6 +560,53 @@ const streets = streetLines
   );
 const plazaNames = names.index.slice(streetLines.length);
 
+// Shop fronts (src/data/shops.ts): each shop's kind, on the wall its house number would take,
+// and a terrace where OSM maps outdoor seating and the pavement has room for it.
+const nameIndex = new Map(names.table.map((name, i) => [name, i]));
+const facades = new Facades(buildings.map((b) => b.ring));
+const landmarks = new Set(
+  buildings.flatMap((b, i) => (LANDMARK_FOOTPRINTS.includes(b.id) ? [i] : [])),
+);
+const segments = streetSegments(streets);
+const namedSquares = new Map<number, Float32Array[]>();
+for (const [i, ring] of plazas.entries()) {
+  const name = plazaNames[i]!;
+  if (name >= 0) namedSquares.set(name, [...(namedSquares.get(name) ?? []), ring]);
+}
+const publicGround = new RingIndex();
+for (const ring of [...roads, ...plazas]) publicGround.add(ring);
+const shops = placeFronts(
+  osmPoints.features.flatMap((f) => {
+    if (f.geometry.type !== 'Point') return [];
+    const [x, z] = toLocal(...(f.geometry.coordinates as [number, number]));
+    return areaIndex(AREA, x, z) >= 0 ? [{ x, z, tags: f.properties }] : [];
+  }),
+  {
+    facades,
+    streets: segments,
+    names: nameIndex,
+    squares: namedSquares,
+    open: (x, z) => publicGround.contains(x, z),
+    skip: landmarks,
+  },
+);
+const terraces = fitTerraces(
+  shops.fronts,
+  buildings.map((b) => b.ring),
+  {
+    roads: kerbs,
+    solid,
+    water: pools,
+    props: props.map(propFootprint),
+    trunks: Array.from({ length: trees.heights.length }, (_, i) => [
+      trees.positions[i * 2]!,
+      trees.positions[i * 2 + 1]!,
+      trunkRadius(trees.heights[i]!),
+    ]),
+  },
+);
+const shopFronts = markShopFronts(buildings, shops.fronts);
+
 const city: City = {
   area: [...AREA],
   bounds: VIEW_AREA,
@@ -596,6 +635,7 @@ const city: City = {
   streets,
   plazaNames,
   terrain: terrainOver(landform, VIEW_AREA),
+  fronts: shops.fronts,
 };
 
 const bytes = await packCity(city);
@@ -603,7 +643,6 @@ await Bun.write(OUT, bytes);
 
 // Walk mode's plates (src/data/plate-placement.ts), in their own file: only a walk loads it.
 // Addresses are OSM's, on buildings (their middle) and on points where no building has them.
-const nameIndex = new Map(names.table.map((name, i) => [name, i]));
 const address = (x: number, z: number, tags: Props): Address[] => {
   const [number, street] = [tags['addr:housenumber'], tags['addr:street']?.trim()];
   if (!number || !street || areaIndex(AREA, x, z) < 0) return [];
@@ -624,18 +663,6 @@ const addresses: Address[] = [
       : [],
   ),
 ];
-const facades = new Facades(buildings.map((b) => b.ring));
-const landmarks = new Set(
-  buildings.flatMap((b, i) => (LANDMARK_FOOTPRINTS.includes(b.id) ? [i] : [])),
-);
-const segments = streetSegments(streets);
-const namedSquares = new Map<number, Float32Array[]>();
-for (const [i, ring] of plazas.entries()) {
-  const name = plazaNames[i]!;
-  if (name >= 0) namedSquares.set(name, [...(namedSquares.get(name) ?? []), ring]);
-}
-const publicGround = new RingIndex();
-for (const ring of [...roads, ...plazas]) publicGround.add(ring);
 const houses = placeHouseNumbers(addresses, facades, segments, {
   squares: namedSquares,
   open: (x, z) => publicGround.contains(x, z),
@@ -684,7 +711,15 @@ console.log(
     `paths ${shownPaths.length} (${shownPaths.filter((p) => !p.paved).length} unpaved), ${(pathLength(shownPaths) / 1000).toFixed(0)} of ${(pathLength(paths) / 1000).toFixed(0)} km not under a road or square`,
     `rails ${rails.length} (${rails.filter((r) => r.bridge).length} on bridges, ${rails.reduce((sum, r) => sum + r.line.length / 2 - 1, 0)} segments), platforms ${city.platforms.length}, railway land ${railLand.length}, platform roofs ${canopies.length}`,
     `trees ${trees.heights.length} (${osmTrees.length / 2} mapped)`,
-    `sheds under trees capped ${shedsCapped}, shop fronts ${shopFronts} (${buildings.filter((b) => b.kind === 'retail').length} retail)`,
+    `sheds under trees capped ${shedsCapped}, retail ${buildings.filter((b) => b.kind === 'retail').length} (${shopFronts} by their shop fronts)`,
+    `shop fronts ${shops.fronts.length} on ${new Set(shops.fronts.map((f) => f.building)).size} buildings, ${terraces} with a terrace: ${reasons(shops.placed)} (skipped ${reasons(shops.skipped)}); main fronts ${Object.entries(
+      Object.groupBy(
+        buildings.flatMap((b) => b.front ?? []),
+        (f) => f.kind,
+      ),
+    )
+      .map(([kind, list]) => `${list!.length} ${kind}`)
+      .join(', ')}`,
     `roofs ${buildings.filter((b) => b.roof === 'flat').length} flat, ${buildings.filter((b) => b.roof === 'across').length} with the ridge across, ${buildings.filter((b) => b.roofColor !== null).length} with a sampled colour, ${buildings.filter((b) => b.holes.length).length} with courtyards`,
     `props ${props.length} (${placed.nudged} nudged, ${placed.dropped} dropped, ${allTrees.heights.length - trees.heights.length} crowns cleared): ${Object.entries(
       Object.groupBy(props, (p) => p.kind),

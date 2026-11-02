@@ -1,5 +1,6 @@
 import type { City } from '../data/city.ts';
 import { propFootprint } from '../data/props.ts';
+import { frontPoint, terraceFootprint } from '../data/shops.ts';
 import type { Solids } from '../data/walkable.ts';
 import { terraceParasols, PARASOL_FOOT } from './terraces.ts';
 import { trunkFoot } from './trees.ts';
@@ -8,7 +9,7 @@ import { trunkFoot } from './trees.ts';
  * What a walker can't walk through but the city file holds no wall for, as the scene draws it
  * (`WalkGrid`'s `Solids`): every trunk at its foot, lamp posts as posts, and the footprints of
  * benches (the seat, not the room for legs in front of it), racks, shelters, statues, fountains
- * and pumps, and of the café parasols' weighted feet.
+ * and pumps, of the café parasols' weighted feet, and of the shop fronts' terraces.
  */
 export function walkSolids(city: City): Solids {
   const posts: number[] = [];
@@ -34,6 +35,11 @@ export function walkSolids(city: City): Solids {
     const f = propFootprint(p);
     if (p.kind === 'lamp') posts.push(f.x, f.z, f.u1);
     else box(f.x, f.z, f.fx, f.fz, [f.u0, f.u1, f.v0, p.kind === 'bench' ? -f.v0 : f.v1]);
+  }
+  for (const front of city.fronts) {
+    if (!front.terrace) continue;
+    const f = terraceFootprint(frontPoint(city.buildings[front.building]!.ring, front));
+    box(f.x, f.z, f.fx, f.fz, [f.u0, f.u1, f.v0, f.v1]);
   }
   for (const p of terraceParasols(city)) {
     const h = PARASOL_FOOT;

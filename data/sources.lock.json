@@ -28,11 +28,11 @@
     "fetched": "2026-11-02"
   },
   "osm-points": {
-    "plan": "75562a3487eda90e",
+    "plan": "fa038693639a1ea3",
     "files": 1,
-    "bytes": 1870632,
-    "sha256": "5a5252c591e7c3fb304baaf4fa5f84cfdb8be9ff4619c77fcf0849e912c9c714",
-    "fetched": "2026-10-31"
+    "bytes": 2141315,
+    "sha256": "62f26d0b1c7f749faf5b6e739e57fc657774516d51f66adc514538b1364054f2",
+    "fetched": "2026-11-02"
   },
   "osm-furniture-ways": {
     "plan": "d8023180dfa9e786",

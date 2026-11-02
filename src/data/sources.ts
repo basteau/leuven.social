@@ -169,6 +169,8 @@ export const SOURCES: readonly Source[] = [
       'nwr["amenity"~"pub|bar|cafe|restaurant|fast_food|university|library|theatre|cinema|bicycle_parking|bicycle_rental|fountain|bench|place_of_worship|townhall"];',
       'nwr["tourism"]; nwr["historic"]; nwr["man_made"~"tower|statue"];',
       'node["highway"~"street_lamp|traffic_signals|bus_stop"];',
+      // Shop fronts (src/data/shop-kinds.ts): every shop, and what else keeps a window on the street.
+      'nwr["shop"]; nwr["amenity"~"^(pharmacy|bank|ice_cream)$"]; nwr["craft"~"^(bakery|confectionery)$"];',
     ].join(' '),
     out: 'tags center',
     tile: 0.025,

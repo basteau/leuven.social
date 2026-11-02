@@ -39,6 +39,11 @@ test('public/data/city.bin decodes into a plausible Leuven', async () => {
   const streets = new StreetIndex(city);
   expect(streets.nameAt(0, 0)).toBe('Grote Markt');
   expect(city.plazaNames.some((n) => city.streetNames[n] === 'Oude Markt')).toBe(true);
+  // Shop fronts from OSM's shops, by kind: Leuven has its frituren, and a front on every busy street.
+  expect(city.fronts.length).toBeGreaterThanOrEqual(1000);
+  expect(city.fronts.filter((f) => f.kind === 'frituur').length).toBeGreaterThanOrEqual(20);
+  expect(city.fronts.filter((f) => f.kind === 'pharmacy').length).toBeGreaterThanOrEqual(20);
+  expect(city.fronts.some((f) => f.terrace)).toBe(true);
 });
 
 const load = async (name: string) =>

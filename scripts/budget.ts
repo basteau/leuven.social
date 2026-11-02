@@ -10,7 +10,13 @@ import * as Compress from '@portable/compress';
 const KB = 1024;
 const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[] = [
   { label: 'App shell JS (React + HUD)', pattern: 'assets/index-*.js', limit: 90 * KB, gzip: true },
-  { label: '3D engine JS (three.js)', pattern: 'assets/viewer-*.js', limit: 171 * KB, gzip: true },
+  // The engine, and the palette it shares with the chunks it loads later (vite.config.ts).
+  {
+    label: '3D engine JS (three.js)',
+    pattern: 'assets/{viewer,palette}-*.js',
+    limit: 171 * KB,
+    gzip: true,
+  },
   { label: 'CSS', pattern: 'assets/*.css', limit: 6 * KB, gzip: true },
   // The whole R23 ring plus Heverlee; the ceiling agreed for the city data is 1 MB.
   { label: 'City data (already gzipped)', pattern: 'data/city.bin', limit: 1024 * KB, gzip: false },
@@ -30,18 +36,25 @@ const BUDGETS: { label: string; pattern: string; limit: number; gzip: boolean }[
     limit: 5 * KB,
     gzip: true,
   },
+  // Street furniture, monuments and the shop fronts' awnings, signs and terraces load once the
+  // first frame is drawn, with the prop and terrace footprints they share with walk mode.
+  // 6: the storefronts' shapes and the fronts' places on their walls added 1.6 KB.
+  {
+    label: 'Furniture JS (after first frame)',
+    pattern: 'assets/{furniture,props,shops}-*.js',
+    limit: 6 * KB,
+    gzip: true,
+  },
   // About 11k house numbers and 1.3k street plates are 64 KB; room for the map to grow by half.
   { label: 'Plates data (already gzipped)', pattern: 'data/walk.bin', limit: 96 * KB, gzip: false },
   // What the first visit downloads: the shell and the engine, not the chunks loaded later.
   // 252: land use from relations, data-chosen monuments and hold-to-turn together passed 250.
-  // 253: the parked bikes' looks, rails and notes (+0.7 KB). Furniture and monument drawing can
-  // move to a chunk of their own to win it back, but a plain import() of them makes Rolldown
-  // split the modules walk mode shares with the engine (three's core, mesh-builder, palette,
-  // data/props, terrain) into a third first-load chunk this pattern misses: the chunk has to
-  // take those from the viewer, as plates.ts takes its kit, or they need reorganising first.
+  // 253: the parked bikes' looks, rails and notes (+0.7 KB). Furniture and monument drawing then
+  // moved to a chunk of their own, taking what they share with the engine as a kit, as plates.ts
+  // does; only the palette, which scene/props.ts imports, loads as a chunk of its own beside it.
   {
     label: 'First-load JS',
-    pattern: 'assets/{index,viewer}-*.js',
+    pattern: 'assets/{index,viewer,palette}-*.js',
     limit: 253 * KB,
     gzip: true,
   },
