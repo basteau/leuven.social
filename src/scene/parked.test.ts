@@ -1,9 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 
-import { buildFurniture } from './cells.ts';
+import type { Prop } from '../data/city.ts';
+import { MeshBuilder } from './mesh-builder.ts';
 import { PARKED, nearestParked, parkedHeading } from './parked.ts';
 import type { Furniture } from './parked.ts';
-import { PARKED as PROPS_PARKED } from './props.ts';
+import { PARKED as PROPS_PARKED, addProp } from './props.ts';
 
 const furniture = (bikes: number[], box = { min: { x: -100, z: -100 }, max: { x: 100, z: 100 } }) =>
   ({ userData: { bikes: Float32Array.from(bikes) }, geometry: { boundingBox: box } }) as Furniture;
@@ -41,10 +42,11 @@ describe('parked bikes', () => {
   });
 
   test('finds the bikes a real rack parks', () => {
-    const cell = {
-      props: [{ kind: 'bikes', x: 10, z: 20, angle: 0, size: 6, fill: 1 }],
-    } as unknown as Parameters<typeof buildFurniture>[0];
-    const { mesh, bikes } = buildFurniture(cell);
+    const rack = { kind: 'bikes', x: 10, z: 20, angle: 0, size: 6, fill: 1 } as Prop;
+    const mesh = new MeshBuilder();
+    const parked: number[] = [];
+    addProp(mesh, rack, parked);
+    const bikes = Float32Array.from(parked);
     const built = mesh.build();
     const found = nearestParked([{ userData: { bikes }, geometry: built }], 10, 20, 5);
     expect(found).not.toBeNull();

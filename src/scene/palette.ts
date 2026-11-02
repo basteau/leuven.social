@@ -5,6 +5,8 @@
 
 import type { CarriagewayKind, Kind, Material } from '../data/city.ts';
 import { fromOklab, toOklab } from '../data/colour.ts';
+import type { PitchSurface } from '../data/pitches.ts';
+import type { ShopKind } from '../data/shop-kinds.ts';
 
 export const WALLS: Record<Kind, readonly number[]> = {
   // Red and dark brown brick, yellow brick, whitewash, cream and sand plaster.
@@ -137,8 +139,6 @@ export const GROUND = {
   green: 0x86b064,
   /** The floor of woods and scrub: a deeper, cooler green under the trees. */
   woods: 0x6a9450,
-  /** Sports pitches: mown, the brightest green on the map. */
-  pitch: 0x8fbd5a,
   /** Car parks: asphalt like the streets, a shade lighter. */
   parking: 0x97938b,
   /** The road surface where no carriageway lies on it: pale slabs, like the footpaths. */
@@ -154,6 +154,22 @@ export const GROUND = {
   /** Railway land: the gravel between and beside the tracks, paler than their ballast. */
   railway: 0xaca291,
 } as const;
+
+/**
+ * Sports pitches by what they're made of (src/data/pitches.ts): mown grass the brightest green on
+ * the map, artificial turf brighter and bluer still, tennis clay a red-orange, running tracks a
+ * deeper brick red, hard courts a grey a shade cooler than the car parks, beach volleyball sand
+ * and boules gravel the pale yellows of the trails.
+ */
+export const PITCH: Record<PitchSurface, number> = {
+  grass: 0x8fbd5a,
+  turf: 0x5fb552,
+  clay: 0xc9693f,
+  tartan: 0xb0503d,
+  hard: 0x9a9c98,
+  sand: 0xe6d29c,
+  gravel: 0xcfbb92,
+};
 
 /**
  * Railways: running lines on grey ballast and concrete sleepers, yards on rusty ballast and
@@ -199,8 +215,38 @@ export const TREE = {
   age: 0.05,
 } as const;
 
-/** Shop awnings over the ground-floor windows: one canvas per bay. */
-export const AWNINGS = [0xd2553f, 0x2f6b4f, 0x4a77a8, 0xe8b94a, 0x7a3e31, 0xf6eedc] as const;
+/**
+ * Shop fronts by what they sell (src/data/shop-kinds.ts): the canvas of the awning, or of the
+ * fascia board where there's none (a pharmacy's green, a bank's blue), and a second colour it is
+ * striped with where that's the trade's (a frituur's red and yellow, a bakery's cream and brown).
+ * Cafés, bars and restaurants have warm panes, open into the evening; shops goods in the window.
+ */
+export interface FrontStyle {
+  canvas: number;
+  stripe?: number;
+  /** A canvas awning over the front (else only the board). */
+  awning: boolean;
+  lit?: boolean;
+  goods?: boolean;
+}
+const PAPER = 0xf6eedc;
+export const FRONTS: Record<ShopKind, FrontStyle> = {
+  frituur: { canvas: 0xe8b94a, stripe: 0xd2553f, awning: true, lit: true },
+  cafe: { canvas: 0x2f6b4f, awning: true, lit: true },
+  bar: { canvas: 0x7a3e31, awning: true, lit: true },
+  restaurant: { canvas: 0x8c2f3a, stripe: PAPER, awning: true, lit: true },
+  snack: { canvas: 0xe07b4f, awning: true, lit: true },
+  bakery: { canvas: PAPER, stripe: 0xb07a3e, awning: true, goods: true },
+  icecream: { canvas: 0xf0b3c0, stripe: PAPER, awning: true, goods: true },
+  food: { canvas: 0x2f6b4f, stripe: PAPER, awning: true, goods: true },
+  pharmacy: { canvas: 0x3e9a5a, awning: false, goods: true },
+  bank: { canvas: 0x4a77a8, awning: false },
+  books: { canvas: 0x2c4a6e, awning: true, goods: true },
+  fashion: { canvas: 0x3d4250, awning: true, goods: true },
+  bicycle: { canvas: 0x4a77a8, awning: true, goods: true },
+  service: { canvas: 0x6c707a, awning: false },
+  shop: { canvas: 0xd2553f, awning: true, goods: true },
+};
 
 /**
  * The walker: a Leuven student dressed for a sunny day, in a coral short-sleeved shirt and

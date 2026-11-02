@@ -13,7 +13,7 @@ const layers = {
   plazas: [square],
   green: [square],
   woods: [square],
-  pitches: [square],
+  pitches: [{ surface: 'grass' as const, ring: square }],
   parking: [square],
   water: [square],
   bridges: [square],
@@ -104,7 +104,8 @@ test('generic land lies under specific land: railway land, green, woods, pitches
     'railLand',
     'green',
     'woods',
-    'pitches',
+    'track',
+    'pitch',
     'parking',
     'water',
     'roads',
@@ -112,8 +113,14 @@ test('generic land lies under specific land: railway land, green, woods, pitches
   ] as const;
   const heights = order.map((key) => {
     const mesh = new MeshBuilder();
-    addGround(mesh, [], everywhere, { ...layers, ...empty, [key]: [square] });
-    return unindexed(mesh.build()).getAttribute('position').getY(0);
+    // A running track (tartan) lies under the pitches mapped on its infield.
+    const pitch = (surface: 'tartan' | 'clay') => ({ pitches: [{ surface, ring: square }] });
+    const layer =
+      key === 'track' ? pitch('tartan') : key === 'pitch' ? pitch('clay') : { [key]: [square] };
+    addGround(mesh, [], everywhere, { ...layers, ...empty, pitches: [], ...layer });
+    const g = unindexed(mesh.build());
+    if (key === 'pitch') expect(g.getAttribute('color').getX(0)).not.toBe(0);
+    return g.getAttribute('position').getY(0);
   });
   expect(heights).toEqual(heights.toSorted((a, b) => a - b));
   expect(new Set(heights).size).toBe(order.length);

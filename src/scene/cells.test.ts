@@ -2,22 +2,22 @@ import { expect, test } from 'bun:test';
 
 import type { Building, City } from '../data/city.ts';
 import { footing, partyWalls } from './buildings.ts';
-import {
-  CELL_SIZE,
-  along,
-  buildCell,
-  buildFurniture,
-  groundRange,
-  partition,
-  propBase,
-} from './cells.ts';
+import { CELL_SIZE, along, buildCell, groundRange, partition } from './cells.ts';
+import { buildFurniture, propBase } from './furniture.ts';
 import { slabBottom } from './ground.ts';
+import { MeshBuilder, unindexed } from './mesh-builder.ts';
 import { PARKED } from './props.ts';
-import { unindexed } from './mesh-builder.ts';
-import type { MeshBuilder } from './mesh-builder.ts';
 import { FLAT, FLAT_GRID, Terrain } from '../data/terrain.ts';
 
 const S = CELL_SIZE;
+const kit = {
+  MeshBuilder,
+  awning: 3000,
+  terrain: FLAT,
+  footing: () => 0,
+  wallTop: (b: Building) => b.eave,
+  ground: () => 0,
+};
 const box = (x: number, z: number, w: number, d: number) =>
   new Float32Array([x, z, x + w, z, x + w, z + d, x, z + d]);
 const house = (id: number, ring: Float32Array): Building => ({
@@ -50,7 +50,10 @@ const city: City = {
   green: [box(10, 200, 20, 20)],
   water: [],
   woods: [],
-  pitches: [],
+  // A tennis park across the seam, its courts' lines whole in the cell of their centre.
+  pitches: [box(S - 10, 230, 40, 36)],
+  pitchSurfaces: ['clay'],
+  fields: [{ sport: 'tennis', x: S + 10, z: 248, angle: 0, length: 36, width: 40, count: 2 }],
   parking: [],
   // A path from one cell into the other.
   paths: [{ width: 2, paved: true, line: new Float32Array([S - 20, 50, S + 20, 50]) }],
@@ -82,6 +85,7 @@ const city: City = {
   streets: [],
   plazaNames: [],
   terrain: FLAT_GRID,
+  fronts: [],
 };
 
 test('the area is cut into cells, and each thing goes to one', () => {
@@ -127,6 +131,21 @@ test('the area is cut into cells, and each thing goes to one', () => {
   expect(Math.min(...east.platforms[0]!.filter((_, i) => i % 2 === 0))).toBe(S);
   expect([west.ground.railLand.length, east.ground.railLand.length]).toEqual([1, 1]);
   expect([west.canopies.length, east.canopies.length]).toEqual([1, 1]);
+  // Pitches are cut like the ground, keeping their surface; a field's lines stay whole.
+  expect([...west.ground.pitches, ...east.ground.pitches].map((p) => p.surface)).toEqual([
+    'clay',
+    'clay',
+  ]);
+  expect([west.ground.fields.length, east.ground.fields.length]).toEqual([0, 1]);
+});
+
+test("a field's lines are fine paint, on the pitch", () => {
+  const [, east] = partition(city);
+  const { mesh, fineVertices } = buildCell(east!, city.area, partyWalls(city.buildings));
+  const p = unindexed(mesh.build()).getAttribute('position');
+  const ys = Array.from({ length: p.count - fineVertices }, (_, i) => p.getY(fineVertices + i));
+  // Two courts of ten lines past the road's paint.
+  expect(ys.filter((y) => Math.abs(y - 0.07) < 1e-6)).toHaveLength(2 * 10 * 6);
 });
 
 test('a cell builds into one mesh and one set of outlines', () => {
@@ -179,13 +198,16 @@ const height = (m: MeshBuilder) => {
   return g.boundingBox!.max.y;
 };
 
-test('small props get a mesh of their own, built apart; tall ones join the cell', () => {
+test('props are built apart from the cell: small ones up close, tall ones at every zoom', () => {
   const [west, east] = partition(city);
   const walls = partyWalls(city.buildings);
   const e = buildCell(east!, city.area, walls);
-  expect(height(buildFurniture(west!).mesh)).toBeLessThan(2); // a bench
-  expect(height(buildFurniture(east!).mesh)).toBeLessThan(2); // only the bench: the needle is in the main mesh
-  expect(height(e.mesh)).toBeGreaterThan(20);
+  expect(height(buildFurniture(west!, kit).near)).toBeLessThan(2); // a bench
+  expect(buildFurniture(west!, kit).tall).toBeNull();
+  const { near, tall } = buildFurniture(east!, kit);
+  expect(height(near)).toBeLessThan(2); // only the bench
+  expect(height(tall!)).toBeGreaterThan(20); // the needle
+  expect(height(e.mesh)).toBeLessThan(20);
 });
 
 test('the furniture notes where each parked bike is drawn, on the ground it stands on', () => {
@@ -194,7 +216,7 @@ test('the furniture notes where each parked bike is drawn, on the ground it stan
   const cell = { ...west!, props: [...west!.props, rack, { ...rack, x: 60, fill: 0.25 }] };
   const slope = new Terrain({ ...FLAT_GRID, step: 100, heights: Float32Array.of(0, 7, 0, 7) });
   expect(propBase(slope, rack)).toBeGreaterThan(1);
-  const { mesh, bikes } = buildFurniture(cell, slope);
+  const { near: mesh, bikes } = buildFurniture(cell, { ...kit, terrain: slope });
   expect(bikes).toHaveLength((6 + 3) * PARKED.stride);
   const indices = mesh.build().index!.count;
   for (let i = 0; i < bikes.length; i += PARKED.stride) {
@@ -251,7 +273,7 @@ test('on the terrain, the ground drapes, houses stand at their foot, props on th
     (i) => p.getX(i) >= 10 && p.getX(i) <= 18 && p.getZ(i) >= 10 && p.getZ(i) <= 18,
   );
   expect(Math.max(...first.map((i) => p.getY(i)))).toBeCloseTo(11);
-  const props = buildFurniture(east!, slope).mesh.build();
+  const props = buildFurniture(east!, { ...kit, terrain: slope }).near.build();
   props.computeBoundingBox();
   expect(props.boundingBox!.min.y).toBeGreaterThan(slope.height(S, 0) - 1);
 });

@@ -1,30 +1,124 @@
 import { expect, test } from 'bun:test';
 
-import type { Building } from './city.ts';
-import { isShopFront, markShopFronts } from './shops.ts';
+import type { Building, ShopFront } from './city.ts';
+import { Facades } from './plate-placement.ts';
+import { Shapes, propFootprint } from './props.ts';
+import { fitTerraces, frontPoint, markShopFronts, placeFronts, terraceFootprint } from './shops.ts';
+import type { TerraceSurroundings } from './shops.ts';
 
-const house = (x: number, kind: Building['kind'] = 'house'): Building => ({
-  id: x,
+const rect = (x: number, z: number, w: number, d: number) =>
+  new Float32Array([x, z, x + w, z, x + w, z + d, x, z + d]);
+// Two houses side by side on the south side of a street running along z = -10, one far off and
+// one behind the first, hidden from the street.
+const rings = [rect(0, 0, 6, 10), rect(6, 0, 6, 10), rect(30, 0, 6, 10), rect(0, 30, 6, 10)];
+const streets = new Map([[0, [-50, -10, 50, -10]]]);
+const input = {
+  facades: new Facades(rings),
+  streets,
+  names: new Map([['Naamsestraat', 0]]),
+  squares: new Map(),
+  open: () => false,
+  skip: new Set([2]),
+};
+const house = (i: number, kind: Building['kind'] = 'house'): Building => ({
+  id: i,
   tier: 'core',
   kind,
   roof: 'auto',
   height: 10,
   eave: 8,
   roofColor: null,
-  ring: new Float32Array([x, 0, x + 6, 0, x + 6, 10, x, 10]),
+  ring: rings[i]!,
   holes: [],
 });
 
-test('shops and street-side cafés, bars and restaurants are shop fronts', () => {
-  expect(isShopFront({ shop: 'bakery' })).toBe(true);
-  expect(isShopFront({ amenity: 'cafe' })).toBe(true);
-  expect(isShopFront({ amenity: 'bench' })).toBe(false);
-  expect(isShopFront({})).toBe(false);
+test('a front stands on its wall, facing out of the building', () => {
+  const p = frontPoint(rings[0]!, { edge: 0, along: 2 });
+  expect(p).toEqual({ x: 2, z: 0, ux: 1, uz: 0, nx: 0, nz: -1, length: 6 });
+  // The last edge closes the ring.
+  expect(frontPoint(rings[0]!, { edge: 3, along: 4 })).toMatchObject({ x: 0, z: 6, nx: -1 });
 });
 
-test('a house with a café inside becomes retail; churches and empty houses stay', () => {
-  const buildings = [house(0), house(100), house(200, 'church')];
-  // A café in the first house, one in the church, one in nobody's footprint.
-  expect(markShopFronts(buildings, [3, 5, 203, 5, 60, 60])).toBe(1);
-  expect(buildings.map((b) => b.kind)).toEqual(['retail', 'house', 'church']);
+test('each shop gets the wall facing its street, its building the most telling front', () => {
+  const street = { 'addr:street': 'Naamsestraat' };
+  const { fronts, placed, skipped } = placeFronts(
+    [
+      { x: 3, z: 2, tags: { amenity: 'fast_food', cuisine: 'friture', ...street } },
+      // The same frituur, mapped again as its building.
+      { x: 3.5, z: 5, tags: { amenity: 'fast_food', name: 'Frituur Tivoli' } },
+      { x: 9, z: 5, tags: { shop: 'hairdresser', 'addr:street': 'Nowhere' } },
+      { x: 8, z: 5, tags: { shop: 'bakery', outdoor_seating: 'yes' } },
+      { x: 100, z: 100, tags: { shop: 'gift' } },
+      { x: 33, z: 5, tags: { shop: 'gift' } },
+      { x: 3, z: 35, tags: { amenity: 'bar' } },
+      { x: 4, z: 4, tags: { amenity: 'bench' } },
+    ],
+    input,
+  );
+  expect(fronts).toEqual([
+    { building: 0, edge: 0, along: 3, kind: 'frituur', terrace: false },
+    { building: 1, edge: 0, along: 2, kind: 'bakery', terrace: true },
+    { building: 1, edge: 0, along: 3, kind: 'service', terrace: false },
+  ]);
+  expect(placed).toEqual({ 'facing its street': 3 });
+  expect(skipped).toEqual({
+    'mapped twice': 1,
+    'no footprint': 1,
+    landmark: 1,
+    'no wall facing the street': 1,
+  });
+});
+
+test('a building with a front shows its main one and becomes a shop, unless a church', () => {
+  const buildings = [house(0), house(1, 'church')];
+  const fronts: ShopFront[] = [
+    { building: 0, edge: 0, along: 2, kind: 'cafe', terrace: false },
+    { building: 0, edge: 0, along: 4, kind: 'shop', terrace: false },
+    { building: 1, edge: 0, along: 2, kind: 'bar', terrace: false },
+  ];
+  expect(markShopFronts(buildings, fronts)).toBe(1);
+  expect(buildings.map((b) => [b.kind, b.front?.kind])).toEqual([
+    ['retail', 'cafe'],
+    ['church', 'bar'],
+  ]);
+});
+
+/** Ground round the houses: a carriageway from z = -20 up to `kerb`, and what's on it. */
+function surroundings(kerb: number, more: Partial<TerraceSurroundings> = {}): TerraceSurroundings {
+  const roads = new Shapes();
+  roads.ring(rect(-50, -20, 100, 20 + kerb));
+  const solid = new Shapes();
+  for (const ring of rings) solid.ring(ring);
+  return { roads, solid, water: new Shapes(), props: [], trunks: [], ...more };
+}
+const cafe = (): ShopFront => ({ building: 0, edge: 0, along: 3, kind: 'cafe', terrace: true });
+
+test('a terrace stands where the pavement leaves room to walk past it', () => {
+  const wide = [cafe()];
+  expect(fitTerraces(wide, rings, surroundings(-6))).toBe(1);
+  expect(wide[0]).toMatchObject({ along: 3, terrace: true });
+  const narrow = [cafe()];
+  expect(fitTerraces(narrow, rings, surroundings(-2.5))).toBe(0);
+  expect(narrow[0]!.terrace).toBe(false);
+  // Its footprint is what the scene draws and the walk grid closes.
+  expect(terraceFootprint(frontPoint(rings[0]!, wide[0]!))).toMatchObject({
+    x: 3,
+    z: -0.75,
+    fz: -1,
+    v0: -0.45,
+    v1: 0.45,
+  });
+});
+
+test('a terrace slides along its wall round a lamp, and gives way to a trunk', () => {
+  const lamp = propFootprint({ kind: 'lamp', x: 2, z: -0.8, angle: 0, size: 0 });
+  const slid = [cafe()];
+  expect(fitTerraces(slid, rings, surroundings(-6, { props: [lamp] }))).toBe(1);
+  expect(slid[0]!.along).toBe(3.75);
+  const shaded = [cafe(), { ...cafe(), building: 1 }];
+  const trunks = [[3, -0.8, 0.3] as const, [9, -0.8, 2] as const];
+  expect(fitTerraces(shaded, rings, surroundings(-6, { trunks }))).toBe(0);
+  // Two terraces never overlap, and a front without one keeps none.
+  const pair = [cafe(), { ...cafe(), along: 4 }, { ...cafe(), terrace: false }];
+  expect(fitTerraces(pair, rings, surroundings(-6))).toBe(1);
 });
