@@ -60,6 +60,7 @@ import {
 import type { ShadowSquare } from './shadow-fit.ts';
 import { applyShadowChunks } from './shadow-filter.ts';
 import { SPIN_EASE, spinStep } from './spin.ts';
+import { isTap } from './tap.ts';
 import type { Spin } from './spin.ts';
 import { terraceParasols } from './terraces.ts';
 import type { Plates } from './plates.ts';
@@ -77,9 +78,12 @@ export interface ViewerOptions {
   overlay: HTMLElement;
   city: City;
   reducedMotion: boolean;
-  /** Walk mode changed: picking a start, walking, or back on the map. */
+  /**
+   * Walk mode changed: walking from the moment a spawn begins (the flight down plays after), or
+   * back on the map from the moment leaving begins (the flight up plays after).
+   */
   onWalkModeChange?: (mode: WalkMode) => void;
-  /** A spot that can't be walked to was picked. */
+  /** A spot that can't be walked to was chosen: a greyed marker there shakes its head too. */
   onWalkBlocked?: () => void;
   /** Walk mode's code couldn't be downloaded (it loads the first time someone walks). */
   onWalkUnavailable?: () => void;
@@ -108,11 +112,16 @@ export interface Viewer {
   resetView(): void;
   /** Starts downloading walk mode, for when someone is about to walk. */
   preloadWalk(): void;
-  /** Starts walk mode: the next click on the map says where. */
-  pickWalkStart(): void;
+  /**
+   * Starts walking from the street nearest a spot on the ground (metres east and south of the
+   * middle, as `City` has them): a marker drops there and the camera dives down to the walker.
+   */
+  walkAt(x: number, z: number): void;
+  /** Starts walking from the street nearest what's under a point on screen (client px). */
+  walkAtScreen(clientX: number, clientY: number): void;
   /** Starts walking from the street nearest the middle of the view. */
   walkFromCentre(): void;
-  /** Back to the map. */
+  /** Back to the map: the walker waves and the camera rises to the nearest quarter view. */
   stopWalking(): void;
   /** Walks toward a direction on screen while held: right and up, each from -1 to 1. */
   steer(right: number, up: number): void;
@@ -1020,6 +1029,34 @@ export function createViewer(options: ViewerOptions): Viewer {
     placeCamera();
   }
 
+  // A tap on the map (not a pan, not a pinch) starts a walk there. On foot, walk mode has its own.
+  const listening = new AbortController();
+  const listen = (type: string, handle: (event: PointerEvent) => void) =>
+    canvas.addEventListener(type as 'pointerup', handle, { signal: listening.signal });
+  let press: PointerEvent | null = null;
+  const still = (event: PointerEvent, timed = false) =>
+    event.pointerId === press?.pointerId &&
+    isTap(
+      event.clientX - press.clientX,
+      event.clientY - press.clientY,
+      timed ? event.timeStamp - press.timeStamp : 0,
+    );
+  // A second finger down makes it a pinch, which no tap ends.
+  listen('pointerdown', (event) => (press = event.isPrimary && !event.button ? event : null));
+  // Moved past the slop, it's a pan however it ends.
+  listen('pointermove', (event) => {
+    if (!still(event) && event.pointerId === press?.pointerId) press = null;
+  });
+  const lift = (event: PointerEvent) => {
+    const tap = event.type === 'pointerup' && still(event, true);
+    if (event.pointerId === press?.pointerId) press = null;
+    if (tap && walk?.mode !== 'walk') {
+      withWalk((loaded) => loaded.startAtScreen(event.clientX, event.clientY));
+    }
+  };
+  listen('pointerup', lift);
+  listen('pointercancel', lift);
+
   const observer = new ResizeObserver(resize);
   observer.observe(canvas);
 
@@ -1116,7 +1153,8 @@ export function createViewer(options: ViewerOptions): Viewer {
     preloadWalk: () => {
       loadWalk().catch(() => {}); // a warm-up: the next real attempt reports any failure
     },
-    pickWalkStart: () => withWalk((loaded) => loaded.pick()),
+    walkAt: (x, z) => withWalk((loaded) => loaded.startAt(x, z)),
+    walkAtScreen: (x, y) => withWalk((loaded) => loaded.startAtScreen(x, y)),
     walkFromCentre: () => withWalk((loaded) => loaded.startAtCentre()),
     stopWalking: () => walk?.exit(),
     steer: (x, y) => walk?.steer(x, y),
@@ -1136,6 +1174,7 @@ export function createViewer(options: ViewerOptions): Viewer {
       walk?.dispose();
       plates?.dispose();
       observer.disconnect();
+      listening.abort();
       densityQuery?.removeEventListener('change', onDensity);
       canvas.removeEventListener('webglcontextrestored', onRestored);
       controls.removeEventListener('change', onChange);

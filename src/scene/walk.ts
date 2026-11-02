@@ -22,6 +22,7 @@ import type { Terrain } from '../data/terrain.ts';
 import { Router } from '../data/route.ts';
 import { WalkGrid, pickWalkable } from '../data/walkable.ts';
 import { walkSolids } from './solids.ts';
+import { TAP_MS, TAP_SLOP } from './tap.ts';
 import { createCharacterMaterial, createXrayMaterial } from './character-material.ts';
 import type { Fade } from './character-material.ts';
 import { CHARACTER_SCALE, applyPose, createCharacter, poseAt, restPose } from './character.ts';
@@ -57,6 +58,21 @@ import {
 import type { Boom, Follow, Lens, Shot, Vec3 } from './chase.ts';
 import { nearFade, nearGround } from './facade-material.ts';
 import { linearVertexColors } from './mesh-builder.ts';
+import {
+  MARKER_INDICES,
+  DIVE,
+  SPAWN_FLIGHT,
+  SETTLE,
+  SPAWN_HOLD,
+  bodyStretch,
+  fallHeight,
+  markerDrop,
+  markerRadius,
+  puff,
+  settling,
+  spawnMarker,
+  wave,
+} from './spawn.ts';
 import { clock, decay, spring, springTo, ticks } from './motion.ts';
 import { SKY } from './palette.ts';
 import { DROPPED_KEY, nearestParked } from './parked.ts';
@@ -67,25 +83,26 @@ import { STEP, WALK_SPEED, createWalker, followRoute, runBlend, stepWalker } fro
 import type { Walker } from './walker.ts';
 
 /**
- * Walk mode, wired to the viewer: pick a spot on the map, fly down behind the walker, then
- * walk or run with the keys, a thumb stick or by clicking where to go, and drag to look
- * around. Animates only while something moves; otherwise the viewer is back to rendering on
+ * Walk mode, wired to the viewer: click a spot on the map, dive down to it while the walker
+ * drops in (spawn.ts), then walk or run with the keys, a thumb stick or by clicking where to
+ * go, and drag to look around. Animates only while something moves; otherwise the viewer is back to rendering on
  * demand. The logic it drives (walkability, routes, steering, poses, the camera boom) is pure
  * and tested elsewhere; this file is the browser glue.
  */
 
-export type WalkMode = 'map' | 'pick' | 'walk';
+export type WalkMode = 'map' | 'walk';
 
 /** How far the nearest walkable spot may lie from a click (m): wider when choosing a start. */
 const CLICK_REACH = 8;
 const START_REACH = 30;
-/** A press that moves less than this (px) and lifts within TAP_MS is a click, not a drag. */
-const TAP_SLOP = 8;
-const TAP_MS = 600;
+/** The walker's arms, thrown up as it drops in (swing, as in `Pose`). */
+const ARMS_UP = -2.5;
+/** A spot nobody can walk to: its greyed marker shakes and goes over this long (s). */
+const NOPE = 0.55;
+/** Under this much view (m), the spawn.s marker is hidden by what stands in front of it. */
+const NEAR_SPAN = 30;
 /** The flight from the map down to the walker, and back (s). */
-const FLIGHT = 1.4;
-/** The figure pops up over this long once the camera is close (s). */
-const APPEAR = 0.3;
+const FLIGHT = SPAWN_FLIGHT;
 /**
  * Within this distance of the camera (m) houses, trees and furniture dither away, all of them
  * within about half of it: the camera keeps its distance however tight the street, so what it
@@ -183,9 +200,11 @@ export interface Walk {
   land(): void;
   /** The canvas changed size: the walking camera's lens follows. */
   resized(): void;
-  /** Waits for a click on the map that says where to start. */
-  pick(): void;
-  /** Starts at the walkable spot nearest the middle of the view. */
+  /** Starts at the street nearest a spot on the ground (m), or says it can't. */
+  startAt(x: number, z: number): void;
+  /** Starts at the street nearest what's under a point on screen (client px), or says it can't. */
+  startAtScreen(clientX: number, clientY: number): void;
+  /** Starts at the street nearest the middle of the view. */
   startAtCentre(): void;
   /** Back to the map, where the walk ended. */
   exit(): void;
@@ -275,11 +294,33 @@ export function createWalk(host: WalkHost): Walk {
   hint.frustumCulled = false;
   hint.visible = false;
   let marker: RouteMarker | undefined;
+  // The spawn's marker on the ground, and the dust its landing kicks up: one unlit draw call,
+  // over the city so it shows from the map, while a spawn plays.
+  const pin = new Mesh(
+    spawnMarker(),
+    new MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, fog: false }),
+  );
+  pin.material.onBeforeCompile = hint.material.onBeforeCompile;
+  pin.frustumCulled = false;
+  pin.visible = false;
+  pin.renderOrder = 2;
+  scene.add(pin);
   const sounds = createWalkSounds();
   let walker: Walker | undefined;
   const pose = restPose();
-  let appear = 1;
   let head = 0;
+  /**
+   * The spawn, in seconds: the beat before the camera sets off, since the marker dropped, and
+   * since the walker landed (negative while it's yet to: how long until it does). Leaving, how
+   * long since the walker turned to wave. NaN or Infinity when none is under way.
+   */
+  let wait = 0;
+  let marked = Number.NaN;
+  let landed = Infinity;
+  let leaving = Number.NaN;
+  /** A spot nobody can walk to: how long since its greyed marker dropped (s), and where. */
+  let nope = Number.NaN;
+  const nopeAt: [number, number] = [0, 0];
 
   const boom: Boom = createBoom(0);
   const lookAt: Vec3 = [0, 0, 0];
@@ -350,9 +391,9 @@ export function createWalk(host: WalkHost): Walk {
   function setMode(next: WalkMode): void {
     if (next === mode) return;
     mode = next;
-    // Picking takes clicks on the map; walking takes the pointer for itself.
+    // Walking takes the pointer for itself.
     controls.cursorStyle = next === 'map' ? 'grab' : 'auto';
-    if (next !== 'map') canvas.style.cursor = next === 'pick' ? 'crosshair' : 'pointer';
+    if (next === 'walk') canvas.style.cursor = 'pointer';
     controls.enabled = next !== 'walk' && flying === 0;
     canvas.dataset.walk = next;
     host.onModeChange?.(next);
@@ -367,9 +408,36 @@ export function createWalk(host: WalkHost): Walk {
   /** Height of the map's view (m) at a zoom: where the flight starts and ends. */
   const mapSpan = (zoom: number) => (camera.top - camera.bottom) / zoom;
 
+  /**
+   * Without a flight (reduced motion, or a jump from one street to another), the view
+   * cross-fades: what's on screen now is copied over the canvas, while it's still there to copy
+   * in this task, and fades out over the next view.
+   */
+  function crossFade(): void {
+    if (document.hidden) return;
+    const still = document.createElement('canvas');
+    [still.width, still.height] = [canvas.width, canvas.height];
+    // Twice: a frame that redraws the shadow map alone leaves nothing on screen to copy.
+    host.render();
+    host.render();
+    still.getContext('2d')?.drawImage(canvas, 0, 0);
+    still.style.cssText = 'position:absolute;inset:0;width:100%;height:100%';
+    host.overlay.append(still);
+    const gone = () => still.remove();
+    still
+      .animate({ opacity: [1, 0] }, { duration: 250, easing: 'ease-in' })
+      .finished.then(gone, gone);
+  }
+
   function start(x: number, z: number): void {
+    // No flight with reduced motion, or for nobody: a hidden page draws no frames to fly in.
+    // From one street to another there's no flight either: the view cross-fades.
+    const cut = reducedMotion || document.hidden || (mode === 'walk' && !flying);
+    if (cut) crossFade();
+    // From wherever the camera is: the map, or part way along a flight.
+    const midway = !cut && flying !== 0;
+    const yaw = midway ? lens.yaw : host.yaw();
     // Stepping into the picture: facing away from the camera, which stays behind.
-    const yaw = host.yaw();
     walker = createWalker(x, z, wrap(yaw + Math.PI));
     [prevX, prevZ, prevHeading, prevPhase] = [x, z, walker.heading, 0];
     sim.left = 0;
@@ -383,28 +451,52 @@ export function createWalk(host: WalkHost): Walk {
       character = createCharacter(body, xray);
       scene.add(character.mesh, hint);
     }
-    character.mesh.visible = true;
-    character.mesh.scale.setScalar(0);
     try {
       // Bikes left about the city earlier in the visit stand where they were left.
       if (sessionStorage.getItem(DROPPED_KEY)) void loadRide();
     } catch {}
-    appear = reducedMotion ? 1 : 0;
     head = 0;
     clearRoute();
     [lookAt[0], lookAt[1], lookAt[2]] = [x, ground(x, z) + GROUND_Y + LOOK_HEIGHT, z];
-    const t = controls.target;
-    Object.assign(mapShot, { yaw, pitch: ISO_PITCH, fov: MAP_FOV, span: mapSpan(camera.zoom) });
-    [mapShot.look[0], mapShot.look[1], mapShot.look[2]] = [t.x, t.y, t.z];
-    // No flight with reduced motion, or for nobody: a hidden page draws no frames to fly in.
-    const cut = reducedMotion || document.hidden;
+    if (midway) {
+      Object.assign(mapShot, {
+        yaw: lens.yaw,
+        pitch: lens.pitch,
+        fov: lens.fov,
+        span: spanAt(lens.distance, lens.fov),
+      });
+      [mapShot.look[0], mapShot.look[1], mapShot.look[2]] = lens.look;
+    } else {
+      const t = controls.target;
+      Object.assign(mapShot, { yaw, pitch: ISO_PITCH, fov: MAP_FOV, span: mapSpan(camera.zoom) });
+      [mapShot.look[0], mapShot.look[1], mapShot.look[2]] = [t.x, t.y, t.z];
+    }
     flown = cut ? 1 : 0;
     flying = cut ? 0 : 1;
+    // The marker lands, a beat, and the dive; the walker drops in as the camera arrives.
+    wait = cut || midway ? 0 : SPAWN_HOLD;
+    marked = cut ? Number.NaN : 0;
+    landed = cut ? Infinity : -(wait + FLIGHT);
+    leaving = Number.NaN;
     lift = Number.NaN;
     host.useView(view);
     publish();
     setMode('walk');
     sounds.enter();
+    wake();
+  }
+
+  /** Where to start: the street nearest a spot, or a greyed marker there saying no. */
+  function begin(x: number, z: number, spot: [number, number] | null): void {
+    if (spot) {
+      if (mode === 'map' && !flying) mapZoomBefore = camera.zoom;
+      start(...spot);
+      return;
+    }
+    nope = 0;
+    [nopeAt[0], nopeAt[1]] = [x, z];
+    sounds.blocked();
+    host.onBlocked?.();
     wake();
   }
 
@@ -422,7 +514,7 @@ export function createWalk(host: WalkHost): Walk {
       ((clientX - rect.left) / rect.width) * 2 - 1,
       -((clientY - rect.top) / rect.height) * 2 + 1,
     );
-    raycaster.setFromCamera(ndc, mode === 'walk' ? view : camera);
+    raycaster.setFromCamera(ndc, walker ? view : camera);
     const { origin, direction } = raycaster.ray;
     return pickWalkable(
       ensureGrid(),
@@ -455,13 +547,21 @@ export function createWalk(host: WalkHost): Walk {
     wake();
   }
 
+  /** On foot, any open ground is a place to go. */
   function onClick(clientX: number, clientY: number): void {
-    // A walk starts on a street; once on foot, any open ground is a place to go.
-    const picking = mode === 'pick';
-    const spot = spotAt(clientX, clientY, picking ? START_REACH : CLICK_REACH, picking);
+    const spot = spotAt(clientX, clientY, CLICK_REACH);
     if (!spot) host.onBlocked?.();
-    else if (mode === 'pick') start(...spot);
     else walkTo(...spot);
+  }
+
+  /** A walk starts on the street nearest what's under a point on screen. */
+  function startAtScreen(clientX: number, clientY: number): void {
+    const spot = spotAt(clientX, clientY, START_REACH, true);
+    // Refused, the marker goes where the ray meets the ground round the view's middle.
+    const { origin, direction } = raycaster.ray;
+    const t = controls.target;
+    const k = direction.y < 0 ? (origin.y - ground(t.x, t.z)) / -direction.y : 0;
+    begin(origin.x + direction.x * k, origin.z + direction.z * k, spot);
   }
 
   // The thumb stick: a ring under the thumb and a knob that follows it, shown while steering.
@@ -492,12 +592,11 @@ export function createWalk(host: WalkHost): Walk {
   let multi = false;
   let pinch = 0;
   const onPointerDown = (event: PointerEvent) => {
-    if (mode === 'map') return;
-    // Picking takes the main button only; walking looks around with any.
-    if (mode === 'pick' && event.button !== 0) return;
+    // The map takes its own; the walker dropping in takes nothing yet.
+    if (mode === 'map' || landed < 0) return;
     multi = presses.size > 0;
     const rect = canvas.getBoundingClientRect();
-    let steering = mode === 'walk' && event.pointerType !== 'mouse';
+    let steering = event.pointerType !== 'mouse';
     steering &&= event.clientX - rect.left < rect.width * STICK_SHARE;
     for (const press of presses.values()) steering &&= !press.stick;
     presses.set(event.pointerId, {
@@ -509,14 +608,13 @@ export function createWalk(host: WalkHost): Walk {
       dragged: false,
       stick: steering,
     });
-    if (mode === 'walk') canvas.setPointerCapture(event.pointerId);
+    canvas.setPointerCapture(event.pointerId);
     pinch = 0;
   };
   const onPointerMove = (event: PointerEvent) => {
     const press = presses.get(event.pointerId);
     if (!press) return;
     const [dx, dy] = [event.clientX - press.x, event.clientY - press.y];
-    // Picking, a drag pans the map; it isn't a tap either.
     press.dragged ||= Math.hypot(dx, dy) >= TAP_SLOP;
     if (mode !== 'walk') return;
     const [moveX, moveY] = [event.clientX - press.lastX, event.clientY - press.lastY];
@@ -615,6 +713,8 @@ export function createWalk(host: WalkHost): Walk {
     else {
       flying = 0;
       flown = 1;
+      landed = Infinity;
+      marked = Number.NaN;
       placeView();
     }
     host.render();
@@ -639,6 +739,8 @@ export function createWalk(host: WalkHost): Walk {
     if (walker) controls.target.set(walker.x, ground(walker.x, walker.z), walker.z);
     walker = undefined;
     if (character) character.mesh.visible = false;
+    [marked, landed, leaving] = [Number.NaN, Infinity, Number.NaN];
+    pin.visible = false;
     clearRoute();
     host.setYaw(mapShot.yaw);
     camera.zoom = Math.min(controls.maxZoom, Math.max(controls.minZoom, mapZoomBefore));
@@ -658,11 +760,34 @@ export function createWalk(host: WalkHost): Walk {
     let ridden = false;
 
     if (walker && character) {
+      if (flying) {
+        // The beat before the flight, then the flight, on the clock.
+        const go = Math.max(0, elapsed - wait);
+        wait = Math.max(0, wait - elapsed);
+        flown = Math.min(1, Math.max(0, flown + (flying * go) / FLIGHT));
+        busy = true;
+        if (flying === 1 && flown === 1) {
+          flying = 0;
+          // Landed higher than the boom sits, over a roof: the boom takes over from up there.
+          if (lift > boom.pitch) boom.pitch = boom.aimPitch = lift;
+        }
+      }
+      // The walker drops in as the camera arrives: until then, how long it has to go.
+      marked += elapsed;
+      if (flying === 1) landed = -((1 - flown) * FLIGHT + wait);
+      else if (landed < 0 && landed > -Infinity && mode === 'walk') {
+        landed = 0;
+        sounds.land();
+        publish();
+      } else if (landed < SETTLE) landed += elapsed;
+      const dropping = landed < 0;
+
       if (mode === 'walk') {
-        // Keys and the stick steer relative to the screen: up is away from the camera.
-        const sticking = stick.right !== 0 || stick.up !== 0;
-        const right = sticking ? stick.right : keyRight;
-        const up = sticking ? stick.up : keyUp;
+        // Keys and the stick steer relative to the screen: up is away from the camera. Nothing
+        // steers a walker still dropping in; what's held then counts once it lands.
+        const sticking = !dropping && (stick.right !== 0 || stick.up !== 0);
+        const right = dropping ? 0 : sticking ? stick.right : keyRight;
+        const up = dropping ? 0 : sticking ? stick.up : keyUp;
         // Steered by the camera as it was when the input last changed, give or take looks by
         // hand: the camera swinging round behind doesn't turn a held key's way with it. A new
         // input while it's still coming round goes by where it will rest, behind the walker.
@@ -725,6 +850,13 @@ export function createWalk(host: WalkHost): Walk {
           );
         }
       } else {
+        if (leaving >= 0) {
+          // Leaving, it turns round to the camera as that rises.
+          const turn = wrap(lens.yaw - walker.heading) * (1 - Math.exp(-8 * dt));
+          walker.heading = wrap(walker.heading + turn);
+          walker.turning = dt > 0 ? turn / dt : 0;
+          leaving += elapsed;
+        }
         [prevX, prevZ, prevHeading, prevPhase] = [walker.x, walker.z, walker.heading, walker.phase];
       }
       // Drawn between the last two steps, so motion is even whatever the frame rate.
@@ -739,30 +871,37 @@ export function createWalk(host: WalkHost): Walk {
       const goal = headLook(heading, boom.yaw) * (1 - 0.6 * sprint);
       head += (goal - head) * (reducedMotion ? 1 : 1 - Math.exp(-6 * dt));
       busy ||= Math.abs(goal - head) > 0.01;
-      applyPose(
-        character,
-        ridden
-          ? riding!.pose(pose, head)
-          : poseAt(
-              pose,
-              walker.speed,
-              phase,
-              walker.still,
-              !reducedMotion,
-              walker.turning,
-              head,
-              walker.accel,
-              heading,
-            ),
-      );
-      if (flown > 0.5 || !flying) appear = Math.min(1, appear + dt / APPEAR);
-      // Pops up with a little overshoot.
-      const pop = appear < 1 ? 1 + 2.7 * (appear - 1) ** 3 + 1.7 * (appear - 1) ** 2 : 1;
-      character.mesh.scale.setScalar(CHARACTER_SCALE * pop);
+      const posed = ridden
+        ? riding!.pose(pose, head)
+        : poseAt(
+            pose,
+            walker.speed,
+            phase,
+            walker.still,
+            !reducedMotion,
+            walker.turning,
+            head,
+            walker.accel,
+            heading,
+          );
+      // Dropping in, its arms are thrown up; landed, they come down as it settles (a crouch
+      // can follow `settling(landed)` once the figure's pose has one).
+      const thrown = dropping ? 1 : settling(landed);
+      posed.armL += (ARMS_UP - posed.armL) * thrown;
+      posed.armR += (ARMS_UP - posed.armR) * thrown;
+      const waving = wave(leaving);
+      if (waving) [posed.armR, posed.elbowR] = waving;
+      applyPose(character, posed);
+      // Out of sight until its fall, then stretched by it, squashed landing, and settling.
+      const height = fallHeight(-landed);
+      const stretch = bodyStretch(landed);
+      const wide = CHARACTER_SCALE / Math.sqrt(stretch);
+      character.mesh.visible = height < Infinity;
+      character.mesh.scale.set(wide, CHARACTER_SCALE * stretch, wide);
       const floor = ground(x, z);
-      character.mesh.position.set(x, floor + GROUND_Y, z);
+      character.mesh.position.set(x, floor + GROUND_Y + Math.min(height, 1e3), z);
       character.mesh.rotation.y = heading;
-      busy ||= appear < 1;
+      busy ||= landed < SETTLE || waving !== null;
 
       if (marker && !walker.route) clearRoute();
       if (marker) hint.geometry.setDrawRange(passedVertices(marker, walker.travelled), Infinity);
@@ -783,26 +922,61 @@ export function createWalk(host: WalkHost): Walk {
       const easing = easeBoom(boom, sprint, dt);
       busy ||= easing;
       controls.target.set(walker.x, ground(walker.x, walker.z), walker.z);
-
-      if (flying) {
-        flown = Math.min(1, Math.max(0, flown + (flying * elapsed) / FLIGHT));
-        busy = true;
-        if (flying === 1 && flown === 1) {
-          flying = 0;
-          // Landed higher than the boom sits, over a roof: the boom takes over from up there.
-          if (lift > boom.pitch) boom.pitch = boom.aimPitch = lift;
-        }
-      }
       placeView(dt);
       // A camera squeezed up against the walker sees through it rather than into its head.
       const eye = view.position;
       fade.value = flying ? 1 : figureOpacity(eye.x - x, eye.y - floor - GROUND_Y, eye.z - z);
       if (flying === -1 && flown === 0) land();
     }
+    nope += elapsed;
+    busy = placeSpot() || busy;
 
     host.render();
-    if (busy && walker) frame = requestAnimationFrame(tick);
+    if (busy) frame = requestAnimationFrame(tick);
     else publish();
+  }
+
+  /**
+   * The spawn's marker, the dust of its landing, or a refused spot's greyed marker shaking its
+   * head: whichever is playing, the same size on screen whatever the camera. Whether one is.
+   */
+  function placeSpot(): boolean {
+    let [x, z, size, left] = [0, 0, 0, 1];
+    let dust = false;
+    const refused = nope < NOPE;
+    if (refused) {
+      [x, z] = nopeAt;
+      size = markerDrop(nope);
+      left = 1 - (nope / NOPE) ** 3;
+    } else if (walker && marked >= 0 && landed < 0) {
+      [x, z, size] = [walker.x, walker.z, markerDrop(marked)];
+    } else {
+      const dusting = walker && puff(landed);
+      if (!dusting || !walker) {
+        pin.visible = false;
+        return false;
+      }
+      [x, z, size, left] = [walker.x, walker.z, ...dusting];
+      dust = true;
+    }
+    const eye = walker ? view : camera;
+    const y = ground(x, z) + GROUND_Y + 0.02;
+    const span = walker
+      ? spanAt(Math.hypot(eye.position.x - x, eye.position.y - y, eye.position.z - z), view.fov)
+      : mapSpan(camera.zoom);
+    const radius = markerRadius(span);
+    // A refused spot shakes its head, east and west, and settles.
+    const shake = refused ? Math.sin(nope * 38) * Math.exp(-5 * nope) * radius * 0.35 : 0;
+    pin.position.set(x + shake, y, z);
+    pin.scale.setScalar(radius * size);
+    pin.material.opacity = left;
+    pin.material.color.setHex(refused ? 0xa8a39c : 0xffffff);
+    // From high up the marker shows over the city, as a map pin does; near the street, it and
+    // the dust lie under the walker.s feet.
+    pin.material.depthTest = span < NEAR_SPAN;
+    pin.geometry.setDrawRange(dust ? MARKER_INDICES : 0, dust ? Infinity : MARKER_INDICES);
+    pin.visible = true;
+    return true;
   }
 
   /** Puts the walking camera where the boom (or the flight along it) says. */
@@ -818,7 +992,7 @@ export function createWalk(host: WalkHost): Walk {
     chaseShot.pitch = boomPitch(boom.pitch, boom.length, rise);
     chaseShot.fov = fov;
     chaseShot.span = spanAt(boom.length, fov);
-    flight(mapShot, chaseShot, flown, lens);
+    flight(mapShot, chaseShot, flown, lens, reducedMotion ? 0 : DIVE);
     if (flown < 1) {
       // Over the roofs, not through them: rise at once for one in the way, sink back gently.
       const need = clearPitch(heightAt, lens.look, lens.yaw, lens.distance, lens.pitch);
@@ -884,7 +1058,8 @@ export function createWalk(host: WalkHost): Walk {
 
   /** Where the walker stands, once it stands still: for the smoke test and anyone debugging. */
   function publish(): void {
-    canvas.dataset.walker = walker ? `${walker.x.toFixed(1)} ${walker.z.toFixed(1)}` : '';
+    canvas.dataset.walker =
+      walker && !(landed < 0) ? `${walker.x.toFixed(1)} ${walker.z.toFixed(1)}` : '';
   }
 
   return {
@@ -909,32 +1084,21 @@ export function createWalk(host: WalkHost): Walk {
       presses.clear();
       if (walker) wake();
     },
-    pick() {
-      if (flying === -1) land();
-      ensureGrid();
-      if (mode === 'map') mapZoomBefore = camera.zoom;
-      setMode('pick');
+    startAt(x, z) {
+      begin(x, z, ensureGrid().nearest(x, z, START_REACH, true));
     },
+    startAtScreen,
     startAtCentre() {
-      if (mode === 'map') mapZoomBefore = camera.zoom;
       const rect = canvas.getBoundingClientRect();
-      const spot = spotAt(
-        rect.left + rect.width / 2,
-        rect.top + rect.height / 2,
-        START_REACH,
-        true,
-      );
-      if (spot) start(...spot);
-      else host.onBlocked?.();
+      startAtScreen(rect.left + rect.width / 2, rect.top + rect.height / 2);
     },
     exit() {
       if (mode === 'map') return;
-      const walked = mode === 'walk';
       [keyRight, keyUp, lookKeys, lookRate, turnLeft] = [0, 0, 0, 0, 0];
       releaseStick();
       presses.clear();
       setMode('map');
-      if (!walked || !walker) return;
+      if (!walker) return;
       riding?.leave();
       sounds.leave();
       walker.route = null;
@@ -948,10 +1112,17 @@ export function createWalk(host: WalkHost): Walk {
         walker.z,
       ];
       if (reducedMotion || document.hidden) {
+        crossFade();
         land();
         host.render();
         return;
       }
+      // On its feet, the walker turns to the camera and waves, a beat before it rises. Still
+      // dropping in, it goes with the marker, and the camera turns straight back.
+      const standing = landed >= 0;
+      leaving = standing ? 0 : Number.NaN;
+      wait = standing ? SPAWN_HOLD : 0;
+      if (!standing) [landed, marked] = [-Infinity, Number.NaN];
       flying = -1;
       lift = Number.NaN;
       controls.enabled = false;
@@ -994,6 +1165,8 @@ export function createWalk(host: WalkHost): Walk {
       ring.remove();
       hint.geometry.dispose();
       (hint.material as MeshBasicMaterial).dispose();
+      pin.geometry.dispose();
+      pin.material.dispose();
       sky.geometry.dispose();
       (sky.material as MeshBasicMaterial).dispose();
       body.dispose();
