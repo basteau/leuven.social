@@ -390,3 +390,17 @@ export function wheelZoom(event: Wheel, pinch: boolean): number {
 /** The isometric map's yaw nearest a walk's camera: the map only turns in quarters. */
 export const mapYaw = (yaw: number) =>
   Math.round((yaw - Math.PI / 4) / (Math.PI / 2)) * (Math.PI / 2) + Math.PI / 4;
+
+/**
+ * How the camera follows, which riding retunes: the look point's lead (s of travel) and lag
+ * (half-life, s), how fast it comes round behind (a share a second), how much sooner after a look
+ * by hand it starts to (s), and a wider lens (degrees) and a roll (radians) on top.
+ */
+export interface Follow {
+  ahead: number;
+  ease: number;
+  rate: number;
+  early: number;
+  fov: number;
+  roll: number;
+}

@@ -2,11 +2,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { sound } from '../audio/sound.ts';
 import { CITY_URL, loadCity } from '../data/load.ts';
-import type { Viewer, WalkMode } from '../scene/viewer.ts';
+import type { RideState, Viewer, WalkMode } from '../scene/viewer.ts';
 import { ActionButton, RoundButton } from './controls.tsx';
 import { Credits } from './credits.tsx';
 import {
   BackIcon,
+  BellIcon,
+  BikeIcon,
   CompassIcon,
   GableIcon,
   MinusIcon,
@@ -34,8 +36,11 @@ const CREDITS_VISIBLE_MS = 5_000;
 const mapLabels = (k: Keycaps): Record<WalkMode, string> => ({
   map: `Map of Leuven’s centre around Grote Markt, Oude Markt and Ladeuzeplein. Drag or use the arrow keys to pan; scroll, pinch or press plus and minus to zoom; ${k.KeyQ} and ${k.KeyE} turn the view; ${k.KeyW} starts a walk.`,
   pick: 'Map of Leuven. Click or tap a street to start walking there, or press Enter to start in the middle of the view. Escape cancels.',
-  walk: `Walking in Leuven. ${k.KeyW}, ${k.KeyA}, ${k.KeyS} and ${k.KeyD} or the arrow keys walk, and hold Shift to run; drag to look around; click or tap a street to walk there; hold ${k.KeyQ} or ${k.KeyE} to turn the view; Escape returns to the map.`,
+  walk: `Walking in Leuven. ${k.KeyW}, ${k.KeyA}, ${k.KeyS} and ${k.KeyD} or the arrow keys walk, and hold Shift to run; drag to look around; click or tap a street to walk there; hold ${k.KeyQ} or ${k.KeyE} to turn the view; F rides the nearest bike; Escape returns to the map.`,
 });
+/** Riding, the map says how. */
+const rideLabel = (k: Keycaps) =>
+  `Riding a bike in Leuven. ${k.KeyW} pedals, ${k.KeyS} brakes and backs up, ${k.KeyA} and ${k.KeyD} steer, Shift sprints, B rings the bell and F gets off; click or tap a street to ride there.`;
 
 /** Walk mode downloads on first use; say so only if that takes long enough to notice. */
 const WALK_LOADING_MS = 250;
@@ -46,22 +51,25 @@ const WALK_LOADING_MS = 250;
  */
 const COACHED_KEY = 'leuven-walk-coached';
 const COACH_AFTER_STEP_MS = 4_000;
+/** The first ride is coached for a few seconds, once per device. */
+const RIDE_COACHED_KEY = 'leuven-ride-coached';
+const RIDE_COACH_MS = 7_000;
 
 type WalkLoad = 'idle' | 'loading' | 'failed';
 
 const reducedMotion = () => globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 /** Storage can throw (private windows, blocked site data); the coach then shows each time. */
-function coached(): boolean {
+function coached(key = COACHED_KEY): boolean {
   try {
-    return localStorage.getItem(COACHED_KEY) === '1';
+    return localStorage.getItem(key) === '1';
   } catch {
     return false;
   }
 }
-function rememberCoached(): void {
+function rememberCoached(key = COACHED_KEY): void {
   try {
-    localStorage.setItem(COACHED_KEY, '1');
+    localStorage.setItem(key, '1');
   } catch {
     // Shown again next time: harmless.
   }
@@ -120,6 +128,17 @@ export function App() {
   });
   useEffect(() => sound.attach(), []);
   const [coach, setCoach] = useState(() => !coached());
+  const [ride, setRide] = useState<RideState>('');
+  const [rideCoach, setRideCoach] = useState(() => !coached(RIDE_COACHED_KEY));
+  const riding = ride === 'riding';
+  useEffect(() => {
+    if (!riding || !rideCoach) return;
+    const timer = setTimeout(() => {
+      setRideCoach(false);
+      rememberCoached(RIDE_COACHED_KEY);
+    }, RIDE_COACH_MS);
+    return () => clearTimeout(timer);
+  }, [riding, rideCoach]);
   // The shortcuts go by where keys sit; the hints say what those keys type here (Z Q S D on AZERTY).
   const [keys, setKeys] = useState(KEYCAPS);
   useEffect(() => {
@@ -191,6 +210,7 @@ export function App() {
             setWalkLoad('failed');
           },
           onStreetChange: setStreet,
+          onRideChange: setRide,
           onHeading: (heading) => {
             headingRef.current = heading;
             compassRef.current?.style.setProperty('--heading', `${-heading}rad`);
@@ -295,7 +315,7 @@ export function App() {
         tabIndex={0}
         role="application"
         aria-roledescription="map"
-        aria-label={mapLabels(keys)[walkMode]}
+        aria-label={walkMode === 'walk' && riding ? rideLabel(keys) : mapLabels(keys)[walkMode]}
       >
         <canvas ref={canvasRef} className="city" />
       </div>
@@ -423,9 +443,20 @@ export function App() {
               <RotateRightIcon />
             </RoundButton>
           </fieldset>
+          {walkMode === 'walk' && riding && (
+            <RoundButton
+              label="Bell"
+              shortcut="B"
+              ownSound
+              disabled={!ready}
+              onPress={() => viewer()?.ride('bell')}
+            >
+              <BellIcon />
+            </RoundButton>
+          )}
           {walkMode === 'walk' && (
             <RoundButton
-              label="Run"
+              label={riding ? 'Sprint' : 'Run'}
               shortcut="Shift"
               hold
               big
@@ -458,6 +489,17 @@ export function App() {
                   Tap a street, or move the map and tap Start here.
                 </span>
               </>
+            ) : riding && rideCoach ? (
+              <>
+                <span className="hint-keys">
+                  <kbd>{keys.KeyW}</kbd> pedals, <kbd>{keys.KeyS}</kbd> brakes,{' '}
+                  <kbd>{keys.KeyA}</kbd> <kbd>{keys.KeyD}</kbd> steer, <kbd>Shift</kbd> sprints.{' '}
+                  <kbd>F</kbd> gets off anywhere.
+                </span>
+                <span className="hint-touch">
+                  Left thumb rides where it points; push to the rim to sprint.
+                </span>
+              </>
             ) : coaching ? (
               <>
                 <span className="hint-keys">
@@ -482,6 +524,17 @@ export function App() {
               onWarm={() => viewer()?.preloadWalk()}
             >
               <WalkIcon />
+            </ActionButton>
+          )}
+          {walkMode === 'walk' && ride && (
+            <ActionButton
+              label={riding ? 'Get off' : 'Ride'}
+              shortcut="F"
+              primary={!riding}
+              disabled={!ready}
+              onPress={() => viewer()?.ride('toggle')}
+            >
+              <BikeIcon />
             </ActionButton>
           )}
           {walkMode === 'pick' && (

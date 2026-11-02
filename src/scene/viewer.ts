@@ -61,9 +61,11 @@ import { SPIN_EASE, spinStep } from './spin.ts';
 import type { Spin } from './spin.ts';
 import { terraceParasols } from './terraces.ts';
 import type { Plates } from './plates.ts';
+import type { RideAction, RideState } from './ride.ts';
 import type { Walk, WalkMode } from './walk.ts';
 
 export type { WalkMode } from './walk.ts';
+export type { RideState } from './ride.ts';
 
 export interface ViewerOptions {
   canvas: HTMLCanvasElement;
@@ -81,6 +83,8 @@ export interface ViewerOptions {
   onWalkUnavailable?: () => void;
   /** The street or square under the walker changed (null: none, or not walking). */
   onStreetChange?: (name: string | null) => void;
+  /** A bike is near enough to ride, or being ridden, or neither any more. */
+  onRideChange?: (state: RideState) => void;
   /** Which way the view looks, clockwise from north (radians), whenever it turns. */
   onHeading?: (heading: number) => void;
 }
@@ -114,6 +118,8 @@ export interface Viewer {
   run(on: boolean): void;
   /** Turns the walking view while held: -1 left, 1 right, 0 stops. */
   look(direction: number): void;
+  /** Gets on or off the nearest bike, rings its bell, or gets riding ready (`warm`). */
+  ride(action: RideAction | 'warm'): void;
   stats(): ViewerStats;
   /** Settles once the first frame is drawn, a few tasks after `createViewer` returns. */
   ready: Promise<void>;
@@ -330,8 +336,10 @@ export function createViewer(options: ViewerOptions): Viewer {
     // windows, so it leaves out the facade attribute and the shader reads its default.
     const { mesh, bikes } = buildFurniture(entry.cell, terrain);
     const furniture = new Mesh(mesh.build(), material);
-    // Where each parked bike is drawn in it (`PARKED`), for the rideable bikes to come.
+    // Where each parked bike is drawn in it (`PARKED`), and its index kept, so riding can draw
+    // a bike taken from its rack as nothing, and put it back.
     furniture.userData.bikes = bikes;
+    if (bikes.length) furniture.geometry.index!.onUpload(() => {});
     furniture.castShadow = true;
     furniture.receiveShadow = true;
     furniture.frustumCulled = false;
@@ -761,6 +769,8 @@ export function createViewer(options: ViewerOptions): Viewer {
             view = to ?? camera;
           },
           render: renderNow,
+          renderer,
+          onRide: options.onRideChange,
           onModeChange: (mode) => {
             // A held turn on the map mustn't fight the flight down.
             if (mode === 'walk') stopTurning();
@@ -1047,6 +1057,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     stopWalking: () => walk?.exit(),
     steer: (x, y) => walk?.steer(x, y),
     run: (on) => walk?.run(on),
+    ride: (action) => walk?.ride(action),
     look,
     spin: spinMap,
     stats: () => ({

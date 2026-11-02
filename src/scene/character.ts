@@ -1,6 +1,8 @@
 import { Bone, BufferAttribute, Skeleton, SkinnedMesh, Uint16BufferAttribute } from 'three';
 import type { BufferGeometry, Material } from 'three';
 
+import { FOREARM, SHIN, THIGH, UPPER_ARM, limbIK } from './limb.ts';
+import type { Limb } from './limb.ts';
 import { MeshBuilder } from './mesh-builder.ts';
 import type { V3 } from './mesh-builder.ts';
 import { OUTLINE, WALKER } from './palette.ts';
@@ -13,6 +15,9 @@ import { IDLE_SECONDS, STRIDE_RUN, STRIDE_WALK, runBlend } from './walker.ts';
  * geometry (each part again, a little larger and facing inward, so only its far side shows round
  * the silhouette), which keeps the whole figure, shadow included, to one draw call.
  */
+
+export { FOREARM, SHIN, THIGH, UPPER_ARM, limbIK };
+export type { Limb };
 
 /** How much larger than life the figure is drawn: the same as the street furniture. */
 export const CHARACTER_SCALE = 1.3;
@@ -37,9 +42,7 @@ export const BONES = [
 ] as const;
 export type BoneName = (typeof BONES)[number];
 
-/** Hip to knee, knee to ankle, and ankle to sole (model metres). */
-export const THIGH = 0.37;
-export const SHIN = 0.36;
+/** Ankle to sole (model metres); hip to knee and knee to ankle are in limb.ts. */
 const ANKLE = 0.09;
 /** The hips' height standing straight. */
 const REST_HIPS = THIGH + SHIN + ANKLE;
@@ -47,9 +50,6 @@ const REST_HIPS = THIGH + SHIN + ANKLE;
 const BALL = 0.12;
 /** The hip joints either side of the middle (model metres). */
 const HIP_X = 0.1;
-/** Shoulder to elbow, and elbow to the middle of the hand (model metres). */
-export const UPPER_ARM = 0.24;
-export const FOREARM = 0.27;
 
 /**
  * Each bone's parent (none for the root) and its pivot relative to that parent, in model metres
@@ -700,38 +700,4 @@ export function applyPose({ bones }: Character, pose: Pose): void {
   bones.armR.rotation.set(pose.armR, 0, -ARM_SPREAD);
   bones.foreL.rotation.x = pose.elbowL;
   bones.foreR.rotation.x = pose.elbowR;
-}
-
-/** Angles for a two-bone limb: its root's swing and its middle joint's bend (radians). */
-export interface Limb {
-  root: number;
-  joint: number;
-}
-
-/**
- * Two-bone inverse kinematics in a limb's plane: the swing of its root and the bend of its middle
- * joint that put the end of a limb (`upper` then `lower` long, hanging straight down at rest) at
- * `z` forward and `y` up from its root, written into `out`. Angles turn about x as the bones do:
- * a positive swing carries the end back. `bend` 1 bends the joint forward, as a knee does (a
- * positive bend); -1 back, as an elbow does. Out of reach, the limb points at the target as far
- * as it goes; too close, it folds as far as it can.
- */
-export function limbIK(
-  out: Limb,
-  z: number,
-  y: number,
-  upper: number,
-  lower: number,
-  bend: 1 | -1,
-): Limb {
-  const d = Math.min(
-    upper + lower - 1e-6,
-    Math.max(Math.abs(upper - lower) + 1e-6, Math.hypot(z, y)),
-  );
-  const aim = Math.atan2(-z, -y);
-  const atRoot = Math.acos((upper * upper + d * d - lower * lower) / (2 * upper * d));
-  const atJoint = Math.acos((upper * upper + lower * lower - d * d) / (2 * upper * lower));
-  out.root = aim - bend * atRoot;
-  out.joint = bend * (Math.PI - atJoint);
-  return out;
 }

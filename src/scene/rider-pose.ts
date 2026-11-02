@@ -1,6 +1,7 @@
 import { BRACKET, CRANK, GRIPS, SADDLE, STEERING } from './bike-rig.ts';
-import { FOREARM, SHIN, THIGH, UPPER_ARM, limbIK } from './character.ts';
-import type { Limb, Pose } from './character.ts';
+import { FOREARM, SHIN, THIGH, UPPER_ARM, limbIK } from './limb.ts';
+import type { Pose } from './character.ts';
+import type { Limb } from './limb.ts';
 
 /**
  * The walker riding: the figure's own rig, posed on the bike by two-bone IK, so the feet stay on
