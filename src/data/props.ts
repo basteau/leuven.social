@@ -110,6 +110,8 @@ function styleFromOsm(tags: Tags): { kind: PropKind; size: number } | null {
   if (tags.amenity === 'bicycle_parking') {
     if (HIDDEN_RACKS.has(tags.location ?? '') || tags.bicycle_parking === 'building') return null;
     const capacity = Number.parseInt(tags.capacity ?? '', 10);
+    // A single loop, mostly at a house's door: too small to read as a rack, so not drawn.
+    if (capacity === 1) return null;
     const length = Number.parseFloat(tags['_length'] ?? '');
     const stands = capacity > 0 ? capacity : length > 0 ? standsAlong(length) : DEFAULT_STANDS;
     return { kind: 'bikes', size: Math.min(Math.max(stands, 2), MAX_STANDS) };
@@ -236,6 +238,9 @@ export function rackFill(
     return { class: kind, bikes: Math.min(most, Math.floor(share)) };
   });
 }
+
+/** Bikes in a rack, from its fill (a share of its stands). */
+export const bikesIn = (p: Prop): number => Math.round((p.fill ?? 0) * p.size);
 
 /** Where a prop stands and what it covers, drawn to scale: a monument its plinth or basin. */
 export function propFootprint(p: Prop): Footprint {
@@ -566,6 +571,8 @@ export interface PropPoint {
 
 export interface PlacedProps {
   props: Prop[];
+  /** The tags each prop was read from, in the same order: a rack's `access` sets its fill. */
+  tags: Tags[];
   /** Mapped props moved off a kerb, a wall, a trunk or another prop. */
   nudged: number;
   /** Props with no room within their nudge: a second mapping of one prop, or walled in. */
@@ -614,7 +621,7 @@ export function placeProps(points: readonly PropPoint[], around: Surroundings): 
   };
   const radius = (f: Footprint) => Math.hypot(Math.max(-f.u0, f.u1), Math.max(-f.v0, f.v1));
 
-  const result: PlacedProps = { props: [], nudged: 0, dropped: 0 };
+  const result: PlacedProps = { props: [], tags: [], nudged: 0, dropped: 0 };
   for (const c of candidates) {
     const angle = c.facing ?? turnOf(c.kind, c.x, c.z, around, c.axis);
     const prop: Prop = { kind: c.kind, x: c.x, z: c.z, angle, size: c.size };
@@ -661,6 +668,7 @@ export function placeProps(points: readonly PropPoint[], around: Surroundings): 
     placed.set(k, [...(placed.get(k) ?? []), { kind: c.kind, f }]);
     widest = Math.max(widest, radius(f));
     result.props.push(prop);
+    result.tags.push(c.tags);
   }
   return result;
 }

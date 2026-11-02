@@ -108,7 +108,8 @@ test('bike racks hold their tagged capacity, within reason, unless out of sight'
   });
   expect(propFromOsm({ amenity: 'bicycle_parking' })?.size).toBe(DEFAULT_STANDS);
   expect(propFromOsm({ amenity: 'bicycle_parking', capacity: '400' })?.size).toBe(MAX_STANDS);
-  expect(propFromOsm({ amenity: 'bicycle_parking', capacity: '1' })?.size).toBe(2);
+  expect(propFromOsm({ amenity: 'bicycle_parking', capacity: '2' })?.size).toBe(2);
+  expect(propFromOsm({ amenity: 'bicycle_parking', capacity: '1' })).toBeNull(); // a loop by a door
   expect(propFromOsm({ amenity: 'bicycle_parking', location: 'underground' })).toBeNull();
   expect(propFromOsm({ amenity: 'bicycle_parking', bicycle_parking: 'building' })).toBeNull();
 });
