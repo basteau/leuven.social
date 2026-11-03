@@ -77,7 +77,7 @@ describe('steering', () => {
     run(walker, 2, [0, 1]);
     run(runner, 2, [0, 1], open, true);
     expect(runner.speed).toBeCloseTo(RUN_SPEED);
-    expect(runner.z).toBeGreaterThan(walker.z * 2);
+    expect(runner.z).toBeGreaterThan(walker.z * 1.5);
     expect(runBlend(runner.speed)).toBeCloseTo(1);
     expect(runBlend(walker.speed)).toBe(0);
     // Steps per metre: fewer at a run.

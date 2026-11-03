@@ -199,7 +199,14 @@ export const GAIT = {
 const GEAR = STRIDE.bike / (2 * Math.PI * WHEEL);
 
 const glsl = (x: number) => x.toFixed(3);
-const harm = (c: readonly number[]) => `harm(${c.map(glsl).join(', ')}, q)`;
+/** A joint's harmonics as GLSL, its swing (all but the mean) scaled by `sweep`. */
+const harm = (c: readonly number[], sweep = 1) =>
+  `harm(${c.map((x, i) => glsl(i ? x * sweep : x)).join(', ')}, q)`;
+/**
+ * The walker's gait was fitted at its own stride (STRIDE_WALK, 2.6 m a cycle); a stroller's
+ * stride is shorter (STRIDE.person), so the legs swing less, and the feet keep to the ground.
+ */
+const STROLL = STRIDE.person / 2.6;
 
 /**
  * The figure's bones swung about their joints in the vertex shader, by the stride (`state.x`,
@@ -231,7 +238,7 @@ const FIGURE_GLSL = `
       thigh = -${harm(GAIT.ride.thigh)}; knee = -${harm(GAIT.ride.knee)}; foot = -${harm(GAIT.ride.foot)};
       arm = 0.26; elbow = 1.151; lean = -0.4; nod = 0.34; hipY = 0.92; hipX = -0.22;
     } else {
-      thigh = -${harm(GAIT.walk.thigh)}; knee = -${harm(GAIT.walk.knee)}; foot = -${harm(GAIT.walk.foot)};
+      thigh = -${harm(GAIT.walk.thigh, STROLL)}; knee = -${harm(GAIT.walk.knee, STROLL)}; foot = -${harm(GAIT.walk.foot, STROLL)};
       arm = -0.55 * sin(q); elbow = 0.431 - 0.175 * sin(q) - 0.074 * cos(2.0 * q);
       lean = -0.07; nod = 0.0; hipY = 0.711 + 0.034 * cos(2.0 * p); hipX = 0.0;
     }

@@ -13,14 +13,20 @@ import type { Spring } from './motion.ts';
  * Its body is a circle kept clear of walls by collide and slide (collide.ts).
  */
 
-/** Walking and running pace (m/s), brisk for a figure a little larger than life. */
+/**
+ * Walking and running pace (m/s). The figure is a third larger than life, so its paces are
+ * too: 5.4 is the jog that open-world games move at by default (about 4.4 m/s life-size, as
+ * GTA's and PUBG's), and running a sprint 1.7 times it (about 7 m/s life-size: a game's sprint,
+ * and about what a person can keep up), where it was 14.3, faster than a bicycle. Walking is
+ * for the streets; the bike (rider.ts) is how to go fast.
+ */
 export const WALK_SPEED = 5.4;
-export const RUN_SPEED = 14.3;
+export const RUN_SPEED = 9.2;
 /** The simulation step (s): steps are this long whatever the frame rate. */
 export const STEP = 1 / 120;
 /** Metres covered by one full gait cycle (two steps) walking, and running flat out. */
 export const STRIDE_WALK = 2.6;
-export const STRIDE_RUN = 6.4;
+export const STRIDE_RUN = 4.8;
 /** Seconds the idle animation plays after stopping, before the scene can rest. */
 export const IDLE_SECONDS = 7;
 /** Half-lives (s) of the speed easing up, and down; below this speed (m/s) it stands. */

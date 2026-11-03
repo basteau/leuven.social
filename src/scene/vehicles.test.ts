@@ -267,7 +267,10 @@ describe('vehicle shapes', () => {
     expect(out).toContain(`part >= ${FIGURE}.0`);
     expect(out.match(/turn\(transformed/g)!.length).toBeGreaterThanOrEqual(12);
     expect(out).toContain('harm(');
-    for (const c of [...GAIT.walk.thigh, ...GAIT.ride.knee]) expect(out).toContain(c.toFixed(3));
+    for (const c of GAIT.ride.knee) expect(out).toContain(c.toFixed(3));
+    // A stroller's shorter stride swings the walking legs less than the walker's.
+    expect(out).toContain(GAIT.walk.thigh[0].toFixed(3));
+    expect(out).toContain((GAIT.walk.thigh[2] * (2 / 2.6)).toFixed(3));
     // The tints: each face's colour times the instance's, after the paint swap.
     expect(TINT_GLSL).toContain('vColor.rgb = paint * shade');
     expect(TINT_GLSL).toContain(`${TINT.skin}`);
