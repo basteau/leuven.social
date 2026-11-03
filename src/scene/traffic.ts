@@ -246,6 +246,20 @@ export const ROUTE_COST: Record<0 | 1 | 2, Record<WayKind, number>> = {
   1: { main: 1.4, street: 1.15, cycle: 1, pedestrian: 1.3, path: 1 },
   2: { main: 1.6, street: 1.1, cycle: 1.2, pedestrian: 1, path: 1 },
 };
+/** A street with no pavement on either side costs someone on foot this much more a metre. */
+export const NO_PAVEMENT = 1.5;
+
+/**
+ * What a metre of an edge costs a class: its kind's cost (ROUTE_COST), and for someone on foot
+ * on a street or a main road with no pavement on either side (the kerb at the facade, or no
+ * kerb cut at all: shared ground), NO_PAVEMENT times more, so a way round by a pavement wins.
+ */
+export function routeCost(cls: 0 | 1 | 2, e: RoadEdge): number {
+  const cost = ROUTE_COST[cls][e.kind];
+  if (cls !== 2 || (e.kind !== 'street' && e.kind !== 'main')) return cost;
+  const paved = pavementOf(e.right) >= PAVEMENT || pavementOf(e.left) >= PAVEMENT;
+  return paved ? cost : cost * NO_PAVEMENT;
+}
 
 /** A pool of edges to spawn on, each with its cumulative length, for picking one by length. */
 interface Pool {
@@ -297,7 +311,7 @@ export class Traffic {
     this.graph = roadGraph(ways);
     const { edges, nodes } = this.graph;
     this.#routers = [0, 1, 2].map((cls) =>
-      roadRouter(this.graph, (i) => ROUTE_COST[cls as 0 | 1 | 2][edges[i]!.kind]),
+      roadRouter(this.graph, (i) => routeCost(cls as 0 | 1 | 2, edges[i]!)),
     );
     this.#random = mulberry32(seed);
     this.#allowed = [(i) => edges[i]!.cars, (i) => edges[i]!.bikes, (i) => edges[i]!.feet];

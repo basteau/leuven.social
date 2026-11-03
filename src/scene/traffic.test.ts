@@ -9,6 +9,7 @@ import {
   DENSITY,
   FLOOR,
   LENGTH,
+  NO_PAVEMENT,
   PATIENCE,
   ROUTE_COST,
   Traffic,
@@ -18,6 +19,7 @@ import {
   laneFor,
   motor,
   mulberry32,
+  routeCost,
   sharesLane,
   turnTowards,
 } from './traffic.ts';
@@ -462,6 +464,14 @@ describe('Traffic', () => {
     expect(Object.values(ROUTE_COST).every((c) => Object.values(c).every((k) => k >= 1))).toBe(
       true,
     );
+    // On foot, a street with a pavement beats one without (the kerb at the facade, or no kerb).
+    const paved = sided({ kerb: 3, edge: 5 }, { kerb: 3, edge: 5 });
+    const bare = sided({ kerb: 3, edge: 3 }, { kerb: 3, edge: 3.2 });
+    const shared = sided({ kerb: 0, edge: 3 }, { kerb: 0, edge: 3 });
+    expect(routeCost(2, bare)).toBeCloseTo(routeCost(2, paved) * NO_PAVEMENT);
+    expect(routeCost(2, shared)).toBeCloseTo(routeCost(2, paved) * NO_PAVEMENT);
+    expect(routeCost(0, bare)).toBe(routeCost(0, paved));
+    expect(routeCost(2, sided({ kerb: 0, edge: 1 }, { kerb: 0, edge: 1 }, 'path'))).toBe(1);
   });
 
   test('a bend inside an edge is rounded in lane space: no jump, no step back, heading along', () => {
