@@ -4,6 +4,7 @@ import type { GraphRouter } from '../data/graph-route.ts';
 import {
   PAVEMENT,
   alongEdge,
+  coreEdges,
   pavementOf,
   roadGraph,
   roadRouter,
@@ -77,9 +78,24 @@ export interface Vehicle {
  * one that drives off beyond it comes back on a street inside it, out of sight.
  */
 export const COUNTS: Record<VehicleKind, number> = { car: 220, bus: 14, bike: 300, person: 300 };
-/** Vehicles per km² of the focus's circle, and the fewest of each kind, however small it is. */
-export const DENSITY: Record<VehicleKind, number> = { car: 150, bus: 10, bike: 220, person: 260 };
+/**
+ * Vehicles per km of the ways their class may use within the circle they spawn in (buses per
+ * km of main road), so a thin network holds few and a dense one many, rather than a count by
+ * area that piles up where there is little street: a quiet hour in Leuven's centre, about a
+ * car every 270 m of street and a bike every 125 m of way. And the fewest of each kind, however
+ * small the circle.
+ */
+export const PER_KM: Record<VehicleKind, number> = { car: 3.7, bus: 1.2, bike: 8, person: 8 };
 export const FLOOR: Record<VehicleKind, number> = { car: 30, bus: 3, bike: 50, person: 60 };
+/**
+ * The share of cars bound for the far side of the circle (beyond the view), so most traffic
+ * crosses the view and leaves rather than circling inside it.
+ */
+export const THROUGH_GOALS = 0.7;
+/** An appendage of the car network shorter than this (m) is no place to spawn or head for. */
+const CORE_LEAST = 1500;
+/** No spawning on an edge shorter than this (m): a piece between two junctions is a junction. */
+const SPAWN_MIN = 25;
 /**
  * The view reaches about one radius up and across and 1.4 to its corners, so spawning keeps
  * this many radii away from the focus (out of sight), on edges within RECYCLE_AT radii, beyond
@@ -104,6 +120,8 @@ const CRUISE: Record<VehicleKind, Record<WayKind, number>> = {
   bike: { main: 5, street: 4.5, cycle: 4.5, pedestrian: 3.5, path: 0 },
   person: { main: 1.4, street: 1.4, cycle: 1.3, pedestrian: 1.3, path: 1.3 },
 };
+/** A car's pace on a living street (m/s): the woonerf's 20 km/h. */
+const LIVING_STREET = 5.5;
 /** How much slower than its cruise a vehicle goes off the paved surfaces: gravel, earth, grass. */
 const OFF_ROAD: Partial<Record<Surface, number>> = { gravel: 0.7, earth: 0.55, grass: 0.5 };
 /** Standing gap (m), time headway (s), acceleration and comfortable braking (m/s²). */
@@ -248,6 +266,9 @@ export const ROUTE_COST: Record<0 | 1 | 2, Record<WayKind, number>> = {
 };
 /** A street with no pavement on either side costs someone on foot this much more a metre. */
 export const NO_PAVEMENT = 1.5;
+/** What a car pays a metre to drive a destination-only street, or a living street. */
+export const NO_THROUGH = 5;
+export const LIVING_COST = 2.5;
 
 /**
  * What a metre of an edge costs a class: its kind's cost (ROUTE_COST), and for someone on foot
@@ -256,6 +277,9 @@ export const NO_PAVEMENT = 1.5;
  */
 export function routeCost(cls: 0 | 1 | 2, e: RoadEdge): number {
   const cost = ROUTE_COST[cls][e.kind];
+  // A car has no business cutting through a living street, let alone a street for those who
+  // live there: it goes round unless that is where it is bound.
+  if (cls === 0) return cost * (e.through ? 1 : NO_THROUGH) * (e.minor ? LIVING_COST : 1);
   if (cls !== 2 || (e.kind !== 'street' && e.kind !== 'main')) return cost;
   const paved = pavementOf(e.right) >= PAVEMENT || pavementOf(e.left) >= PAVEMENT;
   return paved ? cost : cost * NO_PAVEMENT;
@@ -274,10 +298,15 @@ export class Traffic {
   readonly #routers: GraphRouter[];
   /** Which edges each class may take. */
   readonly #allowed: ((edge: number) => boolean)[];
-  /** The edges each class may use anywhere, those near the focus (destinations), and those out to the recycling radius (spawning). */
+  /**
+   * The edges each class may use anywhere, those near the focus (destinations), those out to
+   * the recycling radius (the fill, and what the circle holds), and the ring between the view
+   * and that radius (spawning, out of sight).
+   */
   readonly #pools: Pool[];
   #near: Pool[] | null = null;
   #wide: Pool[] | null = null;
+  #ring: Pool[] | null = null;
   /** Whether each edge has a twin the class may use the other way: where the lane is kept right. */
   readonly #twoWay: Uint8Array;
   /** Edges where bikes queue with the cars (their lanes overlap), in the cars' bucket. */
@@ -332,7 +361,10 @@ export class Traffic {
       const two = this.#twoWay[i]!;
       if (sharesLane(e, (two & 1) !== 0, (two & 2) !== 0)) this.#shared[i] = 1;
     }
-    this.#pools = this.#allowed.map((allowed) => {
+    // Cars spawn on, and head for, the core of their network only (coreEdges): not an abbey's
+    // lanes, a stub to the map's edge, or a street for those who live there.
+    const core = coreEdges(this.graph, (i) => edges[i]!.cars && edges[i]!.through, CORE_LEAST);
+    this.#pools = this.#allowed.map((allowed, cls) => {
       const list: number[] = [];
       const cum: number[] = [];
       let total = 0;
@@ -340,7 +372,7 @@ export class Traffic {
         // Nobody spawns on, or heads for, an edge that leads nowhere but back the way it came
         // (a cul-de-sac, the map's edge): they would turn round or drive off at once.
         const onward = nodes[e.to]!.out.some((j) => j !== this.#twin[i] && allowed(j));
-        if (!allowed(i) || !onward) continue;
+        if (!allowed(i) || !onward || (cls === 0 && !core[i])) continue;
         list.push(i);
         cum.push((total += e.length));
       }
@@ -419,13 +451,13 @@ export class Traffic {
     [f.x, f.z, f.radius] = [x, z, radius];
     const within = (i: number, reach: number) =>
       Math.hypot(this.#mid[i * 2]! - x, this.#mid[i * 2 + 1]! - z) <= reach;
-    const inside = (reach: number) =>
+    const inside = (reach: number, beyond = 0) =>
       this.#pools.map((pool) => {
         const edges: number[] = [];
         const cum: number[] = [];
         let total = 0;
         for (const [k, i] of pool.edges.entries()) {
-          if (!within(i, reach)) continue;
+          if (!within(i, reach) || (beyond > 0 && within(i, beyond))) continue;
           edges.push(i);
           cum.push((total += pool.cum[k]! - (pool.cum[k - 1] ?? 0)));
         }
@@ -433,12 +465,25 @@ export class Traffic {
       });
     this.#near = inside(radius);
     this.#wide = inside(RECYCLE_AT * radius);
-    // The fleet fills the circle it spawns in, so the view's share of it is the density.
-    const area = (Math.PI * (RECYCLE_AT * radius) ** 2) / 1e6;
+    this.#ring = inside(RECYCLE_AT * radius, SPAWN_FROM * radius);
+    // The fleet fills the circle it spawns in, by how much way the circle holds for each.
+    const { edges } = this.graph;
+    const wide = this.#wide;
+    const km = (cls: number, kind?: WayKind) =>
+      wide[cls]!.edges.reduce(
+        (sum, i) => sum + (kind && edges[i]!.kind !== kind ? 0 : edges[i]!.length),
+        0,
+      ) / 1000;
+    const hold: Record<VehicleKind, number> = {
+      car: km(0),
+      bus: km(0, 'main'),
+      bike: km(1),
+      person: km(2),
+    };
     for (const kind of VEHICLE_KINDS) {
       this.#want[kind] = Math.min(
         COUNTS[kind],
-        Math.max(FLOOR[kind], Math.round(DENSITY[kind] * area)),
+        Math.max(FLOOR[kind], Math.round(PER_KM[kind] * hold[kind])),
       );
     }
     if (jump) {
@@ -481,22 +526,26 @@ export class Traffic {
    */
   #spawn(v: Vehicle, anywhere = false): boolean {
     const cls = CLASS[v.kind];
-    const pool = this.#wide?.[cls]!.edges.length ? this.#wide[cls]! : this.#pools[cls]!;
-    if (!pool.edges.length) return false;
+    // The ring out of sight; filling after a jump, or where the ring is off the map, the
+    // circle; never in sight otherwise: a spot not found this step is found another.
+    const ring = this.#ring?.[cls];
+    const pool = anywhere || !ring?.edges.length ? this.#wide?.[cls] : ring;
+    const from = pool?.edges.length ? pool : this.#pools[cls]!;
+    if (!from.edges.length) return false;
     const spot: [number, number, number, number] = [0, 0, 0, 0];
     for (let tries = 0; tries < 12; tries++) {
-      const edge = this.#pick(pool);
+      const edge = this.#pick(from);
       const e = this.graph.edges[edge]!;
-      const s = e.length * (0.1 + 0.8 * this.#random());
-      // Out of the view, unless no try finds a spot there.
+      // A fill lands in the middle of a longer edge, spread out; a spawn anywhere along it.
+      if (e.length < (anywhere ? 30 : SPAWN_MIN)) continue;
+      const s = e.length * (anywhere ? 0.3 + 0.4 * this.#random() : 0.1 + 0.8 * this.#random());
       alongEdge(e, s, spot);
       const { radius } = this.#focus;
       const away = this.#fromFocus(spot[0], spot[1]);
-      // Inside the circle it is recycled beyond, and out of the view unless no try finds a spot
-      // there (or the circle is being filled).
+      // Inside the circle it is recycled beyond, and out of the view where the ring reaches.
       const inside = away <= RECYCLE_AT * radius;
-      const hidden = inside && (anywhere || away >= SPAWN_FROM * radius);
-      if (radius > 0 && !(tries < 9 ? hidden : inside)) continue;
+      const hidden = inside && (from !== ring || away >= SPAWN_FROM * radius);
+      if (radius > 0 && !hidden) continue;
       const bucket = this.#bucket(v, edge);
       const clear = this.vehicles.every(
         (o) =>
@@ -538,7 +587,9 @@ export class Traffic {
   /** The cruise on an edge, each driver a little faster or slower, and slower off the paving. */
   #cruise(kind: VehicleKind, e: RoadEdge): number {
     const pace = PAVED.has(e.surface) ? 1 : (OFF_ROAD[e.surface] ?? 0.6);
-    return CRUISE[kind][e.kind] * pace * (0.9 + 0.2 * this.#random());
+    // A living street is walked through at 20 km/h.
+    const calm = e.minor && motor(kind) ? LIVING_STREET / CRUISE[kind].street : 1;
+    return CRUISE[kind][e.kind] * pace * calm * (0.9 + 0.2 * this.#random());
   }
 
   #lane(v: Vehicle, edge: number): number {
@@ -575,7 +626,10 @@ export class Traffic {
     const committed = v.next >= 0 && v.s > e.length - v.rOut - CLAIM_AHEAD;
     const on = committed ? v.next : v.edge;
     const from = edges[on]!.to;
-    const goal = edges[this.#pick(pool)]!.to;
+    // Most cars are bound beyond the view, so they cross it and leave rather than circle in it.
+    const ring = this.#ring?.[cls];
+    const far = cls === 0 && ring?.edges.length && this.#random() < THROUGH_GOALS;
+    const goal = edges[this.#pick(far ? ring : pool)]!.to;
     if (goal === from) return;
     const most = this.#focus.radius > 0 ? 2 * this.#focus.radius + ROUTE_REACH : Infinity;
     // Never back the way it came: a goal behind it is reached round the block, or not at all.

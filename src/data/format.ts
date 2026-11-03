@@ -41,7 +41,8 @@
  * The ways traffic moves along (v19) come last: each a byte (its kind in WAY_KINDS in three
  * bits, then a one-way bit and a bikes-both-ways bit, and its surface in the top three), its
  * two sides (v22: right and left of the way it runs, each the kerb and the facade in
- * decimetres) and a centre line, delta-coded like the streets.
+ * decimetres), a byte of access (v23: a through bit and a living-street bit) and a centre line,
+ * delta-coded like the streets.
  */
 
 import * as Binary from '@portable/binary';
@@ -80,7 +81,7 @@ import { SHOP_KINDS } from './shop-kinds.ts';
 const MAGIC = 'LVN1';
 // v16: a byte per bike rack, its fill (`Prop.fill`). v17: the shop fronts. v18: pitch surfaces
 // and the fields painted on them, after the polygon layers. Bump the cache in public/sw.js with it.
-const VERSION = 22;
+const VERSION = 23;
 const DM = 10; // units per metre
 const GROUND = 20; // terrain heights per metre: 5 cm
 const ZIGZAG = { encoding: 'zigzag' } as const;
@@ -352,6 +353,7 @@ export function encodeCity(city: City): Uint8Array {
       w.varint(Math.round(side.kerb * DM));
       w.varint(Math.round(side.edge * DM));
     }
+    w.uint8((way.through ? 1 : 0) | (way.minor ? 2 : 0));
     writeRing(w, way.line, at);
   }
   return w.toBytes();
@@ -529,13 +531,17 @@ export function decodeCity(bytes: Uint8Array): City {
     const surface = SURFACES[flags >> 5];
     if (!surface) throw new CityFormatError('Bad way surface.');
     const side = (): Side => ({ kerb: r.varint() / DM, edge: r.varint() / DM });
+    const [right, left] = [side(), side()];
+    const access = r.uint8();
     return {
       kind,
       oneway: !!(flags & 8),
       bikesBoth: !!(flags & 16),
       surface,
-      right: side(),
-      left: side(),
+      right,
+      left,
+      through: !!(access & 1),
+      minor: !!(access & 2),
       line: readRing(r, from),
     };
   });

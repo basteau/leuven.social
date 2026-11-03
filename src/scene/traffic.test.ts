@@ -6,10 +6,12 @@ import type { RoadEdge } from '../data/traffic.ts';
 import {
   CLASS,
   COUNTS,
-  DENSITY,
   FLOOR,
   LENGTH,
+  LIVING_COST,
   NO_PAVEMENT,
+  NO_THROUGH,
+  PER_KM,
   PATIENCE,
   ROUTE_COST,
   Traffic,
@@ -32,6 +34,8 @@ const way = (line: number[], over: Partial<Omit<Way, 'line'>> = {}): Way => ({
   surface: 'asphalt',
   right: { kerb: 0, edge: 4 },
   left: { kerb: 0, edge: 4 },
+  through: true,
+  minor: false,
   ...over,
   line: new Float32Array(line),
 });
@@ -122,7 +126,7 @@ describe('Traffic', () => {
     const path = t.graph.edges.findIndex((e) => e.kind === 'path');
     expect(t.vehicles.some((v) => v.kind !== 'person' && v.edge === path)).toBe(false);
     expect(COUNTS.car + COUNTS.bus + COUNTS.bike + COUNTS.person).toBeLessThan(900);
-    expect(DENSITY.bike).toBeGreaterThan(DENSITY.car);
+    expect(PER_KM.bike).toBeGreaterThan(PER_KM.car);
   });
 
   test('follows a route to a destination, then picks another', () => {
@@ -471,6 +475,13 @@ describe('Traffic', () => {
     expect(routeCost(2, bare)).toBeCloseTo(routeCost(2, paved) * NO_PAVEMENT);
     expect(routeCost(2, shared)).toBeCloseTo(routeCost(2, paved) * NO_PAVEMENT);
     expect(routeCost(0, bare)).toBe(routeCost(0, paved));
+    // A car goes round a destination-only street or a living street unless bound there.
+    const quiet = sided({ kerb: 3, edge: 5 }, { kerb: 3, edge: 5 });
+    expect(routeCost(0, { ...quiet, through: false })).toBeCloseTo(
+      routeCost(0, quiet) * NO_THROUGH,
+    );
+    expect(routeCost(0, { ...quiet, minor: true })).toBeCloseTo(routeCost(0, quiet) * LIVING_COST);
+    expect(routeCost(2, { ...quiet, through: false })).toBe(routeCost(2, quiet));
     expect(routeCost(2, sided({ kerb: 0, edge: 1 }, { kerb: 0, edge: 1 }, 'path'))).toBe(1);
   });
 
@@ -518,6 +529,33 @@ describe('Traffic', () => {
     expect(laneFor('person', both, true, 0, true)).toBeLessThan(0);
   });
 
+  test('cars spawn on, and head for, the core of their network: not an appendage or a stub', () => {
+    // The town, with a lane off its south street into an abbey's yard: a short appendage.
+    const lane = build([
+      ...rawTown,
+      raw([100, 200, 100, 260]),
+      raw([100, 260, 160, 260, 160, 320]),
+    ]);
+    const t = settle(new Traffic(lane, 3, counts({ car: 30, person: 10 })), 600);
+    const { edges, nodes } = t.graph;
+    const yard = (i: number) => nodes[edges[i]!.to]!.z > 200 || nodes[edges[i]!.from]!.z > 200;
+    for (let i = 0; i < 60 * 30; i++) {
+      t.step(1 / 60);
+      for (const v of t.vehicles) {
+        if (!v.active || v.kind !== 'car') continue;
+        // Never bound for the yard; never driving in it, since nothing else leads there.
+        expect(v.goal < 0 || nodes[v.goal]!.z <= 200).toBe(true);
+        expect(yard(v.edge)).toBe(false);
+      }
+    }
+    // People, whose network it also hangs off, may still walk in.
+    expect(t.vehicles.some((v) => v.kind === 'person' && yard(v.edge))).toBe(true);
+    // The fleet is sized by how much way the circle holds, never under the floor.
+    const active = t.vehicles.filter((v) => v.active && v.kind === 'car').length;
+    expect(active).toBeGreaterThanOrEqual(Math.min(30, FLOOR.car));
+    expect(PER_KM.car).toBeLessThan(PER_KM.bike);
+  });
+
   test('a car at a cul-de-sac in view turns round rather than vanishing', () => {
     const withStub = build([...rawTown, raw([100, 200, 100, 260])]);
     const t = new Traffic(withStub, 1, counts({ car: 1 }));
@@ -552,7 +590,9 @@ describe('Traffic', () => {
     expect(t.vehicles.every((v) => !v.active)).toBe(true);
     t.focus(100, 100, 2000);
     for (let i = 0; i < 60 * 10; i++) t.step(1 / 60);
-    expect(t.vehicles.filter((v) => v.active).length).toBe(t.vehicles.length);
+    // The whole town holds a couple of kilometres of way: the floors, no more.
+    const floors = Object.values(FLOOR).reduce((a, b) => a + b, 0);
+    expect(t.vehicles.filter((v) => v.active).length).toBe(floors);
     // Narrowed in place (no jump) to a corner of the town, the surplus is parked as it drives
     // out of reach: round the block, now that nobody turns back.
     t.focus(50, 50, 80);

@@ -9,11 +9,12 @@
 import { unpackCity } from '../src/data/format.ts';
 import { Traffic } from '../src/scene/traffic.ts';
 
+const FOCUS = (process.env.FOCUS ?? '0,0').split(',').map(Number) as [number, number];
 const city = await unpackCity(
   new Uint8Array(await Bun.file(new URL('../public/data/city.bin', import.meta.url)).bytes()),
 );
 const t = new Traffic(city.ways, 1);
-t.focus(0, 0, 400);
+t.focus(FOCUS[0], FOCUS[1], 400);
 const stopped = new Map<number, number>();
 const report = (label: string) => {
   const by: Record<string, { active: number; stuck: number; slow: number }> = {};

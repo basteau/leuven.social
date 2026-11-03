@@ -18,6 +18,10 @@ const STREET = new Set(['tertiary', 'residential', 'unclassified', 'living_stree
 /** Paths of their own, for people on foot. */
 const PATH = new Set(['footway', 'path', 'steps', 'track', 'bridleway']);
 const CLOSED = new Set(['no', 'private']);
+/** Access values that close a road to cars as good as `no`: permits, deliveries, farm traffic. */
+const CLOSED_TO_CARS = new Set(['no', 'private', 'permit', 'delivery', 'agricultural', 'forestry']);
+/** The access tags a car's right to drive a road is read from, the most specific first. */
+const CAR_ACCESS = ['motorcar', 'motor_vehicle', 'vehicle', 'access'] as const;
 /** A pavement at least this wide (m) is one people walk along, rather than the street. */
 export const PAVEMENT = 0.9;
 
@@ -35,6 +39,16 @@ export interface WayStyle {
    * `sidewalk:left|right|both`; `separate` is one mapped as a way of its own), or nothing.
    */
   sidewalks: Sidewalks;
+  /** Open to through traffic: not tagged `destination`, which only those who live there drive. */
+  through: boolean;
+  /** A living street: walking pace, no cutting through. */
+  minor: boolean;
+}
+
+/** What the most specific of a way's access tags says a car may do, or nothing. */
+export function carAccess(tags: Tags): string | undefined {
+  for (const key of CAR_ACCESS) if (tags[key]) return tags[key];
+  return undefined;
 }
 
 export interface Sidewalks {
@@ -107,7 +121,13 @@ export function wayFromOsm(tags: Tags): WayStyle | null {
   if (kind === 'path' && (tags.footway === 'sidewalk' || tags.footway === 'crossing')) {
     return null;
   }
-  const closed = CLOSED.has(tags.motor_vehicle ?? '') || CLOSED.has(tags.access ?? '');
+  // A road closed to cars (as `no`, `private`, a permit, deliveries or farm traffic, or a
+  // Belgian F99 sign reserving it for walkers, cyclists and farm vehicles) carries none.
+  const access = carAccess(tags);
+  const closed =
+    CLOSED_TO_CARS.has(access ?? '') ||
+    CLOSED.has(tags.access ?? '') ||
+    (tags.traffic_sign ?? '').includes('F99');
   if (closed && (kind === 'main' || kind === 'street')) return null;
   // A roundabout is one way round, whether or not it says so.
   const round = tags.junction === 'roundabout' || tags.junction === 'circular';
@@ -120,6 +140,8 @@ export function wayFromOsm(tags: Tags): WayStyle | null {
     bikesBoth: oneway && tags['oneway:bicycle'] === 'no',
     surface: surfaceOf(tags),
     sidewalks: sidewalksOf(tags, reverse),
+    through: access !== 'destination' && tags.access !== 'destination',
+    minor: highway === 'living_street',
   };
 }
 
@@ -226,6 +248,9 @@ export interface RoadEdge {
   /** Either side of its line, right and left of the way it runs: its kerb and its facade. */
   right: Side;
   left: Side;
+  /** Open to through traffic, and a living street (`Way`). */
+  through: boolean;
+  minor: boolean;
 }
 
 /** How wide the pavement on a side is (m): from the kerb to the facade, where there is a kerb. */
@@ -282,8 +307,23 @@ export function roadGraph(ways: readonly Way[]): RoadGraph {
     const from = nodeAt(points[0]!, points[1]!);
     const to = nodeAt(points[n * 2 - 2]!, points[n * 2 - 1]!);
     nodes[from]!.out.push(edges.length);
-    const { kind, surface } = way;
-    edges.push({ from, to, kind, points, cum, length, cars, bikes, feet, surface, right, left });
+    const { kind, surface, through, minor } = way;
+    edges.push({
+      from,
+      to,
+      kind,
+      points,
+      cum,
+      length,
+      cars,
+      bikes,
+      feet,
+      surface,
+      right,
+      left,
+      through,
+      minor,
+    });
   };
   for (const way of ways) {
     const cars = way.kind === 'main' || way.kind === 'street';
@@ -365,4 +405,99 @@ export function roadRouter(
     cost: (edge) => edges[edge]!.length * weight(edge),
     estimate: (a, b) => Math.hypot(nodes[a]!.x - nodes[b]!.x, nodes[a]!.z - nodes[b]!.z),
   });
+}
+
+/**
+ * The core of a class's network: the edges that stay connected to the rest when any one road
+ * is taken away, less the small appendages. Every road is a link between its ends (a two-way
+ * way once); the links whose loss would split the network (its bridges) are found, and what
+ * they hang off the main body is kept only if it holds at least `least` metres of road: a
+ * district behind one bridge is still a place to go, a lane into an abbey's grounds or a stub
+ * to the map's edge is not. Spawning and destinations keep to the core, so the traffic flows
+ * round the blocks rather than in and out of dead ends. A mask over the edges.
+ */
+export function coreEdges(
+  graph: RoadGraph,
+  allowed: (edge: number) => boolean,
+  least: number,
+): Uint8Array {
+  const { nodes, edges } = graph;
+  // One link per pair of ends: the first allowed edge between them names it.
+  const link = new Int32Array(edges.length).fill(-1);
+  const named = new Map<string, number>();
+  const ends: [number, number][] = [];
+  const length: number[] = [];
+  const adjacency: number[][] = nodes.map(() => []);
+  for (const [i, e] of edges.entries()) {
+    if (!allowed(i)) continue;
+    const pair = e.from < e.to ? `${e.from}>${e.to}` : `${e.to}>${e.from}`;
+    let id = named.get(pair);
+    if (id === undefined) {
+      id = ends.push([e.from, e.to]) - 1;
+      length.push(e.length);
+      named.set(pair, id);
+      adjacency[e.from]!.push(id);
+      adjacency[e.to]!.push(id);
+    }
+    link[i] = id;
+  }
+  const other = (id: number, node: number) => (ends[id]![0] === node ? ends[id]![1] : ends[id]![0]);
+  // Bridges, by Tarjan's lowpoints, without recursion.
+  const disc = new Int32Array(nodes.length).fill(-1);
+  const low = new Int32Array(nodes.length);
+  const bridge = new Uint8Array(ends.length);
+  let time = 0;
+  for (let root = 0; root < nodes.length; root++) {
+    if (disc[root] !== -1 || !adjacency[root]!.length) continue;
+    const stack: [node: number, via: number, next: number][] = [[root, -1, 0]];
+    disc[root] = low[root] = time++;
+    while (stack.length) {
+      const frame = stack.at(-1)!;
+      const [node, via] = frame;
+      if (frame[2] < adjacency[node]!.length) {
+        const id = adjacency[node]![frame[2]++]!;
+        if (id === via) continue;
+        const next = other(id, node);
+        if (disc[next] === -1) {
+          disc[next] = low[next] = time++;
+          stack.push([next, id, 0]);
+        } else low[node] = Math.min(low[node]!, disc[next]!);
+      } else {
+        stack.pop();
+        if (via < 0) continue;
+        const parent = stack.at(-1)![0];
+        low[parent] = Math.min(low[parent]!, low[node]!);
+        if (low[node]! > disc[parent]!) bridge[via] = 1;
+      }
+    }
+  }
+  // What the bridges cut the network into, and how much road each piece holds.
+  const piece = new Int32Array(nodes.length).fill(-1);
+  const held: number[] = [];
+  for (let root = 0; root < nodes.length; root++) {
+    if (piece[root] !== -1 || !adjacency[root]!.length) continue;
+    const id = held.push(0) - 1;
+    const queue = [root];
+    piece[root] = id;
+    while (queue.length) {
+      const node = queue.pop()!;
+      for (const l of adjacency[node]!) {
+        if (bridge[l]) continue;
+        const next = other(l, node);
+        if (piece[next] === -1) {
+          piece[next] = id;
+          queue.push(next);
+        }
+      }
+    }
+  }
+  for (const [l, [a]] of ends.entries()) if (!bridge[l]) held[piece[a]!]! += length[l]!;
+  const main = held.indexOf(Math.max(...held, 0));
+  const core = new Uint8Array(edges.length);
+  for (const [i, l] of link.entries()) {
+    if (l < 0 || bridge[l]) continue;
+    const p = piece[ends[l]![0]]!;
+    if (p === main || held[p]! >= least) core[i] = 1;
+  }
+  return core;
 }

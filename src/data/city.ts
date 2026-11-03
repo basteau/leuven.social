@@ -176,6 +176,10 @@ export interface Way {
   /** Either side of the line, right and left of the way it runs. */
   right: Side;
   left: Side;
+  /** Open to through traffic: not `motor_vehicle=destination`, where only those who live there drive. */
+  through: boolean;
+  /** A living street (a woonerf): walking pace, and no way to cut through. */
+  minor: boolean;
   /** Centre line as flat [x0, z0, x1, z1, …]. */
   line: Float32Array;
 }

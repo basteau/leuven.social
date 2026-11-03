@@ -50,6 +50,8 @@ const way = (line: number[], over: Partial<Omit<Way, 'line'>> = {}): Way => ({
   surface: 'asphalt',
   right: { kerb: 0, edge: 4 },
   left: { kerb: 0, edge: 4 },
+  through: true,
+  minor: false,
   ...over,
   line: new Float32Array(line),
 });

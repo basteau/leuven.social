@@ -303,6 +303,8 @@ const wayFields = (w: City['ways'][number]) => [
   w.surface,
   w.right,
   w.left,
+  w.through,
+  w.minor,
   [...w.line],
 ];
 
@@ -316,6 +318,8 @@ describe('ways', () => {
         surface: 'asphalt',
         right: { kerb: 3.5, edge: 6 },
         left: { kerb: 3, edge: 4.5 },
+        through: true,
+        minor: false,
         line: new Float32Array([0, 0, 120.5, -30]),
       },
       {
@@ -325,6 +329,8 @@ describe('ways', () => {
         surface: 'grass',
         right: { kerb: 0, edge: 1.2 },
         left: { kerb: 0, edge: 0 },
+        through: false,
+        minor: true,
         line: new Float32Array([5, 5, 6, 7, 9, 9]),
       },
     ];

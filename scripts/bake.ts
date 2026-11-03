@@ -695,7 +695,7 @@ const drivable = osmRoads.features.flatMap((f) => {
   return [{ ...style, line }];
 });
 const ways: Way[] = splitAtJunctions(drivable)
-  .flatMap(({ kind, oneway, bikesBoth, surface, sidewalks, line }) =>
+  .flatMap(({ kind, oneway, bikesBoth, surface, sidewalks, through, minor, line }) =>
     AREA.flatMap((rect) => clipLine(line, rect))
       .flatMap((piece) => uncoveredPieces(piece, (x, z) => footprints.contains(x, z), 1))
       .map((piece) => {
@@ -704,7 +704,7 @@ const ways: Way[] = splitAtJunctions(drivable)
           kind === 'path'
             ? [{ ...PATH_SIDE }, { ...PATH_SIDE }]
             : sidesWithTags(sidesOf(simplified, openGround, onCarriageway), sidewalks);
-        return { kind, oneway, bikesBoth, surface, right, left, line: simplified };
+        return { kind, oneway, bikesBoth, surface, right, left, through, minor, line: simplified };
       }),
   )
   .filter((w) => w.line.length >= 4)

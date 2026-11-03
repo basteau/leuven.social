@@ -5,6 +5,8 @@ import {
   PAVEMENT,
   TAGGED_PAVEMENT,
   alongEdge,
+  carAccess,
+  coreEdges,
   pavementOf,
   roadGraph,
   roadRouter,
@@ -46,6 +48,26 @@ describe('wayFromOsm', () => {
     expect(wayFromOsm({ highway: 'pedestrian', area: 'yes' })).toBeNull();
     // A cycle track closed to cars is still a cycle track.
     expect(wayFromOsm({ highway: 'cycleway', motor_vehicle: 'no' })?.kind).toBe('cycle');
+  });
+
+  test('a road for permits, deliveries, farm traffic or an F99 sign carries no cars', () => {
+    expect(wayFromOsm({ highway: 'residential', motor_vehicle: 'permit' })).toBeNull();
+    expect(wayFromOsm({ highway: 'unclassified', access: 'agricultural' })).toBeNull();
+    expect(wayFromOsm({ highway: 'residential', vehicle: 'delivery' })).toBeNull();
+    expect(wayFromOsm({ highway: 'residential', motorcar: 'no' })).toBeNull();
+    expect(wayFromOsm({ highway: 'unclassified', traffic_sign: 'BE:F99c' })).toBeNull();
+    // The most specific tag wins: a road open to cars though closed to vehicles at large.
+    expect(wayFromOsm({ highway: 'residential', vehicle: 'no', motorcar: 'yes' })?.kind).toBe(
+      'street',
+    );
+    expect(carAccess({ access: 'no', motor_vehicle: 'destination' })).toBe('destination');
+    // Destination-only and living streets stay, marked.
+    expect(wayFromOsm({ highway: 'residential', motor_vehicle: 'destination' })).toMatchObject({
+      through: false,
+      minor: false,
+    });
+    expect(wayFromOsm({ highway: 'living_street' })).toMatchObject({ through: true, minor: true });
+    expect(wayFromOsm({ highway: 'cycleway', motor_vehicle: 'agricultural' })?.kind).toBe('cycle');
   });
 
   test('one-way streets, turned round when OSM runs them backwards, and cycle streets', () => {
@@ -169,6 +191,8 @@ const way = (over: Partial<Omit<Way, 'line'>> & { line: number[] }): Way => ({
   surface: 'asphalt',
   right: { kerb: 2.5, edge: 4 },
   left: { kerb: 2.5, edge: 4 },
+  through: true,
+  minor: false,
   ...over,
   line: new Float32Array(over.line),
 });
@@ -272,6 +296,42 @@ describe('roadGraph', () => {
     expect(g.edges).toHaveLength(4);
     // From the corner, on down the second street or back along the first.
     expect(g.nodes[1]!.out).toHaveLength(2);
+  });
+
+  test('the core of the network: what stays connected when any one road goes, less small appendages', () => {
+    // A block of four streets with a lane off it to a yard (short) and a district behind one
+    // bridge road (long enough to count).
+    const g = roadGraph([
+      way({ line: [0, 0, 100, 0] }),
+      way({ line: [100, 0, 100, 50] }),
+      way({ line: [100, 50, 100, 100] }),
+      way({ line: [100, 100, 0, 100] }),
+      way({ line: [0, 100, 0, 50] }),
+      way({ line: [0, 50, 0, 0] }),
+      way({ line: [100, 50, 140, 50] }),
+      way({ line: [140, 50, 140, 70] }),
+      way({ line: [0, 50, -300, 50] }),
+      way({ line: [-300, 50, -300, 1050] }),
+      way({ line: [-300, 1050, -1300, 1050] }),
+      way({ line: [-1300, 1050, -1300, 50] }),
+      way({ line: [-1300, 50, -300, 50] }),
+    ]);
+    const core = coreEdges(g, (i) => g.edges[i]!.cars, 300);
+    const at = (x: number, z: number) => g.nodes.findIndex((n) => n.x === x && n.z === z);
+    const edge = (fx: number, fz: number, tx: number, tz: number) =>
+      g.edges.findIndex((e) => e.from === at(fx, fz) && e.to === at(tx, tz));
+    // The block is the main body; the yard's lane hangs off a bridge and is tiny.
+    expect(core[edge(0, 0, 100, 0)]).toBe(1);
+    expect(core[edge(100, 50, 140, 50)]).toBe(0);
+    expect(core[edge(140, 50, 140, 70)]).toBe(0);
+    // The road to the district is a bridge; the district beyond holds 4 km, so it counts, and
+    // being the largest piece it is the main body: asked for 10 km, the block drops out, not it.
+    expect(core[edge(0, 50, -300, 50)]).toBe(0);
+    expect(core[edge(-300, 50, -300, 1050)]).toBe(1);
+    const strict = coreEdges(g, (i) => g.edges[i]!.cars, 10_000);
+    expect(strict[edge(-300, 50, -300, 1050)]).toBe(1);
+    expect(strict[edge(0, 0, 100, 0)]).toBe(0);
+    expect(coreEdges(g, () => false, 0).every((c) => c === 0)).toBe(true);
   });
 
   test('sidesOf measures the kerb and the facade either side, the narrowest of three probes', () => {
