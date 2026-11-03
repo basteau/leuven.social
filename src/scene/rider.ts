@@ -291,7 +291,10 @@ export function stepRider(r: Rider, dt: number, input: RideInput, ground: Ground
   // The wheels roll; the crank turns with them while pedalling, and freewheels, level, otherwise.
   const roll = (v / WHEEL) * dt;
   r.wheel = (r.wheel + roll) % (Math.PI * 2);
-  if (r.pedalling) r.crank = (r.crank + roll * GEAR) % (Math.PI * 2);
+  // The crank turns the way the wheels do: rolling forward, the bottom pedal goes back (in
+  // rider-pose.ts's crank, which puts the left pedal ahead at +π/2, that is a crank that falls).
+  if (r.pedalling)
+    r.crank = (((r.crank - roll * GEAR) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
   else r.crank = decay(r.crank, level(r.crank), LEVEL_EASE, dt);
 
   return (

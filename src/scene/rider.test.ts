@@ -307,7 +307,8 @@ describe('the drive', () => {
       stepRider(r, STEP, i, open);
       [wheel, crank] = [wheel + wrap(r.wheel - w0), crank + wrap(r.crank - c0)];
     }
-    expect(crank).toBeCloseTo(wheel * GEAR, 6);
+    // The crank falls as the wheel rolls on: the bottom pedal goes back (rider-pose.ts).
+    expect(crank).toBeCloseTo(-wheel * GEAR, 6);
     // At a cruise, about 75 turns of the crank a minute.
     const cadence = ((CRUISE / (0.34 * 1.3)) * GEAR * 60) / (Math.PI * 2);
     expect(cadence).toBeGreaterThan(70);
