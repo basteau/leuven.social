@@ -244,6 +244,14 @@ test('kerbs run along a carriageway on the pavement side, not across junctions o
   const back = new MeshBuilder();
   addKerbs(back, [{ ...street, ring: new Float32Array([0, 0, 0, 6, 20, 6, 20, 0]) }], within);
   expect(unindexed(back.build()).getAttribute('position').count / 6).toBe(4);
+  // Edges that carry on nearly straight are one kerbstone: a north edge in three pieces.
+  const pieces = new MeshBuilder();
+  addKerbs(
+    pieces,
+    [{ ...street, ring: new Float32Array([0, 0, 7, 0.01, 14, 0, 20, 0, 20, 6, 0, 6]) }],
+    within,
+  );
+  expect(unindexed(pieces.build()).getAttribute('position').count / 6).toBe(4);
   // A sliver with no inside gets none.
   const flat = new MeshBuilder();
   addKerbs(flat, [{ ...street, ring: new Float32Array([0, 0, 10, 0, 20, 0]) }], within);

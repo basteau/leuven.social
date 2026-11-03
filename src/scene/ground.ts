@@ -269,6 +269,7 @@ export function addKerbs(
     x >= within.maxX - 1e-3 ||
     z <= within.minZ + 1e-3 ||
     z >= within.maxZ - 1e-3;
+  const straight = Math.sin((4 * Math.PI) / 180);
   for (const { ring } of carriageways) {
     // Which side of its edges the carriageway is on: right of the heading in (x east, z south)
     // is (-dz, dx); the kerb goes the other way, onto the pavement.
@@ -287,15 +288,13 @@ export function addKerbs(
           : 0;
     }
     if (!inward) continue;
-    for (let i = 0; i < ring.length; i += 2) {
-      const j = (i + 2) % ring.length;
-      const [ax, az, bx, bz] = [ring[i]!, ring[i + 1]!, ring[j]!, ring[j + 1]!];
-      const len = Math.hypot(bx - ax, bz - az);
-      if (len < 1e-3) continue;
-      const [a, b] = [cm(ax, az), cm(bx, bz)];
-      if ((shared.get(a < b ? `${a}>${b}` : `${b}>${a}`) ?? 0) > 1) continue;
-      if (onCut(ax, az) && onCut(bx, bz)) continue;
-      const [ox, oz] = [((bz - az) / len) * KERB * inward, (-(bx - ax) / len) * KERB * inward];
+    // A run of edges that carry on nearly straight (the survey's many near-collinear points)
+    // is one kerbstone, from the run's start to its end.
+    let run: [x0: number, z0: number, x1: number, z1: number, dx: number, dz: number] | null = null;
+    const flush = () => {
+      if (!run) return;
+      const [ax, az, bx, bz, dx, dz] = run;
+      const [ox, oz] = [dz * KERB * inward, -dx * KERB * inward];
       mesh.quad(
         [ax, y, az],
         [bx, y, bz],
@@ -304,6 +303,29 @@ export function addKerbs(
         GROUND.kerb,
         UP,
       );
+      run = null;
+    };
+    for (let i = 0; i < ring.length; i += 2) {
+      const j = (i + 2) % ring.length;
+      const [ax, az, bx, bz] = [ring[i]!, ring[i + 1]!, ring[j]!, ring[j + 1]!];
+      const len = Math.hypot(bx - ax, bz - az);
+      if (len < 1e-3) continue;
+      const [a, b] = [cm(ax, az), cm(bx, bz)];
+      const kerbed =
+        (shared.get(a < b ? `${a}>${b}` : `${b}>${a}`) ?? 0) <= 1 &&
+        !(onCut(ax, az) && onCut(bx, bz));
+      if (!kerbed) {
+        flush();
+        continue;
+      }
+      const [dx, dz] = [(bx - ax) / len, (bz - az) / len];
+      if (run && Math.abs(run[4] * dz - run[5] * dx) < straight && run[4] * dx + run[5] * dz > 0) {
+        [run[2], run[3]] = [bx, bz];
+      } else {
+        flush();
+        run = [ax, az, bx, bz, dx, dz];
+      }
     }
+    flush();
   }
 }

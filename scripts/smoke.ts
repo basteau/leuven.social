@@ -42,8 +42,11 @@ const MAX_TRIANGLES = 950_000;
  * windows on the centre's houses, and the lamps' lanterns and pools of light at night, asked
  * for too: 3.13M and 74.9 MB. Just above, so nothing grows unnoticed.
  */
-const MAX_VERTICES = 3_200_000;
-const MAX_GEOMETRY_MB = 76;
+// 3.3M and 80 MB: the kerbstones along every carriageway (asked for, so the pavements read),
+// one stone per straight run of a face's edges, took the whole city from 3.03M vertices and
+// 72.1 MB to 3.25M and 77.9.
+const MAX_VERTICES = 3_300_000;
+const MAX_GEOMETRY_MB = 80;
 /**
  * The longest the main thread may be busy at once while the page loads (ms). About 60 on a
  * laptop since the roofs are planned lazily and the cells casting into the first frame are built
