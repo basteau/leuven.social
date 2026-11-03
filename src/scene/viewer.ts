@@ -239,7 +239,7 @@ const LIGHTS_ONLY = 1 << 2;
  * frame past this gets a frame of its own, and the view follows on the next.
  */
 const FRAME_CALLS = 160;
-const FRAME_TRIANGLES = 950_000;
+const FRAME_TRIANGLES = 1_150_000;
 /**
  * Zoom from which street furniture shows. Further out a lamp post is a stray pixel, and the
  * frames that show the most city are the ones that can least afford it. It casts shadows only

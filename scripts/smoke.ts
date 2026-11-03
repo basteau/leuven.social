@@ -29,8 +29,11 @@ const BIN = Bun.fileURLToPath(new URL('../node_modules/.bin/', import.meta.url))
 // on top of the roofs' chimneys and dormers, which took the zoomed-out view from 582k to 637k;
 // at night every lit cell in view adds a glow call, 150 in all zoomed out. Calls are cheap here
 // (one program for the city, one for the glow), so the triangles are what the cap watches.
+// 1.15M: people and cyclists at every distance as the walker's figure (asked for), coarse far
+// off, which takes the whole fleet zoomed out from about 100k triangles to 260k; the near
+// shapes add about 150k close in, where the city itself draws less.
 const MAX_DRAW_CALLS = 160;
-const MAX_TRIANGLES = 950_000;
+const MAX_TRIANGLES = 1_150_000;
 /**
  * What the whole city hands the GPU once every cell is built: 2.40M vertices and 57.7 MB since
  * racks park fewer bikes (it was 2.69M and 64.1 MB), 2.45M and 58.7 MB with what came since.

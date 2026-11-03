@@ -33,7 +33,6 @@ import {
   TINT_GLSL,
   addFigure,
   addRiddenBike,
-  atFigureSize,
   boxOf,
   createTrafficLayer,
   settle,
@@ -79,7 +78,7 @@ const count = (faces: number) => {
 };
 
 /** The most triangles a kind may cost, body and hull alike: the fleet is hundreds of each. */
-const MOST: Record<VehicleKind, number> = { car: 160, bus: 160, bike: 140, person: 70 };
+const MOST: Record<VehicleKind, number> = { car: 160, bus: 160, bike: 360, person: 300 };
 
 describe('vehicle shapes', () => {
   test('each is a few boxes, painted where the instance colours it, lit at the lamps', () => {
@@ -93,45 +92,49 @@ describe('vehicle shapes', () => {
       const parts = new Set<number>();
       const facade = g.getAttribute('facade');
       for (let i = 0; i < facade.count; i++) parts.add(Math.floor(facade.getX(i)));
-      expect(parts.has(PART.paint)).toBe(true);
+      if (kind === 'car' || kind === 'bus') {
+        expect(parts.has(PART.paint)).toBe(true);
+        expect(parts.has(PART.signalL) && parts.has(PART.signalR) && parts.has(PART.beam)).toBe(
+          true,
+        );
+      } else {
+        // The coarse figure: its bones, tinted, on foot or riding; a cyclist's lamps lit.
+        const base = kind === 'bike' ? RIDER : FIGURE;
+        expect([...parts].some((p) => p >= base + 1 && p < base + 14)).toBe(true);
+        let tinted = false;
+        for (let i = 0; i < facade.count; i++) {
+          if (Math.abs((facade.getX(i) % 1) - TINT.shirt) < 0.01) tinted = true;
+        }
+        expect(tinted).toBe(true);
+      }
       if (kind !== 'person') {
         expect(parts.has(PART.head)).toBe(true);
         expect(parts.has(PART.tail)).toBe(true);
       }
-      if (kind === 'car' || kind === 'bus') {
-        expect(parts.has(PART.signalL) && parts.has(PART.signalR) && parts.has(PART.beam)).toBe(
-          true,
-        );
-      }
-      if (kind === 'bike' || kind === 'person') {
-        expect(parts.has(PART.legL) && parts.has(PART.legR)).toBe(true);
-      }
       g.computeBoundingBox();
-      // Wheels (or feet) on the ground; a vehicle longer than wide, ahead along +x.
-      expect(g.boundingBox!.min.y).toBe(0);
+      // Wheels (or feet) on the ground; a vehicle longer than wide, ahead along +x; a figure
+      // the walker's height.
+      expect(g.boundingBox!.min.y).toBeCloseTo(0, 1);
       if (kind !== 'person') expect(g.boundingBox!.max.x).toBeGreaterThan(g.boundingBox!.max.z);
-      // The hull is the same shape, grown, without the lamps and the beam: no wider than a lane.
+      else expect(g.boundingBox!.max.y).toBeCloseTo(1.96 * CHARACTER_SCALE, 1);
+      // The hull is the boxes grown, without the lamps and the beam: no wider than a lane. A
+      // far figure has none: its outline is for the near shape, where it is wider than a pixel.
       const hull = new MeshBuilder();
       SHAPES[kind](hull, HULL_GROW);
       const h = unindexed(hull.build());
+      if (kind === 'person') {
+        expect(h.getAttribute('position').count).toBe(0);
+        continue;
+      }
       h.computeBoundingBox();
       expect(h.boundingBox!.max.z - h.boundingBox!.min.z).toBeLessThan(2.8);
-      expect(h.boundingBox!.max.y).toBeGreaterThan(g.boundingBox!.max.y);
       expect(h.getAttribute('position').count).toBeLessThanOrEqual(
         g.getAttribute('position').count,
       );
     }
   });
 
-  test('a limb carries its joint in the fraction of its part code; a beam fades to its far end', () => {
-    const mesh = new MeshBuilder();
-    SHAPES.person(mesh);
-    const facade = unindexed(mesh.build({ facade: true })).getAttribute('facade');
-    const codes = new Set<number>();
-    for (let i = 0; i < facade.count; i++) codes.add(facade.getX(i));
-    const legs = [...codes].filter((c) => Math.floor(c) === PART.legL);
-    expect(legs).toHaveLength(1);
-    expect((legs[0]! - PART.legL) * 10).toBeCloseTo(0.85, 1);
+  test('a beam fades to its far end and its sides; halos round the lamps', () => {
     const car = new MeshBuilder();
     SHAPES.car(car);
     const beam = unindexed(car.build({ facade: true })).getAttribute('facade');
@@ -234,19 +237,26 @@ describe('vehicle shapes', () => {
     }
   });
 
-  test("the far shapes grow to the figure's size, joints and all; tints come from the wardrobe", () => {
-    const mesh = new MeshBuilder();
-    SHAPES.person(mesh);
-    const g = atFigureSize(mesh.build({ facade: true, keep: true }));
-    g.computeBoundingBox();
-    expect(g.boundingBox!.max.y).toBeCloseTo(1.84 * CHARACTER_SCALE, 2);
-    const facade = g.getAttribute('facade');
-    let hip = 0;
-    for (let i = 0; i < facade.count; i++) {
-      const v = facade.getX(i);
-      if (Math.floor(v) === PART.legL) hip = (v - PART.legL) * 10;
-    }
-    expect(hip).toBeCloseTo(0.85 * CHARACTER_SCALE, 2);
+  test('the far figure is the near one squared off: same bones and height, far fewer faces', () => {
+    const near = new MeshBuilder();
+    addFigure(near, FIGURE, false);
+    const far = new MeshBuilder();
+    addFigure(far, FIGURE, false, true);
+    const [n, f] = [
+      unindexed(near.build({ facade: true })),
+      unindexed(far.build({ facade: true })),
+    ];
+    expect(f.getAttribute('position').count).toBeLessThan(n.getAttribute('position').count * 0.6);
+    const bones = (g: typeof n) => {
+      const out = new Set<number>();
+      const a = g.getAttribute('facade');
+      for (let i = 0; i < a.count; i++) out.add(Math.floor(a.getX(i)));
+      return out;
+    };
+    expect(bones(f)).toEqual(bones(n));
+    n.computeBoundingBox();
+    f.computeBoundingBox();
+    expect(f.boundingBox!.max.y).toBeCloseTo(n.boundingBox!.max.y, 1);
     const v = { kind: 'person', paint: [0.1, 0.2, 0.3], blink: 0.37 } as Parameters<
       typeof tintsOf
     >[0];
@@ -271,8 +281,6 @@ describe('vehicle shapes', () => {
   test('the vertex shader swings the limbs about their joints with the stride', () => {
     const out = vehicleVertexShader('#include <common>\n#include <begin_vertex>');
     expect(out).toContain('attribute vec4 state');
-    expect(out).toContain('fract(facade) * 10.0');
-    expect(out).toContain('sin(state.x)');
     // The figure's chains: ankle, knee and hip; elbow and shoulder; the bike's wheels and crank.
     expect(out).toContain(`part >= ${FIGURE}.0`);
     expect(out.match(/turn\(transformed/g)!.length).toBeGreaterThanOrEqual(12);

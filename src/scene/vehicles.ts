@@ -61,12 +61,10 @@ export const PART = {
   /** The glow round a lamp at night, dithered out by the fraction: a headlamp's, a tail lamp's. */
   halo: 11,
   haloTail: 12,
+  /** 7 to 10 were the box limbs of the far shapes, before they were the figure. */
 } as const;
 
 type Builder = Pick<MeshBuilder, 'quad' | 'triangle'>;
-
-/** A swinging limb's part code: the part, with the joint's height folded into the fraction. */
-const jointed = (part: number, pivot: number) => part + Math.min(0.99, pivot / 10);
 
 /**
  * Part codes from FIGURE up are the walker's figure (figure.ts), a bone each in BONES' order:
@@ -125,20 +123,29 @@ function spread(p: V3, bone: BoneName): V3 {
  * The walker's figure at its size, facing ahead, for the instanced people (`base` FIGURE) and
  * riders (RIDER): each face marked with its bone from `base` and the tint it takes. The hull
  * mesh gets the figure's ink hulls, grown, facing out (the hull material draws their backs).
+ * `coarse` is the figure for the distance: its octagons squared off, without its flat details
+ * or an outline, the same bones, proportions and colours, under half the faces.
  */
-export function addFigure(mesh: Builder, base: number, hull: boolean): void {
+export function addFigure(mesh: Builder, base: number, hull: boolean, coarse = false): void {
   // A rider's trim is the bike's frame, so its shorts keep a colour of their own.
   const outfit = base === RIDER ? { ...SENTINEL, shorts: RIDER_SHORTS } : SENTINEL;
   for (const solid of figure(outfit)) {
-    if (hull && solid.hull === false) continue;
-    const rings = hull ? grown(solid.hull || solid.rings, OUTLINE_WIDTH) : solid.rings;
+    // The parts too small to outline (ears, thumbs, collar, belt, the shoe's upper) are too
+    // small for the distance too, but for the neck, which keeps the head on the shoulders.
+    const neck = solid.bone === 'torso' && solid.color === WALKER.skin;
+    if ((hull || coarse) && solid.hull === false && !neck) continue;
+    const full = hull ? grown(solid.hull || solid.rings, OUTLINE_WIDTH) : solid.rings;
+    // Far off, each bevelled octagon is a square: the same figure, half the faces.
+    const rings = coarse
+      ? full.map((ring) => (ring.length === 8 ? ring.filter((_, i) => i % 2 === 0) : ring))
+      : full;
     addSolid(mesh, solid, rings, false, {
       place: (p) => toVehicle(spread(p, solid.bone)),
       facade: (bone, color) => base + bone + (hull ? 0 : tintOf(color)[0]),
       paint: (color) => tintOf(color)[1],
     });
   }
-  if (hull) return;
+  if (hull || coarse) return;
   for (const { bone, color, points, normal } of details(outfit)) {
     const [tint, c] = tintOf(color);
     const facade = base + BONES.indexOf(bone) + tint;
@@ -612,47 +619,45 @@ function disc(mesh: Builder, x: number, radius: number, g: number): void {
 }
 
 /**
- * A cyclist: two wheels, a frame, bars and a saddle, and a rider whose legs pump with the
- * pedals, a shirt in the instance's colour, arms to the bars, a head and hair; a lamp in front
- * and a reflector behind, lit at night.
+ * A city bike for the distance, at the figure's size: two wheels, a frame, bars and a saddle,
+ * a lamp in front and a reflector behind, lit at night. Its rider is the coarse figure
+ * (SHAPES.bike).
  */
 export function addBike(mesh: Builder, g = 1): void {
-  for (const x of [-0.55, 0.55]) disc(mesh, x, 0.34, g);
-  boxOf(mesh, [-0.5 * g, 0.5 * g], [0.5, 0.6 * g], [-0.04 * g, 0.04 * g], PROPS.iron);
-  boxOf(mesh, [0.42 * g, 0.5 * g], [0.6 * g, 1.02 * g], [-0.04 * g, 0.04 * g], PROPS.iron);
-  boxOf(mesh, [0.4 * g, 0.5 * g], [1.0 * g, 1.06 * g], [-0.3 * g, 0.3 * g], PROPS.iron);
-  boxOf(mesh, [-0.3 * g, -0.1 * g], [0.9 * g, 0.98 * g], [-0.1 * g, 0.1 * g], 0x2b2420);
-  // The rider: legs hinged at the hip, pumping; arms reaching the bars; body, head, hair.
-  const hip = 0.95;
-  for (const [z, part] of [
-    [-0.1, PART.legL],
-    [0.1, PART.legR],
-  ] as const) {
-    boxOf(
-      mesh,
-      [-0.08 * g, 0.12 * g],
-      [0.4, hip * g],
-      [z - 0.07 * g, z + 0.07 * g],
-      GUESTS.legs[0]!,
-      jointed(part, hip),
-    );
-  }
-  boxOf(mesh, [-0.18 * g, 0.12 * g], [0.9, 1.5 * g], [-0.2 * g, 0.2 * g], 0xffffff, PART.paint);
-  for (const z of [-0.24, 0.24]) {
-    boxOf(
-      mesh,
-      [-0.1 * g, 0.42 * g],
-      [1.05, 1.42 * g],
-      [z - 0.05 * g, z + 0.05 * g],
-      GUESTS.skin[1]!,
-    );
-  }
-  boxOf(mesh, [-0.06 * g, 0.22 * g], [1.5, 1.78 * g], [-0.13 * g, 0.13 * g], GUESTS.skin[1]!);
-  boxOf(mesh, [-0.08 * g, 0.24 * g], [1.72, 1.84 * g], [-0.15 * g, 0.15 * g], GUESTS.hair[1]!);
+  const k = S;
+  for (const x of [-0.55, 0.55]) disc(mesh, x * k, 0.34 * k, g);
+  boxOf(
+    mesh,
+    [-0.5 * k * g, 0.5 * k * g],
+    [0.5 * k, 0.6 * k * g],
+    [-0.04 * k * g, 0.04 * k * g],
+    PROPS.iron,
+  );
+  boxOf(
+    mesh,
+    [0.42 * k * g, 0.5 * k * g],
+    [0.6 * k * g, 1.02 * k * g],
+    [-0.04 * k * g, 0.04 * k * g],
+    PROPS.iron,
+  );
+  boxOf(
+    mesh,
+    [0.4 * k * g, 0.5 * k * g],
+    [1.0 * k * g, 1.06 * k * g],
+    [-0.3 * k * g, 0.3 * k * g],
+    PROPS.iron,
+  );
+  boxOf(
+    mesh,
+    [-0.3 * k * g, -0.1 * k * g],
+    [0.9 * k * g, 0.98 * k * g],
+    [-0.1 * k * g, 0.1 * k * g],
+    0x2b2420,
+  );
   if (g !== 1) return;
-  lampAt(mesh, 0.52, 0.85, 0, PART.head, BUS.headlamp, [0.04, 0.04]);
-  lampAt(mesh, -0.5, 0.75, 0, PART.tail, BUS.taillamp, [0.03, 0.04]);
-  bikeLight(mesh, 0.52, 0.85, -0.5, 0.75);
+  lampAt(mesh, 0.52 * k, 0.85 * k, 0, PART.head, BUS.headlamp, [0.04, 0.04]);
+  lampAt(mesh, -0.5 * k, 0.75 * k, 0, PART.tail, BUS.taillamp, [0.03, 0.04]);
+  bikeLight(mesh, 0.52 * k, 0.85 * k, -0.5 * k, 0.75 * k);
 }
 
 /** A bike's lamp and reflector at night: a halo round each, and a small pool ahead on the street. */
@@ -663,48 +668,20 @@ function bikeLight(mesh: Builder, lampX: number, lampY: number, tailX: number, t
 }
 
 /**
- * Someone on foot: legs and arms swinging with the stride, a shirt in the instance's colour,
- * a head and hair. Half the size of a cyclist's rider, give or take: a walker among walkers.
+ * The shapes the fleet is drawn in far from the view: a car and a bus as a few boxes, and
+ * people and cyclists as the coarse figure, on the city bike, at the walker's size; the
+ * figure's outline is left to the near shapes, where it is wider than a pixel.
  */
-export function addPerson(mesh: Builder, g = 1): void {
-  const hip = 0.85;
-  const shoulder = 1.45;
-  for (const [z, part] of [
-    [-0.09, PART.legL],
-    [0.09, PART.legR],
-  ] as const) {
-    boxOf(
-      mesh,
-      [-0.08 * g, 0.08 * g],
-      [0, hip * g],
-      [z - 0.08 * g, z + 0.08 * g],
-      GUESTS.legs[0]!,
-      jointed(part, hip),
-    );
-  }
-  boxOf(mesh, [-0.13 * g, 0.13 * g], [0.8, 1.5 * g], [-0.21 * g, 0.21 * g], 0xffffff, PART.paint);
-  for (const [z, part] of [
-    [-0.27, PART.armL],
-    [0.27, PART.armR],
-  ] as const) {
-    boxOf(
-      mesh,
-      [-0.06 * g, 0.06 * g],
-      [0.85, shoulder * g],
-      [z - 0.06 * g, z + 0.06 * g],
-      GUESTS.skin[2]!,
-      jointed(part, shoulder),
-    );
-  }
-  boxOf(mesh, [-0.11 * g, 0.11 * g], [1.5, 1.78 * g], [-0.12 * g, 0.12 * g], GUESTS.skin[2]!);
-  boxOf(mesh, [-0.13 * g, 0.13 * g], [1.7, 1.84 * g], [-0.14 * g, 0.14 * g], GUESTS.hair[2]!);
-}
-
 export const SHAPES: Record<VehicleKind, (mesh: Builder, grow?: number) => void> = {
   car: addCar,
   bus: addBus,
-  bike: addBike,
-  person: addPerson,
+  bike: (mesh, g = 1) => {
+    addBike(mesh, g);
+    if (g === 1) addFigure(mesh, RIDER, false, true);
+  },
+  person: (mesh, g = 1) => {
+    if (g === 1) addFigure(mesh, FIGURE, false, true);
+  },
 };
 
 /**
@@ -729,18 +706,6 @@ export const NEAR_SHAPES: Record<VehicleKind, (mesh: Builder, hull: boolean) => 
 export const NEAR: Record<VehicleKind, number> = { car: 40, bus: 6, bike: 56, person: 72 };
 export const NEAR_RANGE = 90;
 export const NEAR_VIEW = 420;
-
-/** The far shapes of people and cyclists at the figure's size: their boxes grown with the joints folded into their part codes. */
-export function atFigureSize(geometry: BufferGeometry): BufferGeometry {
-  geometry.scale(S, S, S);
-  const facade = geometry.getAttribute('facade');
-  for (let i = 0; i < facade.count; i++) {
-    const v = facade.getX(i);
-    const part = Math.floor(v);
-    if (part >= PART.legL && part <= PART.armR) facade.setX(i, part + (v - part) * S);
-  }
-  return geometry;
-}
 
 const srgb = (hex: number): V3 => [
   ((hex >> 16) & 255) / 255,
@@ -786,9 +751,8 @@ export function settle(
 }
 
 /**
- * The vertex shader's share of the parts: the figure's bones swing with the stride (FIGURE_GLSL),
- * the box limbs about the joint folded into their part code; the part and the beam's fade go to
- * the fragment shader. For the body's material and its ink's.
+ * The vertex shader's share of the parts: the figure's bones swing with the stride (FIGURE_GLSL);
+ * the part and the beam's fade go to the fragment shader. For the body's material and its ink's.
  */
 export function vehicleVertexShader(vertexShader: string): string {
   return vertexShader
@@ -821,13 +785,6 @@ export function vehicleVertexShader(vertexShader: string): string {
       `#include <begin_vertex>
       float part = floor(facade);
       if (part >= ${FIGURE}.0) {${FIGURE_GLSL}
-      } else if (part >= ${PART.legL}.0 && part <= ${PART.armR}.0) {
-        // Left leg and right arm swing together, as a stride does; legs further than arms.
-        float leg = step(part, ${PART.legR}.5);
-        float side = (part == ${PART.legL}.0 || part == ${PART.armR}.0) ? 1.0 : -1.0;
-        float a = side * mix(0.4, 0.55, leg) * sin(state.x);
-        float pivot = fract(facade) * 10.0;
-        turn(transformed, 0.0, pivot, a);
       }
       vPart = part;
       vFade = 1.0 - fract(facade);
@@ -1029,11 +986,10 @@ export function createTrafficLayer(kit: TrafficKit, seed = 1): TrafficLayer {
     SHAPES[kind](body);
     const hull = new MeshBuilder();
     SHAPES[kind](hull, HULL_GROW);
-    const figures = kind === 'person' || kind === 'bike';
-    const built = [body, hull].map((b) => {
-      const g = b.build({ facade: true, keep: true });
-      return figures ? atFigureSize(g) : g;
-    }) as [BufferGeometry, BufferGeometry];
+    const built = [body, hull].map((b) => b.build({ facade: true, keep: true })) as [
+      BufferGeometry,
+      BufferGeometry,
+    ];
     const group = {
       ...pair(...built, vehicles.length),
       vehicles,
