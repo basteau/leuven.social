@@ -114,7 +114,7 @@ const CORNER: Record<VehicleKind, number> = { car: 5, bus: 8, bike: 2.5, person:
 /** How fast the drawn heading may turn (rad/s): a bus swings round slower than a cyclist. */
 export const TURN_RATE: Record<VehicleKind, number> = { car: 2.2, bus: 1.4, bike: 3.5, person: 6 };
 /** Metres per stride (on foot) or pedal turn (on a bike): what one cycle of the legs covers. */
-const STRIDE: Record<VehicleKind, number> = { car: 1, bus: 1, bike: 5, person: 1.4 };
+export const STRIDE: Record<VehicleKind, number> = { car: 1, bus: 1, bike: 5, person: 1.4 };
 /** Where the indicators come on before a turn (m), and how far into the junction one may hold. */
 const SIGNAL_AT = 30;
 const CLAIM_AHEAD = 2;

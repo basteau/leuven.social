@@ -43,6 +43,7 @@ const empty = (): BikeArrays => ({
   color: new Float32Array(BIKE_MOST.vertices * 6),
   bone: new Uint8Array(BIKE_MOST.vertices * 2),
   dither: new Uint8Array(BIKE_MOST.vertices * 2),
+  hull: new Uint8Array(BIKE_MOST.vertices * 2),
   index: new Uint16Array(BIKE_MOST.indices * 2),
 });
 

@@ -17,14 +17,31 @@ import { OUTLINE } from './palette.ts';
 import { VEHICLE_KINDS } from './traffic.ts';
 import type { VehicleKind } from './traffic.ts';
 import {
+  BIKE,
   FACE,
+  FIGURE,
+  GAIT,
   HULL_GROW,
+  NEAR,
+  NEAR_RANGE,
+  NEAR_SHAPES,
+  NEAR_VIEW,
   PART,
+  RIDER,
   SHAPES,
+  TINT,
+  TINT_GLSL,
+  addFigure,
+  addRiddenBike,
+  atFigureSize,
   boxOf,
   createTrafficLayer,
+  tintOf,
+  tintsOf,
   vehicleVertexShader,
 } from './vehicles.ts';
+import { BONES, CHARACTER_SCALE } from './figure.ts';
+import { BIKES, GUESTS, WALKER } from './palette.ts';
 
 const way = (line: number[], over: Partial<Omit<Way, 'line'>> = {}): Way => ({
   kind: 'street',
@@ -45,6 +62,14 @@ const town: Way[] = splitAtJunctions([
   { line: [0, 100, 200, 100], kind: 'cycle' as const },
 ]).map(({ line, ...rest }) => way(line, rest));
 
+/** The triangles a builder holds. */
+const trianglesIn = (b: MeshBuilder) => unindexed(b.build()).getAttribute('position').count / 3;
+/** Whether a colour as sRGB fractions is one of a palette's. */
+const from = (list: readonly number[], colour: readonly number[]) => list.includes(hex(colour));
+/** A colour as sRGB fractions, back to hex. */
+const hex = ([r, g, b]: readonly number[]) =>
+  (Math.round(r! * 255) << 16) | (Math.round(g! * 255) << 8) | Math.round(b! * 255);
+
 /** How many faces a unit box gets with these faces asked for. */
 const count = (faces: number) => {
   const mesh = new MeshBuilder();
@@ -53,7 +78,7 @@ const count = (faces: number) => {
 };
 
 /** The most triangles a kind may cost, body and hull alike: the fleet is hundreds of each. */
-const MOST: Record<VehicleKind, number> = { car: 120, bus: 100, bike: 125, person: 70 };
+const MOST: Record<VehicleKind, number> = { car: 140, bus: 140, bike: 125, person: 70 };
 
 describe('vehicle shapes', () => {
   test('each is a few boxes, painted where the instance colours it, lit at the lamps', () => {
@@ -117,6 +142,116 @@ describe('vehicle shapes', () => {
     expect([...fades].toSorted((a, b) => a - b)).toEqual([5, 100]);
   });
 
+  test("near the view, people are the walker's figure at its size, each face on its bone and tint", () => {
+    const body = new MeshBuilder();
+    addFigure(body, FIGURE, false);
+    const g = unindexed(body.build({ facade: true }));
+    const facade = g.getAttribute('facade');
+    const bones = new Set<number>();
+    const tints = new Set<number>();
+    for (let i = 0; i < facade.count; i++) {
+      const v = facade.getX(i);
+      bones.add(Math.floor(v) - FIGURE);
+      tints.add(Math.round((v - Math.floor(v)) * 1000) / 1000);
+    }
+    // Every bone but the root (the walker's blob shadow stays with the walker).
+    expect([...bones].toSorted((a, b) => a - b)).toEqual(BONES.map((_, i) => i).slice(1));
+    expect(tints).toEqual(new Set([0, TINT.shirt, TINT.trim, TINT.hair, TINT.skin]));
+    // Feet on the ground, the walker's height, facing ahead (+x): the nose is ahead of the head.
+    g.computeBoundingBox();
+    expect(g.boundingBox!.min.y).toBeCloseTo(0, 1);
+    expect(g.boundingBox!.max.y).toBeCloseTo(1.96 * CHARACTER_SCALE, 1);
+    expect(g.boundingBox!.max.x).toBeLessThan(0.35);
+    const triangles = g.getAttribute('position').count / 3;
+    expect(triangles).toBeGreaterThan(400);
+    expect(triangles).toBeLessThan(600);
+    // The hull is the figure's ink hulls, grown, on the same bones, without the details.
+    const hull = new MeshBuilder();
+    addFigure(hull, RIDER, true);
+    const h = unindexed(hull.build({ facade: true }));
+    h.computeBoundingBox();
+    expect(h.boundingBox!.max.y).toBeGreaterThan(g.boundingBox!.max.y);
+    expect(h.getAttribute('position').count / 3).toBeLessThan(triangles);
+    expect(Math.floor(h.getAttribute('facade').getX(0))).toBeGreaterThanOrEqual(RIDER);
+    // A face's tint: the shirt's channel is its shade, the skin is white, the rest its own.
+    expect(tintOf(0xd10000)).toEqual([TINT.shirt, 0xd10000]);
+    expect(tintOf(0x00ff00)).toEqual([TINT.trim, 0x00ff00]);
+    expect(tintOf(0x0000ff)).toEqual([TINT.hair, 0x0000ff]);
+    expect(tintOf(WALKER.skin)).toEqual([TINT.skin, 0xffffff]);
+    expect(tintOf(0x2b2420)).toEqual([0, 0x2b2420]);
+  });
+
+  test("a cyclist near the view rides the rideable bike, its frame in the instance's trim", () => {
+    const body = new MeshBuilder();
+    addRiddenBike(body, false);
+    const g = unindexed(body.build({ facade: true }));
+    const parts = new Set<number>();
+    const facade = g.getAttribute('facade');
+    for (let i = 0; i < facade.count; i++) parts.add(facade.getX(i));
+    // The frame takes the trim; the lamp and the reflector light up as a car's do.
+    expect(parts.has(BIKE + TINT.trim)).toBe(true);
+    expect(parts.has(PART.head) && parts.has(PART.tail)).toBe(true);
+    // Wheels and crank on their bones, nothing from the figure, no blob shadow.
+    expect(parts.has(BIKE + 2) && parts.has(BIKE + 3) && parts.has(BIKE + 4)).toBe(true);
+    expect([...parts].some((p) => p >= FIGURE && p < BIKE)).toBe(false);
+    g.computeBoundingBox();
+    expect(g.boundingBox!.min.y).toBeGreaterThanOrEqual(0);
+    expect(g.boundingBox!.max.x).toBeCloseTo((0.55 + 0.34 + 0.04) * CHARACTER_SCALE, 0);
+    const hull = new MeshBuilder();
+    addRiddenBike(hull, true);
+    const h = unindexed(hull.build({ facade: true }));
+    expect(h.getAttribute('position').count).toBeLessThan(g.getAttribute('position').count);
+    // With its rider: one shape, under 1,700 triangles with its hull.
+    const whole = new MeshBuilder();
+    NEAR_SHAPES.bike(whole, false);
+    const wholeHull = new MeshBuilder();
+    NEAR_SHAPES.bike(wholeHull, true);
+    expect(trianglesIn(whole) + trianglesIn(wholeHull)).toBeLessThan(1700);
+    const person = new MeshBuilder();
+    NEAR_SHAPES.person(person, false);
+    expect(trianglesIn(person)).toBeGreaterThan(400);
+    // A car and a bus near the view carry their detail, their far shapes a few boxes.
+    for (const kind of ['car', 'bus'] as const) {
+      const nearShape = new MeshBuilder();
+      NEAR_SHAPES[kind](nearShape, false);
+      const farShape = new MeshBuilder();
+      SHAPES[kind](farShape);
+      expect(trianglesIn(nearShape)).toBeGreaterThan(trianglesIn(farShape) + 40);
+      expect(trianglesIn(nearShape)).toBeLessThan(260);
+      const nearHull = new MeshBuilder();
+      NEAR_SHAPES[kind](nearHull, true);
+      expect(trianglesIn(nearHull)).toBeLessThan(trianglesIn(nearShape));
+    }
+  });
+
+  test("the far shapes grow to the figure's size, joints and all; tints come from the wardrobe", () => {
+    const mesh = new MeshBuilder();
+    SHAPES.person(mesh);
+    const g = atFigureSize(mesh.build({ facade: true, keep: true }));
+    g.computeBoundingBox();
+    expect(g.boundingBox!.max.y).toBeCloseTo(1.84 * CHARACTER_SCALE, 2);
+    const facade = g.getAttribute('facade');
+    let hip = 0;
+    for (let i = 0; i < facade.count; i++) {
+      const v = facade.getX(i);
+      if (Math.floor(v) === PART.legL) hip = (v - PART.legL) * 10;
+    }
+    expect(hip).toBeCloseTo(0.85 * CHARACTER_SCALE, 2);
+    const v = { kind: 'person', paint: [0.1, 0.2, 0.3], blink: 0.37 } as Parameters<
+      typeof tintsOf
+    >[0];
+    const [shirt, trim, skin, hair] = tintsOf(v);
+    expect(shirt).toEqual([0.1, 0.2, 0.3]);
+    expect(from(GUESTS.legs, trim)).toBe(true);
+    expect(from(GUESTS.skin, skin)).toBe(true);
+    expect(from(GUESTS.hair, hair)).toBe(true);
+    expect(from(BIKES, tintsOf({ ...v, kind: 'bike' })[1])).toBe(true);
+    // The same instance always dresses the same; others dress differently now and then.
+    expect(tintsOf(v)).toEqual(tintsOf({ ...v }));
+    const others = Array.from({ length: 20 }, (_, i) => hex(tintsOf({ ...v, blink: i / 20 })[2]));
+    expect(new Set(others).size).toBeGreaterThan(2);
+  });
+
   test('boxOf writes the faces asked for', () => {
     expect(count(FACE.top)).toBe(1);
     expect(count(FACE.top | FACE.bottom)).toBe(2);
@@ -128,6 +263,17 @@ describe('vehicle shapes', () => {
     expect(out).toContain('attribute vec4 state');
     expect(out).toContain('fract(facade) * 10.0');
     expect(out).toContain('sin(state.x)');
+    // The figure's chains: ankle, knee and hip; elbow and shoulder; the bike's wheels and crank.
+    expect(out).toContain(`part >= ${FIGURE}.0`);
+    expect(out.match(/turn\(transformed/g)!.length).toBeGreaterThanOrEqual(12);
+    expect(out).toContain('harm(');
+    for (const c of [...GAIT.walk.thigh, ...GAIT.ride.knee]) expect(out).toContain(c.toFixed(3));
+    // The tints: each face's colour times the instance's, after the paint swap.
+    expect(TINT_GLSL).toContain('vColor.rgb = paint * shade');
+    expect(TINT_GLSL).toContain(`${TINT.skin}`);
+    // The gait tables: a leg's swing is about the walker's, and pedalling bends the knee most.
+    expect(Math.abs(GAIT.walk.thigh[2])).toBeGreaterThan(0.5);
+    expect(GAIT.ride.knee[0]).toBeGreaterThan(GAIT.walk.knee[0]);
   });
 });
 
@@ -154,7 +300,8 @@ describe('createTrafficLayer', () => {
 
   test('draws a body and an ink hull per kind, moving every instance and its state each update', () => {
     const layer = createTrafficLayer(kit, 2);
-    expect(layer.meshes).toHaveLength(VEHICLE_KINDS.length * 2);
+    // A body and a hull per kind, far and near.
+    expect(layer.meshes).toHaveLength(VEHICLE_KINDS.length * 4);
     let drawn = 0;
     for (let i = 0; i < 90; i++) drawn = layer.update(1 / 30, 100, 100, 400);
     expect(drawn).toBeGreaterThan(0);
@@ -177,6 +324,30 @@ describe('createTrafficLayer', () => {
     expect(state.getX(i)).toBeCloseTo(v.phase, 3);
     expect(state.getW(i)).toBeCloseTo(v.blink, 5);
     // The vehicles' shaders: the paint and the lamps go in where the toon shader has its hooks.
+    // Close in, the nearest people and cyclists are drawn as the figure, the far instance of
+    // each gone; zoomed out, none are.
+    // Each kind's far pair then its near pair: the people's far at 12, near at 14.
+    const nearPeople = layer.meshes[14]!;
+    const farPeople = layer.meshes[12]!;
+    for (let k = 0; k < 30; k++) layer.update(1 / 30, 100, 100, NEAR_VIEW);
+    expect(nearPeople.count).toBeGreaterThan(0);
+    expect(nearPeople.count).toBeLessThanOrEqual(NEAR.person);
+    const people = layer.traffic.vehicles.filter((o) => o.kind === 'person');
+    let shown = 0;
+    for (const [j, o] of people.entries()) {
+      if (!o.active) continue;
+      const [ox, oz] = layer.traffic.place(o);
+      farPeople.getMatrixAt(j, m);
+      const scale = new Vector3().setFromMatrixScale(m).x;
+      if (scale === 0) shown++;
+      else expect(Math.hypot(ox - 100, oz - 100)).toBeGreaterThan(NEAR_RANGE - 25);
+    }
+    expect(shown).toBe(nearPeople.count);
+    nearPeople.getMatrixAt(0, m);
+    expect(new Vector3().setFromMatrixScale(m).x).toBeCloseTo(1);
+    expect(nearPeople.geometry.getAttribute('skin').count).toBe(NEAR.person);
+    for (let k = 0; k < 30; k++) layer.update(1 / 30, 100, 100, NEAR_VIEW + 1);
+    expect(nearPeople.count).toBe(0);
     const material = cars.material as MeshToonMaterial;
     const shader = {
       uniforms: {} as Record<string, unknown>,

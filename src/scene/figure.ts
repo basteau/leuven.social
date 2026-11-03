@@ -167,25 +167,46 @@ export function grown(rings: readonly Ring[], width: number): Ring[] {
   });
 }
 
-/** A part's faces, facing out, or in for its hull, which is all ink, marked with its bone. */
+/** Where a figure drawn elsewhere than the walker puts its points and what its faces carry. */
+export interface SolidFrame {
+  /** Where a model point goes (as it is, by default). */
+  place?: (p: V3) => V3;
+  /** The facade value a face writes, from its bone and its colour (the bone, by default). */
+  facade?: (bone: number, color: number) => number;
+  /** The colour a face is written in, from its own (its own, by default). */
+  paint?: (color: number) => number;
+}
+
+type Builder = Pick<MeshBuilder, 'quad' | 'triangle'>;
+
+/**
+ * A part's faces, facing out, or in for its hull, which is all ink, marked with its bone, or
+ * with what `frame` makes of its bone and colour, placed where it says.
+ */
 export function addSolid(
-  mesh: MeshBuilder,
+  mesh: Builder,
   solid: Solid,
   rings: readonly Ring[],
   hull: boolean,
+  frame: SolidFrame = {},
 ): void {
-  const middle = centroid(rings.flat());
+  const place = frame.place ?? ((p: V3) => p);
+  const middle = place(centroid(rings.flat()));
   const bone = BONES.indexOf(solid.bone);
-  const colour = (band: number, side: number) =>
-    hull ? OUTLINE : (solid.paint?.(band, side) ?? solid.color);
+  const code = (band: number, side: number) => {
+    const color = hull ? OUTLINE : (solid.paint?.(band, side) ?? solid.color);
+    const facade = frame.facade ? frame.facade(bone, color) : bone;
+    return [frame.paint ? frame.paint(color) : color, facade] as const;
+  };
   const facing = (points: readonly V3[]) =>
     centroid(points).map((x, k) => (hull ? middle[k]! - x : x - middle[k]!)) as unknown as V3;
   for (let band = 0; band + 1 < rings.length; band++) {
     const [a, b] = [rings[band]!, rings[band + 1]!];
     for (let i = 0; i < a.length; i++) {
       const j = (i + 1) % a.length;
-      const quad = [a[i]!, a[j]!, b[j]!, b[i]!] as const;
-      mesh.quad(...quad, colour(band, i), facing(quad), bone);
+      const quad = [a[i]!, a[j]!, b[j]!, b[i]!].map(place) as [V3, V3, V3, V3];
+      const [color, facade] = code(band, i);
+      mesh.quad(...quad, color, facing(quad), facade);
     }
   }
   for (const [band, ring, open] of [
@@ -193,12 +214,17 @@ export function addSolid(
     [rings.length - 1, rings.at(-1)!, solid.open?.[1]],
   ] as const) {
     if (open) continue;
-    const hint = facing(ring);
-    for (let i = 1; i + 1 < ring.length; i++) {
-      mesh.triangle(ring[0]!, ring[i]!, ring[i + 1]!, colour(band, -1), hint, bone);
+    const placed = ring.map(place);
+    const hint = facing(placed);
+    for (let i = 1; i + 1 < placed.length; i++) {
+      const [color, facade] = code(band, -1);
+      mesh.triangle(placed[0]!, placed[i]!, placed[i + 1]!, color, hint, facade);
     }
   }
 }
+
+/** How far out from the body the arms hang (radians), so the hands clear the shirt's hem. */
+export const ARM_SPREAD = 0.07;
 
 const mirrorRing = (ring: Ring): Ring => ring.map(([x, y, z]): V3 => [-x, y, z]);
 const mirror = (s: Solid): Solid => ({
@@ -231,7 +257,7 @@ const across = (y: number, w: number, z0: number, z1: number, bevel: number) =>
 const NO_HULL = { hull: false } as const;
 
 /** A colour darkened by `k` (0 to 1): seams, hems and the shadowed side of folds. */
-const shade = (hex: number, k: number) =>
+export const shade = (hex: number, k: number) =>
   [16, 8, 0].reduce((sum, at) => sum + (Math.round(((hex >> at) & 255) * k) << at), 0);
 /**
  * The sneakers' sole, a few shades lighter than the upper. The figure's details take their

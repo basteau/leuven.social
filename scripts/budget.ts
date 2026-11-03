@@ -106,10 +106,22 @@ const BUDGETS: {
   // vehicles' driving (routes, lanes, corners, junctions), their shapes and the instanced layer
   // that draws them. 9: routes, corners, junctions, people, the richer models and their lights
   // and limbs took it from 4.7 to 8.2 KB.
+  // 12: lanes from the kerbs, cars queuing behind bikes, routes by class, and the people and
+  // cyclists near the view drawn as the walker's figure on the rideable bike (the figure's
+  // shader, the near meshes and their tints) took it to 11.6 KB; the figure and the bike
+  // themselves are chunks shared with walk mode and riding, counted below.
   {
     label: 'Traffic JS (after first frame)',
     pattern: 'assets/vehicles-*.js',
-    limit: 9 * KB,
+    limit: 12 * KB,
+    gzip: true,
+  },
+  // The walker's figure and the rideable bike, shared by the traffic (which loads first) with
+  // walk mode and riding, so the one figure and the one bike are drawn in every role.
+  {
+    label: 'Figure and bike JS (with the traffic)',
+    pattern: 'assets/{figure,bike-rig}-*.js',
+    limit: 6 * KB,
     gzip: true,
   },
   // The plates on the facades load after walk mode, in a chunk and a data file of their own.

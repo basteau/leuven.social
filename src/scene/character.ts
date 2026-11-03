@@ -3,6 +3,7 @@ import type { BufferGeometry, Material } from 'three';
 
 import {
   ANKLE,
+  ARM_SPREAD,
   BALL,
   BONES,
   CHARACTER_SCALE,
@@ -33,6 +34,7 @@ import { IDLE_SECONDS, STRIDE_RUN, STRIDE_WALK, WALK_SPEED, runBlend } from './w
 export { FOREARM, SHIN, THIGH, UPPER_ARM, limbIK };
 export type { Limb };
 export {
+  ARM_SPREAD,
   BONES,
   CHARACTER_SCALE,
   OUTLINE_WIDTH,
@@ -178,8 +180,6 @@ export interface Pose {
   look: number;
 }
 
-/** How far out from the body the arms hang (radians). */
-export const ARM_SPREAD = 0.07;
 /** Elbows hang a little bent, as arms do. */
 const REST_ELBOW = -0.12;
 /** The furthest the head turns toward where the camera looks (radians). */

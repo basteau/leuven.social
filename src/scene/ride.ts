@@ -354,6 +354,7 @@ export function createRide(kit: RideKit): Ride {
       color: new Float32Array(most * BIKE_MOST.vertices * 3),
       bone: new Uint8Array(most * BIKE_MOST.vertices),
       dither: new Uint8Array(most * BIKE_MOST.vertices),
+      hull: new Uint8Array(most * BIKE_MOST.vertices),
       index: new Uint16Array(most * BIKE_MOST.indices),
     };
     const at = { vertices: 0, indices: 0 };

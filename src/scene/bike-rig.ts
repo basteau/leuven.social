@@ -67,6 +67,8 @@ export interface BikeArrays {
   bone: Uint8Array;
   /** 1 for the blob shadow, which the figure's material draws as a checkerboard. */
   dither: Uint8Array;
+  /** 1 for the ink hulls, so another drawing (the traffic's cyclists) can keep them apart. */
+  hull: Uint8Array;
   index: Uint16Array;
 }
 
@@ -77,10 +79,18 @@ class Faces {
   color: number[] = [];
   bone: number[] = [];
   dither: number[] = [];
+  hull: number[] = [];
   index: number[] = [];
 
   /** A planar polygon, fanned from its first corner, facing `hint`. */
-  polygon(corners: readonly V3[], hint: V3, color: number, bone: number, dither = 0): void {
+  polygon(
+    corners: readonly V3[],
+    hint: V3,
+    color: number,
+    bone: number,
+    dither = 0,
+    hull = 0,
+  ): void {
     const [a, b, c] = corners as [V3, V3, V3];
     const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
     const v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
@@ -99,6 +109,7 @@ class Faces {
       this.color.push(((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255);
       this.bone.push(bone);
       this.dither.push(dither);
+      this.hull.push(hull);
     }
     for (let i = 1; i + 1 < corners.length; i++) {
       if (flip) this.index.push(first, first + i + 1, first + i);
@@ -148,12 +159,14 @@ class Faces {
           out(n),
           c,
           bone,
+          0,
+          inward ? 1 : 0,
         );
       }
       if (!caps) return;
       for (const end of [0, 1]) {
         const corners = ring.map(([s, t]) => corner(s, t, end));
-        this.polygon(corners, out(scale(along, end ? 1 : -1)), c, bone);
+        this.polygon(corners, out(scale(along, end ? 1 : -1)), c, bone, 0, inward ? 1 : 0);
       }
     };
     box(0, false, color);
@@ -167,6 +180,7 @@ class Faces {
       color: Float32Array.from(this.color),
       bone: Uint8Array.from(this.bone),
       dither: Uint8Array.from(this.dither),
+      hull: Uint8Array.from(this.hull),
       index: Uint16Array.from(this.index),
     };
   }
@@ -491,6 +505,7 @@ export function bakeBike(
     into.color.set(bike.color.subarray(v * 3, v * 3 + 3), o);
     into.bone[at.vertices + v] = 0;
     into.dither[at.vertices + v] = bike.dither[v]!;
+    into.hull[at.vertices + v] = bike.hull[v]!;
   }
   for (let i = 0; i < bike.index.length; i++)
     into.index[at.indices + i] = bike.index[i]! + at.vertices;
