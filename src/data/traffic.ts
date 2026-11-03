@@ -84,12 +84,15 @@ export const TAGGED_PAVEMENT = 1.8;
 /**
  * A way's measured sides, with OSM's pavements where the GRB cut no kerb along it: a tagged
  * pavement puts the kerb a pavement's width in from the facade (what the open ground leaves),
- * a tagged lack of one puts it at the facade, so nobody walks there; a side the GRB measured,
- * or OSM says nothing about, stays as it is.
+ * a tagged lack of one puts it at the facade, so nobody walks there. Where OSM says nothing
+ * either, `assume` (a built-up street or main road in Flanders, which has pavements; not a
+ * living street, which is shared) takes a pavement on a side with room for one, so people
+ * keep off the carriageway there too. A side the GRB measured stays as it is.
  */
-export function sidesWithTags(sides: [Side, Side], tags: Sidewalks): [Side, Side] {
+export function sidesWithTags(sides: [Side, Side], tags: Sidewalks, assume = false): [Side, Side] {
   return sides.map((side, i) => {
-    const tagged = i === 0 ? tags.right : tags.left;
+    const tagged =
+      (i === 0 ? tags.right : tags.left) ?? (assume && side.edge >= 2.5 ? true : undefined);
     if (side.kerb > 0 || tagged === undefined) return side;
     const kerb = tagged ? Math.max(side.edge - TAGGED_PAVEMENT, side.edge * 0.4) : side.edge;
     return { kerb: Math.round(kerb * 10) / 10, edge: side.edge };

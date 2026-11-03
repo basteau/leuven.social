@@ -135,6 +135,32 @@ describe('sidewalks', () => {
     });
     // OSM silent: as measured.
     expect(sidesWithTags(measured, { right: undefined, left: undefined })).toEqual(measured);
+    // Where OSM says nothing either, a built-up street is taken to have pavements where there
+    // is room for them; a living street, or a lane too narrow, is not.
+    const silent = { right: undefined, left: undefined };
+    expect(
+      sidesWithTags(
+        [
+          { kerb: 0, edge: 5 },
+          { kerb: 0, edge: 2 },
+        ],
+        silent,
+        true,
+      ),
+    ).toEqual([
+      { kerb: 3.2, edge: 5 },
+      { kerb: 0, edge: 2 },
+    ]);
+    expect(
+      sidesWithTags(
+        [
+          { kerb: 0, edge: 5 },
+          { kerb: 0, edge: 5 },
+        ],
+        silent,
+        false,
+      )[0]!.kerb,
+    ).toBe(0);
     // A narrow street keeps most of its width for the carriageway.
     expect(
       sidesWithTags(

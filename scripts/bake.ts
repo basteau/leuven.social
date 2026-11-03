@@ -703,7 +703,11 @@ const ways: Way[] = splitAtJunctions(drivable)
         const [right, left] =
           kind === 'path'
             ? [{ ...PATH_SIDE }, { ...PATH_SIDE }]
-            : sidesWithTags(sidesOf(simplified, openGround, onCarriageway), sidewalks);
+            : sidesWithTags(
+                sidesOf(simplified, openGround, onCarriageway),
+                sidewalks,
+                (kind === 'street' || kind === 'main') && !minor,
+              );
         return { kind, oneway, bikesBoth, surface, right, left, through, minor, line: simplified };
       }),
   )
