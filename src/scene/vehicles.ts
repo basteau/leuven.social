@@ -958,13 +958,28 @@ export function createTrafficLayer(kit: TrafficKit, seed = 1): TrafficLayer {
   const matrix = new three.Matrix4();
   const tilt = new three.Matrix4();
   const gone = new three.Matrix4().makeScale(0, 0, 0);
-  // What each edge is drawn on: a square's setts lie higher than a street.
+  // What each edge is drawn on: a square's setts lie higher than a street. Each square's box
+  // is tried before its outline, so the thousands of edges cost a few milliseconds.
   const { edges } = traffic.graph;
   const lift = new Float32Array(edges.length);
+  const squares = kit.city.plazas.map((ring) => {
+    const box = [Infinity, Infinity, -Infinity, -Infinity];
+    for (let i = 0; i + 1 < ring.length; i += 2) {
+      box[0] = Math.min(box[0]!, ring[i]!);
+      box[1] = Math.min(box[1]!, ring[i + 1]!);
+      box[2] = Math.max(box[2]!, ring[i]!);
+      box[3] = Math.max(box[3]!, ring[i + 1]!);
+    }
+    return { ring, box };
+  });
   const mid: [number, number, number, number] = [0, 0, 0, 0];
   for (const [i, e] of edges.entries()) {
     alongEdge(e, e.length / 2, mid);
-    const onSquare = kit.city.plazas.some((ring) => pointInRing(ring, mid[0], mid[1]));
+    const [x, z] = mid;
+    const onSquare = squares.some(
+      ({ ring, box }) =>
+        x >= box[0]! && x <= box[2]! && z >= box[1]! && z <= box[3]! && pointInRing(ring, x, z),
+    );
     lift[i] = onSquare ? kit.lift.square : kit.lift.street;
   }
   const stood = { y: 0 };
