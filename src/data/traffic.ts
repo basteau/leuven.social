@@ -30,6 +30,56 @@ export interface WayStyle {
   /** A one-way street bikes may ride both ways (`oneway:bicycle=no`, Leuven's cycle streets). */
   bikesBoth: boolean;
   surface: Surface;
+  /**
+   * Whether OSM says there is a pavement right and left of the way as stored (`sidewalk=*`,
+   * `sidewalk:left|right|both`; `separate` is one mapped as a way of its own), or nothing.
+   */
+  sidewalks: Sidewalks;
+}
+
+export interface Sidewalks {
+  right: boolean | undefined;
+  left: boolean | undefined;
+}
+
+/** OSM's word for a pavement on a side: there is one, there is none, or it doesn't say. */
+const sidewalkTag = (value: string | undefined): boolean | undefined =>
+  value === undefined || value === '' ? undefined : value !== 'no' && value !== 'none';
+
+/** The pavements OSM tags on a way, right and left of the way as stored (`reverse` swaps them). */
+export function sidewalksOf(tags: Tags, reverse: boolean): Sidewalks {
+  let [right, left]: (boolean | undefined)[] = [undefined, undefined];
+  const both = tags.sidewalk;
+  if (both === 'both' || both === 'separate') [right, left] = [true, true];
+  else if (both === 'no' || both === 'none') [right, left] = [false, false];
+  else if (both === 'right') [right, left] = [true, false];
+  else if (both === 'left') [right, left] = [false, true];
+  const each = sidewalkTag(tags['sidewalk:both']);
+  if (each !== undefined) [right, left] = [each, each];
+  right = sidewalkTag(tags['sidewalk:right']) ?? right;
+  left = sidewalkTag(tags['sidewalk:left']) ?? left;
+  return reverse ? { right: left, left: right } : { right, left };
+}
+
+/**
+ * How wide a pavement OSM says is there is taken to be where the GRB cut no kerb (m): a
+ * Flemish pavement's usual width.
+ */
+export const TAGGED_PAVEMENT = 1.8;
+
+/**
+ * A way's measured sides, with OSM's pavements where the GRB cut no kerb along it: a tagged
+ * pavement puts the kerb a pavement's width in from the facade (what the open ground leaves),
+ * a tagged lack of one puts it at the facade, so nobody walks there; a side the GRB measured,
+ * or OSM says nothing about, stays as it is.
+ */
+export function sidesWithTags(sides: [Side, Side], tags: Sidewalks): [Side, Side] {
+  return sides.map((side, i) => {
+    const tagged = i === 0 ? tags.right : tags.left;
+    if (side.kerb > 0 || tagged === undefined) return side;
+    const kerb = tagged ? Math.max(side.edge - TAGGED_PAVEMENT, side.edge * 0.4) : side.edge;
+    return { kerb: Math.round(kerb * 10) / 10, edge: side.edge };
+  }) as [Side, Side];
 }
 
 /**
@@ -62,12 +112,14 @@ export function wayFromOsm(tags: Tags): WayStyle | null {
   // A roundabout is one way round, whether or not it says so.
   const round = tags.junction === 'roundabout' || tags.junction === 'circular';
   const oneway = tags.oneway === 'yes' || tags.oneway === '-1' || (round && !tags.oneway);
+  const reverse = tags.oneway === '-1';
   return {
     kind,
     oneway,
-    reverse: tags.oneway === '-1',
+    reverse,
     bikesBoth: oneway && tags['oneway:bicycle'] === 'no',
     surface: surfaceOf(tags),
+    sidewalks: sidewalksOf(tags, reverse),
   };
 }
 

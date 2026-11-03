@@ -3,15 +3,19 @@ import { describe, expect, test } from 'bun:test';
 import type { Way } from './city.ts';
 import {
   PAVEMENT,
+  TAGGED_PAVEMENT,
   alongEdge,
   pavementOf,
   roadGraph,
   roadRouter,
   sidesOf,
+  sidesWithTags,
+  sidewalksOf,
   splitAtJunctions,
   turnBetween,
   wayFromOsm,
 } from './traffic.ts';
+import type { Side } from './city.ts';
 
 describe('wayFromOsm', () => {
   test('main roads, streets and cycle tracks, with links counted with their road', () => {
@@ -67,6 +71,59 @@ describe('wayFromOsm', () => {
     expect(wayFromOsm({ highway: 'tertiary', junction: 'circular', oneway: 'no' })?.oneway).toBe(
       false,
     );
+  });
+});
+
+describe('sidewalks', () => {
+  test('OSM says which sides have a pavement, right and left of the way as stored', () => {
+    expect(sidewalksOf({ sidewalk: 'both' }, false)).toEqual({ right: true, left: true });
+    expect(sidewalksOf({ sidewalk: 'separate' }, false)).toEqual({ right: true, left: true });
+    expect(sidewalksOf({ sidewalk: 'no' }, false)).toEqual({ right: false, left: false });
+    expect(sidewalksOf({ sidewalk: 'right' }, false)).toEqual({ right: true, left: false });
+    expect(sidewalksOf({ sidewalk: 'left' }, true)).toEqual({ right: true, left: false });
+    expect(sidewalksOf({ 'sidewalk:left': 'yes' }, false)).toEqual({
+      right: undefined,
+      left: true,
+    });
+    expect(sidewalksOf({ 'sidewalk:both': 'no', 'sidewalk:right': 'separate' }, false)).toEqual({
+      right: true,
+      left: false,
+    });
+    expect(sidewalksOf({}, false)).toEqual({ right: undefined, left: undefined });
+    expect(wayFromOsm({ highway: 'residential', sidewalk: 'both' })?.sidewalks).toEqual({
+      right: true,
+      left: true,
+    });
+  });
+
+  test('where the GRB cut no kerb, a tagged pavement is a pavement and a tagged lack is none', () => {
+    const measured: [Side, Side] = [
+      { kerb: 0, edge: 5 },
+      { kerb: 3, edge: 5 },
+    ];
+    // A pavement's width in from the facade on the right; the left was measured and stays.
+    expect(sidesWithTags(measured, { right: true, left: true })).toEqual([
+      { kerb: 3.2, edge: 5 },
+      { kerb: 3, edge: 5 },
+    ]);
+    // No pavement: the kerb at the facade.
+    expect(sidesWithTags(measured, { right: false, left: undefined })[0]).toEqual({
+      kerb: 5,
+      edge: 5,
+    });
+    // OSM silent: as measured.
+    expect(sidesWithTags(measured, { right: undefined, left: undefined })).toEqual(measured);
+    // A narrow street keeps most of its width for the carriageway.
+    expect(
+      sidesWithTags(
+        [
+          { kerb: 0, edge: 2 },
+          { kerb: 0, edge: 2 },
+        ],
+        { right: true, left: true },
+      )[0],
+    ).toEqual({ kerb: 0.8, edge: 2 });
+    expect(TAGGED_PAVEMENT).toBeGreaterThan(PAVEMENT);
   });
 });
 

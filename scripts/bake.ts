@@ -76,7 +76,7 @@ import { placeBoards } from '../src/data/boards.ts';
 import { fitTerraces, markShopFronts, placeFronts } from '../src/data/shops.ts';
 import { bridgeParapets, tankOutline } from '../src/data/structures.ts';
 import { joinLines, nameTable, streetName } from '../src/data/streets.ts';
-import { sidesOf, splitAtJunctions, wayFromOsm } from '../src/data/traffic.ts';
+import { sidesOf, sidesWithTags, splitAtJunctions, wayFromOsm } from '../src/data/traffic.ts';
 import type { Way } from '../src/data/city.ts';
 import { clearCrowns, mergeTrees, trunkRadius } from '../src/data/trees.ts';
 import { DATA } from './data-files.ts';
@@ -695,7 +695,7 @@ const drivable = osmRoads.features.flatMap((f) => {
   return [{ ...style, line }];
 });
 const ways: Way[] = splitAtJunctions(drivable)
-  .flatMap(({ kind, oneway, bikesBoth, surface, line }) =>
+  .flatMap(({ kind, oneway, bikesBoth, surface, sidewalks, line }) =>
     AREA.flatMap((rect) => clipLine(line, rect))
       .flatMap((piece) => uncoveredPieces(piece, (x, z) => footprints.contains(x, z), 1))
       .map((piece) => {
@@ -703,7 +703,7 @@ const ways: Way[] = splitAtJunctions(drivable)
         const [right, left] =
           kind === 'path'
             ? [{ ...PATH_SIDE }, { ...PATH_SIDE }]
-            : sidesOf(simplified, openGround, onCarriageway);
+            : sidesWithTags(sidesOf(simplified, openGround, onCarriageway), sidewalks);
         return { kind, oneway, bikesBoth, surface, right, left, line: simplified };
       }),
   )
