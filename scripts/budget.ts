@@ -113,11 +113,13 @@ const BUDGETS: {
   // themselves are chunks shared with walk mode and riding, counted below.
   // 12.5: the lamps' halos, beams in three strips that soften at the edges, and the bikes'
   // lamps and pools (0.3 KB), asked for. 13: standing on the slope and on the squares (the
-  // squares found by their boxes), and no gridlock, at 12.6 KB.
+  // squares found by their boxes), and no gridlock, at 12.6 KB. 14: corners and bends built
+  // in lane space, spawning out of the view's corners and turning round at a cul-de-sac in
+  // view (0.7 KB), at 13.3 KB.
   {
     label: 'Traffic JS (after first frame)',
     pattern: 'assets/vehicles-*.js',
-    limit: 13 * KB,
+    limit: 14 * KB,
     gzip: true,
   },
   // The walker's figure and the rideable bike, shared by the traffic (which loads first) with
