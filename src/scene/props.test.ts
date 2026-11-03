@@ -342,15 +342,25 @@ test("a lamp's glow is a lit lantern over the furniture's and a pool fading out 
   addLampGlow(mesh, lamp);
   const g = unindexed(mesh.build({ facade: true }));
   g.computeBoundingBox();
-  expect(g.getAttribute('position').count / 3).toBe(12 + 12);
+  expect(g.getAttribute('position').count / 3).toBe(12 + 36);
   const fade = g.getAttribute('facade');
   const y = g.getAttribute('position');
+  // The pool's middle lies ahead of the post, under the lantern, which hangs over the kerb.
+  let [cx, cz, reach] = [0, 0, 0];
   for (let i = 0; i < fade.count; i++) {
-    // Lantern corners glow full; a pool's middle glows full and its rim not at all.
-    const onGround = y.getY(i) < 0.1;
-    const atMiddle = Math.hypot(y.getX(i) - lamp.x, y.getZ(i) - lamp.z) < 1e-6;
-    expect(fade.getX(i)).toBe(!onGround || atMiddle ? 1 : 0);
+    if (y.getY(i) < 0.1 && fade.getX(i) === 1) [cx, cz] = [y.getX(i), y.getZ(i)];
   }
+  expect(Math.hypot(cx - lamp.x, cz - lamp.z)).toBeGreaterThan(0.2);
+  expect(Math.atan2(cz - lamp.z, cx - lamp.x)).toBeCloseTo(0.4);
+  for (let i = 0; i < fade.count; i++) {
+    // Lantern corners glow full; a pool's middle glows full, its inner ring half, its rim not.
+    const onGround = y.getY(i) < 0.1;
+    const r = Math.hypot(y.getX(i) - cx, y.getZ(i) - cz);
+    reach = Math.max(reach, onGround ? r : 0);
+    if (!onGround) expect(fade.getX(i)).toBe(1);
+    else expect(fade.getX(i)).toBe(r < 1e-6 ? 1 : r < 3 ? 0.5 : 0);
+  }
+  expect(reach).toBeGreaterThan(5);
   // The lantern stands where the furniture's does, a hair larger, over the pool.
   const { box } = built(lamp);
   expect(g.boundingBox!.max.y).toBeGreaterThan(box.max.y);

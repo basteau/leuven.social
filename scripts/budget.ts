@@ -42,7 +42,8 @@ const BUDGETS: {
     // mullions, windows that light up at night, and chimneys, dormers and roof windows.
     // 172: the traffic's hooks (1.2 KB): loading its chunk, the live loop that steps it and
     // the day, keeping it round the view, and counting it in the frame budget.
-    limit: 172 * KB,
+    // 172.5: the kerbstones along the carriageways (0.3 KB), asked for so the pavements read.
+    limit: 172.5 * KB,
     gzip: true,
   },
   // 3.5: just above 3.1 KB.
@@ -110,10 +111,12 @@ const BUDGETS: {
   // cyclists near the view drawn as the walker's figure on the rideable bike (the figure's
   // shader, the near meshes and their tints) took it to 11.6 KB; the figure and the bike
   // themselves are chunks shared with walk mode and riding, counted below.
+  // 12.5: the lamps' halos, beams in three strips that soften at the edges, and the bikes'
+  // lamps and pools (0.3 KB), asked for.
   {
     label: 'Traffic JS (after first frame)',
     pattern: 'assets/vehicles-*.js',
-    limit: 12 * KB,
+    limit: 12.5 * KB,
     gzip: true,
   },
   // The walker's figure and the rideable bike, shared by the traffic (which loads first) with
@@ -145,7 +148,8 @@ const BUDGETS: {
     pattern: 'assets/{furniture,props,shops}-*.js',
     // 8: a table under each of Oude Markt's parasols, chairs round it and people at them with
     // their drinks, and bay trees by café doors, asked for to liven the square (0.9 KB).
-    limit: 8 * KB,
+    // 8.5: each lamp's pool under its lantern, fading in two rings (0.1 KB).
+    limit: 8.5 * KB,
     gzip: true,
   },
   // About 11.6k house numbers and 1.8k street plates are 67 KB, and 1.1k shop name boards 17 KB

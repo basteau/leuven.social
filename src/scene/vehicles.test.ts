@@ -36,6 +36,7 @@ import {
   atFigureSize,
   boxOf,
   createTrafficLayer,
+  settle,
   tintOf,
   tintsOf,
   vehicleVertexShader,
@@ -78,7 +79,7 @@ const count = (faces: number) => {
 };
 
 /** The most triangles a kind may cost, body and hull alike: the fleet is hundreds of each. */
-const MOST: Record<VehicleKind, number> = { car: 140, bus: 140, bike: 125, person: 70 };
+const MOST: Record<VehicleKind, number> = { car: 160, bus: 160, bike: 140, person: 70 };
 
 describe('vehicle shapes', () => {
   test('each is a few boxes, painted where the instance colours it, lit at the lamps', () => {
@@ -139,7 +140,15 @@ describe('vehicle shapes', () => {
       const v = beam.getX(i);
       if (Math.floor(v) === PART.beam) fades.add(Math.round((1 - (v - PART.beam)) * 100));
     }
-    expect([...fades].toSorted((a, b) => a - b)).toEqual([5, 100]);
+    // Full down the middle at the bumper, dim at the sides, nearly gone at the far end.
+    expect([...fades].toSorted((a, b) => a - b)).toEqual([2, 10, 30, 100]);
+    // Halos round the lamps, dithered by their own fade.
+    const halos = new Set<number>();
+    for (let i = 0; i < beam.count; i++) {
+      const v = beam.getX(i);
+      if (Math.floor(v) === PART.halo || Math.floor(v) === PART.haloTail) halos.add(Math.floor(v));
+    }
+    expect(halos).toEqual(new Set([PART.halo, PART.haloTail]));
   });
 
   test("near the view, people are the walker's figure at its size, each face on its bone and tint", () => {
@@ -196,7 +205,8 @@ describe('vehicle shapes', () => {
     expect([...parts].some((p) => p >= FIGURE && p < BIKE)).toBe(false);
     g.computeBoundingBox();
     expect(g.boundingBox!.min.y).toBeGreaterThanOrEqual(0);
-    expect(g.boundingBox!.max.x).toBeCloseTo((0.55 + 0.34 + 0.04) * CHARACTER_SCALE, 0);
+    // The lamp's pool reaches 3.5 m ahead of the lamp on the fork crown.
+    expect(g.boundingBox!.max.x).toBeCloseTo(0.52 * CHARACTER_SCALE + 3.5, 1);
     const hull = new MeshBuilder();
     addRiddenBike(hull, true);
     const h = unindexed(hull.build({ facade: true }));
@@ -294,8 +304,10 @@ describe('createTrafficLayer', () => {
     linearVertexColors,
     // The engine's dither, stood in for: the real one is GLSL the browser compiles.
     bayer: 'float bayer4(vec2 a) { return 0.5; }',
-    city: { ways: town },
-    ground: (x: number, z: number) => 0.155 + x * 0.001 + z * 0.0001,
+    // A square over the town's north-west corner; the ground climbs gently eastward.
+    city: { ways: town, plazas: [new Float32Array([-10, -10, 60, -10, 60, 60, -10, 60])] },
+    ground: (x: number, z: number) => x * 0.01 + z * 0.0001,
+    lift: { street: 0.156, square: 0.2 },
     gradientMap: new DataTexture(new Uint8Array([255]), 1, 1),
     night: { value: 0 },
     ink: OUTLINE,
@@ -322,7 +334,21 @@ describe('createTrafficLayer', () => {
     const [sx, sz] = layer.traffic.place(v);
     expect(p.x).toBeCloseTo(sx);
     expect(p.z).toBeCloseTo(sz);
-    expect(p.y).toBeCloseTo(kit.ground(p.x, p.z) + 0.03);
+    // On the drawn street (or a square's higher setts), pitched to the slope under its wheels.
+    const onSquare = p.x < 60 && p.z < 60;
+    expect(p.y).toBeCloseTo(kit.ground(p.x, p.z) + (onSquare ? 0.2 : 0.156) + 0.03, 3);
+    const stood = { y: 0 };
+    expect(settle(kit.ground, 0, 0, 1, 0, 4, stood)).toBeCloseTo(Math.atan2(0.04, 4));
+    expect(stood.y).toBeCloseTo(0);
+    expect(settle(kit.ground, 10, 0, -1, 0, 4, stood)).toBeCloseTo(-Math.atan2(0.04, 4));
+    expect(stood.y).toBeCloseTo(0.1);
+    // Heading east up the slope, the car's nose is up: its front wheels on the ground ahead.
+    const nose = new Vector3(2.1, 0, 0).applyMatrix4(m);
+    const heel = new Vector3(-2.1, 0, 0).applyMatrix4(m);
+    const ahead = new Vector3(1, 0, 0).transformDirection(m);
+    const slope = kit.ground(nose.x, nose.z) - kit.ground(heel.x, heel.z);
+    expect(nose.y - heel.y).toBeCloseTo(slope, 2);
+    expect(Math.abs(ahead.y)).toBeGreaterThan(0);
     const state = cars.geometry.getAttribute('state');
     expect(state.getX(i)).toBeCloseTo(v.phase, 3);
     expect(state.getW(i)).toBeCloseTo(v.blink, 5);

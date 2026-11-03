@@ -1,4 +1,6 @@
 import type { City } from '../data/city.ts';
+import { pointInRing } from '../data/geometry.ts';
+import { alongEdge } from '../data/traffic.ts';
 import type {
   BackSide,
   BufferGeometry,
@@ -29,7 +31,7 @@ import type { BoneName, Outfit } from './figure.ts';
 import { THIGH, UPPER_ARM } from './limb.ts';
 import type { MeshBuilder, V3 } from './mesh-builder.ts';
 import { BUS, GUESTS, PROPS, WALKER, WINDOW } from './palette.ts';
-import { STRIDE, TURN_RATE, Traffic, VEHICLE_KINDS, turnTowards } from './traffic.ts';
+import { LENGTH, STRIDE, TURN_RATE, Traffic, VEHICLE_KINDS, turnTowards } from './traffic.ts';
 import type { Vehicle, VehicleKind } from './traffic.ts';
 
 /**
@@ -56,6 +58,9 @@ export const PART = {
   legR: 8,
   armL: 9,
   armR: 10,
+  /** The glow round a lamp at night, dithered out by the fraction: a headlamp's, a tail lamp's. */
+  halo: 11,
+  haloTail: 12,
 } as const;
 
 type Builder = Pick<MeshBuilder, 'quad' | 'triangle'>;
@@ -175,6 +180,8 @@ export function addRiddenBike(mesh: Builder, hull: boolean): void {
           : PART.tail;
     mesh.triangle(v3(bike.position, i), v3(bike.position, j), v3(bike.position, k), c, hint, part);
   }
+  // The lamp on the fork crown and the reflector on the carrier's end, lit (bike-rig.ts).
+  if (!hull) bikeLight(mesh, 0.52 * S, 0.73 * S, (-AXLE - 0.125) * S, (2 * WHEEL + 0.02) * S);
 }
 
 /**
@@ -360,18 +367,43 @@ function lampAt(
   else mesh.quad(b, a, e, d, color, [-1, 0, 0], part);
 }
 
-/** The headlamps' pool of light on the street ahead (drawn at night by the shader). */
+/**
+ * The headlamps' pool of light on the street ahead (drawn at night by the shader): from the
+ * lamps to `to` metres, `nearHalf` wide there and `farHalf` at its end, brightest down the
+ * middle and dithering away to its sides and its far end: three strips, each corner carrying
+ * how bright it is in its part's fraction (1 - fade), so the pool has no hard edge.
+ */
 function beam(mesh: Builder, from: number, to: number, nearHalf: number, farHalf: number): void {
   const y = 0.02;
-  mesh.quad(
-    c(from, y, -nearHalf),
-    c(from, y, nearHalf),
-    c(to, y, farHalf),
-    c(to, y, -farHalf),
-    BUS.headlamp,
-    [0, 1, 0],
-    [PART.beam, PART.beam, PART.beam + 0.95, PART.beam + 0.95],
-  );
+  const strip = (n0: number, n1: number, f0: number, f1: number, fades: readonly number[]) =>
+    mesh.quad(
+      c(from, y, n0),
+      c(from, y, n1),
+      c(to, y, f1),
+      c(to, y, f0),
+      BUS.headlamp,
+      [0, 1, 0],
+      fades.map((fade) => PART.beam + 1 - fade) as [number, number, number, number],
+    );
+  const [ni, fi] = [nearHalf * 0.5, farHalf * 0.5];
+  strip(-ni, ni, -fi, fi, [1, 1, 0.1, 0.1]);
+  strip(-nearHalf, -ni, -farHalf, -fi, [0.3, 1, 0.1, 0.02]);
+  strip(ni, nearHalf, fi, farHalf, [1, 0.3, 0.02, 0.1]);
+}
+
+/** The glow round a lamp at night: a larger, dimmer quad just proud of it, dithered by `fade`. */
+function halo(
+  mesh: Builder,
+  x: number,
+  y: number,
+  z: number,
+  part: number,
+  color: number,
+  half: readonly [number, number],
+  fade = 0.5,
+): void {
+  const dir = x > 0 ? 1 : -1;
+  lampAt(mesh, x + dir * 0.015, y, z, part + 1 - fade, color, half);
 }
 
 /** A wheel: a dark box without its hidden top, a pale hub on its outer face. */
@@ -497,6 +529,8 @@ export function addCar(mesh: Builder, g = 1, detail = false): void {
   for (const z of [-0.6, 0.6]) {
     lampAt(mesh, 2.1, 0.7, z, PART.head, BUS.headlamp);
     lampAt(mesh, -2.1, 0.7, z, PART.tail, BUS.taillamp);
+    halo(mesh, 2.1, 0.7, z, PART.halo, BUS.headlamp, [0.17, 0.26]);
+    halo(mesh, -2.1, 0.7, z, PART.haloTail, BUS.taillamp, [0.15, 0.24]);
     const signal = z < 0 ? PART.signalL : PART.signalR;
     lampAt(mesh, 2.1, 0.7, z + Math.sign(z) * 0.22, signal, AMBER, [0.06, 0.06]);
     lampAt(mesh, -2.1, 0.7, z + Math.sign(z) * 0.22, signal, AMBER, [0.06, 0.06]);
@@ -505,7 +539,7 @@ export function addCar(mesh: Builder, g = 1, detail = false): void {
   lampAt(mesh, 2.1, 0.62, 0, PART.plain, TRIM, [0.08, 0.36]);
   lampAt(mesh, 2.1, 0.45, 0, PART.plain, PLATE, [0.06, 0.25]);
   lampAt(mesh, -2.1, 0.45, 0, PART.plain, PLATE, [0.06, 0.25]);
-  beam(mesh, 2.1, 8, 0.9, 2);
+  beam(mesh, 2.1, 10, 0.9, 2.4);
 }
 
 /**
@@ -548,11 +582,13 @@ export function addBus(mesh: Builder, g = 1, detail = false): void {
   for (const z of [-0.85, 0.85]) {
     lampAt(mesh, 6, 0.9, z, PART.head, BUS.headlamp, [0.12, 0.2]);
     lampAt(mesh, -6, 0.9, z, PART.tail, BUS.taillamp, [0.12, 0.2]);
+    halo(mesh, 6, 0.9, z, PART.halo, BUS.headlamp, [0.22, 0.32]);
+    halo(mesh, -6, 0.9, z, PART.haloTail, BUS.taillamp, [0.2, 0.3]);
     const signal = z < 0 ? PART.signalL : PART.signalR;
     lampAt(mesh, 6, 0.9, z + Math.sign(z) * 0.3, signal, AMBER, [0.08, 0.08]);
     lampAt(mesh, -6, 0.9, z + Math.sign(z) * 0.3, signal, AMBER, [0.08, 0.08]);
   }
-  beam(mesh, 6, 12, 1.2, 2.4);
+  beam(mesh, 6, 14, 1.2, 2.8);
 }
 
 /** A flat wheel seen from both sides: a thin disc as two quads. */
@@ -606,6 +642,14 @@ export function addBike(mesh: Builder, g = 1): void {
   if (g !== 1) return;
   lampAt(mesh, 0.52, 0.85, 0, PART.head, BUS.headlamp, [0.04, 0.04]);
   lampAt(mesh, -0.5, 0.75, 0, PART.tail, BUS.taillamp, [0.03, 0.04]);
+  bikeLight(mesh, 0.52, 0.85, -0.5, 0.75);
+}
+
+/** A bike's lamp and reflector at night: a halo round each, and a small pool ahead on the street. */
+function bikeLight(mesh: Builder, lampX: number, lampY: number, tailX: number, tailY: number) {
+  halo(mesh, lampX, lampY, 0, PART.halo, BUS.headlamp, [0.08, 0.08], 0.45);
+  halo(mesh, tailX, tailY, 0, PART.haloTail, BUS.taillamp, [0.06, 0.07], 0.45);
+  beam(mesh, lampX, lampX + 3.5, 0.22, 0.75);
 }
 
 /**
@@ -706,8 +750,30 @@ export function tintsOf(v: Vehicle): [shirt: V3, trim: V3, skin: V3, hair: V3] {
   return [v.paint, srgb(trim), srgb(pick(GUESTS.skin, 7)), srgb(pick(GUESTS.hair, 11))];
 }
 
-/** How far over the carriageway's surface the wheels ride, so they never sink in it (m). */
+/** How far over the drawn surface the wheels ride, so they never sink in it (m). */
 export const RIDE_HEIGHT = 0.03;
+
+/**
+ * Where a vehicle stands and how it tilts: the drawn ground sampled under its front and its
+ * back (not once under its middle, which on Leuven's slopes would bury the uphill wheels and
+ * float the downhill ones), so it sits at their mean, pitched between them. Returns the pitch
+ * (radians, nose up positive) and writes the height into `out`.
+ */
+export function settle(
+  ground: (x: number, z: number) => number,
+  x: number,
+  z: number,
+  dx: number,
+  dz: number,
+  length: number,
+  out: { y: number },
+): number {
+  const half = length / 2;
+  const front = ground(x + dx * half, z + dz * half);
+  const back = ground(x - dx * half, z - dz * half);
+  out.y = (front + back) / 2;
+  return Math.atan2(front - back, length);
+}
 
 /**
  * The vertex shader's share of the parts: the figure's bones swing with the stride (FIGURE_GLSL),
@@ -788,9 +854,11 @@ export interface TrafficKit {
   linearVertexColors: (vertexShader: string) => string;
   /** The 4×4 ordered dither, GLSL, for the beams' fade (facade-material.ts). */
   bayer: string;
-  city: Pick<City, 'ways'>;
-  /** The ground a vehicle rides on at a spot: the carriageway as drawn (m). */
+  city: Pick<City, 'ways' | 'plazas'>;
+  /** The terrain under a spot (m), without the ground layers drawn on it. */
   ground: (x: number, z: number) => number;
+  /** How high over the terrain the street is drawn, and a square (ground.ts's layers). */
+  lift: { street: number; square: number };
   gradientMap: Texture;
   /** How far into the night it is, for the lamps (the facade material's uniform). */
   night: { value: number };
@@ -848,15 +916,21 @@ export function createTrafficLayer(kit: TrafficKit, seed = 1): TrafficLayer {
       .replace(
         '#include <clipping_planes_fragment>',
         `#include <clipping_planes_fragment>
-        // The beam: a pool of light on the street, dithered out towards its far end, at night.
-        if (vPart == ${PART.beam}.0 && bayer4(gl_FragCoord.xy) >= uNight * vFade * 0.7) discard;`,
+        // The beam: a pool of light on the street, dithered out towards its edges, at night; the
+        // halos round the lamps the same, a tail lamp's with the brakes too.
+        float dither = bayer4(gl_FragCoord.xy);
+        if (vPart == ${PART.beam}.0 && dither >= uNight * vFade * 0.75) discard;
+        if (vPart == ${PART.halo}.0 && dither >= uNight * vFade) discard;
+        if (vPart == ${PART.haloTail}.0 && dither >= (0.6 * uNight + 0.9 * vState.y) * vFade) discard;`,
       )
       .replace(
         '#include <emissivemap_fragment>',
         `#include <emissivemap_fragment>
         if (vPart == ${PART.head}.0) totalEmissiveRadiance += vec3(1.0, 0.92, 0.7) * uNight;
         else if (vPart == ${PART.tail}.0) totalEmissiveRadiance += vec3(0.9, 0.08, 0.04) * (0.6 * uNight + 0.9 * vState.y);
-        else if (vPart == ${PART.beam}.0) totalEmissiveRadiance += vec3(0.8, 0.72, 0.5);
+        else if (vPart == ${PART.beam}.0) totalEmissiveRadiance += vec3(0.8, 0.72, 0.5) * (0.55 + 0.6 * vFade);
+        else if (vPart == ${PART.halo}.0) totalEmissiveRadiance += vec3(1.0, 0.9, 0.62);
+        else if (vPart == ${PART.haloTail}.0) totalEmissiveRadiance += vec3(0.9, 0.12, 0.06);
         else if (vPart == ${PART.signalL}.0 || vPart == ${PART.signalR}.0) {
           float wanted = vPart == ${PART.signalL}.0 ? step(vState.z, -0.5) : step(0.5, vState.z);
           float blink = step(0.5, fract(uTime * 1.2 + vState.w));
@@ -864,7 +938,7 @@ export function createTrafficLayer(kit: TrafficKit, seed = 1): TrafficLayer {
         }`,
       );
   };
-  material.customProgramCacheKey = () => 'vehicle-v3';
+  material.customProgramCacheKey = () => 'vehicle-v4';
   const inkMaterial = new three.MeshBasicMaterial({ color: kit.ink, side: three.BackSide });
   inkMaterial.onBeforeCompile = (shader) => {
     shader.vertexShader = vehicleVertexShader(shader.vertexShader);
@@ -876,13 +950,24 @@ export function createTrafficLayer(kit: TrafficKit, seed = 1): TrafficLayer {
       )
       .replace(
         '#include <clipping_planes_fragment>',
-        `#include <clipping_planes_fragment>\nif (vPart == ${PART.beam}.0) discard;`,
+        `#include <clipping_planes_fragment>\nif (vPart >= ${PART.beam}.0 && vPart <= ${PART.haloTail}.0 && vPart != ${PART.legL}.0 && vPart != ${PART.legR}.0 && vPart != ${PART.armL}.0 && vPart != ${PART.armR}.0) discard;`,
       );
   };
-  inkMaterial.customProgramCacheKey = () => 'vehicle-ink-v3';
+  inkMaterial.customProgramCacheKey = () => 'vehicle-ink-v4';
   const meshes: InstancedMesh[] = [];
   const matrix = new three.Matrix4();
+  const tilt = new three.Matrix4();
   const gone = new three.Matrix4().makeScale(0, 0, 0);
+  // What each edge is drawn on: a square's setts lie higher than a street.
+  const { edges } = traffic.graph;
+  const lift = new Float32Array(edges.length);
+  const mid: [number, number, number, number] = [0, 0, 0, 0];
+  for (const [i, e] of edges.entries()) {
+    alongEdge(e, e.length / 2, mid);
+    const onSquare = kit.city.plazas.some((ring) => pointInRing(ring, mid[0], mid[1]));
+    lift[i] = onSquare ? kit.lift.square : kit.lift.street;
+  }
+  const stood = { y: 0 };
   interface Group {
     mesh: InstancedMesh;
     ink: InstancedMesh;
@@ -973,8 +1058,9 @@ export function createTrafficLayer(kit: TrafficKit, seed = 1): TrafficLayer {
           // Local x ahead: a turn about y by atan2(-dz, dx) takes it to (dx, dz). The drawn
           // heading swings after the path's, so a corner is a turn, not a snap.
           v.yaw = turnTowards(v.yaw, Math.atan2(-dz, dx), TURN_RATE[v.kind], dt);
-          matrix.makeRotationY(v.yaw);
-          matrix.setPosition(x, kit.ground(x, z) + RIDE_HEIGHT, z);
+          const pitch = settle(kit.ground, x, z, dx, dz, LENGTH[v.kind], stood);
+          matrix.makeRotationY(v.yaw).multiply(tilt.makeRotationZ(pitch));
+          matrix.setPosition(x, stood.y + lift[v.edge]! + RIDE_HEIGHT, z);
           mesh.setMatrixAt(i, matrix);
           d2[i] = (x - fx) ** 2 + (z - fz) ** 2;
           states[i * 4] = v.phase;

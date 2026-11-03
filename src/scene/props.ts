@@ -499,14 +499,19 @@ const MODELS: Record<Furniture, (mesh: MeshBuilder, f: Frame) => void> = {
   },
 };
 
-/** A lamp's pool of light on the street at night: its radius (m) and how far off the ground. */
-const POOL = { radius: 4.2, sides: 12, lift: 0.07 } as const;
+/**
+ * A lamp's pool of light on the street at night: its radius (m), the inner ring where it is
+ * still half full, how far off the ground it lies, and how far ahead of the post its middle
+ * is, under the lantern, which hangs out over the kerb (in the prop's own metres).
+ */
+const POOL = { radius: 5.6, inner: 2.2, sides: 12, lift: 0.07, ahead: 0.25 } as const;
 
 /**
  * What a lamp gives off at night, for the glow mesh (createGlowMaterial): its lantern, lit, a
  * hair larger than the one in the furniture mesh so it covers it, and a pool of light on the
- * ground round its foot, full at the middle and fading to nothing at the rim (the `facade`
- * value each corner carries). 12 triangles a pool, 10 a lantern.
+ * ground under the lantern, full at the middle, half at the inner ring and nothing at the rim
+ * (the `facade` value each corner carries, which the material dithers by), so it fades the way
+ * light falls off rather than straight. 36 triangles a pool, 12 a lantern.
  */
 export function addLampGlow(mesh: MeshBuilder, p: Prop): void {
   const f = {
@@ -565,13 +570,31 @@ export function addLampGlow(mesh: MeshBuilder, p: Prop): void {
     corner(-u, v[0], y[1]),
     away(f, -1, 0),
   );
-  const centre: V3 = [p.x, POOL.lift, p.z];
-  const rim = (i: number): V3 => {
+  const [cx, cz] = [p.x + f.fx * POOL.ahead * f.scale, p.z + f.fz * POOL.ahead * f.scale];
+  const centre: V3 = [cx, POOL.lift, cz];
+  const ring = (i: number, r: number): V3 => {
     const t = (i / POOL.sides) * Math.PI * 2;
-    return [p.x + Math.cos(t) * POOL.radius, POOL.lift, p.z + Math.sin(t) * POOL.radius];
+    return [cx + Math.cos(t) * r, POOL.lift, cz + Math.sin(t) * r];
   };
+  const up: V3 = [0, 1, 0];
   for (let i = 0; i < POOL.sides; i++) {
-    mesh.triangle(centre, rim(i), rim(i + 1), PROPS.pool, [0, 1, 0], [1, 0, 0]);
+    mesh.triangle(
+      centre,
+      ring(i, POOL.inner),
+      ring(i + 1, POOL.inner),
+      PROPS.pool,
+      up,
+      [1, 0.5, 0.5],
+    );
+    mesh.quad(
+      ring(i, POOL.inner),
+      ring(i + 1, POOL.inner),
+      ring(i + 1, POOL.radius),
+      ring(i, POOL.radius),
+      PROPS.pool,
+      up,
+      [0.5, 0.5, 0, 0],
+    );
   }
 }
 
