@@ -111,7 +111,7 @@ The size and render budgets are enforced by `bun run verify`; if one is exceeded
 | App shell JS (React + the shell), gzipped             | 85 KB    | `scripts/budget.ts` |
 | 3D engine JS (three.js chunk, palette), gzipped       | 172.5 KB | `scripts/budget.ts` |
 | Furniture JS (after the first frame)                  | 8.5 KB   | `scripts/budget.ts` |
-| Traffic JS (after the first frame)                    | 12.5 KB  | `scripts/budget.ts` |
+| Traffic JS (after the first frame)                    | 14 KB    | `scripts/budget.ts` |
 | Figure and bike JS (shared with walk mode and riding) | 6 KB     | `scripts/budget.ts` |
 | Walk mode JS (loaded on first walk)                   | 20.5 KB  | `scripts/budget.ts` |
 | Street names JS (loaded with walk mode)               | 1.5 KB   | `scripts/budget.ts` |
