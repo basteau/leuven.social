@@ -72,7 +72,7 @@ export type RideAction = 'toggle' | 'bell';
 export interface RideKit {
   three: Pick<
     typeof Three,
-    'Bone' | 'BufferAttribute' | 'BufferGeometry' | 'Skeleton' | 'SkinnedMesh'
+    'Bone' | 'BufferAttribute' | 'BufferGeometry' | 'Mesh' | 'Skeleton' | 'SkinnedMesh'
   >;
   host: WalkHost;
   grid: WalkGrid;
@@ -85,6 +85,8 @@ export interface RideKit {
   armSpread: number;
   body: Material;
   xray: Material;
+  /** The lamps' light at night (the furniture's glow material): the bike's lamp, reflector and beam. */
+  glow: Material;
   boom: Boom;
   follow: Follow;
   view: PerspectiveCamera;
@@ -132,6 +134,12 @@ const FETCH = 30;
  */
 const LAST_LEG = 0.8;
 const CLOSE = 0.35;
+/** A colour as sRGB fractions, for a glow's vertices. */
+const rgb = (hex: number) => [
+  ((hex >> 16) & 255) / 255,
+  ((hex >> 8) & 255) / 255,
+  (hex & 255) / 255,
+];
 /** Walked there, the route may end this far from the spot (m) and still get on. */
 const ARRIVED = 0.6;
 /** The rider's arrival off the spot eases out over this long (s). */
@@ -217,6 +225,7 @@ export function createRide(kit: RideKit): Ride {
   bike.receiveShadow = true;
   bike.rotation.order = 'YXZ';
   bike.visible = false;
+  bike.add(bikeGlow(three, kit.glow));
   scene.add(bike);
 
   // Bikes left about the city, but the newest: one baked mesh on one bone.
@@ -227,6 +236,75 @@ export function createRide(kit: RideKit): Ride {
   parkedAll.receiveShadow = true;
   parkedAll.visible = false;
   scene.add(parkedAll);
+
+  /**
+   * What the bike gives off at night, as the street lamps do (createGlowMaterial, dithered by
+   * each corner's `facade` times the night): its lamp's lens, lit, a red reflector behind, and a
+   * pool of light on the street ahead, full at the lamp and fading to nothing at its end and
+   * its sides. In the bike's own frame (z ahead, y up), so it rides and leans with it.
+   */
+  function bikeGlow(t: RideKit['three'], material: Material): Three.Mesh {
+    const position: number[] = [];
+    const color: number[] = [];
+    const facade: number[] = [];
+    const index: number[] = [];
+    const quad = (corners: number[][], hex: number, glow: number[]) => {
+      const first = position.length / 3;
+      for (const [i, c] of corners.entries()) {
+        position.push(...c);
+        color.push(...rgb(hex));
+        facade.push(glow[i]!);
+      }
+      index.push(first, first + 1, first + 2, first, first + 2, first + 3);
+    };
+    const lamp = 0xfff2c4;
+    // The lens on the fork crown, and the reflector on the carrier's end (bike-rig.ts).
+    quad(
+      [
+        [0.05, 0.7, 0.54],
+        [-0.05, 0.7, 0.54],
+        [-0.05, 0.78, 0.54],
+        [0.05, 0.78, 0.54],
+      ],
+      lamp,
+      [1, 1, 1, 1],
+    );
+    quad(
+      [
+        [-0.05, 0.42, -0.96],
+        [0.05, 0.42, -0.96],
+        [0.05, 0.5, -0.96],
+        [-0.05, 0.5, -0.96],
+      ],
+      0xd23a2a,
+      [0.7, 0.7, 0.7, 0.7],
+    );
+    // The pool: three strips, brightest down the middle, so the sides soften.
+    const y = 0.03;
+    const strip = (x0: number, x1: number, f0: number, f1: number, glow: number[]) =>
+      quad(
+        [
+          [x0, y, 0.6],
+          [x1, y, 0.6],
+          [f1, y, 4.2],
+          [f0, y, 4.2],
+        ],
+        lamp,
+        glow,
+      );
+    strip(0.12, -0.12, 0.4, -0.4, [1, 1, 0.08, 0.08]);
+    strip(0.3, 0.12, 0.9, 0.4, [0.3, 1, 0.08, 0.02]);
+    strip(-0.12, -0.3, -0.4, -0.9, [1, 0.3, 0.02, 0.08]);
+    const g = new t.BufferGeometry();
+    g.setAttribute('position', new t.BufferAttribute(Float32Array.from(position), 3));
+    g.setAttribute('color', new t.BufferAttribute(Float32Array.from(color), 3));
+    g.setAttribute('facade', new t.BufferAttribute(Float32Array.from(facade), 1));
+    g.setIndex(index);
+    const mesh = new t.Mesh(g, material);
+    mesh.renderOrder = 3;
+    mesh.frustumCulled = false;
+    return mesh;
+  }
 
   function geometryOf(a: BikeArrays): BufferGeometry {
     const g = new three.BufferGeometry();

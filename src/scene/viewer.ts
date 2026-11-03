@@ -922,6 +922,7 @@ export function createViewer(options: ViewerOptions): Viewer {
           terrain,
           groundAt: drawnAt,
           gradientMap,
+          glow: glowMaterial,
           fog,
           sky: skyColours,
           reducedMotion,

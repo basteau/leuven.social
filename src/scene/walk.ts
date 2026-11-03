@@ -12,7 +12,15 @@ import {
   SphereGeometry,
   Vector2,
 } from 'three';
-import type { Fog, OrthographicCamera, Scene, Texture, WebGLRenderer, Color } from 'three';
+import type {
+  Color,
+  Fog,
+  Material,
+  OrthographicCamera,
+  Scene,
+  Texture,
+  WebGLRenderer,
+} from 'three';
 import type { MapControls } from './map-controls.ts';
 
 import { createWalkSounds } from '../audio/walking.ts';
@@ -185,6 +193,8 @@ export interface WalkHost {
   /** The ground as drawn where the walker stands: the terrain and the layer on it. */
   groundAt(x: number, z: number): number;
   gradientMap: Texture;
+  /** The lamps' light at night (the furniture's glow material), for the bike's lamp. */
+  glow: Material;
   /** The scene's fog, kept far off on the map: walking draws it in to the haze. */
   fog: Fog;
   /** The sky's colours now, horizon and overhead, which the viewer keeps with the daylight. */
@@ -392,7 +402,7 @@ export function createWalk(host: WalkHost): Walk {
     (rideLoad ??= import('./ride.ts').then(
       ({ createRide }) => {
         riding = createRide({
-          three: { Bone, BufferAttribute, BufferGeometry, Skeleton, SkinnedMesh },
+          three: { Bone, BufferAttribute, BufferGeometry, Mesh, Skeleton, SkinnedMesh },
           host,
           grid: ensureGrid(),
           character: character!,
@@ -400,6 +410,7 @@ export function createWalk(host: WalkHost): Walk {
           armSpread: ARM_SPREAD,
           body,
           xray,
+          glow: host.glow,
           boom,
           follow,
           view,
