@@ -9,6 +9,7 @@ import {
   DENSITY,
   FLOOR,
   LENGTH,
+  PATIENCE,
   ROUTE_COST,
   Traffic,
   VEHICLE_KINDS,
@@ -188,36 +189,82 @@ describe('Traffic', () => {
   });
 
   test('one at a time through a junction: a second car from another street waits', () => {
-    // Two cars meeting at the square's north-east corner from the west and from the south.
+    // Two cars meeting where the one-way lane leaves the main road, one from the west and one
+    // from the east, both turning south into it: a junction, three of the cars' ways meeting.
     const t = new Traffic(town, 1, counts({ car: 2 }));
     t.focus(100, 100, 2000);
     const { edges, nodes } = t.graph;
-    const corner = nodes.findIndex((n) => n.x === 200 && n.z === 0);
+    const corner = nodes.findIndex((n) => n.x === 100 && n.z === 0);
     const into = (fx: number, fz: number) =>
       edges.findIndex(
         (e) => e.cars && e.to === corner && nodes[e.from]!.x === fx && nodes[e.from]!.z === fz,
       );
-    const fromWest = into(100, 0);
-    const fromSouth = into(200, 100);
-    const onSouth = edges.findIndex((e) => e.cars && e.from === corner && nodes[e.to]!.z === 100);
-    const onWest = edges.findIndex((e) => e.cars && e.from === corner && nodes[e.to]!.x === 100);
-    expect([fromWest, fromSouth, onSouth, onWest].every((e) => e >= 0)).toBe(true);
+    const fromWest = into(0, 0);
+    const fromEast = into(200, 0);
+    const onSouth = edges.findIndex((e) => e.cars && e.from === corner && nodes[e.to]!.z === 200);
+    expect([fromWest, fromEast, onSouth].every((e) => e >= 0)).toBe(true);
     const [a, b] = t.vehicles as [Vehicle, Vehicle];
-    // Both 20 m out, rolling at 8 m/s, each turning into the other's street: the first to the
-    // box holds it, the other brakes short of it.
+    // Both rolling at 8 m/s, each turning into the lane: the first to the box holds it, the
+    // other brakes short of it and stands till it has crossed.
     put(t, a, fromWest, onSouth, 17, 8);
-    put(t, b, fromSouth, onWest, 20, 8);
+    put(t, b, fromEast, onSouth, 14, 8);
+    // Both bound for the lane's end, so neither is routed straight on instead.
+    for (const v of [a, b]) {
+      v.goal = edges[onSouth]!.to;
+      v.route = [onSouth];
+    }
     let bWaited = false;
     const inBox = (v: Vehicle, from: number) => v.edge === from && v.s > edges[from]!.length - 4;
     for (let i = 0; i < 60 * 10; i++) {
       t.step(1 / 60);
-      if (b.edge === fromSouth && b.speed < 0.3) bWaited = true;
-      expect(inBox(a, fromWest) && inBox(b, fromSouth)).toBe(false);
+      if (b.edge === fromEast && b.speed < 0.3) bWaited = true;
+      expect(inBox(a, fromWest) && inBox(b, fromEast)).toBe(false);
     }
     expect(bWaited).toBe(true);
     // Both got through in the end.
     expect(a.edge).not.toBe(fromWest);
-    expect(b.edge).not.toBe(fromSouth);
+    expect(b.edge).not.toBe(fromEast);
+  });
+
+  test('a bend, or a path joining the street, is no junction for a car: it drives on', () => {
+    // The square's north-east corner is a bend for cars: two of their ways meet, nothing crosses.
+    const t = new Traffic(town, 1, counts({ car: 1 }));
+    t.focus(100, 100, 2000);
+    const { edges, nodes } = t.graph;
+    const corner = nodes.findIndex((n) => n.x === 200 && n.z === 0);
+    const inEdge = edges.findIndex((e) => e.cars && e.to === corner && nodes[e.from]!.x === 100);
+    const outEdge = edges.findIndex((e) => e.cars && e.from === corner && nodes[e.to]!.z === 100);
+    const v = t.vehicles[0]!;
+    put(t, v, inEdge, outEdge, 15, 6);
+    for (let i = 0; i < 60 * 5 && v.edge === inEdge; i++) {
+      t.step(1 / 60);
+      expect(v.hold).toBe(-1);
+      expect(v.speed).toBeGreaterThan(2);
+    }
+    expect(v.edge).toBe(outEdge);
+  });
+
+  test('a car that waited its patience out at a junction crosses anyway', () => {
+    const t = new Traffic(town, 1, counts({ car: 2 }));
+    t.focus(100, 100, 2000);
+    const { edges, nodes } = t.graph;
+    const corner = nodes.findIndex((n) => n.x === 100 && n.z === 0);
+    const fromWest = edges.findIndex((e) => e.cars && e.to === corner && nodes[e.from]!.x === 0);
+    const fromEast = edges.findIndex((e) => e.cars && e.to === corner && nodes[e.from]!.x === 200);
+    const onSouth = edges.findIndex((e) => e.cars && e.from === corner && nodes[e.to]!.z === 200);
+    const [a, b] = t.vehicles as [Vehicle, Vehicle];
+    // A holds the junction and never moves (a jam beyond it); B waits, then goes.
+    put(t, a, fromWest, onSouth, 3, 0);
+    put(t, b, fromEast, onSouth, 6, 3);
+    t.step(1 / 60);
+    Object.assign(a, { cruise: 0, speed: 0 });
+    let crossed = -1;
+    for (let i = 0; i < 60 * 20 && crossed < 0; i++) {
+      t.step(1 / 60);
+      if (b.edge !== fromEast) crossed = i / 60;
+    }
+    expect(crossed).toBeGreaterThan(PATIENCE);
+    expect(crossed).toBeLessThan(PATIENCE + 6);
   });
 
   test('rounds a corner on a curve and swings its heading rather than snapping it', () => {

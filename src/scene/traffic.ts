@@ -66,6 +66,8 @@ export interface Vehicle {
   blink: number;
   /** The junction node it holds (-1: none): nobody else of its class crosses it meanwhile. */
   hold: number;
+  /** How long it has stood waiting at a junction (s): past PATIENCE it crosses anyway. */
+  wait: number;
 }
 
 /**
@@ -122,6 +124,11 @@ export const STRIDE: Record<VehicleKind, number> = { car: 1, bus: 1, bike: 5, pe
 /** Where the indicators come on before a turn (m), and how far into the junction one may hold. */
 const SIGNAL_AT = 30;
 const CLAIM_AHEAD = 2;
+/**
+ * How long a vehicle waits at a junction that doesn't clear (s) before it goes anyway, as a
+ * driver does: without it, chains of claims round a block lock the whole centre up in minutes.
+ */
+export const PATIENCE = 6;
 /** Straight on is this many times as likely as a turn, when there is no route to follow. */
 const STRAIGHT_WEIGHT = 3;
 /** Spawning keeps this clear (m) of anyone else of the class on the edge. */
@@ -251,6 +258,11 @@ export class Traffic {
   /** Who holds each junction for each class (-1: nobody), and the edge they came by. */
   readonly #claim: Int32Array;
   readonly #claimFrom: Int32Array;
+  /**
+   * Which nodes are junctions for each class: where three or more of its ways meet. Where only
+   * a path joins a street, or a way is merely split, a car has nothing to wait for.
+   */
+  readonly #junction: Uint8Array;
   /** Where the view looks and how far round it the traffic keeps. */
   readonly #focus = { x: Number.NaN, z: Number.NaN, radius: 0 };
   readonly #mid: Float32Array;
@@ -303,6 +315,19 @@ export class Traffic {
     this.#first = new Int32Array(edges.length * CLASSES);
     this.#claim = new Int32Array(nodes.length * CLASSES).fill(-1);
     this.#claimFrom = new Int32Array(nodes.length * CLASSES).fill(-1);
+    this.#junction = new Uint8Array(nodes.length * CLASSES);
+    const neighbours: Set<number>[] = Array.from(
+      { length: nodes.length * CLASSES },
+      () => new Set(),
+    );
+    for (const [i, e] of edges.entries()) {
+      for (let cls = 0; cls < CLASSES; cls++) {
+        if (!this.#allowed[cls]!(i)) continue;
+        neighbours[e.from * CLASSES + cls]!.add(e.to);
+        neighbours[e.to * CLASSES + cls]!.add(e.from);
+      }
+    }
+    for (const [k, set] of neighbours.entries()) this.#junction[k] = set.size >= 3 ? 1 : 0;
     this.#mid = new Float32Array(edges.length * 2);
     const mid: [number, number, number, number] = [0, 0, 0, 0];
     for (const [i, e] of edges.entries()) {
@@ -337,6 +362,7 @@ export class Traffic {
           phase: this.#random() * Math.PI * 2,
           blink: this.#random(),
           hold: -1,
+          wait: 0,
         });
       }
     }
@@ -451,6 +477,7 @@ export class Traffic {
       v.goal = -1;
       v.brake = 0;
       v.signal = 0;
+      v.wait = 0;
       this.#choose(v);
       // Facing the way it goes, from the start.
       alongEdge(e, s, spot);
@@ -634,25 +661,28 @@ export class Traffic {
   }
 
   /**
-   * Whether a vehicle about to cross the junction ahead may: it holds it already, nobody of
-   * its class does, the holder came the same way (a queue crossing together), or the holder has
-   * gone (parked, or driven on without letting go). Takes the junction when it may, if there is
-   * room beyond it; people on foot cross freely.
+   * Whether a vehicle about to cross the node ahead may: it is no junction for its class, it
+   * holds it already, nobody of its class does, the holder came the same way (a queue crossing
+   * together), the holder has gone (parked, or driven on without letting go), or it has waited
+   * its PATIENCE out. Takes the junction when it may, if there is room beyond it (or it has
+   * waited); people on foot cross freely.
    */
   #mayCross(i: number, v: Vehicle, e: RoadEdge, roomBeyond: boolean): boolean {
     const cls = CLASS[v.kind];
     if (cls === 2) return true;
     const node = e.to;
     const slot = this.#slot(node, cls);
+    if (!this.#junction[slot]) return true;
     const holder = this.#claim[slot]!;
     if (holder === i) return true;
-    if (holder >= 0) {
+    const patient = v.wait < PATIENCE;
+    if (holder >= 0 && patient) {
       const h = this.vehicles[holder]!;
       const stale = !h.active || h.hold !== node;
       if (!stale && this.#claimFrom[slot] === v.edge) return true;
       if (!stale) return false;
     }
-    if (!roomBeyond) return false;
+    if (!roomBeyond && patient) return false;
     this.#release(v);
     this.#claim[slot] = i;
     this.#claimFrom[slot] = v.edge;
@@ -718,8 +748,10 @@ export class Traffic {
         const roomBeyond = gapBeyond > LENGTH[v.kind] + GAP[v.kind];
         if (!this.#mayCross(i, v, e, roomBeyond)) {
           cap = Math.min(cap, Math.sqrt(2 * BRAKE * Math.max(0, toLine)));
+          if (v.speed < 0.2) v.wait += dt;
         }
       }
+      if (v.speed > 0.5) v.wait = 0;
       // Indicators come on for a turn ahead, and the brake lights with the braking.
       v.signal = room < SIGNAL_AT && v.turn > SHARP && v.next >= 0 ? this.#side(e, v.next) : 0;
       const braking = acc < -0.8 || v.speed > cap + 0.1;
