@@ -112,11 +112,12 @@ const BUDGETS: {
   // shader, the near meshes and their tints) took it to 11.6 KB; the figure and the bike
   // themselves are chunks shared with walk mode and riding, counted below.
   // 12.5: the lamps' halos, beams in three strips that soften at the edges, and the bikes'
-  // lamps and pools (0.3 KB), asked for.
+  // lamps and pools (0.3 KB), asked for. 13: standing on the slope and on the squares (the
+  // squares found by their boxes), and no gridlock, at 12.6 KB.
   {
     label: 'Traffic JS (after first frame)',
     pattern: 'assets/vehicles-*.js',
-    limit: 12.5 * KB,
+    limit: 13 * KB,
     gzip: true,
   },
   // The walker's figure and the rideable bike, shared by the traffic (which loads first) with
