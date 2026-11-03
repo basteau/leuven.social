@@ -574,13 +574,18 @@ export function createWalk(host: WalkHost): Walk {
     );
   }
 
+  /** How far from a closed spot the walk may end, on the nearest open cell (m). */
+  const NEAR_ENOUGH = 3;
   function walkTo(x: number, z: number): void {
     if (!walker || !router || !grid) return;
     const from = grid.walkable(walker.x, walker.z)
       ? [walker.x, walker.z]
       : grid.nearest(walker.x, walker.z, 2);
+    // A spot the grid has closed (beside a rack on a narrow pavement, against a wall) is
+    // reached by the open cell nearest it, a few metres off at most.
+    const to = grid.walkable(x, z) ? [x, z] : grid.nearest(x, z, NEAR_ENOUGH);
     // Round the bikes left about the city, which the walker meets as it meets a trunk.
-    const route = from && router.route(from[0]!, from[1]!, x, z, loose);
+    const route = from && to && router.route(from[0]!, from[1]!, to[0]!, to[1]!, loose);
     if (!route) {
       host.onBlocked?.();
       return;
