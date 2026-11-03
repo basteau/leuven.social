@@ -12,6 +12,8 @@ import {
   PATIENCE,
   ROUTE_COST,
   Traffic,
+  cornerAt,
+  legFor,
   VEHICLE_KINDS,
   laneFor,
   motor,
@@ -361,9 +363,10 @@ describe('Traffic', () => {
 
   test('without a kerb the ground is shared: narrow streets put everyone nearer the line', () => {
     expect(laneFor('car', edgeOf(5), true, 0)).toBe(1.7);
-    expect(laneFor('car', edgeOf(2), true, 0)).toBeCloseTo(0.9);
+    // Never nearer the line than a metre: oncoming cars pass clear on a narrow street.
+    expect(laneFor('car', edgeOf(2), true, 0)).toBe(1);
     expect(laneFor('car', edgeOf(5), false, 0)).toBe(0.3);
-    expect(laneFor('bus', edgeOf(0), true, 0)).toBe(0.3);
+    expect(laneFor('bus', edgeOf(0), true, 0)).toBe(1);
     expect(laneFor('bike', edgeOf(5), true, 0)).toBeGreaterThan(laneFor('car', edgeOf(5), true, 0));
     expect(laneFor('bike', edgeOf(2), true, 0)).toBeLessThan(laneFor('bike', edgeOf(5), true, 0));
     expect(laneFor('bike', edgeOf(3, 'cycle'), false, 0)).toBe(0);
@@ -461,10 +464,69 @@ describe('Traffic', () => {
     );
   });
 
+  test('a bend inside an edge is rounded in lane space: no jump, no step back, heading along', () => {
+    // A street that turns 90° at (50, 0), walked on the pavement 3 m right of its line.
+    const bent = build([raw([0, 0, 50, 0, 50, 50]), raw([50, 50, 100, 50])]);
+    const t = new Traffic(bent, 1, counts({ person: 1 }));
+    t.focus(50, 25, 2000);
+    const v = t.vehicles[0]!;
+    const e = t.graph.edges.findIndex((f) => f.feet && f.cum.length === 3 && f.from === 0);
+    put(t, v, e, -1, 10, 1);
+    v.lane = v.lanePrev = 3;
+    let last: [number, number] | null = null;
+    for (let s = 30; s <= 70; s += 0.1) {
+      v.s = s;
+      const [x, z, dx, dz] = t.place(v);
+      if (last) {
+        const [mx, mz] = [x - last[0], z - last[1]];
+        expect(Math.hypot(mx, mz)).toBeLessThan(0.35);
+        // Never back, and the drawn heading is the way it moves.
+        expect(mx * dx + mz * dz).toBeGreaterThan(0);
+      }
+      last = [x, z];
+    }
+    // Straight stretches keep the lane; through the bend the path keeps clear of the corner.
+    v.s = 10;
+    expect(t.place(v).slice(0, 2)).toEqual([10, 3]);
+    v.s = 50;
+    const [cx, cz] = t.place(v);
+    expect(cx).toBeLessThan(50);
+    expect(cz).toBeGreaterThan(0);
+    // The curve of a corner: a hairpin loops out ahead of the bend; too tight an inside turn
+    // cuts straight across rather than looping back.
+    const out: [number, number, number, number] = [0, 0, 0, 0];
+    expect(cornerAt(0, 0, 1, 0, -1, 0, 2, 1, 1, 0, out).slice(0, 2)).toEqual([-2, 1]);
+    expect(cornerAt(0, 0, 1, 0, -1, 0, 2, 1, 1, 1, out).slice(0, 2)).toEqual([-2, -1]);
+    expect(cornerAt(0, 0, 1, 0, -1, 0, 2, 1, 1, 0.5, out)[0]).toBeGreaterThan(0);
+    const tight = cornerAt(0, 0, 1, 0, 0, 1, 1, 3, 3, 0.5, out);
+    expect(tight.slice(0, 2)).toEqual([-2, 2]);
+    expect(legFor(1, Math.PI / 2, 3, 3)).toBeCloseTo(4);
+    expect(legFor(1, 0, 0, 4)).toBe(6);
+    // Someone on the left pavement stays on it where both sides have one.
+    const both = sided({ kerb: 3, edge: 5 }, { kerb: 3, edge: 5 });
+    expect(laneFor('person', both, true, 0)).toBeGreaterThan(0);
+    expect(laneFor('person', both, true, 0, true)).toBeLessThan(0);
+  });
+
+  test('a car at a cul-de-sac in view turns round rather than vanishing', () => {
+    const withStub = build([...rawTown, raw([100, 200, 100, 260])]);
+    const t = new Traffic(withStub, 1, counts({ car: 1 }));
+    t.focus(100, 230, 100);
+    const { edges, nodes } = t.graph;
+    const outward = edges.findIndex((e) => e.cars && nodes[e.to]!.z === 260);
+    const back = edges.findIndex((e) => e.cars && nodes[e.from]!.z === 260);
+    const v = t.vehicles[0]!;
+    put(t, v, outward, -1, 8, 4);
+    for (let i = 0; i < 60 * 10 && v.edge === outward; i++) t.step(1 / 60);
+    expect(v.edge).toBe(back);
+    expect(v.active).toBe(true);
+  });
+
   test('keeps the fleet round the focus: out of its view in, parked beyond what it deserves', () => {
     const t = settle(new Traffic(town, 11, counts({ car: 40, bus: 4, bike: 60, person: 60 })));
-    // A small circle in the corner: only what its area deserves is out, and all of it inside.
-    t.focus(50, 50, 150);
+    // A small circle in the corner: only what its area deserves is out, and all of it inside
+    // the circle it is recycled beyond.
+    t.focus(50, 50, 80);
     for (let i = 0; i < 60 * 20; i++) t.step(1 / 60);
     const active = t.vehicles.filter((v) => v.active);
     expect(active.length).toBeLessThan(t.vehicles.length);
@@ -473,7 +535,7 @@ describe('Traffic', () => {
     expect(cars).toBeLessThan(40);
     for (const v of active) {
       const [x, z] = t.place(v);
-      expect(Math.hypot(x - 50, z - 50)).toBeLessThanOrEqual(1.3 * 150 + 15);
+      expect(Math.hypot(x - 50, z - 50)).toBeLessThanOrEqual(1.7 * 80 + 15);
     }
     // A jump parks everyone; they come out again over the next second, all over the circle.
     t.focus(2000, 2000, 150);
@@ -483,7 +545,7 @@ describe('Traffic', () => {
     expect(t.vehicles.filter((v) => v.active).length).toBe(t.vehicles.length);
     // Narrowed in place (no jump) to a corner of the town, the surplus is parked as it drives
     // out of reach: round the block, now that nobody turns back.
-    t.focus(50, 50, 60);
+    t.focus(50, 50, 80);
     for (let i = 0; i < 60 * 60; i++) t.step(1 / 60);
     const bikes = t.vehicles.filter((v) => v.active && v.kind === 'bike').length;
     expect(bikes).toBeGreaterThanOrEqual(FLOOR.bike);

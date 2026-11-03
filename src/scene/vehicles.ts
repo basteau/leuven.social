@@ -91,6 +91,8 @@ const NECK_Y = REST_HIPS + 0.56;
 /** The figure dressed so each face says which of the instance's colours it takes: one channel each. */
 const SENTINEL: Outfit = { shirt: 0xff0000, shorts: 0x00ff00, hair: 0x0000ff };
 const MOUTH = shade(WALKER.skin, 0.62);
+/** What the cyclists wear below the shirt: a khaki from the café guests' wardrobe. */
+const RIDER_SHORTS = GUESTS.legs[2]!;
 
 /**
  * What a face of the figure in the sentinel outfit carries: the tint it takes from the
@@ -125,7 +127,9 @@ function spread(p: V3, bone: BoneName): V3 {
  * mesh gets the figure's ink hulls, grown, facing out (the hull material draws their backs).
  */
 export function addFigure(mesh: Builder, base: number, hull: boolean): void {
-  for (const solid of figure(SENTINEL)) {
+  // A rider's trim is the bike's frame, so its shorts keep a colour of their own.
+  const outfit = base === RIDER ? { ...SENTINEL, shorts: RIDER_SHORTS } : SENTINEL;
+  for (const solid of figure(outfit)) {
     if (hull && solid.hull === false) continue;
     const rings = hull ? grown(solid.hull || solid.rings, OUTLINE_WIDTH) : solid.rings;
     addSolid(mesh, solid, rings, false, {
@@ -135,7 +139,7 @@ export function addFigure(mesh: Builder, base: number, hull: boolean): void {
     });
   }
   if (hull) return;
-  for (const { bone, color, points, normal } of details(SENTINEL)) {
+  for (const { bone, color, points, normal } of details(outfit)) {
     const [tint, c] = tintOf(color);
     const facade = base + BONES.indexOf(bone) + tint;
     const [a, b, d, e] = points.map((p) => toVehicle(spread(p, bone))) as [V3, V3, V3, V3?];
@@ -202,8 +206,8 @@ export const GAIT = {
     foot: [-0.308, 0.304, 0.537, 0.026, -0.048, 0.002, 0.015],
   },
 } as const;
-/** How many turns a wheel makes to a pedal turn: a city bike's gearing, from the stride. */
-const GEAR = STRIDE.bike / (2 * Math.PI * WHEEL);
+/** How many turns a wheel makes to a pedal turn: a city bike's gearing, from the stride, at the drawn wheel's size. */
+const GEAR = STRIDE.bike / (2 * Math.PI * WHEEL * S);
 
 const glsl = (x: number) => x.toFixed(3);
 /** A joint's harmonics as GLSL, its swing (all but the mean) scaled by `sweep`. */
@@ -214,6 +218,12 @@ const harm = (c: readonly number[], sweep = 1) =>
  * stride is shorter (STRIDE.person), so the legs swing less, and the feet keep to the ground.
  */
 const STROLL = STRIDE.person / 2.6;
+/**
+ * The walker's hips ride where its longer stride's reach puts them; with the swing scaled down
+ * the legs stand straighter, so the hips sit this much higher (model metres) for the soles to
+ * meet the ground rather than sink through it.
+ */
+const STROLL_LIFT = 0.045;
 
 /**
  * The figure's bones swung about their joints in the vertex shader, by the stride (`state.x`,
@@ -247,7 +257,7 @@ const FIGURE_GLSL = `
     } else {
       thigh = -${harm(GAIT.walk.thigh, STROLL)}; knee = -${harm(GAIT.walk.knee, STROLL)}; foot = -${harm(GAIT.walk.foot, STROLL)};
       arm = -0.55 * sin(q); elbow = 0.431 - 0.175 * sin(q) - 0.074 * cos(2.0 * q);
-      lean = -0.07; nod = 0.0; hipY = 0.711 + 0.034 * cos(2.0 * p); hipX = 0.0;
+      lean = -0.07; nod = 0.0; hipY = ${glsl(0.711 + STROLL_LIFT)} + 0.034 * cos(2.0 * p); hipX = 0.0;
     }
     if (bone >= 12) turn(transformed, 0.0, ${glsl(ANKLE * S)}, foot);
     if (bone >= 10) turn(transformed, 0.0, ${glsl(KNEE_Y * S)}, knee);
@@ -1073,7 +1083,16 @@ export function createTrafficLayer(kit: TrafficKit, seed = 1): TrafficLayer {
           // Local x ahead: a turn about y by atan2(-dz, dx) takes it to (dx, dz). The drawn
           // heading swings after the path's, so a corner is a turn, not a snap.
           v.yaw = turnTowards(v.yaw, Math.atan2(-dz, dx), TURN_RATE[v.kind], dt);
-          const pitch = settle(kit.ground, x, z, dx, dz, LENGTH[v.kind], stood);
+          // Tilted about its own axles, the way it faces, not the way the path heads.
+          const pitch = settle(
+            kit.ground,
+            x,
+            z,
+            Math.cos(v.yaw),
+            -Math.sin(v.yaw),
+            LENGTH[v.kind],
+            stood,
+          );
           matrix.makeRotationY(v.yaw).multiply(tilt.makeRotationZ(pitch));
           matrix.setPosition(x, stood.y + lift[v.edge]! + RIDE_HEIGHT, z);
           mesh.setMatrixAt(i, matrix);

@@ -51,7 +51,8 @@ export interface Vehicle {
   /** The edges still to take to its destination, last first; the node it is bound for (-1: none). */
   route: number[];
   goal: number;
-  /** Its lane: how far right of the edge's line it keeps (m), here and on the next edge. */
+  /** Its lane: how far right of the edge's line it keeps (m), behind, here and on the next edge. */
+  lanePrev: number;
   lane: number;
   laneNext: number;
   /** Its own place across the lane, -1 to 1: no two walk the same line. */
@@ -80,11 +81,13 @@ export const COUNTS: Record<VehicleKind, number> = { car: 220, bus: 14, bike: 30
 export const DENSITY: Record<VehicleKind, number> = { car: 150, bus: 10, bike: 220, person: 260 };
 export const FLOOR: Record<VehicleKind, number> = { car: 30, bus: 3, bike: 50, person: 60 };
 /**
- * Spawning keeps this share of the radius away from the focus (out of the view), and a vehicle
- * beyond this many radii is recycled. The focus is refitted once it moves this far.
+ * The view reaches about one radius up and across and 1.4 to its corners, so spawning keeps
+ * this many radii away from the focus (out of sight), on edges within RECYCLE_AT radii, beyond
+ * which a vehicle is recycled; destinations lie within the radius, so the traffic drives
+ * through the view. The focus is refitted once it moves this far.
  */
-const SPAWN_FROM = 0.5;
-const RECYCLE_AT = 1.3;
+const SPAWN_FROM = 1.4;
+const RECYCLE_AT = 1.7;
 const REFOCUS_AT = 40;
 /** Respawns a step, so nothing stalls a frame: the fleet fills in over a second or so. */
 const RESPAWN_BUDGET = 12;
@@ -113,8 +116,11 @@ const TURN_SPEED: Record<VehicleKind, number> = { car: 3.5, bus: 2.5, bike: 2.5,
 const SHARP = 0.35;
 /** How far before a node the curve round it starts (m), at most; less on short edges. */
 const CORNER: Record<VehicleKind, number> = { car: 5, bus: 8, bike: 2.5, person: 1 };
-/** How fast the drawn heading may turn (rad/s): a bus swings round slower than a cyclist. */
-export const TURN_RATE: Record<VehicleKind, number> = { car: 2.2, bus: 1.4, bike: 3.5, person: 6 };
+/**
+ * How fast the drawn heading may turn (rad/s): a cap on following the path's own tangent,
+ * which is smooth (`place`), so it only shows in a hairpin; a bus swings slower than a cyclist.
+ */
+export const TURN_RATE: Record<VehicleKind, number> = { car: 4, bus: 2.5, bike: 6, person: 8 };
 /**
  * Metres per stride (on foot) or pedal turn (on a bike): what one cycle of the legs covers. A
  * person's is a stroll's two steps at the figure's size (a third over life), a bike's a city
@@ -161,6 +167,8 @@ const CAR_HALF = 0.95;
 const BIKE_HALF = 0.35;
 /** People keep this far (m) from the kerb and from the facade on a pavement. */
 const PAVEMENT_MARGIN = 0.45;
+/** The bake probes a side this far (m) at most: a kerb found there is no kerb. */
+const KERB_LIMIT = 11.5;
 
 /**
  * The lane a kind keeps right of a way's line (m), from the way's measured sides. Where the
@@ -173,22 +181,30 @@ const PAVEMENT_MARGIN = 0.45;
  * across it and bikes thread the middle; on a path everyone keeps near its line. `jitter` (-1 to
  * 1) is each one's own place across its lane.
  */
-export function laneFor(kind: VehicleKind, e: RoadEdge, twoWay: boolean, jitter: number): number {
+export function laneFor(
+  kind: VehicleKind,
+  e: RoadEdge,
+  twoWay: boolean,
+  jitter: number,
+  keepLeft = false,
+): number {
   const { right, left } = e;
   const w = right.edge;
-  const kerb = right.kerb;
+  // A kerb out at the probe's limit is a square's or a verge's edge, not a kerb: shared ground.
+  const kerb = right.kerb >= KERB_LIMIT ? 0 : right.kerb;
   switch (kind) {
     case 'car':
     case 'bus':
+      // Never nearer the line than a metre, so oncoming cars on a narrow street pass clear.
       if (kerb > 0)
-        return twoWay ? Math.min(1.8, Math.max(0.3, kerb * 0.5)) : Math.min(0.4, kerb * 0.12);
-      return twoWay ? Math.min(1.7, Math.max(0.3, w * 0.45)) : Math.min(0.3, w * 0.1);
+        return twoWay ? Math.min(1.8, Math.max(1, kerb * 0.5)) : Math.min(0.4, kerb * 0.12);
+      return twoWay ? Math.min(1.7, Math.max(1, w * 0.45)) : Math.min(0.3, w * 0.1);
     case 'bike':
       if (e.kind === 'cycle') {
         return (twoWay ? Math.min(0.8, (kerb || w) * 0.3) : 0) + 0.2 * jitter;
       }
       if (e.kind === 'pedestrian') return Math.min(1.5, w * 0.3) + 0.3 * jitter;
-      if (kerb > 0) return Math.max(0.3, kerb - 0.7) + 0.2 * jitter;
+      if (kerb > 0) return Math.min(4.5, Math.max(0.3, kerb - 0.7)) + 0.2 * jitter;
       return (twoWay ? Math.min(2.8, w * 0.7) : Math.min(1.5, w * 0.5)) + 0.25 * jitter;
     default: {
       if (e.kind === 'path') return 0.4 * jitter;
@@ -196,8 +212,11 @@ export function laneFor(kind: VehicleKind, e: RoadEdge, twoWay: boolean, jitter:
       const across = (side: typeof right, pavement: number) =>
         side.kerb + PAVEMENT_MARGIN + (pavement - 2 * PAVEMENT_MARGIN) * (0.5 + 0.5 * jitter);
       const onRight = pavementOf(right);
-      if (onRight >= PAVEMENT) return across(right, onRight);
       const onLeft = pavementOf(left);
+      // Someone on the left pavement stays on it while it goes on, rather than crossing back.
+      if (keepLeft && onLeft >= 2 * PAVEMENT_MARGIN)
+        return -across(left, Math.max(onLeft, PAVEMENT));
+      if (onRight >= PAVEMENT) return across(right, onRight);
       if (onLeft >= PAVEMENT) return -across(left, onLeft);
       // Shared ground, or a kerb at the facade: by the facade, never through it.
       return Math.max(0.3, Math.min(4, w - 1) + 0.4 * jitter);
@@ -241,9 +260,10 @@ export class Traffic {
   readonly #routers: GraphRouter[];
   /** Which edges each class may take. */
   readonly #allowed: ((edge: number) => boolean)[];
-  /** The edges each class may use anywhere, and those near the focus. */
+  /** The edges each class may use anywhere, those near the focus (destinations), and those out to the recycling radius (spawning). */
   readonly #pools: Pool[];
   #near: Pool[] | null = null;
+  #wide: Pool[] | null = null;
   /** Whether each edge has a twin the class may use the other way: where the lane is kept right. */
   readonly #twoWay: Uint8Array;
   /** Edges where bikes queue with the cars (their lanes overlap), in the cars' bucket. */
@@ -353,6 +373,7 @@ export class Traffic {
           rOut: 0,
           route: [],
           goal: -1,
+          lanePrev: 0,
           lane: 0,
           laneNext: 0,
           jitter: this.#random() * 2 - 1,
@@ -382,20 +403,24 @@ export class Traffic {
     if (moved < REFOCUS_AT && Math.abs(radius - f.radius) < 0.15 * f.radius) return;
     const jump = !(moved < 2 * f.radius);
     [f.x, f.z, f.radius] = [x, z, radius];
-    const within = (i: number) =>
-      Math.hypot(this.#mid[i * 2]! - x, this.#mid[i * 2 + 1]! - z) <= radius;
-    this.#near = this.#pools.map((pool) => {
-      const edges: number[] = [];
-      const cum: number[] = [];
-      let total = 0;
-      for (const [k, i] of pool.edges.entries()) {
-        if (!within(i)) continue;
-        edges.push(i);
-        cum.push((total += pool.cum[k]! - (pool.cum[k - 1] ?? 0)));
-      }
-      return { edges, cum };
-    });
-    const area = (Math.PI * radius * radius) / 1e6;
+    const within = (i: number, reach: number) =>
+      Math.hypot(this.#mid[i * 2]! - x, this.#mid[i * 2 + 1]! - z) <= reach;
+    const inside = (reach: number) =>
+      this.#pools.map((pool) => {
+        const edges: number[] = [];
+        const cum: number[] = [];
+        let total = 0;
+        for (const [k, i] of pool.edges.entries()) {
+          if (!within(i, reach)) continue;
+          edges.push(i);
+          cum.push((total += pool.cum[k]! - (pool.cum[k - 1] ?? 0)));
+        }
+        return { edges, cum };
+      });
+    this.#near = inside(radius);
+    this.#wide = inside(RECYCLE_AT * radius);
+    // The fleet fills the circle it spawns in, so the view's share of it is the density.
+    const area = (Math.PI * (RECYCLE_AT * radius) ** 2) / 1e6;
     for (const kind of VEHICLE_KINDS) {
       this.#want[kind] = Math.min(
         COUNTS[kind],
@@ -442,7 +467,7 @@ export class Traffic {
    */
   #spawn(v: Vehicle, anywhere = false): boolean {
     const cls = CLASS[v.kind];
-    const pool = this.#near?.[cls]!.edges.length ? this.#near[cls]! : this.#pools[cls]!;
+    const pool = this.#wide?.[cls]!.edges.length ? this.#wide[cls]! : this.#pools[cls]!;
     if (!pool.edges.length) return false;
     const spot: [number, number, number, number] = [0, 0, 0, 0];
     for (let tries = 0; tries < 12; tries++) {
@@ -453,8 +478,11 @@ export class Traffic {
       alongEdge(e, s, spot);
       const { radius } = this.#focus;
       const away = this.#fromFocus(spot[0], spot[1]);
-      const hidden = anywhere ? away <= radius : away >= SPAWN_FROM * radius && away <= radius;
-      if (radius > 0 && tries < 9 && !hidden) continue;
+      // Inside the circle it is recycled beyond, and out of the view unless no try finds a spot
+      // there (or the circle is being filled).
+      const inside = away <= RECYCLE_AT * radius;
+      const hidden = inside && (anywhere || away >= SPAWN_FROM * radius);
+      if (radius > 0 && !(tries < 9 ? hidden : inside)) continue;
       const bucket = this.#bucket(v, edge);
       const clear = this.vehicles.every(
         (o) =>
@@ -472,6 +500,7 @@ export class Traffic {
       v.cruise = this.#cruise(v.kind, e);
       v.speed = v.cruise * (0.5 + 0.5 * this.#random());
       v.lane = this.#lane(v, edge);
+      v.lanePrev = v.lane;
       v.rIn = 0;
       v.route.length = 0;
       v.goal = -1;
@@ -501,12 +530,20 @@ export class Traffic {
   #lane(v: Vehicle, edge: number): number {
     const e = this.graph.edges[edge]!;
     const twoWay = (this.#twoWay[edge]! & (1 << CLASS[v.kind])) !== 0;
-    return laneFor(v.kind, e, twoWay, v.jitter);
+    return laneFor(v.kind, e, twoWay, v.jitter, v.lane < 0);
   }
 
-  /** How far before a node the curve between two edges starts: short edges get short curves. */
-  #corner(v: Vehicle, a: RoadEdge, b: RoadEdge): number {
-    return Math.min(CORNER[v.kind], 0.45 * a.length, 0.45 * b.length);
+  /**
+   * How far before a node the curve between two edges starts, and after it ends: the kind's
+   * corner, longer by what its lane needs on the inside of the turn so the offset path never
+   * loops back (`cornerAt`), and by a lane change between the edges, within what the edges'
+   * end segments allow, so no bend of theirs lies inside the curve.
+   */
+  #corner(v: Vehicle, a: RoadEdge, b: RoadEdge, la: number, lb: number): number {
+    const n = a.cum.length;
+    const first = b.cum[1]! - b.cum[0]!;
+    const last = a.cum[n - 1]! - a.cum[n - 2]!;
+    return Math.min(legFor(CORNER[v.kind], turnBetween(a, b), la, lb), 0.45 * first, 0.45 * last);
   }
 
   /**
@@ -519,19 +556,23 @@ export class Traffic {
     const pool = this.#near?.[cls]!.edges.length ? this.#near[cls]! : this.#pools[cls]!;
     if (!pool.edges.length) return;
     const { edges } = this.graph;
-    const from = edges[v.edge]!.to;
+    const e = edges[v.edge]!;
+    // Into the corner ahead already, the edge chosen is kept: the route starts past it.
+    const committed = v.next >= 0 && v.s > e.length - v.rOut - CLAIM_AHEAD;
+    const on = committed ? v.next : v.edge;
+    const from = edges[on]!.to;
     const goal = edges[this.#pick(pool)]!.to;
     if (goal === from) return;
     const most = this.#focus.radius > 0 ? 2 * this.#focus.radius + ROUTE_REACH : Infinity;
     // Never back the way it came: a goal behind it is reached round the block, or not at all.
-    const back = this.#twin[v.edge]!;
+    const back = this.#twin[on]!;
     const allowed = this.#allowed[cls]!;
     const route = this.#routers[cls]!.route(from, goal, (i) => i !== back && allowed(i), most);
     if (!route) return;
     v.goal = goal;
     v.route = route.toReversed();
     // Whatever it had chosen for the node ahead, the route decides now.
-    this.#choose(v);
+    if (!committed) this.#choose(v);
   }
 
   /**
@@ -554,9 +595,14 @@ export class Traffic {
       v.goal = -1;
     }
     if (next < 0) {
-      const allowed = nodes[e.to]!.out.filter(this.#allowed[CLASS[v.kind]]!);
+      const may = this.#allowed[CLASS[v.kind]]!;
+      const allowed = nodes[e.to]!.out.filter(may);
       const onward = allowed.filter((i) => edges[i]!.to !== e.from);
-      const options = onward.length ? onward : allowed;
+      // Not into a stub that leads nowhere but back, while there is anywhere else to go.
+      const through = onward.filter((i) =>
+        nodes[edges[i]!.to]!.out.some((j) => j !== this.#twin[i] && may(j)),
+      );
+      const options = through.length ? through : onward.length ? onward : allowed;
       if (options.length) {
         const turns = options.map((i) => turnBetween(e, edges[i]!));
         const weights = turns.map((t) => (t < SHARP ? STRAIGHT_WEIGHT : 1));
@@ -579,8 +625,8 @@ export class Traffic {
     }
     const onto = edges[next]!;
     v.turn = turnBetween(e, onto);
-    v.rOut = this.#corner(v, e, onto);
     v.laneNext = this.#lane(v, next);
+    v.rOut = this.#corner(v, e, onto, v.lane, v.laneNext);
   }
 
   /** Sorts the vehicles so each one's leader is the next in its edge and class. */
@@ -618,10 +664,11 @@ export class Traffic {
       if (v.active) {
         this.place(v, spot);
         if (this.#fromFocus(spot[0], spot[1]) <= RECYCLE_AT * radius) continue;
-        if (out[v.kind] > want) {
+        // Over what the view deserves, or nowhere to come back in just now: parked till there is.
+        if (out[v.kind] > want || !this.#spawn(v)) {
           this.#park(v);
           out[v.kind]--;
-        } else this.#spawn(v);
+        }
         done++;
       } else if (out[v.kind] < want) {
         if (this.#spawn(v, this.#filling > 0)) out[v.kind]++;
@@ -763,14 +810,26 @@ export class Traffic {
       if (v.hold >= 0 && v.hold !== e.to && v.s > v.rIn + 0.5) this.#release(v);
       if (v.s >= e.length) {
         if (v.next < 0) {
-          // Off the map's edge or into a cul-de-sac: back in somewhere else.
-          if (!this.#spawn(v)) v.s = e.length;
-          continue;
+          // A dead end: back in somewhere else, out of sight, or where there is a way back (a
+          // cul-de-sac, the map's edge) and the view would see it go, turned round instead.
+          const back = this.#twin[v.edge]!;
+          this.place(v, PLACED);
+          const seen = this.#fromFocus(PLACED[0], PLACED[1]) < SPAWN_FROM * this.#focus.radius;
+          if (!(seen && back >= 0 && this.#allowed[CLASS[v.kind]]!(back))) {
+            if (!this.#spawn(v)) v.s = e.length;
+            continue;
+          }
+          v.next = back;
+          v.turn = Math.PI;
+          v.laneNext = this.#lane(v, back);
+          v.rOut = this.#corner(v, e, edges[back]!, v.lane, v.laneNext);
+          v.s = Math.min(v.s, e.length);
         }
         v.s -= e.length;
         v.prev = v.edge;
         v.edge = v.next;
         v.rIn = v.rOut;
+        v.lanePrev = v.lane;
         v.lane = v.laneNext;
         const onto = edges[v.edge]!;
         v.cruise = this.#cruise(v.kind, onto);
@@ -793,71 +852,174 @@ export class Traffic {
   }
 
   /**
-   * Where a vehicle is: its spot, in its lane, and the way it heads (unit). Round a junction
-   * it follows a curve from the corner's start on the edge behind, through the node, to the
-   * corner's end on the edge ahead, the lane blending from one edge's to the other's.
+   * Where a vehicle is: its spot, in its lane, and the way it heads (unit), both from the path
+   * it is actually drawn along. Straight stretches are the edge's line pushed out by the lane.
+   * Round a node it follows a curve from the corner's start on the edge behind to the corner's
+   * end on the edge ahead, and round a bend inside an edge a fillet the same way, each built in
+   * lane space (`cornerAt`), so an offset path never jumps, loops back or runs crabwise.
    */
   place(
     v: Vehicle,
     out: [number, number, number, number] = [0, 0, 0, 0],
   ): [number, number, number, number] {
-    const { edges } = this.graph;
+    const { edges, nodes } = this.graph;
     const e = edges[v.edge]!;
-    let lane = v.lane;
+    const { points, cum } = e;
+    const n = cum.length;
     if (v.rIn > 0 && v.s < v.rIn && v.prev >= 0) {
       // The second half of the corner behind.
+      const a = edges[v.prev]!;
+      const node = nodes[e.from]!;
+      const [ax, az] = segmentDir(a, a.cum.length - 2);
+      const [bx, bz] = segmentDir(e, 0);
       const t = 0.5 + v.s / (2 * v.rIn);
-      this.#curve(edges[v.prev]!, e, v.rIn, t, out);
-      lane = edges[v.prev]!.length ? laneBlend(this.#lane(v, v.prev), v.lane, t) : lane;
-    } else if (v.rOut > 0 && v.s > e.length - v.rOut && v.next >= 0) {
+      return cornerAt(node.x, node.z, ax, az, bx, bz, v.rIn, v.lanePrev, v.lane, t, out);
+    }
+    if (v.rOut > 0 && v.s > e.length - v.rOut && v.next >= 0) {
       // The first half of the corner ahead.
+      const b = edges[v.next]!;
+      const node = nodes[e.to]!;
+      const [ax, az] = segmentDir(e, n - 2);
+      const [bx, bz] = segmentDir(b, 0);
       const t = (v.s - (e.length - v.rOut)) / (2 * v.rOut);
-      this.#curve(e, edges[v.next]!, v.rOut, t, out);
-      lane = laneBlend(v.lane, v.laneNext, t);
-    } else alongEdge(e, v.s, out);
+      return cornerAt(node.x, node.z, ax, az, bx, bz, v.rOut, v.lane, v.laneNext, t, out);
+    }
+    // On a segment: a fillet round the bend behind or ahead, else straight on, offset.
+    const k = segmentAt(e, v.s);
+    for (const [j, behind] of [
+      [k, true],
+      [k + 1, false],
+    ] as const) {
+      if (j < 1 || j > n - 2) continue;
+      const leg = this.#fillet(v, e, j);
+      const along = behind ? v.s - cum[j]! : cum[j]! - v.s;
+      if (!(leg > 0) || along >= leg) continue;
+      const [ax, az] = segmentDir(e, j - 1);
+      const [bx, bz] = segmentDir(e, j);
+      const t = behind ? 0.5 + along / (2 * leg) : 0.5 - along / (2 * leg);
+      return cornerAt(
+        points[j * 2]!,
+        points[j * 2 + 1]!,
+        ax,
+        az,
+        bx,
+        bz,
+        leg,
+        v.lane,
+        v.lane,
+        t,
+        out,
+      );
+    }
+    alongEdge(e, v.s, out);
     const [dx, dz] = [out[2], out[3]];
     // Right-hand traffic: right of the heading in (x east, z south) is (-dz, dx).
-    out[0] += -dz * lane;
-    out[1] += dx * lane;
+    out[0] += -dz * v.lane;
+    out[1] += dx * v.lane;
     return out;
   }
 
-  /**
-   * A point on the curve round the node between two edges: a quadratic Bézier from `r` before
-   * the node on the first to `r` after it on the second, with its tangent, at `t` (0 to 1).
-   */
-  #curve(
-    a: RoadEdge,
-    b: RoadEdge,
-    r: number,
-    t: number,
-    out: [number, number, number, number],
-  ): void {
-    const p0 = alongEdge(a, a.length - r, CURVE_A);
-    const p2 = alongEdge(b, r, CURVE_B);
-    const [nx, nz] = [this.graph.nodes[a.to]!.x, this.graph.nodes[a.to]!.z];
-    const u = 1 - t;
-    out[0] = u * u * p0[0] + 2 * u * t * nx + t * t * p2[0];
-    out[1] = u * u * p0[1] + 2 * u * t * nz + t * t * p2[1];
-    let tx = 2 * u * (nx - p0[0]) + 2 * t * (p2[0] - nx);
-    let tz = 2 * u * (nz - p0[1]) + 2 * t * (p2[1] - nz);
-    const len = Math.hypot(tx, tz);
-    // A hairpin's curve has no tangent at its tip: keep the heading of the edge it is on.
-    if (len < 1e-6) [tx, tz] = t < 0.5 ? [p0[2], p0[3]] : [p2[2], p2[3]];
-    else [tx, tz] = [tx / len, tz / len];
-    out[2] = tx;
-    out[3] = tz;
+  /** How far either side of an edge's bend at point `j` a vehicle's fillet reaches (m), or 0 straight on. */
+  #fillet(v: Vehicle, e: RoadEdge, j: number): number {
+    const [ax, az] = segmentDir(e, j - 1);
+    const [bx, bz] = segmentDir(e, j);
+    const turn = Math.acos(Math.min(1, Math.max(-1, ax * bx + az * bz)));
+    if (turn < BEND) return 0;
+    const before = e.cum[j]! - e.cum[j - 1]!;
+    const after = e.cum[j + 1]! - e.cum[j]!;
+    return Math.min(legFor(CORNER[v.kind], turn, v.lane, v.lane), 0.45 * before, 0.45 * after);
   }
 }
 
-const CURVE_A: [number, number, number, number] = [0, 0, 0, 0];
-const CURVE_B: [number, number, number, number] = [0, 0, 0, 0];
+/** A bend of less than this (radians) inside an edge is driven straight through. */
+const BEND = 0.05;
+/** Scratch for a vehicle's spot. */
+const PLACED: [number, number, number, number] = [0, 0, 0, 0];
 
-/** The lane eased from one edge's to the next's across a corner. */
-const laneBlend = (from: number, to: number, t: number) => {
-  const s = t * t * (3 - 2 * t);
-  return from + (to - from) * s;
-};
+/** The unit direction of an edge's segment `k` (from its point k to k + 1). */
+function segmentDir(e: RoadEdge, k: number): [number, number] {
+  const { points } = e;
+  const [dx, dz] = [points[k * 2 + 2]! - points[k * 2]!, points[k * 2 + 3]! - points[k * 2 + 1]!];
+  const len = Math.hypot(dx, dz) || 1;
+  return [dx / len, dz / len];
+}
+
+/** Which segment of an edge `s` metres along it lies on: the index of the point it starts at. */
+function segmentAt(e: RoadEdge, s: number): number {
+  const { cum } = e;
+  let lo = 0;
+  let hi = cum.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (cum[mid]! <= s) lo = mid;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/**
+ * How far a corner's legs reach either side of a bend of `turn` radians: the kind's corner,
+ * plus what the lane on the inside of the turn needs so the offset path meets the far leg
+ * before looping back (the offset lines meet |lane|·tan(turn / 2) short of the bend), plus
+ * room for a change of lane between the legs, so it is eased rather than stepped.
+ */
+export function legFor(corner: number, turn: number, la: number, lb: number): number {
+  const inside = Math.max(Math.abs(la), Math.abs(lb)) * Math.tan(Math.min(turn, 2.6) / 2);
+  return Math.max(corner + inside, 1.5 * Math.abs(lb - la));
+}
+
+/**
+ * A point on the curve round a bend at (vx, vz) from the direction in (ax, az) to the
+ * direction out (bx, bz), `r` metres either side of it, in lane space: a quadratic Bézier from
+ * the lane `la` right of the way in to the lane `lb` right of the way out, its control point
+ * where the two offset lines meet, so the path keeps its distance from the line through the
+ * bend. Straight on (or a lane change along a straight), the control is halfway; back the way
+ * it came (a hairpin), it is out past the bend, so the path loops round in front of it; and
+ * where the offset lines meet behind the start or beyond the end (a tight turn to the inside
+ * on short legs), the path cuts straight across rather than looping back. Written into `out`
+ * as the point and the curve's own tangent at `t` (0 to 1), which is the way the vehicle is
+ * drawn heading.
+ */
+export function cornerAt(
+  vx: number,
+  vz: number,
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  r: number,
+  la: number,
+  lb: number,
+  t: number,
+  out: [number, number, number, number],
+): [number, number, number, number] {
+  // Right of a heading in (x east, z south) is (-dz, dx).
+  const [p0x, p0z] = [vx - ax * r - az * la, vz - az * r + ax * la];
+  const [p2x, p2z] = [vx + bx * r - bz * lb, vz + bz * r + bx * lb];
+  const cross = ax * bz - az * bx;
+  const dot = ax * bx + az * bz;
+  let [cx, cz] = [(p0x + p2x) / 2, (p0z + p2z) / 2];
+  if (dot < -0.95) {
+    const reach = r + (Math.abs(la) + Math.abs(lb)) / 2;
+    [cx, cz] = [vx + ax * reach, vz + az * reach];
+  } else if (Math.abs(cross) > 0.02) {
+    const [dx, dz] = [p2x - p0x, p2z - p0z];
+    const u = (dx * bz - dz * bx) / cross;
+    const w = (ax * dz - az * dx) / cross;
+    if (u > 0 && w > 0) [cx, cz] = [p0x + ax * u, p0z + az * u];
+  }
+  const s = 1 - t;
+  out[0] = s * s * p0x + 2 * s * t * cx + t * t * p2x;
+  out[1] = s * s * p0z + 2 * s * t * cz + t * t * p2z;
+  let tx = 2 * s * (cx - p0x) + 2 * t * (p2x - cx);
+  let tz = 2 * s * (cz - p0z) + 2 * t * (p2z - cz);
+  const len = Math.hypot(tx, tz);
+  if (len < 1e-6) [tx, tz] = t < 0.5 ? [ax, az] : [bx, bz];
+  else [tx, tz] = [tx / len, tz / len];
+  out[2] = tx;
+  out[3] = tz;
+  return out;
+}
 
 /**
  * Turns a drawn heading towards where the path heads, at most `rate` radians a second: what

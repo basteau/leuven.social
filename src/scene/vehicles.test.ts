@@ -363,15 +363,23 @@ describe('createTrafficLayer', () => {
     expect(nearPeople.count).toBeLessThanOrEqual(NEAR.person);
     const people = layer.traffic.vehicles.filter((o) => o.kind === 'person');
     let shown = 0;
+    let farthestNear = 0;
+    let nearestFar = Infinity;
     for (const [j, o] of people.entries()) {
       if (!o.active) continue;
       const [ox, oz] = layer.traffic.place(o);
+      const d = Math.hypot(ox - 100, oz - 100);
       farPeople.getMatrixAt(j, m);
       const scale = new Vector3().setFromMatrixScale(m).x;
-      if (scale === 0) shown++;
-      else expect(Math.hypot(ox - 100, oz - 100)).toBeGreaterThan(NEAR_RANGE - 25);
+      if (scale === 0) {
+        shown++;
+        farthestNear = Math.max(farthestNear, d);
+      } else nearestFar = Math.min(nearestFar, d);
     }
     expect(shown).toBe(nearPeople.count);
+    // The nearest are the ones drawn near, none of them beyond the range.
+    expect(farthestNear).toBeLessThanOrEqual(NEAR_RANGE);
+    expect(nearestFar).toBeGreaterThanOrEqual(farthestNear - 1e-6);
     nearPeople.getMatrixAt(0, m);
     expect(new Vector3().setFromMatrixScale(m).x).toBeCloseTo(1);
     expect(nearPeople.geometry.getAttribute('skin').count).toBe(NEAR.person);
