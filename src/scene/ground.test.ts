@@ -2,7 +2,15 @@ import { expect, test } from 'bun:test';
 
 import { bridgeHoles } from '../data/landcover.ts';
 import { Terrain } from '../data/terrain.ts';
-import { SLAB_DEPTH, addGround, addSlabInk, slabBottom } from './ground.ts';
+import {
+  KERB,
+  LAYER_Y,
+  SLAB_DEPTH,
+  addGround,
+  addKerbs,
+  addSlabInk,
+  slabBottom,
+} from './ground.ts';
 import { LineBuilder, MeshBuilder, unindexed } from './mesh-builder.ts';
 
 const square = new Float32Array([0, 0, 10, 0, 10, 10, 0, 10]);
@@ -195,4 +203,49 @@ test('on the terrain, the slab ink lies on it, its bottom line flat', () => {
   // The north and south edges cross the terrain's lines: more points along the lip.
   expect(lip).toBeGreaterThan(flat.length);
   expect(lines.drape).toBe(slope);
+});
+
+test('kerbs run along a carriageway on the pavement side, not across junctions or cell cuts', () => {
+  // A street face and the junction face it meets on its east edge, inside a cell cut at x = 30.
+  const street = {
+    kind: 'street',
+    surface: 'asphalt',
+    ring: new Float32Array([0, 0, 20, 0, 20, 6, 0, 6]),
+  } as const;
+  const junction = {
+    kind: 'street',
+    surface: 'asphalt',
+    ring: new Float32Array([20, 0, 30, 0, 30, 6, 20, 6]),
+  } as const;
+  const within = { minX: -10, maxX: 30, minZ: -10, maxZ: 50 };
+  const mesh = new MeshBuilder();
+  addKerbs(mesh, [street, junction], within);
+  const g = unindexed(mesh.build());
+  const p = g.getAttribute('position');
+  // Three kerbs on the street (north, south, west), two on the junction face (north, south):
+  // not the edge they share, not the junction's east edge on the cut. Two triangles each.
+  expect(p.count / 6).toBe(5);
+  const xs: number[] = [];
+  const zs: number[] = [];
+  for (let i = 0; i < p.count; i++) {
+    xs.push(p.getX(i));
+    zs.push(p.getZ(i));
+    expect(p.getY(i)).toBeCloseTo(LAYER_Y.kerbs);
+  }
+  // Every kerb lies outside the faces: north of z = 0, south of z = 6 or west of x = 0.
+  for (let i = 0; i < p.count; i++) {
+    const outside = zs[i]! <= 0 || zs[i]! >= 6 || xs[i]! <= 0;
+    expect(outside).toBe(true);
+  }
+  expect(Math.min(...zs)).toBeCloseTo(-KERB);
+  expect(Math.max(...zs)).toBeCloseTo(6 + KERB);
+  expect(Math.min(...xs)).toBeCloseTo(-KERB);
+  // The same face wound the other way kerbs the same edges.
+  const back = new MeshBuilder();
+  addKerbs(back, [{ ...street, ring: new Float32Array([0, 0, 0, 6, 20, 6, 20, 0]) }], within);
+  expect(unindexed(back.build()).getAttribute('position').count / 6).toBe(4);
+  // A sliver with no inside gets none.
+  const flat = new MeshBuilder();
+  addKerbs(flat, [{ ...street, ring: new Float32Array([0, 0, 10, 0, 20, 0]) }], within);
+  expect(unindexed(flat.build()).getAttribute('position').count).toBe(0);
 });

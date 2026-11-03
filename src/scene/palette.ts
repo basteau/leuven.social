@@ -176,6 +176,8 @@ export const GROUND = {
   parking: 0x97938b,
   /** The road surface where no carriageway lies on it: pale slabs, like the footpaths. */
   pavement: 0xb3afa6,
+  /** The kerbstones along the carriageways: Belgian bluestone, a cool grey between slabs and asphalt. */
+  kerb: 0x9a9ea6,
   plaza: 0xd8bb90,
   water: 0x5f9fc4,
   /** Bridge decks: the pavement's slabs a shade warmer, so a street runs on over the bridge. */

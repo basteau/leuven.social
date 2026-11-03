@@ -1,7 +1,7 @@
 import { ShapeUtils, Vector2 } from 'three';
 
 import type { Bounds, Carriageway, Path } from '../data/city.ts';
-import { areaOutline } from '../data/geometry.ts';
+import { areaOutline, pointInRing } from '../data/geometry.ts';
 import type { OutlineEdge } from '../data/geometry.ts';
 import type { PitchSurface } from '../data/pitches.ts';
 import type { Terrain } from '../data/terrain.ts';
@@ -33,6 +33,8 @@ export const LAYER_Y = {
   /** Over the plain road surface (a track the GRB surveyed as a road), under the carriageways. */
   paths: 0.153,
   carriageways: 0.156,
+  /** The kerbstones along the carriageways, over the pavement, just under the fine paint. */
+  kerbs: 0.168,
   plazas: 0.2,
 } as const;
 export type LayerHeights = typeof LAYER_Y;
@@ -232,4 +234,76 @@ export function addGround(
   addPaint(mesh, layers.markings);
   // Squares are paved in setts, like the old streets round them.
   for (const ring of layers.plazas) addRing(mesh, ring, LAYER_Y.plazas, GROUND.plaza, SURFACE.sett);
+}
+
+/** How wide a kerbstone is drawn (m): a little over life, so it stays a line when zoomed in. */
+export const KERB = 0.28;
+
+/** A point's key to the centimetre, so faces that share an edge are seen to. */
+const cm = (x: number, z: number) => `${Math.round(x * 100)},${Math.round(z * 100)}`;
+
+/**
+ * The kerbs: a pale stone along every edge of a carriageway, on the pavement's side of it, where
+ * the carriageway meets the pavement and not another carriageway (a junction's face, a cycle
+ * track's) or the cut of the cell (`within`), so the kerb runs on unbroken from cell to cell
+ * and never across the road. Fine detail, drawn after the paint: the viewer leaves it out when
+ * a pixel is wider than a kerb.
+ */
+export function addKerbs(
+  mesh: MeshBuilder,
+  carriageways: readonly Carriageway[],
+  within: Bounds,
+  y: number = LAYER_Y.kerbs,
+): void {
+  const shared = new Map<string, number>();
+  for (const { ring } of carriageways) {
+    for (let i = 0; i < ring.length; i += 2) {
+      const j = (i + 2) % ring.length;
+      const [a, b] = [cm(ring[i]!, ring[i + 1]!), cm(ring[j]!, ring[j + 1]!)];
+      const key = a < b ? `${a}>${b}` : `${b}>${a}`;
+      shared.set(key, (shared.get(key) ?? 0) + 1);
+    }
+  }
+  const onCut = (x: number, z: number) =>
+    x <= within.minX + 1e-3 ||
+    x >= within.maxX - 1e-3 ||
+    z <= within.minZ + 1e-3 ||
+    z >= within.maxZ - 1e-3;
+  for (const { ring } of carriageways) {
+    // Which side of its edges the carriageway is on: right of the heading in (x east, z south)
+    // is (-dz, dx); the kerb goes the other way, onto the pavement.
+    let inward = 0;
+    for (let i = 0; i < ring.length && !inward; i += 2) {
+      const j = (i + 2) % ring.length;
+      const [ax, az, bx, bz] = [ring[i]!, ring[i + 1]!, ring[j]!, ring[j + 1]!];
+      const len = Math.hypot(bx - ax, bz - az);
+      if (len < 1e-3) continue;
+      const [mx, mz] = [(ax + bx) / 2, (az + bz) / 2];
+      const [nx, nz] = [(-(bz - az) / len) * 0.05, ((bx - ax) / len) * 0.05];
+      inward = pointInRing(ring, mx + nx, mz + nz)
+        ? 1
+        : pointInRing(ring, mx - nx, mz - nz)
+          ? -1
+          : 0;
+    }
+    if (!inward) continue;
+    for (let i = 0; i < ring.length; i += 2) {
+      const j = (i + 2) % ring.length;
+      const [ax, az, bx, bz] = [ring[i]!, ring[i + 1]!, ring[j]!, ring[j + 1]!];
+      const len = Math.hypot(bx - ax, bz - az);
+      if (len < 1e-3) continue;
+      const [a, b] = [cm(ax, az), cm(bx, bz)];
+      if ((shared.get(a < b ? `${a}>${b}` : `${b}>${a}`) ?? 0) > 1) continue;
+      if (onCut(ax, az) && onCut(bx, bz)) continue;
+      const [ox, oz] = [((bz - az) / len) * KERB * inward, (-(bx - ax) / len) * KERB * inward];
+      mesh.quad(
+        [ax, y, az],
+        [bx, y, bz],
+        [bx + ox, y, bz + oz],
+        [ax + ox, y, az + oz],
+        GROUND.kerb,
+        UP,
+      );
+    }
+  }
 }
