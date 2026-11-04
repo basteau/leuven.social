@@ -20,7 +20,7 @@ jobs:
       - run: bun install --frozen-lockfile
       # Uses the runner's Chrome; if it can't launch, add: bunx agent-browser install --with-deps
       - run: bun run verify
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: smoke-screenshots
