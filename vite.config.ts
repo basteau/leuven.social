@@ -1,9 +1,18 @@
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
+// The multiplayer server (server/main.ts, `bun run dev:server`) answers /api and /ws on the
+// page's own origin, as nginx makes it in production, so cookies and the socket need no CORS.
+const MULTIPLAYER = 'http://127.0.0.1:8787';
+const proxy = {
+  '/api': MULTIPLAYER,
+  '/ws': { target: MULTIPLAYER, ws: true },
+};
+
 export default defineConfig({
   plugins: [react()],
-  server: { host: true },
+  server: { host: true, proxy },
+  preview: { proxy },
   // Size limits are enforced by scripts/budget.ts, not by Vite's generic warning.
   build: {
     target: 'es2023',

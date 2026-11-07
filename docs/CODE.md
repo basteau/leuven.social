@@ -7,10 +7,14 @@ The code is split by what it is allowed to know about. Lint enforces the arrows,
 | Layer       | Holds                                                                               | May import                                                           |
 | ----------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
 | `src/data`  | The city model, the binary format, geometry and projection maths, the map area      | `@portable/*` and web APIs only. No three.js, React or other layers. |
-| `src/scene` | Everything 3D: meshes, materials, camera, controls, the render loop                 | `src/data`, `src/audio`, three.js. No React.                         |
+| `src/net`   | Multiplayer in the browser: the wire format, accounts, presence, smoothing          | `src/data`, `@portable/*` and web APIs. No three.js or React.        |
+| `src/scene` | Everything 3D: meshes, materials, camera, controls, the render loop                 | `src/data`, `src/net`, `src/audio`, three.js. No React.              |
 | `src/audio` | The few UI, walking and riding sounds, synthesised with Web Audio                   | Web APIs only. No three.js, React or other layers.                   |
-| `src/app`   | The React shell: the command menu, the few things on the map, loading, shortcuts    | `src/data`, `src/scene`, `src/audio`                                 |
+| `src/app`   | The React shell: the command menu, the few things on the map, loading, shortcuts    | `src/data`, `src/net`, `src/scene`, `src/audio`                      |
 | `scripts/`  | Build-time edges: fetching and baking data, icons, budgets, the smoke test, deploys | `src/data`, plus the `Bun` global for files and processes            |
+| `server/`   | The multiplayer server: accounts, the presence hub, SQLite ([MULTIPLAYER.md])       | `src/net`, `src/data`, the `Bun` global, `bun:sqlite`, `process.env` |
+
+[MULTIPLAYER.md]: MULTIPLAYER.md
 
 `src/scene` exposes one entry point, `createViewer()`. It returns a small imperative handle, so React never touches three.js objects:
 
@@ -48,15 +52,16 @@ A lazy chunk takes what it shares with the engine as a `kit` (three.js classes, 
 
 Code uses web-standard APIs and the [Portable](https://github.com/portablejs/portable) packages (`@portable/binary`, `@portable/compress`, `@portable/png`) instead of `node:*` or `bun:*` modules. That way the same code runs in the browser, in Bun scripts and in a Worker later.
 
-- The only exceptions are `bun:test` in tests, the `Bun` global in `scripts/`, and `Glob` from `bun` in `src/modules.test.ts`.
+- The only exceptions are `bun:test` in tests, the `Bun` global in `scripts/` and `server/`, `bun:sqlite` and `process.env` in `server/`, and `Glob` from `bun` in `src/modules.test.ts`. `src/net` is shared by the browser and the server, so it stays portable too.
 - When you need something new (streams, timers, CSV, logging…), look in Portable before writing it or adding a package.
 
 ## Tests
 
-`bun test` runs the `*.test.ts` files next to the code they test, inside `src/`. Every pure module is covered.
+`bun test` runs the `*.test.ts` files next to the code they test, inside `src/` and `server/`. Every pure module is covered.
 
 - Coverage below 95% lines or functions in any file fails the run, even when every test passes: look for the file in the coverage table.
 - `src/modules.test.ts` imports every pure module, so a new file without tests still shows up in coverage instead of hiding.
+- The server's tests drive the presence hub (`server/world.ts`) with fake connections, and start the real server on port 0 with SQLite in memory (`server/server.test.ts`): accounts, cookies and WebSockets end to end, `src/net/account.ts` included. `server/main.ts` only reads the environment and isn't measured.
 - Browser-only code (`viewer.ts`, `avatar-layer.ts`, `bikes.ts`, `plates.ts`, `facade-material.ts`, `character-material.ts`, `load.ts`, the React app; `BROWSER_ONLY` in `src/modules.test.ts`) is checked by the smoke test in `bun run verify` instead.
 - When you add logic, put it in a pure function in `src/data` or a geometry builder in `src/scene` and test it there. Keep `viewer.ts` thin.
 
@@ -76,11 +81,15 @@ Errors that can reach a user carry a message written for them. `CityLoadError` a
 
 Each runtime dependency has to earn its place:
 
-| Package                                  | Why                                                                                             |
-| ---------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `three`                                  | The 3D engine. Plain three.js rather than a wrapper keeps the bundle and the abstraction small. |
-| `react`, `react-dom`                     | The app shell and its menu                                                                      |
-| `@portable/binary`, `@portable/compress` | The city file format                                                                            |
+| Package                                  | Why                                                                                                                                                                      |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `three`                                  | The 3D engine. Plain three.js rather than a wrapper keeps the bundle and the abstraction small.                                                                          |
+| `react`, `react-dom`                     | The app shell and its menu                                                                                                                                               |
+| `@portable/binary`, `@portable/compress` | The city file format, and the multiplayer wire format (`src/net/protocol.ts`)                                                                                            |
+| `@portable/websockets`                   | The browser's presence socket: reconnects with backoff, runs code on every (re)connect before queued writes, and treats a deliberate close as final. About 3 kB.         |
+| `better-auth`                            | Accounts on the server only: password hashing, sessions in a cookie, rate limits on sign-in, its tables migrated into our SQLite file. Security code we shouldn't write. |
+| `@portable/rate-limit`                   | Server only: how many presence messages a connection may send, and sign-ups per address                                                                                  |
+| `@portable/log`                          | Server only: namespaced logging, turned up with `DEBUG`                                                                                                                  |
 
 Dev tooling is Vite, oxlint, agent-browser (smoke test), `@portable/png` (icons) and type packages. Bun itself formats, type-checks and tests.
 

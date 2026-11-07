@@ -22,6 +22,7 @@ Commit in small, well-scoped steps: one logical change per commit, with its test
 - How the code is split into layers, what may import what, testing and dependencies: [docs/CODE.md](docs/CODE.md)
 - Rendering and performance rules and budgets: [docs/RENDERING.md](docs/RENDERING.md)
 - Where the city data comes from and how to grow the map: [docs/DATA.md](docs/DATA.md). New data must come through the source manifest (`src/data/sources.ts`) and pipeline (`bun run data`); no manual downloads.
+- Accounts, the live presence of other players, the server in `server/` and running it locally: [docs/MULTIPLAYER.md](docs/MULTIPLAYER.md)
 - How it should look and feel: [DESIGN.md](DESIGN.md)
 - Background research, sources and ideas: [REPORT.md](REPORT.md)
 - Publishing to https://leuven.exe.xyz/ with `bun run deploy`: [docs/DEPLOY.md](docs/DEPLOY.md)

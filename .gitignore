@@ -1,6 +1,10 @@
 # Dependencies and build output
 node_modules
 dist/
+dist-server/
+
+# The local multiplayer database (server/main.ts's DATABASE_PATH default)
+.data/
 
 # Local artefacts: smoke-test and review screenshots, OS and editor noise
 .artifacts/

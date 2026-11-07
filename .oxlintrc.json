@@ -147,6 +147,35 @@
       }
     },
     {
+      "files": ["src/net/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["node:*", "node:*/**", "bun:*", "bun"],
+                "message": "Keep code runtime-portable: use web APIs or @portable/* (see docs/CODE.md)."
+              },
+              {
+                "group": [
+                  "three",
+                  "three/*",
+                  "react",
+                  "react-dom",
+                  "react-dom/*",
+                  "**/scene/**",
+                  "**/app/**",
+                  "**/audio/**"
+                ],
+                "message": "src/net is web APIs and @portable/*: no three.js, React or other layers but src/data (see docs/CODE.md)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "files": ["**/*.test.ts"],
       "rules": {
         "no-restricted-imports": [
@@ -168,6 +197,36 @@
         "no-console": "off",
         "no-restricted-globals": "off",
         "no-await-in-loop": "off"
+      }
+    },
+    {
+      "files": ["server/**"],
+      "rules": {
+        "no-restricted-globals": "off",
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["node:*", "node:*/**"],
+                "message": "The server runs on Bun: use Bun's APIs, bun:sqlite or @portable/* (see docs/CODE.md)."
+              },
+              {
+                "group": [
+                  "three",
+                  "three/*",
+                  "react",
+                  "react-dom",
+                  "react-dom/*",
+                  "**/scene/**",
+                  "**/app/**",
+                  "**/audio/**"
+                ],
+                "message": "server/ may import src/net and src/data only (see docs/CODE.md)."
+              }
+            ]
+          }
+        ]
       }
     },
     {
@@ -212,5 +271,12 @@
       }
     }
   ],
-  "ignorePatterns": ["dist/**", "data/**", "research/**", "tools/**", ".agents/**"]
+  "ignorePatterns": [
+    "dist/**",
+    "data/**",
+    "research/**",
+    "tools/**",
+    ".agents/**",
+    "dist-server/**"
+  ]
 }

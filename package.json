@@ -11,8 +11,11 @@
   "type": "module",
   "packageManager": "bun@1.4.4",
   "scripts": {
-    "dev": "vite",
+    "dev": "bun run --parallel dev:web dev:server",
+    "dev:web": "vite",
+    "dev:server": "bun --watch server/main.ts",
     "build": "vite build",
+    "build:server": "bun build server/main.ts --target=bun --outdir dist-server",
     "preview": "vite preview",
     "verify": "bun run verify:quick && bun run build && bun run budget && bun run smoke",
     "verify:quick": "bun run --parallel --no-exit-on-error format:check lint typecheck test",
@@ -36,6 +39,10 @@
   "dependencies": {
     "@portable/binary": "^0.1.0",
     "@portable/compress": "^0.1.0",
+    "@portable/log": "^0.1.0",
+    "@portable/rate-limit": "^0.1.0",
+    "@portable/websockets": "^0.1.0",
+    "better-auth": "~1.7.18",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "three": "^0.187.0"

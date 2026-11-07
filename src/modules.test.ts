@@ -15,7 +15,7 @@ const BROWSER_ONLY = new Set([
 ]);
 
 test('every pure module is measured by coverage', async () => {
-  for await (const file of new Glob('{audio,data,scene}/*.ts').scan({ cwd: import.meta.dir })) {
+  for await (const file of new Glob('{audio,data,net,scene}/*.ts').scan({ cwd: import.meta.dir })) {
     if (!file.endsWith('.test.ts') && !BROWSER_ONLY.has(file)) await import(`./${file}`);
   }
 });
