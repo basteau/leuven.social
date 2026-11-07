@@ -138,7 +138,12 @@ export async function me(): Promise<Me | null> {
 }
 
 /** Keeps the avatar's colours; everyone online sees them change. */
-export async function saveOutfit(outfit: Outfit): Promise<void> {
-  const response = await request('/me', { method: 'PUT', body: JSON.stringify({ outfit }) });
+export async function saveOutfit(outfit: Outfit, { leaving = false } = {}): Promise<void> {
+  // Leaving the page, the request is kept alive past it.
+  const response = await request('/me', {
+    method: 'PUT',
+    body: JSON.stringify({ outfit }),
+    keepalive: leaving,
+  });
   if (!response.ok) throw await failure(response);
 }

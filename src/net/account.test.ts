@@ -117,6 +117,10 @@ describe('account', () => {
     expect(await reason(saveOutfit(outfit))).toMatchObject({ code: 'signed-out' });
     answer(json({ outfit }));
     await saveOutfit(outfit);
-    expect(calls[0]?.init?.method).toBe('PUT');
+    expect(calls[0]?.init).toMatchObject({ method: 'PUT', keepalive: false });
+    // Leaving the page, the request outlives it.
+    answer(json({ outfit }));
+    await saveOutfit(outfit, { leaving: true });
+    expect(calls[0]?.init?.keepalive).toBe(true);
   });
 });

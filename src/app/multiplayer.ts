@@ -5,6 +5,7 @@ import type { Snapshots } from '../net/interpolate.ts';
 import { connectPresence } from '../net/presence.ts';
 import type { Presence, PresenceStatus } from '../net/presence.ts';
 import type { Outfit, PlayerState } from '../net/protocol.ts';
+import { isPlace } from '../net/rules.ts';
 import type { Roster, RosterEntry, Viewer } from '../scene/viewer.ts';
 import type { Account } from './account-sheet.tsx';
 import { live } from './live.ts';
@@ -53,8 +54,11 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
   const others = new Map<number, Other>();
   const listeners = new Set<() => void>();
   let saving: ReturnType<typeof setTimeout> | undefined;
-  /** A look chosen but not saved yet. */
+  /** A look chosen but not saved yet, and the save under way: one at a time, in order. */
   let unsaved: Outfit | null = null;
+  let saved: Promise<void> = Promise.resolve();
+  /** Bumped by every sign-in or -up: an answer to an older question about who you are is stale. */
+  let asked = 0;
   let disposed = false;
 
   const news = () => {
@@ -155,37 +159,55 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
   }
 
   // Who you are, once: a guest watches; an account comes back where it left.
+  const first = asked;
   void Accounts.me()
     .then((me) => {
-      if (disposed) return;
+      // Signed in or up meanwhile (a password manager is quick): that answer is the one.
+      if (disposed || asked !== first) return;
       if (me) welcome(me, true);
       else settle({ signedIn: false });
     })
-    .catch(() => settle({ signedIn: false }))
+    .catch(() => {
+      if (asked === first) settle({ signedIn: false });
+    })
     .finally(() => {
-      if (!disposed) connect();
+      if (!disposed && asked === first) connect();
     });
 
-  /** Saves the look chosen last, now; settles once it's saved (or couldn't be). */
-  function save(): Promise<void> {
+  /**
+   * Saves the look chosen last, after any save under way, so an older look can't land last;
+   * settles once it's saved (or couldn't be). Leaving the page, at once and kept alive past it.
+   */
+  function save(leaving = false): Promise<void> {
     clearTimeout(saving);
     saving = undefined;
     const outfit = unsaved;
     unsaved = null;
-    if (!outfit) return Promise.resolve();
-    return Accounts.saveOutfit(outfit).catch((error: unknown) =>
-      console.warn('Your look wasn’t saved.', error),
-    );
+    if (!outfit) return saved;
+    const send = () =>
+      Accounts.saveOutfit(outfit, { leaving }).catch((error: unknown) =>
+        console.warn('Your look wasn’t saved.', error),
+      );
+    saved = leaving ? send() : saved.then(send);
+    return saved;
   }
+  // A look picked a moment before the tab closes is saved all the same.
+  const leave = () => {
+    if (document.visibilityState === 'hidden') void save(true);
+  };
+  document.addEventListener('visibilitychange', leave);
+  globalThis.addEventListener('pagehide', leave);
 
   return {
     async signUp(name, password) {
+      asked++;
       const me = await Accounts.signUp(name, password);
       // A new account starts where you are, wearing the server's pick.
       welcome(me, false);
       connect();
     },
     async signIn(name, password) {
+      asked++;
       const me = await Accounts.signIn(name, password);
       welcome(me, true);
       connect();
@@ -206,12 +228,16 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
       saving = setTimeout(() => void save(), SAVE_AFTER_MS);
     },
     moved(state) {
-      last = state;
+      // A room the server wouldn't know is the street to the others, as it would be on arrival.
+      last = isPlace(state.place) || !state.place ? state : { ...state, place: '', floor: 0 };
+      state = last;
       if (account.signedIn) presence?.send(state);
     },
     dispose() {
       disposed = true;
-      void save();
+      void save(true);
+      document.removeEventListener('visibilitychange', leave);
+      globalThis.removeEventListener('pagehide', leave);
       presence?.close();
       viewer.others(null);
       live.others = [];
