@@ -9,6 +9,56 @@ dependencies, or making interiors for more than the authored landmark buildings.
 Each phase below is shippable on its own and ends green (`bun run verify`). Nothing is left
 half-migrated at a phase boundary.
 
+## Status: done
+
+Phases 0–7 are in on `top-down` (tag `pre-top-down` for the rollback), Phase 8 measured below. The decisions in §8 were settled as recommended: a fixed 35.26° pitch (the occlusion sweep passes at it, so nothing argued for more), the avatar always present, interiors for well-known landmarks only (Sint-Pieterskerk first), and the facade palette indoors. `bun run verify` is green.
+
+### Where the build differs from the plan, and why
+
+- **Paces.** The plan's 1.5 m/s on foot and 6–11 on a bike are life-size speeds; the figure is drawn 1.3× life size and its gait (stride, cadence, planted feet, the traffic's fitted harmonics) is tuned to 5.4 m/s walking and 9.2 running, which already felt slow on Leuven's long streets at 4. They stay; a bike cruises at 11.5 m/s and sprints at 17.5 (the old rider's numbers), with momentum. Changing them means refitting the gait.
+- **Opening a landmark (§3.1).** Rather than rebuilding its cell with an `open` set, each cell notes its landmarks' index ranges (`LandmarkRange`) and keeps those two index arrays; going in zeroes the range and uploads only it (as a taken bike's), and the walls cut down to the room's ceiling (`addBuilding`'s `cut`) are drawn in the room's ground-floor mesh. No cell rebuild, no hitch to prewarm away, no second variant of a cell held in memory. The smoke test fails on any long task going in or out.
+- **Rooms' schema.** `oidn` is a number (as `Building.id` is), and a room has an `id` for the page and the tests; floors have a `name` for the sign; a wall may have its own `height` (a balustrade); stairs have an `angle`, as footprints aren't axis-aligned. Props are of known kinds with sizes in `PROP_SIZES`, which the grid and the mesh share.
+- **Floors below.** All floors up to the avatar's are drawn, not only through stairwells and atriums: a gallery is a partial slab, so the nave is seen past its edge as much as through its hole. Inside the church that is 4 draw calls and about 2,900 triangles.
+- **The LOD table.** Interior floors show whenever the avatar is inside (zoom 8–20, so a span of 28–70 m), not under 20 m, which the zoom clamp would never reach. The avatar's figure shows at 120 m and under, its marker between 120 and 400.
+- **Thresholds.** In and out happen 0.3 m past the footprint's edge at the door rather than at a cell boundary, which keeps the switch to one step and stops a body brushing the edge from flickering.
+- **Occlusion sweep (Phase 4).** A unit test over `city.bin` (`occlusion.test.ts`) walks every street within 60 m of Grote Markt from all four quarter views at zoom 40 and finds the avatar hidden by a house for no time at all, which is stricter than 250 ms; there is no browser sweep.
+- **Chunks.** The rooms' code rides in the avatar's chunk (a chunk loaded from a chunk splits three.js off the engine); only `rooms.json` waits. Bikes stayed a chunk of their own (3.1 KB). The bike's rig moved into the traffic chunk, which draws the avatar's rider too. `rider-pose.ts` went, so `scripts/gait-fit.ts` fits the walk only and the pedalling harmonics stay as data.
+- **Persistence.** Bikes left standing are no longer remembered across page loads.
+
+### What was measured (Phase 8)
+
+Budgets after the migration (gzipped, as `scripts/budget.ts` counts them):
+
+| Budget                  | Before       | After                                                                                                  |
+| ----------------------- | ------------ | ------------------------------------------------------------------------------------------------------ |
+| Walk mode chunk         | 17.6 KB      | gone; the avatar 19.3 KB (limit 19.5), with its rooms                                                  |
+| Riding chunk            | 9.8 KB       | bikes 3.1 KB (limit 3.5)                                                                               |
+| Traffic + figure/bike   | 19.1 KB      | 19.0 KB (traffic 16.3 with the rig, figure 2.7)                                                        |
+| Plates / streets chunks | 5.6 / 1.3 KB | unchanged; loaded at a span of 60 m                                                                    |
+| App shell               | 85.0 KB      | 84.7 KB                                                                                                |
+| Engine                  | 172.3 KB     | 172.4 KB (one camera and no sky dome took 0.8 KB off; opening landmarks and the LOD table put it back) |
+| First load              | 257.2 KB     | 257.1 KB                                                                                               |
+| Rooms data              | —            | 1.2 KB (limit 80)                                                                                      |
+
+The latest frame at each zoom, with the traffic on (headless Chrome, golden hour):
+
+| Zoom  | Desktop 1280×800    | Phone 390×844       |
+| ----- | ------------------- | ------------------- |
+| 0.8   | 62 calls, 673k tris | 29 calls, 450k tris |
+| 1.6   | 39 calls, 479k      | 31 calls, 417k      |
+| 3     | 39 calls, 492k      | 39 calls, 492k      |
+| 6     | 31 calls, 423k      | 31 calls, 423k      |
+| 12    | 32 calls, 424k      | 32 calls, 424k      |
+| 28–40 | 32 calls, 424k      | 32 calls, 424k      |
+
+The heaviest frame of a whole smoke run is 151 calls and 1.06M triangles, zoomed out at night with a shadow redraw, as before the migration. Inside Sint-Pieterskerk a frame is 35 calls, on its gallery 39. The longest task while loading stays around 75 ms on a laptop (one cold first run of Chrome measured 540 ms, the same as `main` did on its first run).
+
+### Left for later
+
+- The smoke test goes in and out of the church and up to its gallery through the menu; the door crossing and the stair's floor switch are covered by unit tests on the real `rooms.json` (`avatar.test.ts`), not by walking them in the browser.
+- Footsteps and the bell were left as they were: they are events, not tied to the camera, and sound the same top-down. The old flight's whoosh no longer plays.
+- More rooms: the Universiteitsbibliotheek's reading room is the obvious next one (a hole for an atrium).
+
 ---
 
 ## 1. Verified baseline
