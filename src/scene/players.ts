@@ -60,24 +60,34 @@ export interface PlayersKit {
   riders(): Promise<Riders>;
 }
 
+/** Where the map looks from, for which of the others to draw. */
+export interface PlayersView {
+  /** Whether figures are drawn at this zoom at all. */
+  figures: boolean;
+  /** The view's target (m), whose nearest are drawn, and how far from it the view reaches. */
+  x: number;
+  z: number;
+  reach: number;
+  /** Where the avatar is: '' the street, else a room and its floor. */
+  place: string;
+  floor: number;
+}
+
 export interface Players {
   /** Hands over the roster, or none (signed out): everyone goes. */
   use(roster: Roster | null): void;
   /**
-   * Draws them for a frame: `shown` whether figures are drawn at this zoom, (`x`, `z`) the view's
-   * target, `place` and `floor` where the avatar is. Returns whether anyone is still moving.
+   * Moves everyone on to `now`: where the roster says they are, their legs `dt` seconds on.
+   * Returns whether any of those drawn still moves (or idles), and needs another frame.
    */
-  frame(
-    now: number,
-    dt: number,
-    shown: boolean,
-    x: number,
-    z: number,
-    place: string,
-    floor: number,
-  ): boolean;
-  /** How many are drawn this frame. */
+  step(now: number, dt: number): boolean;
+  /** Draws the nearest of them for the view: figures, riders and tags. Each frame drawn. */
+  place(view: PlayersView): void;
+  /** Whether anyone the view would draw is out there at `now`: news worth a frame. */
+  near(now: number, view: PlayersView): boolean;
+  /** How many are drawn, and the draw calls they take (two a figure, three for all riders). */
   readonly drawn: number;
+  readonly calls: number;
   dispose(): void;
 }
 
@@ -89,6 +99,8 @@ const FEET_Y = 0.04;
 const OVER_HEAD = 2.75;
 /** Idle long enough, a figure stands still and needs no more frames (s; the walker's IDLE_SECONDS). */
 const IDLE = 7;
+/** After the riders failed to load, they are asked for again no sooner than this (ms). */
+const RIDERS_RETRY_MS = 30_000;
 
 interface Shown {
   entry: RosterEntry;
@@ -98,6 +110,8 @@ interface Shown {
   gait: Gait;
   at: PlayerPose;
   known: boolean;
+  /** Drawn in the last `place`. */
+  drawing: boolean;
   tag: HTMLElement | null;
   /** The tag's last place on screen, to write it only when it moves. */
   tagX: number;
@@ -114,10 +128,18 @@ export function createPlayers(kit: PlayersKit): Players {
   let list: Shown[] = [];
   let riders: Riders | undefined;
   let loadingRiders = false;
+  let ridersRetry = 0;
+  /** Who each riders' instance is dressed as, so a slot is dressed only when its rider changes. */
+  const slots: (RosterEntry | undefined)[] = [];
   let drawn = 0;
-  const points = new Float32Array(MOST * 64 * 2);
+  let rode = 0;
+  // Reused from frame to frame: nothing is allocated per frame.
+  let points = new Float32Array(64 * 2);
+  const here: Shown[] = [];
   const nearest: number[] = [];
   const head = new Vector3();
+  const isHere = (s: Shown, view: PlayersView) =>
+    s.known && view.figures && together(s.at, view.place, view.floor);
 
   function dress(s: Shown, outfit: Outfit): void {
     const geometry = characterGeometry(outfit);
@@ -153,6 +175,7 @@ export function createPlayers(kit: PlayersKit): Players {
       gait: createGait(),
       at,
       known: false,
+      drawing: false,
       tag,
       tagX: Number.NaN,
       tagY: Number.NaN,
@@ -161,6 +184,8 @@ export function createPlayers(kit: PlayersKit): Players {
 
   function remove(s: Shown): void {
     scene.remove(s.character.mesh);
+    // Each skinned mesh holds its bones in a texture on the GPU.
+    s.character.mesh.skeleton.dispose();
     s.character.mesh.geometry.dispose();
     s.xray.dispose();
     s.tag?.remove();
@@ -194,11 +219,10 @@ export function createPlayers(kit: PlayersKit): Players {
     s.tagX = Number.NaN;
   }
 
-  /** Over their head on screen, written only when it moves by a pixel. */
-  function placeTag(s: Shown, y: number): void {
+  /** Over their head on screen (`w` × `h` CSS px), written only when it moves by a pixel. */
+  function placeTag(s: Shown, y: number, w: number, h: number): void {
     if (!s.tag) return;
     head.set(s.at.x, y + OVER_HEAD, s.at.z).project(camera);
-    const [w, h] = [canvas.clientWidth, canvas.clientHeight];
     const [tx, ty] = [((head.x + 1) / 2) * w, ((1 - head.y) / 2) * h];
     if (tx < -50 || ty < -20 || tx > w + 50 || ty > h + 50) return hideTag(s);
     if (s.tag.hidden) s.tag.hidden = false;
@@ -207,9 +231,45 @@ export function createPlayers(kit: PlayersKit): Players {
     s.tag.style.transform = `translate3d(${tx.toFixed(1)}px, ${ty.toFixed(1)}px, 0)`;
   }
 
+  function loadRiders(): void {
+    if (loadingRiders || performance.now() < ridersRetry) return;
+    loadingRiders = true;
+    kit.riders().then(
+      (loaded) => (riders = loaded),
+      () => {
+        // Tried again when someone next rides, a while from now (a deploy took the chunk away).
+        loadingRiders = false;
+        ridersRetry = performance.now() + RIDERS_RETRY_MS;
+      },
+    );
+  }
+
+  /** Draws a rider in the riders' next slot, dressing the slot only when its rider changed. */
+  function ride(s: Shown, y: number): void {
+    if (!riders) return loadRiders();
+    if (slots[rode] !== s.entry) {
+      slots[rode] = s.entry;
+      // Each on a bike of a colour of their own, as the racks hold them.
+      riders.dress(rode, { ...s.entry.outfit, frame: BIKES[s.entry.id % BIKES.length]! });
+    }
+    riders.pose(rode, {
+      x: s.at.x,
+      y,
+      z: s.at.z,
+      heading: s.at.heading,
+      lean: s.gait.lean,
+      pedal: s.gait.phase,
+      braking: false,
+    });
+    rode++;
+  }
+
   return {
     get drawn() {
       return drawn;
+    },
+    get calls() {
+      return drawn * 2 - rode * 2 + (rode ? 3 : 0);
     },
     use(next) {
       roster = next;
@@ -218,63 +278,61 @@ export function createPlayers(kit: PlayersKit): Players {
       list = [];
       version = -1;
       if (riders) riders.count = 0;
-      drawn = 0;
+      slots.length = 0;
+      [drawn, rode] = [0, 0];
     },
-    frame(now, dt, figures, x, z, place, floor) {
+    step(now, dt) {
       if (!roster) return false;
       if (roster.version() !== version) sync();
       let moving = false;
-      let count = 0;
       for (const s of list) {
         s.known = roster.pose(s.entry.id, now, s.at);
         if (!s.known) continue;
         stepGait(s.gait, s.at, dt);
-        if (s.at.speed > 0 || s.gait.still < IDLE) moving = true;
+        if (s.drawing && (s.at.speed > 0 || s.gait.still < IDLE)) moving = true;
       }
+      return moving;
+    },
+    near(now, view) {
+      if (!roster || !view.figures) return false;
+      if (roster.version() !== version) return true;
+      for (const s of list) {
+        s.known = roster.pose(s.entry.id, now, s.at);
+        const d = Math.hypot(s.at.x - view.x, s.at.z - view.z);
+        if (isHere(s, view) && d < view.reach) return true;
+      }
+      return false;
+    },
+    place(view) {
+      [drawn, rode] = [0, 0];
       // The nearest of those here with the avatar, up to MOST.
-      const here: Shown[] = [];
+      here.length = 0;
       for (const s of list) {
-        if (s.known && figures && together(s.at, place, floor)) here.push(s);
+        s.drawing = false;
+        if (isHere(s, view)) here.push(s);
       }
-      if (here.length * 2 > points.length) here.length = points.length / 2;
-      for (const [i, s] of here.entries()) [points[i * 2], points[i * 2 + 1]] = [s.at.x, s.at.z];
-      nearestOf(points, here.length, x, z, MOST, nearest);
-      const drawing = new Set(nearest.map((i) => here[i]!));
-      let rode = 0;
+      if (points.length < here.length * 2) points = new Float32Array(here.length * 4);
+      for (let i = 0; i < here.length; i++) {
+        [points[i * 2], points[i * 2 + 1]] = [here[i]!.at.x, here[i]!.at.z];
+      }
+      for (const i of nearestOf(points, here.length, view.x, view.z, MOST, nearest)) {
+        here[i]!.drawing = true;
+      }
+      // The canvas's size, read once, before any tag is written.
+      const [w, h] = [canvas.clientWidth, canvas.clientHeight];
       for (const s of list) {
-        const y = drawing.has(s) ? kit.floorAt(s.at) : null;
+        const y = s.drawing ? kit.floorAt(s.at) : null;
+        s.drawing = y !== null;
         const onFoot = y !== null && s.at.mode === 'foot';
         s.character.mesh.visible = onFoot;
         if (y === null) {
           hideTag(s);
           continue;
         }
-        count++;
-        placeTag(s, y);
+        drawn++;
+        placeTag(s, y, w, h);
         if (!onFoot) {
-          if (!riders) {
-            if (!loadingRiders) {
-              loadingRiders = true;
-              kit.riders().then(
-                (loaded) => (riders = loaded),
-                () => (loadingRiders = false), // tried again when someone next rides
-              );
-            }
-            continue;
-          }
-          // Each on a bike of a colour of their own, as the racks hold them.
-          const frame = BIKES[s.entry.id % BIKES.length]!;
-          riders.dress(rode, { ...s.entry.outfit, frame });
-          riders.pose(rode, {
-            x: s.at.x,
-            y,
-            z: s.at.z,
-            heading: s.at.heading,
-            lean: s.gait.lean,
-            pedal: s.gait.phase,
-            braking: false,
-          });
-          rode++;
+          ride(s, y);
           continue;
         }
         const g = s.gait;
@@ -296,8 +354,6 @@ export function createPlayers(kit: PlayersKit): Players {
         s.character.mesh.rotation.y = s.at.heading;
       }
       if (riders) riders.count = rode;
-      drawn = count;
-      return moving;
     },
     dispose() {
       for (const s of shown.values()) remove(s);

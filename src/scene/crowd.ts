@@ -75,9 +75,12 @@ export function stepGait(g: Gait, pose: PlayerPose, dt: number): void {
   g.lean += (want - g.lean) * k;
 }
 
-/** Whether a figure seen from `here` (its room and floor; '' the street) shows. */
+/**
+ * Whether a figure shows to someone at `place` and `floor` ('' the street): everyone in the street
+ * (it shows round a room that is open, too), and in a room only those on its floor with you.
+ */
 export const together = (pose: PlayerPose, place: string, floor: number) =>
-  pose.place === place && (place === '' || pose.floor === floor);
+  pose.place === '' || (pose.place === place && pose.floor === floor);
 
 /** The distances `nearestOf` keeps beside its indices, reused from call to call. */
 const far: number[] = [];
@@ -98,15 +101,17 @@ export function nearestOf(
   far.length = 0;
   for (let i = 0; i < count; i++) {
     const d = Math.hypot(points[i * 2]! - x, points[i * 2 + 1]! - z);
-    let at = out.length;
-    while (at > 0 && far[at - 1]! > d) at--;
-    if (at >= most) continue;
-    out.splice(at, 0, i);
-    far.splice(at, 0, d);
-    if (out.length > most) {
-      out.pop();
-      far.pop();
+    if (out.length === most && d >= far[most - 1]!) continue;
+    // Insertion by shifting the farther ones down: no splice, which allocates.
+    let at = Math.min(out.length, most - 1);
+    if (out.length < most) out.length = far.length = out.length + 1;
+    while (at > 0 && far[at - 1]! > d) {
+      out[at] = out[at - 1]!;
+      far[at] = far[at - 1]!;
+      at--;
     }
+    out[at] = i;
+    far[at] = d;
   }
   return out;
 }

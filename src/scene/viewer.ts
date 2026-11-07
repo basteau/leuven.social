@@ -788,7 +788,9 @@ export function createViewer(options: ViewerOptions): Viewer {
     }
     counted.calls = calls;
     counted.triangles = triangles;
-    return calls + others.calls <= FRAME_CALLS && triangles + others.triangles <= FRAME_TRIANGLES;
+    // What the figures will take is known now; what else the frame drew besides, from the last.
+    const extra = Math.max(others.calls, avatar?.calls ?? 0);
+    return calls + extra <= FRAME_CALLS && triangles + others.triangles <= FRAME_TRIANGLES;
   }
 
   /** What `cull` counted for the cells, and what the frame drew besides them, last frame. */

@@ -57,7 +57,7 @@ import { nearestParked } from './parked.ts';
 import { meant, nearestShown, unpackDepth } from './pick.ts';
 import type { MeantTests } from './pick.ts';
 import { createPlayers } from './players.ts';
-import type { Roster } from './players.ts';
+import type { PlayersView, Roster } from './players.ts';
 import { passedVertices, routeMarker } from './route-marker.ts';
 import type { RouteMarker } from './route-marker.ts';
 import { walkSolids } from './solids.ts';
@@ -234,8 +234,8 @@ export interface AvatarLayer {
   dress(outfit: Outfit): void;
   /** Puts the avatar back where it was last time (m), on the open ground nearest, facing `heading`. */
   placeAt(x: number, z: number, heading: number): void;
-  /** How many draw calls the other players take this frame. */
-  readonly playersDrawn: number;
+  /** The draw calls the figures take this frame: the avatar's and the other players'. */
+  readonly calls: number;
   dispose(): void;
 }
 
@@ -480,6 +480,20 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       }),
   });
   let unlisten: () => void = noop;
+  const othersView: PlayersView = { figures: false, x: 0, z: 0, reach: 0, place: '', floor: 0 };
+  /** Where the view looks, for which of the others to draw. */
+  function playersView(figures = shown === 'figure'): PlayersView {
+    const t = controls.target;
+    return Object.assign(othersView, {
+      figures,
+      x: t.x,
+      z: t.z,
+      // A half diagonal of the widest screens.
+      reach: span,
+      place: room?.id ?? '',
+      floor: avatar.floor,
+    });
+  }
 
   function publishPlace(): void {
     canvas.dataset.place = room?.id ?? '';
@@ -844,12 +858,8 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     const phase =
       prevPhase + Math.atan2(Math.sin(w.phase - prevPhase), Math.cos(w.phase - prevPhase)) * blend;
     place(x, z, heading, phase, dt);
-    const view = controls.target;
-    const here = room?.id ?? '';
-    busy = players.frame(now, dt, shown === 'figure', view.x, view.z, here, avatar.floor) || busy;
-    // How many others are drawn, for the smoke test.
-    if (canvas.dataset.players !== String(players.drawn))
-      canvas.dataset.players = String(players.drawn);
+    // The others step here; the frame drawn places them (`detail`), as it does on a pan.
+    busy = players.step(now, dt) || busy;
     tell();
 
     if (Math.hypot(w.x - publishedAt[0], w.z - publishedAt[1]) >= 1) publish();
@@ -999,12 +1009,17 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     get state() {
       return avatarState(avatar);
     },
-    get playersDrawn() {
-      return players.drawn;
+    get calls() {
+      return (character.mesh.visible ? 2 : 0) + players.calls;
     },
     others(roster) {
       unlisten();
-      unlisten = roster ? roster.listen(wake) : noop;
+      // News from far off, or from nobody the view would draw, is worth no frame.
+      unlisten = roster
+        ? roster.listen(() => {
+            if (players.drawn > 0 || players.near(performance.now(), playersView())) wake();
+          })
+        : noop;
       players.use(roster);
       wake();
     },
@@ -1070,6 +1085,12 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     detail(detail, height) {
       span = height;
       prewarm = detail.prewarm;
+      // The others, placed for every frame drawn, the camera's too: their tags follow a pan.
+      players.place(playersView(detail.avatar === 'figure'));
+      // How many are drawn, for the smoke test.
+      if (canvas.dataset.players !== String(players.drawn)) {
+        canvas.dataset.players = String(players.drawn);
+      }
       if (detail.avatar === shown) return;
       shown = detail.avatar;
       const w = avatar.walker;

@@ -105,6 +105,22 @@ function setup() {
   return { scene, camera, tags, players, riders, ridden, asked: () => asked };
 }
 
+/** A frame as the map draws one: everyone steps, then the view places them. */
+function frame(
+  players: ReturnType<typeof createPlayers>,
+  now: number,
+  dt: number,
+  figures: boolean,
+  x: number,
+  z: number,
+  place: string,
+  floor: number,
+): boolean {
+  const moving = players.step(now, dt);
+  players.place({ figures, x, z, reach: 500, place, floor });
+  return moving;
+}
+
 describe('createPlayers', () => {
   test('draws each player near the view as a figure in their clothes, their name over them', () => {
     const { scene, tags, players } = setup();
@@ -120,7 +136,11 @@ describe('createPlayers', () => {
       poses,
     );
     players.use(roster);
-    expect(players.frame(0, 1 / 60, true, 0, 0, '', 0)).toBe(true);
+    // Nobody was drawn before the first frame; walking, Ana keeps the frames coming after it.
+    expect(frame(players, 0, 1 / 60, true, 0, 0, '', 0)).toBe(false);
+    expect(players.step(1, 1 / 60)).toBe(true);
+    // Two figures, two calls each.
+    expect(players.calls).toBe(4);
     expect(players.drawn).toBe(2);
     expect(scene.children).toHaveLength(2);
     const [ana] = scene.children;
@@ -136,7 +156,7 @@ describe('createPlayers', () => {
     // A frame later, standing still, the tag isn't written again.
     const before = tags.children[1]!.style.transform;
     tags.children[1]!.style.transform = 'kept';
-    players.frame(16, 1 / 60, true, 0, 0, '', 0);
+    frame(players, 16, 1 / 60, true, 0, 0, '', 0);
     expect(tags.children[1]!.style.transform).toBe('kept');
     expect(before).not.toBe('kept');
   });
@@ -145,28 +165,28 @@ describe('createPlayers', () => {
     const { scene, tags, players } = setup();
     const poses = new Map([[1, pose({ place: 'kerk' })]]);
     players.use(rosterOf([{ id: 1, name: 'ana', outfit: WALKER }], poses));
-    players.frame(0, 0.1, true, 0, 0, '', 0);
+    frame(players, 0, 0.1, true, 0, 0, '', 0);
     expect(players.drawn).toBe(0);
     expect(scene.children[0]!.visible).toBe(false);
     expect(tags.children[0]!.hidden).toBe(true);
     // In the same room, on its floor.
-    players.frame(0, 0.1, true, 0, 0, 'kerk', 0);
+    frame(players, 0, 0.1, true, 0, 0, 'kerk', 0);
     expect(players.drawn).toBe(1);
     expect(scene.children[0]!.position.y).toBeGreaterThan(3);
     // Too far out for figures.
-    players.frame(0, 0.1, false, 0, 0, 'kerk', 0);
+    frame(players, 0, 0.1, false, 0, 0, 'kerk', 0);
     expect(players.drawn).toBe(0);
     // A room the map can't place them in.
     poses.set(1, pose({ place: 'elsewhere' }));
-    players.frame(0, 0.1, true, 0, 0, 'elsewhere', 0);
+    frame(players, 0, 0.1, true, 0, 0, 'elsewhere', 0);
     expect(players.drawn).toBe(0);
     // Nothing known of them yet.
     poses.delete(1);
-    players.frame(0, 0.1, true, 0, 0, '', 0);
+    frame(players, 0, 0.1, true, 0, 0, '', 0);
     expect(players.drawn).toBe(0);
     // Off the screen, the tag hides.
     poses.set(1, pose({ x: 5000 }));
-    players.frame(0, 0.1, true, 0, 0, '', 0);
+    frame(players, 0, 0.1, true, 0, 0, '', 0);
     expect(tags.children[0]!.hidden).toBe(true);
   });
 
@@ -180,7 +200,7 @@ describe('createPlayers', () => {
     }
     const roster = rosterOf(entries, poses);
     players.use(roster);
-    players.frame(0, 0.1, true, 0, 0, '', 0);
+    frame(players, 0, 0.1, true, 0, 0, '', 0);
     // 24 at most, the nearest the view.
     expect(players.drawn).toBe(24);
     expect(scene.children.filter((c) => c.visible)).toHaveLength(24);
@@ -189,7 +209,7 @@ describe('createPlayers', () => {
     const renamed: RosterEntry = { id: 1, name: 'ana', outfit: outfit(0xff0000) };
     roster.list = [renamed, ...entries.slice(1, -1)];
     roster.bump();
-    players.frame(0, 0.1, true, 0, 0, '', 0);
+    frame(players, 0, 0.1, true, 0, 0, '', 0);
     expect(scene.children).toHaveLength(29);
     expect(tags.children.filter((t) => t.removed)).toHaveLength(1);
     expect(tags.children[0]!.textContent).toBe('ana');
@@ -197,21 +217,39 @@ describe('createPlayers', () => {
     // Signed out: everyone goes.
     players.use(null);
     expect(scene.children).toHaveLength(0);
-    expect(players.frame(0, 0.1, true, 0, 0, '', 0)).toBe(false);
+    expect(frame(players, 0, 0.1, true, 0, 0, '', 0)).toBe(false);
     players.dispose();
+  });
+
+  test('news is worth a frame only from someone the view would draw', () => {
+    const { players } = setup();
+    const poses = new Map([[1, pose({ x: 400 })]]);
+    const roster = rosterOf([{ id: 1, name: 'ana', outfit: WALKER }], poses);
+    const view = { figures: true, x: 0, z: 0, reach: 100, place: '', floor: 0 };
+    players.use(roster);
+    // Someone new: worth a look.
+    expect(players.near(0, view)).toBe(true);
+    frame(players, 0, 0.1, true, 0, 0, '', 0);
+    // Far off, or zoomed out, or not signed in: no.
+    expect(players.near(0, view)).toBe(false);
+    expect(players.near(0, { ...view, figures: false })).toBe(false);
+    poses.set(1, pose({ x: 50 }));
+    expect(players.near(0, view)).toBe(true);
+    players.use(null);
+    expect(players.near(0, view)).toBe(false);
   });
 
   test('riders ride: the riders load once, each on a bike, in their clothes', async () => {
     const { scene, players, riders, ridden, asked } = setup();
     const poses = new Map([[7, pose({ x: 1, speed: 10, mode: 'bike' as const })]]);
     players.use(rosterOf([{ id: 7, name: 'cy', outfit: outfit(0xabcdef) }], poses));
-    players.frame(0, 0.1, true, 0, 0, '', 0);
+    frame(players, 0, 0.1, true, 0, 0, '', 0);
     // Loading: the figure stays hidden meanwhile.
     expect(scene.children[0]!.visible).toBe(false);
-    players.frame(0, 0.1, true, 0, 0, '', 0);
+    frame(players, 0, 0.1, true, 0, 0, '', 0);
     expect(asked()).toBe(1);
     await Promise.resolve();
-    players.frame(0, 0.1, true, 0, 0, '', 0);
+    frame(players, 0, 0.1, true, 0, 0, '', 0);
     expect(riders.count).toBe(1);
     expect(ridden[0]!.look.shirt).toBe(0xabcdef);
     expect(ridden[0]!.at.x).toBe(1);
@@ -219,14 +257,14 @@ describe('createPlayers', () => {
     expect(ridden[0]!.at.pedal).toBeGreaterThan(0);
     // Off the bike again: no riders.
     poses.set(7, pose({ x: 1 }));
-    players.frame(0, 0.1, true, 0, 0, '', 0);
+    frame(players, 0, 0.1, true, 0, 0, '', 0);
     expect(riders.count).toBe(0);
     expect(scene.children[0]!.visible).toBe(true);
     players.use(null);
     players.dispose();
   });
 
-  test('a failed download of the riders is tried again when someone next rides', async () => {
+  test('a failed download of the riders isn’t asked for again every frame', async () => {
     const { players } = setup();
     let tries = 0;
     const flaky = createPlayers({
@@ -246,11 +284,11 @@ describe('createPlayers', () => {
     flaky.use(
       rosterOf([{ id: 1, name: 'x', outfit: WALKER }], new Map([[1, pose({ mode: 'bike' })]])),
     );
-    flaky.frame(0, 0.1, true, 0, 0, '', 0);
+    frame(flaky, 0, 0.1, true, 0, 0, '', 0);
     await Promise.resolve();
     await Promise.resolve();
-    flaky.frame(0, 0.1, true, 0, 0, '', 0);
-    expect(tries).toBe(2);
+    frame(flaky, 0, 0.1, true, 0, 0, '', 0);
+    expect(tries).toBe(1);
     flaky.dispose();
     players.dispose();
   });

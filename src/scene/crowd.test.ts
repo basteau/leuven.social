@@ -63,12 +63,13 @@ describe('stepGait', () => {
   });
 });
 
-test('together: in the same street, or the same room on the same floor', () => {
+test('together: the street from anywhere, a room only from its floor', () => {
   expect(together(pose(), '', 0)).toBe(true);
   expect(together(pose({ place: 'kerk' }), '', 0)).toBe(false);
   expect(together(pose({ place: 'kerk', floor: 1 }), 'kerk', 1)).toBe(true);
   expect(together(pose({ place: 'kerk', floor: 0 }), 'kerk', 1)).toBe(false);
-  // The street has one floor, whatever a stale floor says.
+  // From inside a room, the street round it still shows, and those in it.
+  expect(together(pose(), 'kerk', 1)).toBe(true);
   expect(together(pose({ floor: 2 }), '', 0)).toBe(true);
 });
 
