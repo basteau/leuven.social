@@ -5,7 +5,7 @@
  *   DATABASE_PATH        ./.data/leuven.sqlite
  *   BETTER_AUTH_SECRET   required when NODE_ENV=production
  *   BETTER_AUTH_URL      where the site is served; Vite's http://localhost:5173 in dev
- *   TRUSTED_ORIGINS      more origins, comma-separated (dev adds Vite's other addresses)
+ *   TRUSTED_ORIGINS      more origins, comma-separated (dev adds localhost on any port)
  *   DEBUG                @portable/log patterns; leuven:* at info by default
  */
 
@@ -24,7 +24,8 @@ const trustedOrigins = [
   ...(env.TRUSTED_ORIGINS?.split(',')
     .map((origin) => origin.trim())
     .filter(Boolean) ?? []),
-  ...(production ? [] : ['http://127.0.0.1:5173', 'http://localhost:4173']),
+  // Vite moves to the next free port when 5173 is taken, and the preview runs on 4173.
+  ...(production ? [] : ['http://localhost:*', 'http://127.0.0.1:*']),
 ];
 
 try {

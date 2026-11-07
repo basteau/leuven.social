@@ -72,6 +72,16 @@ function withClientIp(request: Request, server: Bun.Server<SocketData>): Request
   return new Request(request, { headers });
 }
 
+/**
+ * An exact origin, or one with any port when the pattern ends in `:*` (as better-auth reads
+ * its `trustedOrigins`), for a dev server that had to move off its usual port.
+ */
+export function originMatches(origin: string, pattern: string): boolean {
+  if (!pattern.endsWith(':*')) return origin === pattern;
+  const prefix = pattern.slice(0, -1);
+  return origin.startsWith(prefix) && /^\d+$/.test(origin.slice(prefix.length));
+}
+
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: API_HEADERS });
 
 /** An error in better-auth's shape, so the client reads every failure the same way. */
@@ -103,12 +113,12 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
   });
   // better-auth limits its own routes; sign-up goes through auth.api, which it doesn't limit.
   const signUps = RateLimit.create({ limit: 10, period: 60 * 60 * 1000 });
-  const origins = new Set([new URL(config.baseURL).origin, ...(config.trustedOrigins ?? [])]);
+  const origins = [new URL(config.baseURL).origin, ...(config.trustedOrigins ?? [])];
 
   /** A browser always says where a request came from; one from another site is refused. */
   const fromUs = (request: Request) => {
     const origin = request.headers.get('origin');
-    return origin === null || origins.has(origin);
+    return origin === null || origins.some((pattern) => originMatches(origin, pattern));
   };
 
   const session = (request: Request) => auth.api.getSession({ headers: request.headers });

@@ -19,7 +19,7 @@ bun run dev          # Vite on :5173 and the server on :8787 (restarts on change
 bun run dev:server   # the server alone
 ```
 
-The database is `./.data/leuven.sqlite` (gitignored); delete it to start over. better-auth's tables and ours are created on start, so a fresh file just works. Open http://localhost:5173: the server's `BETTER_AUTH_URL` defaults to that origin, and Vite's 127.0.0.1 and the preview's localhost:4173 are trusted too. From another device on the network, add its origin, e.g. `TRUSTED_ORIGINS=http://192.168.1.20:5173 bun run dev`.
+The database is `./.data/leuven.sqlite` (gitignored); delete it to start over. better-auth's tables and ours are created on start, so a fresh file just works. Open http://localhost:5173: the server's `BETTER_AUTH_URL` defaults to that origin, and outside production `localhost` and `127.0.0.1` on any port are trusted too, for when Vite moves to another port or for `bun run preview`. From another device on the network, add its origin, e.g. `TRUSTED_ORIGINS=http://192.168.1.20:5173 bun run dev`.
 
 | Variable             | Default                 | What                                                                                     |
 | -------------------- | ----------------------- | ---------------------------------------------------------------------------------------- |
@@ -27,7 +27,7 @@ The database is `./.data/leuven.sqlite` (gitignored); delete it to start over. b
 | `DATABASE_PATH`      | `./.data/leuven.sqlite` | One SQLite file for accounts, sessions, outfits and positions; `:memory:` for throwaways |
 | `BETTER_AUTH_SECRET` | a fixed dev-only value  | Signs the session cookies. Required when `NODE_ENV=production`: the server won't start   |
 | `BETTER_AUTH_URL`    | `http://localhost:5173` | Where the site is served; cookies are `Secure` when it is `https:`                       |
-| `TRUSTED_ORIGINS`    | none (dev adds Vite's)  | More origins allowed to post and connect, comma-separated                                |
+| `TRUSTED_ORIGINS`    | none (dev: localhost)   | More origins allowed to post and connect, comma-separated                                |
 | `DEBUG`              | `leuven:*=info`         | [@portable/log](https://portablejs.com/packages/log) patterns, e.g. `leuven:*=debug`     |
 
 ## Accounts

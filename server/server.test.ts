@@ -9,7 +9,7 @@ import {
   quantise,
 } from '../src/net/protocol.ts';
 import type { PlayerState, ServerMessage } from '../src/net/protocol.ts';
-import { startServer } from './server.ts';
+import { originMatches, startServer } from './server.ts';
 import type { RunningServer } from './server.ts';
 
 const ORIGIN = 'http://localhost:5173';
@@ -342,6 +342,15 @@ describe('presence', () => {
     expect(join.state.x).toBe(77);
     await Promise.all([a.close(), b.close()]);
   });
+});
+
+test('an origin pattern may leave the port open, and nothing else', () => {
+  expect(originMatches('http://localhost:5173', 'http://localhost:5173')).toBe(true);
+  expect(originMatches('http://localhost:5174', 'http://localhost:5173')).toBe(false);
+  expect(originMatches('http://localhost:5174', 'http://localhost:*')).toBe(true);
+  expect(originMatches('http://localhost:', 'http://localhost:*')).toBe(false);
+  expect(originMatches('http://localhost:1.evil.example', 'http://localhost:*')).toBe(false);
+  expect(originMatches('http://localhost.evil.example:80', 'http://localhost:*')).toBe(false);
 });
 
 describe('limits', () => {
