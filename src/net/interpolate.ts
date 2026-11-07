@@ -2,8 +2,8 @@
  * Smooths another player's figure between the server's 10 Hz updates. Each update is kept with
  * the time it arrived, and the figure is drawn a little in the past (`delay`), between the two
  * updates around that moment, so it glides at an even pace however unevenly packets land. When
- * the updates run out it carries on in a straight line for a moment, then stops, rather than
- * running off. A jump of more than `snap` metres, or a change of room or floor, is a door or a
+ * the updates run out it carries on the way it faces at its own pace for a moment, then stops,
+ * rather than running off. A jump of more than `snap` metres, or a change of room or floor, is a door or a
  * teleport: the figure is shown at the old spot until the new one's time and then at the new
  * one, never sliding through walls in between.
  */
@@ -53,15 +53,14 @@ interface Snapshot {
 const jumped = (a: PlayerState, b: PlayerState, snap: number) =>
   a.place !== b.place || a.floor !== b.floor || Math.hypot(b.x - a.x, b.z - a.z) > snap;
 
-/** Between `a` (t = 0) and `b` (t = 1); past 1 only the position runs on, at `b`'s heading. */
+/** Between `a` (t = 0) and `b` (t = 1). */
 function lerp(a: PlayerState, b: PlayerState, t: number): PlayerState {
-  const turn = Math.min(t, 1);
   return {
     ...(t < 1 ? a : b),
     x: a.x + (b.x - a.x) * t,
     z: a.z + (b.z - a.z) * t,
-    heading: a.heading + shortestArc(a.heading, b.heading) * turn,
-    speed: a.speed + (b.speed - a.speed) * turn,
+    heading: a.heading + shortestArc(a.heading, b.heading) * t,
+    speed: a.speed + (b.speed - a.speed) * t,
   };
 }
 
@@ -99,9 +98,15 @@ export function createSnapshots(options: InterpolationOptions = {}): Snapshots {
         if (!before || last.state.speed === 0 || jumped(before.state, last.state, snap)) {
           return last.state;
         }
-        // Keep going the way the last two updates went, for a moment only.
-        const ahead = Math.min(t - last.time, extrapolate) / (last.time - before.time);
-        return lerp(before.state, last.state, 1 + ahead);
+        // Keep going for a moment only, the way it faces at the pace it said: not the way the last
+        // two updates went, which two packets a millisecond apart would stretch into a leap.
+        const ahead = (Math.min(t - last.time, extrapolate) / 1000) * last.state.speed;
+        const { x, z, heading } = last.state;
+        return {
+          ...last.state,
+          x: x + Math.sin(heading) * ahead,
+          z: z + Math.cos(heading) * ahead,
+        };
       }
 
       // Drop what the draw time has passed, keeping the update just before it.

@@ -58,16 +58,27 @@ describe('createSnapshots', () => {
     expect(s.sample(50)!.heading).toBeCloseTo(Math.PI * 2);
   });
 
-  test('carries on for a moment past the last update, then stops', () => {
+  test('carries on for a moment past the last update, the way it faces, then stops', () => {
     const s = createSnapshots({ delay: 0, extrapolate: 200 });
     s.push(0, at(0));
-    s.push(100, at(1, 0, { heading: 1 }));
+    // Facing east (+x) at 10 m/s.
+    s.push(100, at(1, 0, { heading: Math.PI / 2, speed: 10 }));
     const ahead = s.sample(150)!;
     expect(ahead.x).toBeCloseTo(1.5);
-    expect(ahead.heading).toBe(1);
-    expect(ahead.speed).toBe(1.4);
+    expect(ahead.z).toBeCloseTo(0);
+    expect(ahead.heading).toBe(Math.PI / 2);
+    expect(ahead.speed).toBe(10);
     expect(s.sample(300)!.x).toBeCloseTo(3);
     expect(s.sample(10_000)!.x).toBeCloseTo(3);
+  });
+
+  test('two updates a millisecond apart are no leap', () => {
+    const s = createSnapshots({ delay: 0, extrapolate: 200 });
+    s.push(0, at(0, 0, { heading: Math.PI / 2, speed: 1.5 }));
+    s.push(100, at(0.15, 0, { heading: Math.PI / 2, speed: 1.5 }));
+    s.push(102, at(0.3, 0, { heading: Math.PI / 2, speed: 1.5 }));
+    // 200 ms on at 1.5 m/s: 30 cm past the last update, not metres.
+    expect(s.sample(422)!.x).toBeCloseTo(0.6);
   });
 
   test('a figure that stopped does not run on', () => {
