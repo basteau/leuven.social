@@ -550,11 +550,13 @@ export class LineBuilder {
     this.lift = lift;
   }
 
-  build(): BufferGeometry {
+  /** As for `MeshBuilder`: the arrays are let go once uploaded, unless `keep`. */
+  build({ keep = false } = {}): BufferGeometry {
     const geometry = new BufferGeometry();
     const points = new BufferAttribute(this.#points.slice(0, this.#count * 3), 3);
-    geometry.setAttribute('position', points.onUpload(release));
+    geometry.setAttribute('position', points.onUpload(keep ? () => {} : release));
     geometry.setIndex(indexAttribute(this.#indices.array, this.#indices.count, this.#count));
+    if (keep) geometry.index!.onUploadCallback = () => {};
     this.#bounds.applyTo(geometry);
     return geometry;
   }

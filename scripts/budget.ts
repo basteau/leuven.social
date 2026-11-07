@@ -65,11 +65,13 @@ const BUDGETS: {
   // The avatar loads once the first frame is drawn: its figure, walking it by the screen,
   // routes and jumps, the marker, and the camera following it. Walk mode was 20.5 KB with its
   // chase camera, flight, sky dome, thumb stick and spawn dive; one camera and one avatar took
-  // that to about 13.2 KB.
+  // that to about 13.2 KB. 19: the rooms inside the landmarks (5.4 KB): reading and checking
+  // rooms.json, each floor's walk grid, its meshes, the stairs, and going in and out. They ride
+  // here: a chunk loaded from this one would split three.js off the engine.
   {
     label: 'Avatar JS (after first frame)',
     pattern: 'assets/avatar-layer-*.js',
-    limit: 14 * KB,
+    limit: 19 * KB,
     gzip: true,
   },
   // The street-name lookup for the sign, a chunk beside the avatar's that loads with it.
@@ -144,6 +146,8 @@ const BUDGETS: {
     limit: 8.5 * KB,
     gzip: true,
   },
+  // The rooms inside the landmarks, authored by hand, fetched near one.
+  { label: 'Rooms data', pattern: 'data/rooms.json', limit: 80 * KB, gzip: true },
   // About 11.6k house numbers and 1.8k street plates are 67 KB, and 1.1k shop name boards 17 KB
   // more; room for the map to grow.
   { label: 'Plates data (already gzipped)', pattern: 'data/walk.bin', limit: 96 * KB, gzip: false },

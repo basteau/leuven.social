@@ -12,12 +12,16 @@ import {
   Raycaster,
   Vector2,
 } from 'three';
-import type { OrthographicCamera, Scene, Texture } from 'three';
+import type { Material, OrthographicCamera, Scene, Texture } from 'three';
 
 import { createWalkSounds } from '../audio/walking.ts';
 import type { City } from '../data/city.ts';
 import { Router } from '../data/route.ts';
 import type { Terrain } from '../data/terrain.ts';
+import { LANDMARK_FOOTPRINTS } from '../data/area.ts';
+import { inRing } from '../data/cell-grid.ts';
+import { DOOR_HALF } from '../data/room-grid.ts';
+import type { Room } from '../data/rooms.ts';
 import { WalkGrid, pickWalkable } from '../data/walkable.ts';
 import { avatarState, createAvatar, jump, stepAvatar } from './avatar.ts';
 import type { Avatar, AvatarState } from './avatar.ts';
@@ -28,7 +32,10 @@ import { CHARACTER_SCALE, applyPose, createCharacter, poseAt, restPose } from '.
 import { loose } from './collide.ts';
 import { BAYER } from './facade-material.ts';
 import { LEAD, followStrength, recentre, screenSteer } from './follow.ts';
+import { loadInteriors } from './interiors.ts';
+import type { Interiors } from './interiors.ts';
 import type { Detail } from './lod.ts';
+import { MAX_ZOOM, MIN_ZOOM } from './lod.ts';
 import type { MapControls } from './map-controls.ts';
 import {
   MARK,
@@ -40,6 +47,7 @@ import {
   puff,
 } from './marker.ts';
 import { MeshBuilder, linearVertexColors } from './mesh-builder.ts';
+import type { LineBuilder } from './mesh-builder.ts';
 import { clock, decay, ticks } from './motion.ts';
 import { OUTLINE } from './palette.ts';
 import { nearestParked } from './parked.ts';
@@ -83,6 +91,14 @@ const RIDE_NEAR = 25;
 const DOT_SHARE = 0.5;
 /** Zoom eases to a place's with this half-life (s). */
 const ZOOM_EASE = 0.12;
+/** Inside a room the camera keeps between these zooms: the room fills the view, not a speck. */
+const ROOM_ZOOM = [8, 20] as const;
+/** Within this of a landmark (m), with the figure in view, the rooms' chunk and data load. */
+const ROOMS_NEAR = 160;
+/** Within this of a door (m), close to the street, a room is built while the page is idle. */
+const PREWARM_NEAR = 60;
+/** Going in from the menu, the avatar stands this far inside the door (m). */
+const INSIDE = 3;
 
 export interface AvatarHost {
   scene: Scene;
@@ -109,6 +125,25 @@ export interface AvatarHost {
   onBlocked?(): void;
   /** A bike near enough to ride, riding, or neither. */
   onRide?(state: RideState): void;
+  /** The site's base URL, where rooms.json is served. */
+  base: string;
+  /** The city's material and ink, which the rooms are drawn in. */
+  material: Material;
+  ink: Material;
+  /** Draws a landmark as nothing in its cell while its room is open (null: none). */
+  hideLandmark(id: number | null): void;
+  /** Writes a landmark's walls, cut down to `top`, into a room's builders. */
+  openWalls(id: number, top: number, mesh: MeshBuilder, lines: LineBuilder): boolean;
+  /** The avatar went into a room, onto another floor, or back out to the street (null). */
+  onPlace?(place: { room: string; floor: string } | null): void;
+  /** The rooms couldn't load: a sentence saying so. Their doors stay shut. */
+  onRoomsUnavailable?(message: string): void;
+}
+
+/** A room as the menu lists it. */
+export interface RoomPlace {
+  id: string;
+  name: string;
 }
 
 export interface AvatarLayer {
@@ -131,6 +166,10 @@ export interface AvatarLayer {
   moved(): void;
   /** Gets on or off the nearest bike, or rings its bell. */
   ride(action: RideAction): void;
+  /** The rooms there are, once their data has loaded (it loads now if it hasn't). */
+  rooms(): Promise<RoomPlace[]>;
+  /** Puts the avatar inside a room, just in from its door. */
+  goInside(id: string): void;
   /** What's worth drawing at the view's span, each frame the viewer draws. */
   detail(detail: Detail, span: number): void;
   dispose(): void;
@@ -283,20 +322,136 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
   let ride: RideState = '';
   let shownSpeed = Number.NaN;
 
+  // The rooms are a data file of their own, loaded near a landmark.
+  let interiors: Interiors | undefined;
+  let loadingInteriors: Promise<Interiors> | undefined;
+  /** The room the avatar is in, or null in the street. */
+  let room: Room | null = null;
+  const landmarks = LANDMARK_FOOTPRINTS.flatMap((id) => {
+    const b = host.city.buildings.find((x) => x.id === id);
+    if (!b) return [];
+    let [sx, sz] = [0, 0];
+    for (let i = 0; i < b.ring.length; i += 2) [sx, sz] = [sx + b.ring[i]!, sz + b.ring[i + 1]!];
+    return [[(sx * 2) / b.ring.length, (sz * 2) / b.ring.length] as const];
+  });
+  const loadRooms = () => {
+    // Their code rides in this chunk (a chunk loaded from a chunk would split three.js off the
+    // engine); only their data waits.
+    loadingInteriors ??= loadInteriors(
+      {
+        scene,
+        material: host.material,
+        ink: host.ink,
+        city: host.city,
+        groundAt: host.groundAt,
+        openWalls: host.openWalls,
+        shadowsChanged: host.shadowsChanged,
+      },
+      host.base,
+    ).then((loaded) => {
+      interiors = loaded;
+      // Their doors open in the street's grid too: the threshold is open on both sides.
+      for (const r of loaded.rooms) grid.openDoor(r.door.x, r.door.z, DOOR_HALF);
+      wake();
+      return loaded;
+    });
+    loadingInteriors.catch((error: unknown) => {
+      host.onRoomsUnavailable?.(
+        error instanceof Error ? error.message : 'The insides of the buildings couldn’t load.',
+      );
+    });
+    return loadingInteriors;
+  };
+  /** The ground underfoot: the street's, or the room's floor. */
+  const underfoot = () => (room && interiors ? interiors.grid(room, avatar.floor) : grid);
+
+  function publishPlace(): void {
+    canvas.dataset.place = room?.id ?? '';
+    canvas.dataset.floor = String(avatar.floor);
+    const floor = room?.floors.find((f) => f.level === avatar.floor);
+    host.onPlace?.(room && floor ? { room: room.name, floor: floor.name } : null);
+  }
+  /** Into a room through its door: its roof lifts, its floors show, the camera comes closer. */
+  function enter(into: Room, level: number): void {
+    if (!interiors) return;
+    room = into;
+    avatar.place = into.id;
+    avatar.floor = level;
+    host.hideLandmark(into.oidn);
+    interiors.show(into, level);
+    [controls.minZoom, controls.maxZoom] = ROOM_ZOOM;
+    const zoom = Math.min(ROOM_ZOOM[1], Math.max(ROOM_ZOOM[0], camera.zoom));
+    if (zoom !== camera.zoom) zoomGoal = zoom;
+    recentring = following = true;
+    publishPlace();
+  }
+  function leave(): void {
+    room = null;
+    avatar.place = null;
+    avatar.floor = 0;
+    host.hideLandmark(null);
+    interiors?.show(null, 0);
+    [controls.minZoom, controls.maxZoom] = [MIN_ZOOM, MAX_ZOOM];
+    publishPlace();
+  }
+  /**
+   * In or out at the footprint's edge, which lies inside the threshold both grids open; up or
+   * down a floor halfway up a stair. Once a step, so it changes exactly once.
+   */
+  function crossings(): void {
+    if (!interiors) return;
+    const w = avatar.walker;
+    if (!room) {
+      const into = interiors.roomAt(w.x, w.z);
+      const atDoor = into && Math.hypot(w.x - into.door.x, w.z - into.door.z) <= DOOR_HALF + 0.5;
+      if (into && atDoor && avatar.mode === 'foot') enter(into, 0);
+      return;
+    }
+    if (!inRing(interiors.footprint(room), w.x, w.z)) {
+      leave();
+      return;
+    }
+    const at = interiors.standing(room, avatar.floor, w.x, w.z);
+    if (at.level !== avatar.floor) {
+      avatar.floor = at.level;
+      interiors.show(room, at.level);
+      publishPlace();
+    }
+  }
+  /** Rooms nearby: their data loads, and, close to the street, the nearest is built ahead. */
+  let prewarming = 0;
+  function nearRooms(): void {
+    const w = avatar.walker;
+    if (!interiors) {
+      const close = landmarks.some(([x, z]) => Math.hypot(x - w.x, z - w.z) < ROOMS_NEAR);
+      if (close && shown === 'figure') void loadRooms().catch(() => {});
+      return;
+    }
+    const near = !room && span <= 60 ? interiors.near(w.x, w.z, PREWARM_NEAR) : undefined;
+    if (!near || prewarming) return;
+    const idle = globalThis.requestIdleCallback ?? ((run: () => void) => setTimeout(run, 50));
+    prewarming = idle(() => {
+      interiors?.prewarm(near);
+      prewarming = 0;
+    }) as number;
+  }
+
   function clearRoute(): void {
     hint.visible = false;
     hint.geometry.dispose();
     marker = undefined;
   }
 
-  /** Walks to a spot along a route, or says it can't. */
+  /** Walks to a spot along a route, on the street or the room's floor, or says it can't. */
   function walkTo(x: number, z: number): boolean {
     const w = avatar.walker;
-    const from = grid.walkable(w.x, w.z) ? [w.x, w.z] : grid.nearest(w.x, w.z, 2);
+    const here = underfoot();
+    const by = room && interiors ? interiors.router(room, avatar.floor) : router;
+    const from = here.walkable(w.x, w.z) ? [w.x, w.z] : here.nearest(w.x, w.z, 2);
     // A spot the grid has closed (beside a rack, against a wall) is reached by the open cell
     // nearest it.
-    const to = grid.walkable(x, z) ? [x, z] : grid.nearest(x, z, 3);
-    const route = from && to && router.route(from[0]!, from[1]!, to[0]!, to[1]!, loose);
+    const to = here.walkable(x, z) ? [x, z] : here.nearest(x, z, 3);
+    const route = from && to && by.route(from[0]!, from[1]!, to[0]!, to[1]!, loose);
     if (!route) return false;
     [w.x, w.z] = [route[0]!, route[1]!];
     w.route = route;
@@ -304,7 +459,8 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     w.travelled = 0;
     sounds.routeStart();
     hint.geometry.dispose();
-    marker = routeMarker(route, ground);
+    const floorY = room ? feet[1] : 0;
+    marker = routeMarker(route, room ? () => floorY : ground);
     hint.geometry = marker.geometry;
     hint.visible = true;
     following = true;
@@ -315,6 +471,9 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
   /** Puts the avatar at a spot at once, with the marker and a puff of dust. */
   function jumpTo(x: number, z: number): void {
     clearRoute();
+    // Getting on or off a bike ends where it was going first: nothing pulls the avatar back.
+    bikes?.finish(avatar);
+    if (room) leave();
     jump(avatar, x, z);
     remember();
     onFeet = false;
@@ -343,6 +502,33 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     );
     raycaster.setFromCamera(ndc, camera);
     const { origin, direction } = raycaster.ray;
+    if (bikes?.busy) return;
+    const w = avatar.walker;
+    // In a room, where the ray meets its floor: there, or out through the door.
+    if (room && interiors && direction.y < 0) {
+      const k = (origin.y - feet[1]) / -direction.y;
+      const [x, z] = [origin.x + direction.x * k, origin.z + direction.z * k];
+      const { door } = room;
+      const out = !inRing(interiors.footprint(room), x, z);
+      const [tx, tz] = out
+        ? [door.x - Math.sin(door.facing) * 0.8, door.z - Math.cos(door.facing) * 0.8]
+        : [x, z];
+      if (!walkTo(tx, tz)) refuse(x, z);
+      return;
+    }
+    // On the street, a tap on a building with a room walks to its door and in.
+    if (interiors && shown === 'figure' && direction.y < 0) {
+      const k = (origin.y - feet[1]) / -direction.y;
+      const into = interiors.roomAt(origin.x + direction.x * k, origin.z + direction.z * k);
+      if (into) {
+        const { door } = into;
+        const [tx, tz] = [
+          door.x + Math.sin(door.facing) * 0.7,
+          door.z + Math.cos(door.facing) * 0.7,
+        ];
+        if (Math.hypot(tx - w.x, tz - w.z) <= ROUTE_REACH && walkTo(tx, tz)) return;
+      }
+    }
     const spot = pickWalkable(
       grid,
       [origin.x, origin.y, origin.z],
@@ -358,8 +544,6 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       refuse(origin.x + direction.x * k, origin.z + direction.z * k);
       return;
     }
-    const w = avatar.walker;
-    if (bikes?.busy) return;
     // Close enough to see the avatar, a tap within reach walks it there; from further out, or
     // further off, it's put there.
     const near = shown === 'figure' && Math.hypot(spot[0] - w.x, spot[1] - w.z) <= ROUTE_REACH;
@@ -386,7 +570,8 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     for (let n = ticks(sim, elapsed); n > 0; n--) {
       remember();
       const routed = w.route !== null;
-      moving = stepAvatar(avatar, STEP, sx, sz, grid, running);
+      moving = stepAvatar(avatar, STEP, sx, sz, underfoot(), running);
+      crossings();
       if (avatar.mode === 'foot') sounds.stride(w.phase, w.speed, runBlend(w.speed));
       if (routed && !w.route && !sx && !sz) sounds.routeEnd();
     }
@@ -395,6 +580,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     if (bikes) busy = bikes.frame(avatar, elapsed) || busy;
     else if (nearestParked(scene.children, w.x, w.z, RIDE_NEAR)) void loadBikes();
     if (bikes && bikes.state !== ride) host.onRide?.((ride = bikes.state));
+    nearRooms();
     // How fast it goes, for the smoke test, written only as it changes by a step worth noting.
     if (Math.abs(w.speed - shownSpeed) >= 0.5 || (w.speed === 0 && shownSpeed !== 0)) {
       shownSpeed = w.speed;
@@ -468,7 +654,10 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     const step = host.groundAt(x, z) - ground(x, z);
     kerb = reducedMotion || !onFeet ? step : decay(kerb, step, KERB_EASE, dt);
     onFeet = true;
-    const floor = ground(x, z) + kerb + avatar.rise;
+    // In a room, its floor: up the ramp of a stair, or over the threshold from the street's.
+    const floor =
+      room && interiors ? interiors.standing(room, avatar.floor, x, z).y : ground(x, z) + kerb;
+    avatar.rise = floor - host.groundAt(x, z);
     [feet[0], feet[1], feet[2]] = [x, floor, z];
     const onFoot = avatar.mode === 'foot' || (bikes?.busy ?? false);
     character.mesh.visible = shown === 'figure' && onFoot;
@@ -569,6 +758,27 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       recentring = following = true;
       wake();
     },
+    rooms: () => loadRooms().then((loaded) => loaded.rooms.map(({ id, name }) => ({ id, name }))),
+    goInside(id) {
+      loadRooms().then(
+        (loaded) => {
+          const into = loaded.byId(id);
+          if (!into) return;
+          const { door } = into;
+          const [x, z] = [
+            door.x + Math.sin(door.facing) * INSIDE,
+            door.z + Math.cos(door.facing) * INSIDE,
+          ];
+          const spot = loaded.grid(into, 0).nearest(x, z, 3) ?? [x, z];
+          if (avatar.mode === 'bike') bikes?.act('toggle', avatar);
+          jumpTo(...spot);
+          avatar.walker.heading = door.facing;
+          enter(into, 0);
+          if (camera.zoom < 12) zoomGoal = 12;
+        },
+        () => {}, // said by onRoomsUnavailable
+      );
+    },
     moved() {
       movedAt = performance.now();
       recentring = false;
@@ -598,6 +808,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     dispose() {
       cancelAnimationFrame(frame);
       bikes?.dispose();
+      interiors?.dispose();
       for (const mesh of [character.mesh, hint, pin, dot]) scene.remove(mesh);
       hint.geometry.dispose();
       hint.material.dispose();

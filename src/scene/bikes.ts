@@ -95,6 +95,8 @@ export interface Bikes {
   frame(a: Avatar, dt: number): boolean;
   /** Whether the transition holds the avatar still (it doesn't steer meanwhile). */
   readonly busy: boolean;
+  /** Ends getting on or off at once, where it was going: the avatar is put somewhere else. */
+  finish(a: Avatar): void;
   /** Bikes and riders show with the street furniture, not from far out. */
   show(near: boolean): void;
   dispose(): void;
@@ -418,6 +420,11 @@ export function createBikes(kit: BikesKit): Bikes {
         return {};
       }
       return take(a);
+    },
+    finish(a) {
+      fetching = false;
+      if (glide) glide.t = 1;
+      if (glide) this.frame(a, 0);
     },
     frame(a, dt) {
       const w = a.walker;

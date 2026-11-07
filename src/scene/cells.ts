@@ -14,6 +14,7 @@ import { FLAT } from '../data/terrain.ts';
 import type { Terrain } from '../data/terrain.ts';
 import { addBuilding, footing } from './buildings.ts';
 import type { PartyWalls } from './buildings.ts';
+import { LANDMARK_MODELS } from './landmark-models.ts';
 import { LAYER_Y, addGround, addKerbs, addSlabInk, slabBottom } from './ground.ts';
 import type { Pitch } from './ground.ts';
 import { GROUND_RINGS } from './ground.ts';
@@ -263,6 +264,17 @@ export interface DetailMarks {
 }
 
 /**
+ * Where a hero landmark is in its cell's mesh and outlines (indices), so a room inside it can
+ * open it: its range drawn as nothing, its walls cut down drawn apart (`addBuilding`'s `cut`).
+ */
+export interface LandmarkRange {
+  from: number;
+  to: number;
+  lineFrom: number;
+  lineTo: number;
+}
+
+/**
  * Everything in one cell as one mesh and one set of outlines (two draw calls), but its street
  * furniture and monuments (`buildFurniture` in furniture.ts). In the main mesh the flat
  * ground comes first, then the tree trunks (from `trunksFrom`), and the rest from `shadowFrom`, so
@@ -287,8 +299,10 @@ export function buildCell(
   shadowFrom: number;
   fineVertices: number;
   detail: DetailMarks;
+  landmarks: Map<number, LandmarkRange>;
 } {
   const mesh = new MeshBuilder();
+  const landmarks = new Map<number, LandmarkRange>();
   const lines = new LineBuilder();
   const { trees } = cell;
   const at = (x: number, z: number) => {
@@ -327,7 +341,11 @@ export function buildCell(
     const base = terrain.base(b.ring);
     mesh.lift = lines.lift = base;
     mesh.foot = footing(terrain, b.ring);
+    const [from, lineFrom] = [mesh.indices, lines.segments * 2];
     addBuilding(mesh, lines, b, walls, base);
+    if (LANDMARK_MODELS.has(b.id)) {
+      landmarks.set(b.id, { from, to: mesh.indices, lineFrom, lineTo: lines.segments * 2 });
+    }
   }
   for (let i = 0; i < trees.length; i += 4) tree(i, ['crown']);
   for (const p of cell.parasols) {
@@ -345,5 +363,5 @@ export function buildCell(
   addFinePaint(mesh, cell.ground.markings);
   addFieldLines(mesh, cell.ground.fields);
   addKerbs(mesh, cell.ground.carriageways, cell.bounds);
-  return { mesh, lines, trunksFrom, shadowFrom, fineVertices, detail };
+  return { mesh, lines, trunksFrom, shadowFrom, fineVertices, detail, landmarks };
 }

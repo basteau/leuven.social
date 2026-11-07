@@ -33,11 +33,11 @@ import type { City } from '../data/city.ts';
 import { clampToArea } from '../data/geometry.ts';
 import type { StreetIndex } from '../data/streets.ts';
 import { Terrain } from '../data/terrain.ts';
-import { facadeOf, footing, partyWalls, wallTop } from './buildings.ts';
+import { addBuilding, facadeOf, footing, partyWalls, wallTop } from './buildings.ts';
 import { AWNING } from './facade-codes.ts';
 import type { PartyWalls } from './buildings.ts';
 import { buildCell, groundRange, partition } from './cells.ts';
-import type { Cell, DetailMarks } from './cells.ts';
+import type { Cell, DetailMarks, LandmarkRange } from './cells.ts';
 import type { DrawnGround } from './drawn-ground.ts';
 import type { buildFurniture, drawnGround } from './furniture.ts';
 import {
@@ -91,7 +91,7 @@ import type { Spin } from './spin.ts';
 import { terraceParasols } from './terraces.ts';
 import type { Plates } from './plates.ts';
 import type { TrafficLayer } from './vehicles.ts';
-import type { AvatarLayer } from './avatar-layer.ts';
+import type { AvatarLayer, RoomPlace } from './avatar-layer.ts';
 import type { RideAction, RideState } from './bikes.ts';
 import {
   CAMERA_DISTANCE,
@@ -108,6 +108,7 @@ import type { Detail } from './lod.ts';
 import { ditherRadius } from './occlusion.ts';
 
 export type { RideAction, RideState } from './bikes.ts';
+export type { RoomPlace } from './avatar-layer.ts';
 
 export interface ViewerOptions {
   canvas: HTMLCanvasElement;
@@ -125,6 +126,10 @@ export interface ViewerOptions {
   onStreetChange?: (name: string | null) => void;
   /** A bike is near enough to ride, or being ridden, or neither any more. */
   onRideChange?: (state: RideState) => void;
+  /** The avatar went into a room (its name and floor's), onto another floor, or out (null). */
+  onPlaceChange?: (place: { room: string; floor: string } | null) => void;
+  /** The rooms couldn't load: a sentence for a person. Their doors stay shut. */
+  onRoomsUnavailable?: (message: string) => void;
   /** Which way the view looks, clockwise from north (radians), whenever it turns. */
   onHeading?: (heading: number) => void;
   /** The light changed: a new time of day, or the day passing. The app paints the sky from it. */
@@ -159,6 +164,10 @@ export interface Viewer {
   goTo(x: number, z: number): void;
   /** Gets on or off the nearest bike, or rings its bell. */
   ride(action: RideAction): void;
+  /** The rooms there are inside the landmarks, for the menu (their data loads now if need be). */
+  rooms(): Promise<RoomPlace[]>;
+  /** Puts the avatar inside a room, just in from its door. */
+  goInside(id: string): void;
   /** The time of day: the preset nearest the hour, and whether the day is passing. */
   timeOfDay(): { preset: PresetId; passing: boolean };
   /** Steps to the next time of day (morning, midday, golden hour, dusk, night) and names it. */
@@ -198,6 +207,11 @@ interface CellEntry {
   trunksFrom: number;
   shadowFrom: number;
   fineVertices: number;
+  /**
+   * Where its hero landmarks are in its mesh and outlines, whose index arrays it then keeps, so
+   * a room inside one can draw it as nothing while the avatar is in there (`hideLandmark`).
+   */
+  landmarks: Map<number, LandmarkRange>;
 }
 
 const SHADOW_MAP = 2048;
@@ -338,6 +352,7 @@ export function createViewer(options: ViewerOptions): Viewer {
         trunksFrom: 0,
         shadowFrom: 0,
         fineVertices: 0,
+        landmarks: new Map(),
       });
     }
   }
@@ -345,13 +360,13 @@ export function createViewer(options: ViewerOptions): Viewer {
   /** Vertices and bytes of geometry the built cells hand the GPU. */
   const held = { vertices: 0, bytes: 0 };
   function build(entry: CellEntry): void {
-    const { mesh, lines, trunksFrom, shadowFrom, fineVertices, detail } = buildCell(
+    const { mesh, lines, trunksFrom, shadowFrom, fineVertices, detail, landmarks } = buildCell(
       entry.cell,
       city.area,
       walls,
       terrain,
     );
-    Object.assign(entry, { detail, trunksFrom, shadowFrom, fineVertices });
+    Object.assign(entry, { detail, trunksFrom, shadowFrom, fineVertices, landmarks });
     const surfaces = new Mesh(mesh.build({ facade: true }), material);
     surfaces.receiveShadow = true;
     // The shadow pass draws the same buffers from past the ground (and the trunks, see `cull`) up
@@ -367,13 +382,74 @@ export function createViewer(options: ViewerOptions): Viewer {
     casters.castShadow = true;
     casters.layers.mask = SHADOW_LAYER;
     const outlines = new LineSegments(lines.build(), ink);
+    // A landmark's range can be drawn as nothing and put back: its index stays, where every other
+    // cell lets its arrays go once uploaded.
+    if (landmarks.size) {
+      for (const g of [surfaces.geometry, outlines.geometry]) g.index!.onUpload(() => {});
+    }
     // Cells are culled by their boxes below: three's bounding spheres are far looser.
     entry.objects = [surfaces, outlines, casters];
     hold(surfaces, outlines);
     entry.box.copy(surfaces.geometry.boundingBox!);
     for (const object of entry.objects) object.frustumCulled = false;
     scene.add(surfaces, outlines, casters);
+    // Built again (a lost GPU context) while a room is open in it: open again.
+    if (hidden && landmarks.has(hidden.id)) hideRange(entry, hidden.id, true);
     if (propsShown) furnish(entry);
+  }
+
+  /**
+   * A landmark opened for a room inside it: its range in its cell drawn as nothing (zeroed indices,
+   * only that range uploaded, what was there kept), so its own walls, cut down, can be drawn by
+   * the room instead (`openWalls`). No cell is rebuilt, so going in costs no frame.
+   */
+  let hidden: { id: number; kept: [ArrayLike<number>, ArrayLike<number>] } | undefined;
+  function hideRange(entry: CellEntry, id: number, hide: boolean): void {
+    const range = entry.landmarks.get(id);
+    const [surfaces, outlines] = entry.objects as [Mesh?, LineSegments?];
+    if (!range || !surfaces || !outlines) return;
+    const spans = [
+      [surfaces.geometry.index!, range.from, range.to],
+      [outlines.geometry.index!, range.lineFrom, range.lineTo],
+    ] as const;
+    for (const [i, [index, from, to]] of spans.entries()) {
+      const array = index.array as Uint16Array | Uint32Array;
+      if (hide) {
+        hidden!.kept[i] = array.slice(from, to);
+        array.fill(0, from, to);
+      } else array.set(hidden!.kept[i]!, from);
+      index.clearUpdateRanges();
+      index.addUpdateRange(from, to - from);
+      index.needsUpdate = true;
+    }
+    renderer.shadowMap.needsUpdate = true;
+    invalidate();
+  }
+  const holder = (id: number) => cells.find((e) => e.landmarks.has(id));
+  function hideLandmark(id: number | null): void {
+    if (hidden?.id === id) return;
+    if (hidden) {
+      const entry = holder(hidden.id);
+      if (entry) hideRange(entry, hidden.id, false);
+      hidden = undefined;
+    }
+    if (id === null) return;
+    hidden = { id, kept: [[], []] };
+    const entry = holder(id);
+    if (entry) hideRange(entry, id, true);
+  }
+  /**
+   * A landmark's walls standing up to `top` (m, in the street's frame) with no roof, written into
+   * a room's builders, at the building's own ground; the building's id if there is one.
+   */
+  function openWalls(id: number, top: number, mesh: MeshBuilder, lines: LineBuilder): boolean {
+    const b = city.buildings.find((x) => x.id === id);
+    if (!b) return false;
+    const base = terrain.base(b.ring);
+    mesh.lift = lines.lift = base;
+    mesh.foot = footing(terrain, b.ring);
+    addBuilding(mesh, lines, b, walls, base, Math.max(1, top - base));
+    return true;
   }
 
   /**
@@ -893,7 +969,15 @@ export function createViewer(options: ViewerOptions): Viewer {
           render: renderNow,
           shadowsChanged: () => {
             renderer.shadowMap.needsUpdate = true;
+            invalidate();
           },
+          base: import.meta.env.BASE_URL,
+          material,
+          ink,
+          hideLandmark,
+          openWalls,
+          ...(options.onPlaceChange && { onPlace: options.onPlaceChange }),
+          ...(options.onRoomsUnavailable && { onRoomsUnavailable: options.onRoomsUnavailable }),
           ...(options.onBlocked && { onBlocked: options.onBlocked }),
           ...(options.onRideChange && { onRide: options.onRideChange }),
         });
@@ -1337,6 +1421,8 @@ export function createViewer(options: ViewerOptions): Viewer {
     recentre: () => avatar?.recentre(),
     goTo: (x, z) => withAvatar((loaded) => loaded.goTo(x, z)),
     ride: (action) => withAvatar((loaded) => loaded.ride(action)),
+    rooms: () => loadAvatar().then((loaded) => loaded.rooms()),
+    goInside: (id) => withAvatar((loaded) => loaded.goInside(id)),
     spin: spinMap,
     timeOfDay: () => ({ preset: presetAt(hour), passing }),
     nextTimeOfDay,

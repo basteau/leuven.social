@@ -31,7 +31,7 @@ export const HALL: Room = {
       height: 3,
       slab: [14, 0.5, 19.5, 0.5, 19.5, 11.5, 14, 11.5],
       holes: [[14, 1.2, 17, 1.2, 17, 2.8, 14, 2.8]],
-      walls: [{ x0: 14, z0: 0.5, x1: 14, z1: 11.5, gaps: [], height: 1 }],
+      walls: [{ x0: 14, z0: 0.5, x1: 14, z1: 11.5, gaps: [[0.5, 2.5]], height: 1 }],
       props: [{ kind: 'organ', x: 18.5, z: 6, angle: -Math.PI / 2 }],
       stairs: [],
     },
