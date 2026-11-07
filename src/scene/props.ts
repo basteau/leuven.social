@@ -27,6 +27,11 @@ import type { Frame } from './prop-shapes.ts';
 export { isLarge } from './monuments.ts';
 /** Half a bike tube's width: chunky, so a frame still shows its colour zoomed out (m). */
 const TUBE = 0.045;
+/**
+ * How thick a bike's frame is drawn, its two faces apart (m): out past the spokes either side of
+ * the tyre (`wheel`), short of the chain guard.
+ */
+const FRAME = 0.04;
 /** A wheel's radius, and how far out its pale spokes reach, leaving a ring of dark tyre (m). */
 const WHEEL = 0.34;
 const SPOKES = 0.27;
@@ -89,7 +94,10 @@ export function standBike(f: Frame, steer: number, ground: Ground, lift: number)
   return { ...f, slope: slopeThrough(ground, lift, [rx, rz], [fx, fz]) };
 }
 
-/** A tube in a frame's v-y plane, from (v, y) to (v, y), as a thin two-sided strip `w` thick. */
+/**
+ * A tube in a frame's v-y plane, from (v, y) to (v, y), as a strip `w` wide seen from both
+ * sides, as thick as a frame (`FRAME`).
+ */
 function tube(
   mesh: MeshBuilder,
   f: Frame,
@@ -111,6 +119,7 @@ function tube(
       at(f, 0, va + nv, ya + ny),
     ],
     color,
+    FRAME * f.scale,
   );
 }
 
@@ -264,6 +273,7 @@ export function addBike(mesh: MeshBuilder, f: Frame, steer: number, look: number
     mesh,
     [at(f, 0, -AXLE, WHEEL), at(f, 0, ...BRACKET), at(f, 0, -0.24, SADDLE - 0.05)],
     color,
+    FRAME * f.scale,
   );
   // A diamond's top tube from the seat to the head, or a step-through's low one; the down tube.
   if (look & STEP) tube(mesh, f, -0.17, 0.5, 0.4, 0.68, color);
@@ -348,6 +358,7 @@ export function addBike(mesh: MeshBuilder, f: Frame, steer: number, look: number
       mesh,
       [at(f, 0, -AXLE, WHEEL), at(f, 0, end + 0.06, top), at(f, 0, end, top)],
       PROPS.iron,
+      FRAME * f.scale,
     );
     face(
       mesh,

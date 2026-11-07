@@ -165,6 +165,72 @@ test('its wheels are round, spoked inside a ring of tyre, and touch the ground',
   expect(Math.min(...Array.from({ length: p.count }, (_, i) => p.getY(i)))).toBeCloseTo(0, 6);
 });
 
+const dot = (a: number[], b: number[]) => a[0]! * b[0]! + a[1]! * b[1]! + a[2]! * b[2]!;
+
+/** Whether two triangles in one plane (u, v in it) overlap by more than a shared edge. */
+function trianglesOverlap(a: number[][], b: number[][]): boolean {
+  for (const [t, other] of [
+    [a, b],
+    [b, a],
+  ] as const) {
+    for (let i = 0; i < 3; i++) {
+      const [p, q] = [t[i]!, t[(i + 1) % 3]!];
+      const axis = [q[1]! - p[1]!, p[0]! - q[0]!];
+      const project = (s: number[][]) => s.map((r) => r[0]! * axis[0]! + r[1]! * axis[1]!);
+      const [ta, oa] = [project(t), project(other)];
+      if (Math.max(...ta) <= Math.min(...oa) + 1e-9 || Math.max(...oa) <= Math.min(...ta) + 1e-9)
+        return false;
+    }
+  }
+  return true;
+}
+
+test('no two faces of a bike in different colours overlap in one plane, to z-fight there', () => {
+  for (const look of [0, LOOK.step | LOOK.carrier, LOOK.crate, LOOK.basket | (3 * LOOK.colour)]) {
+    for (const steer of [0, 0.3]) {
+      const mesh = new MeshBuilder();
+      addBike(mesh, { x: 0, z: 0, fx: 0.6, fz: 0.8, scale: 1.3 }, steer, look);
+      const g = unindexed(mesh.build());
+      const [p, c] = [g.getAttribute('position'), g.getAttribute('color')];
+      const faces = Array.from({ length: p.count / 3 }, (_, t) => {
+        const v = [0, 1, 2].map((k) => [p.getX(t * 3 + k), p.getY(t * 3 + k), p.getZ(t * 3 + k)]);
+        const [e, f] = [v[1]!.map((x, i) => x - v[0]![i]!), v[2]!.map((x, i) => x - v[0]![i]!)];
+        const n = [
+          e[1]! * f[2]! - e[2]! * f[1]!,
+          e[2]! * f[0]! - e[0]! * f[2]!,
+          e[0]! * f[1]! - e[1]! * f[0]!,
+        ];
+        const length = Math.hypot(...n);
+        const unit = n.map((x) => x / length);
+        // Two directions in its plane, to lay another triangle in the plane onto.
+        const u = Math.abs(unit[1]!) < 0.9 ? [unit[2]!, 0, -unit[0]!] : [1, 0, 0];
+        const w = [
+          unit[1]! * u[2]! - unit[2]! * u[1]!,
+          unit[2]! * u[0]! - unit[0]! * u[2]!,
+          unit[0]! * u[1]! - unit[1]! * u[0]!,
+        ];
+        return {
+          v,
+          unit,
+          d: dot(unit, v[0]!),
+          u,
+          w,
+          dot,
+          colour: c.getX(t * 3) + c.getY(t * 3) * 2,
+        };
+      });
+      for (const [i, a] of faces.entries()) {
+        for (const b of faces.slice(i + 1)) {
+          if (a.colour === b.colour || dot(a.unit, b.unit) < 0.9999) continue;
+          if (Math.abs(a.d - dot(a.unit, b.v[0]!)) > 1e-4) continue;
+          const flat = (t: number[][]) => t.map((r) => [dot(r, a.u), dot(r, a.w)]);
+          expect(trianglesOverlap(flat(a.v), flat(b.v))).toBe(false);
+        }
+      }
+    }
+  }
+});
+
 test('every look of bike, however it is parked, stays inside its rack footprint', () => {
   const p = prop('bikes', { size: 2, angle: 0.4 });
   const f = propFootprint(p);

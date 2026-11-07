@@ -118,15 +118,22 @@ export function box(
   );
 }
 
-/** A thin panel seen from both sides: glass, a bench leg, a wheel, a frame. */
-export function panel(mesh: MeshBuilder, corners: readonly V3[], color: number): void {
+/**
+ * A thin panel seen from both sides: glass, a bench leg, a wheel, a frame. With `apart` (m), its
+ * two faces stand that far apart, each half of it out on its own side: a bike's frame lies in
+ * the plane of its wheels, and drawn in it, the two z-fought, hatching the frame with tyre.
+ */
+export function panel(mesh: MeshBuilder, corners: readonly V3[], color: number, apart = 0): void {
   const [a, b, c] = corners as [V3, V3, V3];
   const n: V3 = [
     (b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]),
     (b[2] - a[2]) * (c[0] - a[0]) - (b[0] - a[0]) * (c[2] - a[2]),
     (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]),
   ];
-  for (const hint of [n, [-n[0], -n[1], -n[2]] as V3]) {
-    mesh.polygon(corners, fan(corners.length), color, hint);
+  const k = apart / 2 / (Math.hypot(...n) || 1);
+  for (const side of [1, -1]) {
+    const [x, y, z] = [n[0] * k * side, n[1] * k * side, n[2] * k * side];
+    const out = apart ? corners.map((p): V3 => [p[0] + x, p[1] + y, p[2] + z]) : corners;
+    mesh.polygon(out, fan(corners.length), color, [n[0] * side, n[1] * side, n[2] * side]);
   }
 }
