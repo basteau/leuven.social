@@ -6,6 +6,9 @@
 import { WALK_CELL } from './walkable.ts';
 import type { WalkGrid } from './walkable.ts';
 
+/** What a route needs of a grid: the street's (WalkGrid) or a room's floor (RoomGrid). */
+export type RouteGrid = Pick<WalkGrid, 'cols' | 'rows' | 'cellAt' | 'centre' | 'open' | 'walkable'>;
+
 /** How far past the box around both ends a route may wander (m). */
 const MARGIN = 60;
 /** Largest window side, in cells: routes stay within what a view at walking zoom shows. */
@@ -30,7 +33,7 @@ const NO_CELLS: ReadonlySet<number> = new Set();
 
 /** Reuses its buffers across searches: a route is asked for on every click. */
 export class Router {
-  readonly #grid: WalkGrid;
+  readonly #grid: RouteGrid;
   #cost = new Float32Array(0);
   #parent = new Int32Array(0);
   #state = new Uint8Array(0); // 0 unseen, 1 open, 2 closed
@@ -38,7 +41,7 @@ export class Router {
   #heap = new Int32Array(1024);
   #heapKey = new Float32Array(1024);
 
-  constructor(grid: WalkGrid) {
+  constructor(grid: RouteGrid) {
     this.#grid = grid;
   }
 
@@ -182,7 +185,7 @@ export class Router {
 }
 
 /** The cells whose centres circles [x, z, radius, …] cover. */
-function coveredCells(grid: WalkGrid, circles: ArrayLike<number>): Set<number> {
+function coveredCells(grid: RouteGrid, circles: ArrayLike<number>): Set<number> {
   const cells = new Set<number>();
   for (let i = 0; i + 2 < circles.length; i += 3) {
     const [x, z, radius] = [circles[i]!, circles[i + 1]!, circles[i + 2]!];
@@ -203,7 +206,7 @@ function coveredCells(grid: WalkGrid, circles: ArrayLike<number>): Set<number> {
  * `blocked` ones.
  */
 export function clearLine(
-  grid: WalkGrid,
+  grid: RouteGrid,
   ax: number,
   az: number,
   bx: number,
@@ -225,7 +228,7 @@ export function clearLine(
 
 /** Keeps only the corners a straight line can't skip: string-pulling over the cell path. */
 function taut(
-  grid: WalkGrid,
+  grid: RouteGrid,
   points: [number, number][],
   blocked: ReadonlySet<number>,
 ): [number, number][] {

@@ -9,6 +9,8 @@
  * map pays nothing until someone walks, and then only for the streets they reach.
  */
 
+import { CellGrid, TILE, ringBox, wallPush } from './cell-grid.ts';
+import type { Wall } from './cell-grid.ts';
 import type { Bounds, City } from './city.ts';
 import { areaIndex } from './geometry.ts';
 import { FLAT } from './terrain.ts';
@@ -16,7 +18,6 @@ import type { Terrain } from './terrain.ts';
 
 /** Cell size in metres: narrower than any footpath, so every path stays connected. */
 export const WALK_CELL = 1;
-const TILE = 64;
 /** Narrow paths still get a ribbon at least this wide, so diagonal ones never break apart. */
 const MIN_HALF_WIDTH = 0.75;
 
@@ -69,71 +70,42 @@ interface Ribbon {
   /** As for a shape: open for a path, a height code for a parapet. */
   value: number;
 }
-/** A wall as drawn, for bodies to keep clear of: a footprint's outline, or a parapet's line. */
-interface Wall {
-  line: ArrayLike<number>;
-  /** Whether `line` is a closed ring (a footprint) rather than a parapet's line. */
-  ring: boolean;
-  /** Half its thickness: none for a footprint's face. */
-  half: number;
-  box: Bounds;
-  /** The last query that met it, so one in two tiles counts once. */
-  seen: number;
-}
-
-/** Whether (x, z) is inside a ring, by even-odd crossings. */
-function inRing(ring: ArrayLike<number>, x: number, z: number): boolean {
-  let inside = false;
-  for (let i = 0, n = ring.length / 2, j = n - 1; i < n; j = i++) {
-    const [xi, zi, xj, zj] = [ring[i * 2]!, ring[i * 2 + 1]!, ring[j * 2]!, ring[j * 2 + 1]!];
-    if (zi > z !== zj > z && x < xi + ((z - zi) * (xj - xi)) / (zj - zi)) inside = !inside;
-  }
-  return inside;
-}
 
 const heightCode = (height: number) => Math.min(255 - SOLID, Math.ceil(height)) + SOLID;
 
-const ringBox = (ring: ArrayLike<number>, pad = 0): Bounds => {
-  let [minX, minZ, maxX, maxZ] = [Infinity, Infinity, -Infinity, -Infinity];
-  for (let i = 0; i < ring.length; i += 2) {
-    [minX, maxX] = [Math.min(minX, ring[i]!), Math.max(maxX, ring[i]!)];
-    [minZ, maxZ] = [Math.min(minZ, ring[i + 1]!), Math.max(maxZ, ring[i + 1]!)];
-  }
-  return { minX: minX - pad, minZ: minZ - pad, maxX: maxX + pad, maxZ: maxZ + pad };
-};
+/** A trunk against a facade keeps the building's height in its cells. */
+const keep = (value: number) => (old: number) => value === SOLID && old > SOLID;
+
+/** A doorway into a building with a room (rooms.ts): bodies pass its wall within `half` of it. */
+interface Door {
+  x: number;
+  z: number;
+  half: number;
+}
 
 export class WalkGrid {
-  readonly cols: number;
-  readonly rows: number;
-  readonly #origin: [number, number];
+  readonly #grid: CellGrid;
   readonly #area: readonly Bounds[];
-  readonly #tilesX: number;
-  readonly #tiles: (Uint8Array | undefined)[];
   /** What touches each tile, in drawing order: surfaces and paths first, buildings on top. */
   readonly #shapes: Shape[][];
   readonly #ribbons: Ribbon[][];
   readonly #walls: Wall[][];
-  #crossings = new Float64Array(64);
+  readonly #doors: Door[] = [];
   #query = 0;
 
   constructor(city: WalkLayers, solids: Solids = { posts: [], rings: [] }) {
-    const { minX, minZ, maxX, maxZ } = city.bounds;
-    this.#origin = [minX, minZ];
+    this.#grid = new CellGrid(
+      city.bounds,
+      (tile, x0, z0, t) => this.#fill(tile, x0, z0, t),
+      WALK_CELL,
+    );
     this.#area = city.area;
-    this.cols = Math.ceil((maxX - minX) / WALK_CELL);
-    this.rows = Math.ceil((maxZ - minZ) / WALK_CELL);
-    this.#tilesX = Math.ceil(this.cols / TILE);
-    const tiles = this.#tilesX * Math.ceil(this.rows / TILE);
-    this.#tiles = Array.from({ length: tiles });
+    const tiles = this.#grid.tileCount;
     this.#shapes = Array.from({ length: tiles }, () => []);
     this.#ribbons = Array.from({ length: tiles }, () => []);
     this.#walls = Array.from({ length: tiles }, () => []);
 
-    const each = (box: Bounds, visit: (tile: number) => void) => {
-      const [c0, r0] = this.#tileOf(box.minX, box.minZ);
-      const [c1, r1] = this.#tileOf(box.maxX, box.maxZ);
-      for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) visit(r * this.#tilesX + c);
-    };
+    const each = (box: Bounds, visit: (tile: number) => void) => this.#grid.eachTile(box, visit);
     const closing = [...(city.water ?? []), ...(city.railLand ?? []), ...(city.platforms ?? [])];
     for (const ring of closing) {
       each(ringBox(ring), (t) => this.#shapes[t]!.push({ ring, value: CLOSED }));
@@ -192,37 +164,27 @@ export class WalkGrid {
     for (const list of this.#ribbons) list.sort((a, b) => a.value - b.value);
   }
 
-  #tileOf(x: number, z: number): [number, number] {
-    const c = Math.floor((x - this.#origin[0]) / WALK_CELL / TILE);
-    const r = Math.floor((z - this.#origin[1]) / WALK_CELL / TILE);
-    const maxC = this.#tilesX - 1;
-    const maxR = this.#tiles.length / this.#tilesX - 1;
-    return [Math.min(maxC, Math.max(0, c)), Math.min(maxR, Math.max(0, r))];
+  get cols(): number {
+    return this.#grid.cols;
+  }
+
+  get rows(): number {
+    return this.#grid.rows;
   }
 
   /** The cell holding (x, z), or -1 off the grid. */
   cellAt(x: number, z: number): number {
-    const col = Math.floor((x - this.#origin[0]) / WALK_CELL);
-    const row = Math.floor((z - this.#origin[1]) / WALK_CELL);
-    if (col < 0 || row < 0 || col >= this.cols || row >= this.rows) return -1;
-    return row * this.cols + col;
+    return this.#grid.cellAt(x, z);
   }
 
   /** The centre of a cell, in metres. */
   centre(cell: number): [number, number] {
-    const col = cell % this.cols;
-    const row = (cell - col) / this.cols;
-    return [this.#origin[0] + (col + 0.5) * WALK_CELL, this.#origin[1] + (row + 0.5) * WALK_CELL];
+    return this.#grid.centre(cell);
   }
 
   /** A cell's raw value; cells off the grid are closed. */
   value(cell: number): number {
-    if (cell < 0 || cell >= this.cols * this.rows) return CLOSED;
-    const col = cell % this.cols;
-    const row = (cell - col) / this.cols;
-    const t = Math.floor(row / TILE) * this.#tilesX + Math.floor(col / TILE);
-    const tile = this.#tiles[t] ?? this.#fill(t);
-    return tile[(row % TILE) * TILE + (col % TILE)]!;
+    return this.#grid.value(cell, CLOSED);
   }
 
   open(cell: number): boolean {
@@ -241,23 +203,29 @@ export class WalkGrid {
   }
 
   /**
+   * Opens a doorway in a building's wall at (x, z), `half` metres either side: its cells are
+   * street, and bodies pass its wall there, so the avatar can step in to the room behind it
+   * (rooms.ts), whose own grid opens the same doorway from the inside.
+   */
+  openDoor(x: number, z: number, half: number): void {
+    if (this.#doors.some((d) => d.x === x && d.z === z)) return;
+    this.#doors.push({ x, z, half });
+    this.#grid.refill({ minX: x - half, minZ: z - half, maxX: x + half, maxZ: z + half });
+  }
+
+  /** Whether (x, z) is within a doorway. */
+  #inDoor(x: number, z: number): boolean {
+    return this.#doors.some((d) => Math.hypot(x - d.x, z - d.z) <= d.half);
+  }
+
+  /**
    * How closed the ground is at (x, z), from 0 to 1: whether the cells round it are water,
    * railway or off the map, blended bilinearly between their centres. The edge runs where it
    * crosses a half, as a nearly straight line even along a staircase of cells. Walls are not
    * in it: bodies meet those as drawn (`wallOverlap`).
    */
   closed(x: number, z: number): number {
-    const u = (x - this.#origin[0]) / WALK_CELL - 0.5;
-    const v = (z - this.#origin[1]) / WALK_CELL - 0.5;
-    const [col, row] = [Math.floor(u), Math.floor(v)];
-    const [fu, fv] = [u - col, v - row];
-    const at = (c: number, r: number) => {
-      const inside = c >= 0 && r >= 0 && c < this.cols && r < this.rows;
-      return !inside || this.value(r * this.cols + c) === CLOSED ? 1 : 0;
-    };
-    const top = at(col, row) * (1 - fu) + at(col + 1, row) * fu;
-    const bottom = at(col, row + 1) * (1 - fu) + at(col + 1, row + 1) * fu;
-    return top * (1 - fv) + bottom * fv;
+    return this.#grid.blend(x, z, (v) => v === CLOSED);
   }
 
   /**
@@ -266,53 +234,25 @@ export class WalkGrid {
    * angle is a straight line and a corner a point to slide round. Writes the way out into
    * `out`, summed over every face it touches, so in a corner it points out of the corner and in
    * a lane between two walls it balances. A centre inside a footprint is pushed out through
-   * the nearest face.
+   * the nearest face, but in a doorway.
    */
   wallOverlap(x: number, z: number, radius: number, out: [number, number]): number {
-    let [sx, sz, deep] = [0, 0, 0];
+    const sum: [number, number, number] = [0, 0, 0];
     const query = ++this.#query;
-    const [c0, r0] = this.#tileOf(x - radius, z - radius);
-    const [c1, r1] = this.#tileOf(x + radius, z + radius);
+    const skip = this.#doors.length ? (px: number, pz: number) => this.#inDoor(px, pz) : undefined;
+    const [c0, r0] = this.#grid.tileOf(x - radius, z - radius);
+    const [c1, r1] = this.#grid.tileOf(x + radius, z + radius);
     for (let r = r0; r <= r1; r++) {
       for (let c = c0; c <= c1; c++) {
-        for (const wall of this.#walls[r * this.#tilesX + c]!) {
-          const { line, half, box } = wall;
-          if (wall.seen === query || x + radius < box.minX || x - radius > box.maxX) continue;
-          if (z + radius < box.minZ || z - radius > box.maxZ) continue;
-          wall.seen = query;
-          const inside = wall.ring && inRing(line, x, z);
-          const n = line.length / 2;
-          let [nearest, nx, nz] = [Infinity, 0, 0];
-          for (let i = wall.ring ? 0 : 1, j = wall.ring ? n - 1 : 0; i < n; j = i++) {
-            const [ax, az] = [line[j * 2]!, line[j * 2 + 1]!];
-            const [dx, dz] = [line[i * 2]! - ax, line[i * 2 + 1]! - az];
-            const s = Math.min(
-              1,
-              Math.max(0, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz || 1)),
-            );
-            const [px, pz] = [x - ax - s * dx, z - az - s * dz];
-            const d = Math.hypot(px, pz);
-            if (d < 1e-9) continue;
-            if (inside) {
-              if (d < nearest) [nearest, nx, nz] = [d, -px / d, -pz / d];
-              continue;
-            }
-            const into = radius + half - d;
-            if (into <= 0) continue;
-            [sx, sz, deep] = [sx + (px / d) * into, sz + (pz / d) * into, Math.max(deep, into)];
-          }
-          if (inside && nearest < Infinity) {
-            const into = radius + nearest;
-            [sx, sz, deep] = [sx + nx * into, sz + nz * into, Math.max(deep, into)];
-          }
-        }
+        wallPush(this.#walls[r * this.#grid.tilesX + c]!, x, z, radius, query, sum, skip);
       }
     }
-    const length = Math.hypot(sx, sz);
+    const length = Math.hypot(sum[0], sum[1]);
     if (length < 1e-9) return 0;
-    [out[0], out[1]] = [sx / length, sz / length];
-    return deep;
+    [out[0], out[1]] = [sum[0] / length, sum[1] / length];
+    return sum[2];
   }
+
   /** Roof height of the building over (x, z), or 0 where there is none. */
   buildingHeight(x: number, z: number): number {
     const v = this.value(this.cellAt(x, z));
@@ -324,38 +264,30 @@ export class WalkGrid {
    * nearest street cell, so a walk never starts in a garden walled in by houses.
    */
   nearest(x: number, z: number, radius: number, street = false): [number, number] | null {
-    const ok = (cell: number) => (street ? this.street(cell) : this.open(cell));
-    if (ok(this.cellAt(x, z))) return this.centre(this.cellAt(x, z));
-    let best: [number, number] | null = null;
-    let bestDistance = radius;
-    const steps = Math.ceil(radius / WALK_CELL);
-    for (let dz = -steps; dz <= steps; dz++) {
-      for (let dx = -steps; dx <= steps; dx++) {
-        const cell = this.cellAt(x + dx * WALK_CELL, z + dz * WALK_CELL);
-        if (!ok(cell)) continue;
-        const [cx, cz] = this.centre(cell);
-        const d = Math.hypot(cx - x, cz - z);
-        if (d <= bestDistance) [best, bestDistance] = [[cx, cz], d];
-      }
-    }
-    return best;
+    return this.#grid.nearest(x, z, radius, (cell) =>
+      street ? this.street(cell) : this.open(cell),
+    );
   }
 
   /** Rasterises one tile from everything that touches it. */
-  #fill(t: number): Uint8Array {
-    const tile = new Uint8Array(TILE * TILE);
-    const col0 = (t % this.#tilesX) * TILE;
-    const row0 = Math.floor(t / this.#tilesX) * TILE;
-    const x0 = this.#origin[0] + col0 * WALK_CELL;
-    const z0 = this.#origin[1] + row0 * WALK_CELL;
+  #fill(tile: Uint8Array, x0: number, z0: number, t: number): void {
+    const grid = this.#grid;
     const [shapes, ribbons] = [this.#shapes[t]!, this.#ribbons[t]!];
     // The ground is open; water and railway close it, surfaces and paths open it again, then
     // buildings, tanks and parapets stand on it.
     tile.fill(OPEN);
-    for (const s of shapes) if (s.value < SOLID) this.#fillRing(tile, s, x0, z0);
-    for (const r of ribbons) if (r.value < SOLID) this.#fillRibbon(tile, r, x0, z0);
-    for (const s of shapes) if (s.value >= SOLID) this.#fillRing(tile, s, x0, z0);
-    for (const r of ribbons) if (r.value >= SOLID) this.#fillRibbon(tile, r, x0, z0);
+    for (const s of shapes) if (s.value < SOLID) grid.fillRing(tile, s.ring, s.value, x0, z0);
+    for (const r of ribbons) {
+      if (r.value < SOLID) grid.fillRibbon(tile, r.line, r.half, r.value, x0, z0, keep(r.value));
+    }
+    for (const s of shapes) if (s.value >= SOLID) grid.fillRing(tile, s.ring, s.value, x0, z0);
+    for (const r of ribbons) {
+      if (r.value >= SOLID) grid.fillRibbon(tile, r.line, r.half, r.value, x0, z0, keep(r.value));
+    }
+    // Doorways stand open through their wall.
+    for (const d of this.#doors) {
+      grid.fillRibbon(tile, [d.x, d.z, d.x, d.z], d.half, STREET, x0, z0);
+    }
     // Paths can spill a little past the map's edge: nothing off the slab is walkable.
     for (let r = 0; r < TILE; r++) {
       const z = z0 + (r + 0.5) * WALK_CELL;
@@ -363,59 +295,6 @@ export class WalkGrid {
         const v = tile[r * TILE + c];
         if (v !== OPEN && v !== STREET) continue;
         if (areaIndex(this.#area, x0 + (c + 0.5) * WALK_CELL, z) < 0) tile[r * TILE + c] = CLOSED;
-      }
-    }
-    this.#tiles[t] = tile;
-    return tile;
-  }
-
-  /** Even-odd scanline fill of the cells whose centres lie inside the ring. */
-  #fillRing(tile: Uint8Array, { ring, value }: Shape, x0: number, z0: number): void {
-    const n = ring.length / 2;
-    if (this.#crossings.length < n) this.#crossings = new Float64Array(n * 2);
-    const xs = this.#crossings;
-    for (let r = 0; r < TILE; r++) {
-      const z = z0 + (r + 0.5) * WALK_CELL;
-      let count = 0;
-      for (let i = 0, j = n - 1; i < n; j = i++) {
-        const [xi, zi, xj, zj] = [ring[i * 2]!, ring[i * 2 + 1]!, ring[j * 2]!, ring[j * 2 + 1]!];
-        if (zi > z !== zj > z) xs[count++] = xi + ((z - zi) * (xj - xi)) / (zj - zi);
-      }
-      if (count < 2) continue;
-      // Insertion sort: a row crosses a footprint a handful of times.
-      for (let k = 1; k < count; k++) {
-        const v = xs[k]!;
-        let m = k - 1;
-        for (; m >= 0 && xs[m]! > v; m--) xs[m + 1] = xs[m]!;
-        xs[m + 1] = v;
-      }
-      for (let k = 0; k + 1 < count; k += 2) {
-        const from = Math.max(0, Math.ceil((xs[k]! - x0) / WALK_CELL - 0.5));
-        const to = Math.min(TILE - 1, Math.floor((xs[k + 1]! - x0) / WALK_CELL - 0.5));
-        tile.fill(value, r * TILE + from, Math.max(r * TILE + from, r * TILE + to + 1));
-      }
-    }
-  }
-
-  /** Sets the cells whose centres lie within half a width of the line to its value. */
-  #fillRibbon(tile: Uint8Array, { line, half, value }: Ribbon, x0: number, z0: number): void {
-    for (let i = 0; i + 3 < line.length; i += 2) {
-      const [ax, az, bx, bz] = [line[i]!, line[i + 1]!, line[i + 2]!, line[i + 3]!];
-      const c0 = Math.max(0, Math.floor((Math.min(ax, bx) - half - x0) / WALK_CELL));
-      const c1 = Math.min(TILE - 1, Math.floor((Math.max(ax, bx) + half - x0) / WALK_CELL));
-      const r0 = Math.max(0, Math.floor((Math.min(az, bz) - half - z0) / WALK_CELL));
-      const r1 = Math.min(TILE - 1, Math.floor((Math.max(az, bz) + half - z0) / WALK_CELL));
-      const [dx, dz] = [bx - ax, bz - az];
-      const length2 = dx * dx + dz * dz || 1;
-      for (let r = r0; r <= r1; r++) {
-        const pz = z0 + (r + 0.5) * WALK_CELL;
-        for (let c = c0; c <= c1; c++) {
-          const px = x0 + (c + 0.5) * WALK_CELL;
-          const s = Math.min(1, Math.max(0, ((px - ax) * dx + (pz - az) * dz) / length2));
-          if (Math.hypot(px - ax - s * dx, pz - az - s * dz) > half) continue;
-          // A trunk against a facade keeps the building's height in its cells.
-          if (value !== SOLID || tile[r * TILE + c]! <= SOLID) tile[r * TILE + c] = value;
-        }
       }
     }
   }
