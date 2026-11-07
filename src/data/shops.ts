@@ -1,14 +1,14 @@
 /**
  * Shop fronts from OpenStreetMap: each shop, café, bar, restaurant, pharmacy or bank mapped in or
- * beside a footprint has a front on the ground floor, on the wall that faces its street, the one
- * its house number hangs on (`frontWall`). The scene draws it by its kind (src/data/shop-kinds.ts):
+ * beside a footprint has a front on the ground floor, on the wall that faces its street
+ * (`frontWall`). The scene draws it by its kind (src/data/shop-kinds.ts):
  * a glazed ground floor under the kind's awning or fascia, and up close a hanging sign and, where
  * OSM maps outdoor seating and the pavement has room, a table with two chairs.
  */
 
 import type { Building, Kind, ShopFront } from './city.ts';
-import { footprintOf, frontWall, nearestOn } from './plate-placement.ts';
-import type { Facades, Facing } from './plate-placement.ts';
+import { footprintOf, frontWall, nearestOn } from './facades.ts';
+import type { Facades, Facing } from './facades.ts';
 import { CLEARANCE, discInFootprint, footprintsOverlap } from './props.ts';
 import type { Footprint, Shapes } from './props.ts';
 import { rank, shopKind } from './shop-kinds.ts';
@@ -97,8 +97,6 @@ export interface FrontInput {
 
 export interface PlacedFronts {
   fronts: ShopFront[];
-  /** Each front's shop's OSM tags, for its name board (src/data/boards.ts). */
-  tags: Map<ShopFront, Tags>;
   placed: Partial<Record<Facing, number>>;
   skipped: Record<string, number>;
 }
@@ -122,7 +120,6 @@ function nearestStreet(streets: ReadonlyMap<number, readonly number[]>, x: numbe
 export function placeFronts(points: readonly ShopPoint[], input: FrontInput): PlacedFronts {
   const { facades, streets, names, squares, open, skip } = input;
   const fronts: ShopFront[] = [];
-  const shops = new Map<ShopFront, Tags>();
   const placed: Partial<Record<Facing, number>> = {};
   const skipped: Record<string, number> = {};
   const miss = (why: string) => (skipped[why] = (skipped[why] ?? 0) + 1);
@@ -154,8 +151,6 @@ export function placeFronts(points: readonly ShopPoint[], input: FrontInput): Pl
         Math.abs(f.along - along) < TWIN,
     );
     if (twin) {
-      // One of the two may carry the name the other lacks.
-      shops.set(twin, { ...tags, ...shops.get(twin) });
       miss('mapped twice');
       continue;
     }
@@ -168,7 +163,6 @@ export function placeFronts(points: readonly ShopPoint[], input: FrontInput): Pl
       terrace: tags.outdoor_seating === 'yes',
     };
     fronts.push(front);
-    shops.set(front, tags);
   }
   fronts.sort(
     (a, b) =>
@@ -177,7 +171,7 @@ export function placeFronts(points: readonly ShopPoint[], input: FrontInput): Pl
       a.edge - b.edge ||
       a.along - b.along,
   );
-  return { fronts, tags: shops, placed, skipped };
+  return { fronts, placed, skipped };
 }
 
 /**

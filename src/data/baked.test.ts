@@ -1,10 +1,8 @@
 import { expect, test } from 'bun:test';
 
 import { AREA, LANDMARK_FOOTPRINTS, VIEW_AREA } from './area.ts';
-import { MAX_NAME, latinOnly } from './boards.ts';
-import { areaIndex, pointAlong, pointInRing, ringInArea } from './geometry.ts';
+import { pointAlong, pointInRing, ringInArea } from './geometry.ts';
 import { unpackCity } from './format.ts';
-import { unpackWalk } from './plates.ts';
 import { bikesIn } from './props.ts';
 import { parseRooms, roomProblems } from './rooms.ts';
 import { StreetIndex } from './streets.ts';
@@ -92,36 +90,6 @@ test('public/data/city.bin decodes into a plausible Leuven', async () => {
 
 /** A side with a few metres of open ground. */
 const wide = (s: Side) => s.edge >= 2 && s.edge <= 12;
-
-const load = async (name: string) =>
-  new Uint8Array(
-    await (await fetch(new URL(`../../public/data/${name}`, import.meta.url))).arrayBuffer(),
-  );
-const inArea = (p: { x: number; z: number }) => areaIndex(AREA, p.x, p.z) >= 0;
-
-// Guards the committed walk file: its plates hang in the area and name the city's streets.
-test('public/data/walk.bin decodes into plates that belong to city.bin', async () => {
-  const [city, walk] = await Promise.all([
-    load('city.bin').then(unpackCity),
-    load('walk.bin').then(unpackWalk),
-  ]);
-  expect(walk.houses.length).toBeGreaterThan(5000);
-  expect(walk.streets.length).toBeGreaterThan(500);
-  expect(walk.houses.every(inArea)).toBe(true);
-  expect(walk.streets.every(inArea)).toBe(true);
-  expect(walk.streets.every((s) => s.name < city.streetNames.length)).toBe(true);
-  const named = new Set(walk.streets.map((s) => city.streetNames[s.name]));
-  expect(named).toContain('Naamsestraat');
-  expect(named).toContain('Tiensestraat');
-  expect(walk.houses.some((h) => h.text === '1')).toBe(true);
-  // A name board on most shop fronts, inside its front and with a name a board can show.
-  expect(walk.boards.length).toBeGreaterThan(city.fronts.length * 0.8);
-  expect(walk.boards.every(inArea)).toBe(true);
-  expect(walk.boards.every((b) => b.width > 0.8 && b.width <= 5)).toBe(true);
-  expect(
-    walk.boards.every((b) => [...b.name].length <= MAX_NAME && latinOnly(b.name) === b.name),
-  ).toBe(true);
-});
 
 // The rooms are authored against the bake: a rebake that moves or reshapes a landmark, or an edit
 // that puts a wall out of its building, fails here rather than at the door.

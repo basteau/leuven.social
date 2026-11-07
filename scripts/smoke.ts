@@ -375,7 +375,7 @@ async function zoomToStreet(): Promise<void> {
 
 /**
  * The avatar, there from the start: zoom down to the street, walk and run it with the keys,
- * tap somewhere for it to walk to, and check the street sign and the plates on the facades.
+ * tap somewhere for it to walk to, and check the street sign.
  */
 async function expectWalking(): Promise<void> {
   await browser('press', 'r');
@@ -394,10 +394,6 @@ async function expectWalking(): Promise<void> {
     `JSON.stringify(document.querySelector('.sign-name').textContent)`,
   );
   console.log(`ok  street sign close to the street: ${street}`);
-  // House numbers and street plates hang on the facades round the view (walk.bin).
-  await browser('wait', '--fn', `Number(${canvasData('plates')}) > 0`);
-  const plates = await evalJson<string>(`JSON.stringify(${canvasData('plates')})`);
-  console.log(`ok  plates on the facades close to the street: ${plates}`);
   // A tap a little way off walks it there.
   const before = await walker();
   await tapAt(700, 360);
@@ -432,11 +428,7 @@ async function expectWalking(): Promise<void> {
   console.log('ok  after zooming out and in and dragging the map, every tap nearby set off');
   // Back out to the whole city, where it isn't drawn at all.
   for (let i = 0; i < 16; i++) await browser('press', '-');
-  await browser(
-    'wait',
-    '--fn',
-    `${canvasData('avatar')} === 'false' && ${canvasData('plates')} === '0'`,
-  );
+  await browser('wait', '--fn', `${canvasData('avatar')} === 'false'`);
   await expectHealthyPage('desktop zoomed back out');
 }
 

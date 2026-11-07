@@ -61,7 +61,7 @@ export interface Building {
 
 /**
  * A shop, café or bank on the ground floor, from OpenStreetMap (src/data/shops.ts): on its
- * building's wall that faces the street, the one its house number would hang on.
+ * building's wall that faces its street (src/data/facades.ts).
  */
 export interface ShopFront {
   /** Its building's place in `City.buildings`. */

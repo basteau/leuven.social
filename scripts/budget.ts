@@ -125,17 +125,6 @@ const BUDGETS: {
     limit: 3 * KB,
     gzip: true,
   },
-  // The plates on the facades load once the view comes down to the street, in a chunk and a
-  // data file of their own.
-  // 6: the shops' name boards (fitting a name to its front, its paint at 4.5:1, hanging it on
-  // the awning's valance or the fascia, and the shader that paints under the letters) took the
-  // chunk from 4.6 to 5.6 KB. 5.8: just above that.
-  {
-    label: 'Facade plates JS (near the street)',
-    pattern: 'assets/plates-*.js',
-    limit: 5.8 * KB,
-    gzip: true,
-  },
   // Street furniture, monuments and the shop fronts' awnings, signs and terraces load once the
   // first frame is drawn, with the prop and terrace footprints they share with the avatar.
   // 6: the storefronts' shapes and the fronts' places on their walls added 1.6 KB.
@@ -153,16 +142,13 @@ const BUDGETS: {
   },
   // The rooms inside the landmarks, authored by hand, fetched near one.
   { label: 'Rooms data', pattern: 'data/rooms.json', limit: 80 * KB, gzip: true },
-  // About 11.6k house numbers and 1.8k street plates are 67 KB, and 1.1k shop name boards 17 KB
-  // more; room for the map to grow.
-  { label: 'Plates data (already gzipped)', pattern: 'data/walk.bin', limit: 96 * KB, gzip: false },
   // What the first visit downloads: the page's scripts and every chunk they import statically
   // (the shell, the engine, the palette and whatever the bundler splits off them), not the
   // chunks loaded later.
   // 252: land use from relations, data-chosen monuments and hold-to-turn together passed 250.
   // 253: the parked bikes' looks, rails and notes (+0.7 KB). Furniture and monument drawing then
-  // moved to a chunk of their own, taking what they share with the engine as a kit, as plates.ts
-  // does; only the palette, which scene/props.ts imports, loads as a chunk of its own beside it.
+  // moved to a chunk of their own, taking what they share with the engine as a kit, as the plates
+  // did; only the palette, which scene/props.ts imports, loads as a chunk of its own beside it.
   // 250: panning and zooming with our own map controls (map-controls.ts) took 4.4 KB off; the
   // load, menu and key fixes put 0.4 back: 249.2 KB. 251: the livelier facades (1.4 KB).
   // 253.5: each house its own style, and roofs with chimneys and dormers (1.8 KB).

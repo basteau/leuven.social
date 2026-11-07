@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import type { Building, ShopFront } from './city.ts';
-import { Facades } from './plate-placement.ts';
+import { Facades } from './facades.ts';
 import { Shapes, propFootprint } from './props.ts';
 import { fitTerraces, frontPoint, markShopFronts, placeFronts, terraceFootprint } from './shops.ts';
 import type { TerraceSurroundings } from './shops.ts';
@@ -41,7 +41,7 @@ test('a front stands on its wall, facing out of the building', () => {
 
 test('each shop gets the wall facing its street, its building the most telling front', () => {
   const street = { 'addr:street': 'Naamsestraat' };
-  const { fronts, tags, placed, skipped } = placeFronts(
+  const { fronts, placed, skipped } = placeFronts(
     [
       { x: 3, z: 2, tags: { amenity: 'fast_food', cuisine: 'friture', ...street } },
       // The same frituur, mapped again as its building.
@@ -60,9 +60,6 @@ test('each shop gets the wall facing its street, its building the most telling f
     { building: 1, edge: 0, along: 2, kind: 'bakery', terrace: true },
     { building: 1, edge: 0, along: 3, kind: 'service', terrace: false },
   ]);
-  // The frituur keeps its own tags, and takes its name from its twin.
-  expect(tags.get(fronts[0]!)).toMatchObject({ cuisine: 'friture', name: 'Frituur Tivoli' });
-  expect(tags.get(fronts[1]!)).toEqual({ shop: 'bakery', outdoor_seating: 'yes' });
   expect(placed).toEqual({ 'facing its street': 3 });
   expect(skipped).toEqual({
     'mapped twice': 1,

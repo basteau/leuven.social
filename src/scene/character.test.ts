@@ -22,7 +22,7 @@ import {
   restPose,
 } from './character.ts';
 import { unindexed } from './mesh-builder.ts';
-import { OUTLINE, PLATE, WALKER } from './palette.ts';
+import { OUTLINE, PAPER_WHITE, WALKER } from './palette.ts';
 import { IDLE_SECONDS, RUN_SPEED, STEP, WALK_SPEED, createWalker, stepWalker } from './walker.ts';
 
 /** The sole's heel, ball and toe tip, from the ankle (z forward, y up; model metres). */
@@ -140,7 +140,7 @@ test('the face has eyes with a glint, brows, a nose and a mouth, all on the head
   const face = details(WALKER).filter((d) => d.bone === 'head');
   const colours = face.map((d) => d.color);
   expect(colours.filter((c) => c === OUTLINE)).toHaveLength(2); // eyes
-  expect(colours.filter((c) => c === PLATE.paper)).toHaveLength(2); // glints
+  expect(colours.filter((c) => c === PAPER_WHITE)).toHaveLength(2); // glints
   expect(colours.filter((c) => c === WALKER.hair)).toHaveLength(5); // brows and the fringe
   expect(face.filter((d) => d.color === WALKER.skin)).toHaveLength(3); // the nose's faces
   // Every detail faces out of the front of the face, toward the camera in front.

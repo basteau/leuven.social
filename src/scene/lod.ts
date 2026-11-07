@@ -27,7 +27,7 @@ export const spanOf = (zoom: number) => VIEW_HEIGHT / zoom;
  * | 120–400  | + the avatar as a marker, traffic in its near shapes round the view       |
  * | 60–280   | + street furniture, parked bikes, awnings (from 280)                      |
  * | 60–120   | + the avatar's figure                                                     |
- * | 20–60    | + plates and house numbers, trunks and furniture cast, rooms prewarmed    |
+ * | 20–60    | + trunks and furniture cast, rooms prewarmed                              |
  * | < 20     | the street up close: nothing new, the same meshes nearer                  |
  */
 export const SPANS = {
@@ -37,10 +37,7 @@ export const SPANS = {
   furniture: 280,
   /** The avatar's rigged figure; between this and `city`, a marker. */
   figure: 120,
-  /**
-   * The street: plates on the facades, shadows of trunks and furniture, and the rooms near the
-   * avatar built ahead of a visit.
-   */
+  /** The street: shadows of trunks and furniture, and the rooms near the avatar built ahead. */
   street: 60,
 } as const;
 
@@ -49,8 +46,6 @@ export type AvatarDetail = 'none' | 'marker' | 'figure';
 export interface Detail {
   furniture: boolean;
   avatar: AvatarDetail;
-  /** House numbers, street plates and name boards on the facades. */
-  plates: boolean;
   /** Trunks and furniture cast into the shadow map: from above their shadows are under a texel. */
   streetShadows: boolean;
   /** Rooms within reach of the avatar are built while the page is idle. */
@@ -63,7 +58,6 @@ export function detailAt(span: number): Detail {
   return {
     furniture: span <= SPANS.furniture,
     avatar: span <= SPANS.figure ? 'figure' : span <= SPANS.city ? 'marker' : 'none',
-    plates: street,
     streetShadows: street,
     prewarm: street,
   };

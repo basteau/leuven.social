@@ -321,8 +321,8 @@ kbd {
 }
 
 /*
- * The street plate, on foot: Leuven's enamel blue under a paper rim, in the start corner, the
- * HUD's version of the plates on the facades. Nothing that looks like a plate is pressable.
+ * The street plate, on foot: Leuven's enamel blue under a paper rim, in the start corner, like
+ * the city's own street signs. Nothing that looks like a plate is pressable.
  */
 .sign-slot {
   display: flex;
