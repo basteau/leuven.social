@@ -84,6 +84,13 @@ describe('account', () => {
     expect(await reason(signIn('bram', 'password1'))).toMatchObject({ code: 'busy' });
   });
 
+  test('a guest is nobody: a null, or an old server’s 401', async () => {
+    answer(json(null));
+    expect(await me()).toBeNull();
+    answer(json({}, 401));
+    expect(await me()).toBeNull();
+  });
+
   test('an odd answer to me() is the server’s fault', async () => {
     answer(json({ name: 'Bram' }));
     expect(await reason(me())).toMatchObject({ code: 'server' });

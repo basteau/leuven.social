@@ -5,7 +5,7 @@
  *
  *   /api/auth/*      better-auth, only the paths in PUBLIC_AUTH_PATHS
  *   POST /api/account  sign up with { username, password }, signed in on success
- *   GET  /api/me       { name, outfit, at } or 401
+ *   GET  /api/me       { name, outfit, at }, or null for a guest (not an error: browsers log those)
  *   PUT  /api/me       { outfit }: keeps it and tells everyone online
  *   GET  /api/health   { ok, online }
  *   /ws                presence (world.ts); the session cookie decides player or guest
@@ -155,7 +155,10 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
 
   async function me(request: Request): Promise<Response> {
     const current = await session(request);
-    if (!current) return problem(401, 'UNAUTHORIZED', 'Not signed in');
+    // A guest asking who they are is no error, and a 401 would be logged in their console.
+    if (!current) {
+      return request.method === 'GET' ? json(null) : problem(401, 'UNAUTHORIZED', 'Not signed in');
+    }
     const userId = current.user.id;
     if (request.method === 'PUT') {
       const outfit = (await readJson(request))?.outfit;

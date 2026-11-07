@@ -130,7 +130,9 @@ export async function me(): Promise<Me | null> {
   const response = await request('/me');
   if (response.status === 401) return null;
   if (!response.ok) throw await failure(response);
-  const body = (await response.json().catch(() => null)) as Partial<Me> | null;
+  const body = (await response.json().catch(() => undefined)) as Partial<Me> | null | undefined;
+  // A guest: nobody to be.
+  if (body === null) return null;
   if (typeof body?.name !== 'string' || !isOutfit(body.outfit)) throw fail('server', body);
   return { name: body.name, outfit: body.outfit, at: body.at ?? null };
 }

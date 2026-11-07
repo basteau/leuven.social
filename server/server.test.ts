@@ -155,6 +155,11 @@ describe('accounts', () => {
 
   test('a guest has no account', async () => {
     expect(await as(new Jar(), () => account.me())).toBeNull();
+    // Asked plainly, a guest is a null, not a 401 the browser would log as an error.
+    const guest = await call(new Jar(), '/api/me');
+    expect([guest.status, await guest.json()]).toEqual([200, null]);
+    const put = await call(new Jar(), '/api/me', { method: 'PUT', body: '{}' });
+    expect(put.status).toBe(401);
   });
 
   test('signing up signs in, with an outfit and no position yet', async () => {
