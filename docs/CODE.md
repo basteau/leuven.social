@@ -12,6 +12,7 @@ The code is split by what it is allowed to know about. Lint enforces the arrows,
 | `src/audio` | The few UI, walking and riding sounds, synthesised with Web Audio                   | Web APIs only. No three.js, React or other layers.                   |
 | `src/app`   | The React shell: the command menu, the few things on the map, loading, shortcuts    | `src/data`, `src/net`, `src/scene`, `src/audio`                      |
 | `scripts/`  | Build-time edges: fetching and baking data, icons, budgets, the smoke test, deploys | `src/data`, plus the `Bun` global for files and processes            |
+| `server/`   | The multiplayer server: accounts, the presence hub, SQLite                          | `src/net`, `src/data`, the `Bun` global, `bun:sqlite`, `process.env` |
 
 `src/scene` exposes one entry point, `createViewer()`. It returns a small imperative handle, so React never touches three.js objects:
 
@@ -50,15 +51,16 @@ A lazy chunk takes what it shares with the engine as a `kit` (three.js classes, 
 
 Code uses web-standard APIs and the [Portable](https://github.com/portablejs/portable) packages (`@portable/binary`, `@portable/compress`, `@portable/png`) instead of `node:*` or `bun:*` modules. That way the same code runs in the browser, in Bun scripts and in a Worker later.
 
-- The only exceptions are `bun:test` in tests, the `Bun` global in `scripts/`, and `Glob` from `bun` in `src/modules.test.ts`.
+- The only exceptions are `bun:test` in tests, the `Bun` global in `scripts/` and `server/`, `bun:sqlite` and `process.env` in `server/`, and `Glob` from `bun` in `src/modules.test.ts`. `src/net` is shared by the browser and the server, so it stays portable too.
 - When you need something new (streams, timers, CSV, logging…), look in Portable before writing it or adding a package.
 
 ## Tests
 
-`bun test` runs the `*.test.ts` files next to the code they test, inside `src/`. Every pure module is covered.
+`bun test` runs the `*.test.ts` files next to the code they test, inside `src/` and `server/`. Every pure module is covered.
 
 - Coverage below 95% lines or functions in any file fails the run, even when every test passes: look for the file in the coverage table.
 - `src/modules.test.ts` imports every pure module, so a new file without tests still shows up in coverage instead of hiding.
+- The server's tests drive the presence hub (`server/world.ts`) with fake connections, and start the real server on port 0 with SQLite in memory (`server/server.test.ts`): accounts, cookies and WebSockets end to end, `src/net/account.ts` included. `server/main.ts` only reads the environment and isn't measured.
 - Browser-only code (`viewer.ts`, `avatar-layer.ts`, `bikes.ts`, `plates.ts`, `facade-material.ts`, `character-material.ts`, `load.ts`, the React app; `BROWSER_ONLY` in `src/modules.test.ts`) is checked by the smoke test in `bun run verify` instead.
 - When you add logic, put it in a pure function in `src/data` or a geometry builder in `src/scene` and test it there. Keep `viewer.ts` thin.
 

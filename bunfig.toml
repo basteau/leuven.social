@@ -3,7 +3,17 @@ printWidth = 100
 singleQuote = true
 
 [test]
-root = "src"
+# The app's tests live in src/, the multiplayer server's in server/. Everything else that could
+# hold a stray *.test.ts (other worktrees, vendored research and tools) stays out.
+pathIgnorePatterns = [
+  ".claude/**",
+  ".agents/**",
+  "research/**",
+  "tools/**",
+  "data/**",
+  "dist/**",
+  "dist-server/**",
+]
 coverageSkipTestFiles = true
 # Pure modules stay fully tested; browser-only modules are covered by `bun run smoke`.
 coverageThreshold = { lines = 0.95, functions = 0.95 }
