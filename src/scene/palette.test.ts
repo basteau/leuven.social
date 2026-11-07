@@ -3,8 +3,11 @@ import { expect, test } from 'bun:test';
 import { deltaE, toOklab } from '../data/colour.ts';
 import {
   FLAT_ROOFS,
+  GUESTS,
+  PASSERS_BY,
   PITCHED_ROOFS,
   ROOF_SWATCHES,
+  WALKER,
   WALLS,
   pick,
   roofColor,
@@ -39,4 +42,17 @@ test('walls stray a little from their swatch, the same way every time', () => {
   for (const [id, colour] of colours.entries()) {
     expect(deltaE(colour, pick(WALLS.house, id))).toBeLessThan(0.05);
   }
+});
+
+test('no passer-by wears a top that could be the walker’s coral shirt', () => {
+  // Light and shade change how light a shirt looks, not its hue or how strong it is: compared
+  // on OKLab's colour plane alone.
+  const [, a, b] = toOklab(WALKER.shirt);
+  const apart = (shirt: number) => {
+    const [, sa, sb] = toOklab(shirt);
+    return Math.hypot(sa - a, sb - b);
+  };
+  for (const shirt of PASSERS_BY) expect(apart(shirt)).toBeGreaterThan(0.08);
+  // The café guests' brick red is the one that would be taken for it.
+  expect(GUESTS.shirts.filter((shirt) => apart(shirt) <= 0.08)).toEqual([0xd2553f]);
 });

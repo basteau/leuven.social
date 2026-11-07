@@ -17,10 +17,27 @@ const house = (ring: Float32Array): Building => ({
   ring,
   holes: [],
 });
-import { WalkGrid, aimFor } from './walkable.ts';
+import { WalkGrid } from './walkable.ts';
 
 describe('WalkGrid', () => {
   const grid = new WalkGrid(town);
+
+  test('beside a building: the open cells along its walls, on every side, within reach', () => {
+    // The house (x 40 to 60, z 38 to 45) stands in the road, its back in the water.
+    const beside = grid.besideBuilding(50, 41, 40);
+    expect(beside).toContainEqual([39.5, 42.5]); // west
+    expect(beside).toContainEqual([60.5, 42.5]); // east
+    expect(beside).toContainEqual([50.5, 45.5]); // south, in the road
+    expect(beside.every(([x, z]) => grid.walkable(x, z))).toBe(true);
+    expect(beside.some(([, z]) => z < 38)).toBe(false); // the water behind
+    // Only those within reach of the spot.
+    expect(grid.besideBuilding(42, 41, 4).every(([x]) => x < 47)).toBe(true);
+    expect(grid.besideBuilding(15, 45, 40)).toEqual([]); // not a building
+    // A few metres out, past a café's tables: the whole road in front, not only its kerb.
+    expect(beside).toContainEqual([50.5, 49.5]);
+    expect(grid.besideBuilding(50, 41, 40, 1)).not.toContainEqual([50.5, 49.5]);
+    expect(grid.besideBuilding(50, 41, 40, 1)).toContainEqual([50.5, 45.5]);
+  });
 
   test('streets, squares and paths are walkable; the rest is not', () => {
     expect(grid.walkable(15, 45)).toBe(true);
@@ -212,25 +229,5 @@ describe('WalkGrid', () => {
     expect(grid.centre(cell)).toEqual([12.5, 7.5]);
     expect(grid.cellAt(-1, 0)).toBe(-1);
     expect(grid.value(-1)).toBe(0);
-  });
-});
-
-describe('aimFor', () => {
-  const grid = new WalkGrid(town);
-
-  test('a hit on a wall means its foot; on a roof, the side of the building toward the walker', () => {
-    // The house stands from z 38 to 45, x 40 to 60; the camera looks north, from the south (+z).
-    const [x, z] = aimFor(grid, 50, 44.6, [0, 1], [50, 30]);
-    expect(x).toBe(50);
-    expect(z).toBeGreaterThanOrEqual(45);
-    expect(z).toBeLessThan(45.6);
-    // On the roof, with the walker north of the house: out its north side.
-    const [rx, rz] = aimFor(grid, 50, 41, [0, 1], [50, 30]);
-    expect(rx).toBeCloseTo(50);
-    expect(rz).toBeLessThanOrEqual(38);
-    // With the walker on the roof's very spot (never, but): out toward the camera.
-    expect(aimFor(grid, 50, 41, [0, 1], [50, 41])[1]).toBeGreaterThanOrEqual(45);
-    // Ground is where it is.
-    expect(aimFor(grid, 15, 47, [0, 1], [0, 0])).toEqual([15, 47]);
   });
 });

@@ -24,7 +24,7 @@ import { DOOR_HALF } from '../data/room-grid.ts';
 import type { Room } from '../data/rooms.ts';
 import { Router } from '../data/route.ts';
 import type { Terrain } from '../data/terrain.ts';
-import { WalkGrid, aimFor } from '../data/walkable.ts';
+import { WalkGrid } from '../data/walkable.ts';
 import { avatarState, createAvatar, stepAvatar } from './avatar.ts';
 import type { Avatar, AvatarState } from './avatar.ts';
 import type { Bikes, RideAction, RideState } from './bikes.ts';
@@ -54,9 +54,10 @@ import type { LineBuilder } from './mesh-builder.ts';
 import { clock, decay, ticks } from './motion.ts';
 import { OUTLINE, WALKER } from './palette.ts';
 import { nearestParked } from './parked.ts';
+import { meant, nearestShown, unpackDepth } from './pick.ts';
+import type { MeantTests } from './pick.ts';
 import { createPlayers } from './players.ts';
 import type { Roster } from './players.ts';
-import { unpackDepth } from './pick.ts';
 import { passedVertices, routeMarker } from './route-marker.ts';
 import type { RouteMarker } from './route-marker.ts';
 import { walkSolids } from './solids.ts';
@@ -84,6 +85,17 @@ const TRIES = 8;
 const DETOUR = 80;
 /** A tap that touches the avatar within this of its feet (m) stops it where it is. */
 const ON_AVATAR = 1;
+/**
+ * The square read back round a tap: this many pixels a side, this many CSS px apart, so it
+ * reaches 320 px each way: from the middle of the Dijle to its quays, from the roof of the
+ * Stadhuis to the Markt in front of it.
+ */
+const PICK_SIDE = 81;
+const PICK_STEP = 8;
+/** How far from a tap on a building (m) the places beside it are looked for. */
+const BESIDE_REACH = 60;
+/** A surface less than this over the ground (m) is the ground: kerbs, steps, water, cobbles. */
+const ON_GROUND = 0.4;
 /** A tap further than this from the avatar (m) is too far to go to: it walks, never jumps. */
 const ROUTE_REACH = 250;
 /** A place chosen from the menu brings the camera at least this close (zoom). */
@@ -113,8 +125,11 @@ const PERIMETER = 5;
 /** Going in, you stand this far in from the door; coming out, this far out from it (m). */
 const INSIDE = 3;
 const OUTSIDE = 2;
-/** After the rooms failed to load, they are tried again no sooner than this (ms). */
-const ROOMS_RETRY_MS = 30_000;
+/**
+ * After the rooms or the bikes failed to load, they are tried again no sooner than this (ms): a
+ * chunk gone with a deploy since the page opened would otherwise be asked for every frame.
+ */
+const RETRY_MS = 30_000;
 
 const noop = () => {};
 
@@ -328,6 +343,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
   // The bikes are a chunk of their own, downloaded near a rack (or on F).
   let bikes: Bikes | undefined;
   let loadingBikes: Promise<Bikes> | undefined;
+  let bikesRetry = 0;
   let ride: RideState = '';
   let shownSpeed = Number.NaN;
   const loadBikes = () => {
@@ -363,8 +379,11 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       wake();
       return bikes;
     });
-    // A failed download is tried again near the next rack.
-    loadingBikes.catch(() => (loadingBikes = undefined));
+    // A failed download is tried again near a rack a while from now, or at once on F.
+    loadingBikes.catch(() => {
+      loadingBikes = undefined;
+      bikesRetry = performance.now() + RETRY_MS;
+    });
     return loadingBikes;
   };
 
@@ -404,7 +423,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       (error: unknown) => {
         // Said once; tried again on a later approach, a while from now.
         loadingInteriors = undefined;
-        roomsRetry = performance.now() + ROOMS_RETRY_MS;
+        roomsRetry = performance.now() + RETRY_MS;
         if (!disposed) {
           host.onRoomsUnavailable?.(
             error instanceof Error ? error.message : 'The insides of the buildings couldn’t load.',
@@ -484,6 +503,10 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     [controls.minZoom, controls.maxZoom] = [MIN_ZOOM, MAX_ZOOM];
     publishPlace();
     publishDoor();
+    // Walked out for a tap outside: on to it, unless the keys took over on the way.
+    const next = onward;
+    onward = null;
+    if (next && avatar.walker.route) walkTo(...next, TAP_REACH);
   }
   /**
    * Out through the door a step past the footprint's edge (the room's grid keeps its threshold
@@ -587,13 +610,13 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
    * nearest open ground, spread out so a walled-in garden or the far side of a fence is passed
    * over for the pavement beside it. Whether one did.
    */
-  function walkTo(x: number, z: number, reach = 3): boolean {
+  function walkTo(x: number, z: number, reach = 3, most = TRIES): boolean {
     const w = avatar.walker;
     const here = underfoot();
     const by = room && interiors ? interiors.router(room, avatar.floor) : router;
     const from = here.walkable(w.x, w.z) ? [w.x, w.z] : here.nearest(w.x, w.z, 4);
     if (!from) return false;
-    const places = here.around(x, z, reach, TRIES);
+    const places = here.around(x, z, reach, most);
     if (here.walkable(x, z)) places.unshift([x, z]);
     for (const [tx, tz] of places) {
       const route = by.route(from[0]!, from[1]!, tx, tz, loose);
@@ -627,69 +650,128 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     wake();
   }
 
-  // What a tap touched, read back from a one-pixel render of the scene under it (pick.ts): the
-  // exact roof, wall, tree, bench, floor or street the person sees there.
-  const pickTarget = new WebGLRenderTarget(1, 1);
+  // What a tap touched, read back from a small render of the scene around it (pick.ts): the
+  // exact roof, wall, tree, bench, floor or street the person sees under it and round it.
+  const pickTarget = new WebGLRenderTarget(PICK_SIDE, PICK_SIDE);
   const pickDepth = new MeshDepthMaterial({ depthPacking: RGBADepthPacking });
-  const pixel = new Uint8Array(4);
-  const hit = new Vector3();
+  const pixels = new Uint8Array(PICK_SIDE * PICK_SIDE * 4);
+  const points = new Float32Array(PICK_SIDE * PICK_SIDE * 3);
   const clearColor = new Color();
-  function pickAt(x: number, y: number, width: number, height: number): Vector3 | null {
+  const unprojected = new Vector3();
+  /** Fills `points` with the surface under the square of pixels centred on (x, y), in CSS px. */
+  function pickAround(x: number, y: number, width: number, height: number): void {
     const { renderer } = host;
     const [target, shadows] = [renderer.getRenderTarget(), renderer.shadowMap.needsUpdate];
     renderer.getClearColor(clearColor);
     const clearAlpha = renderer.getClearAlpha();
-    camera.setViewOffset(width, height, Math.floor(x), Math.floor(y), 1, 1);
+    const square = PICK_SIDE * PICK_STEP;
+    camera.setViewOffset(width, height, x - square / 2, y - square / 2, square, square);
     scene.overrideMaterial = pickDepth;
     renderer.shadowMap.needsUpdate = false;
     renderer.setRenderTarget(pickTarget);
     renderer.setClearColor(0xffffff, 1);
     renderer.clear();
     renderer.render(scene, camera);
-    renderer.readRenderTargetPixels(pickTarget, 0, 0, 1, 1, pixel);
+    renderer.readRenderTargetPixels(pickTarget, 0, 0, PICK_SIDE, PICK_SIDE, pixels);
     renderer.setRenderTarget(target);
     renderer.setClearColor(clearColor, clearAlpha);
     renderer.shadowMap.needsUpdate = shadows;
     scene.overrideMaterial = null;
     camera.clearViewOffset();
-    const depth = unpackDepth(pixel[0]!, pixel[1]!, pixel[2]!, pixel[3]!);
-    if (Number.isNaN(depth)) return null;
-    // From the middle of the pixel that was read.
-    const [px, py] = [Math.floor(x) + 0.5, Math.floor(y) + 0.5];
-    return hit.set((px / width) * 2 - 1, 1 - (py / height) * 2, depth * 2 - 1).unproject(camera);
+    for (let row = 0; row < PICK_SIDE; row++) {
+      // Read back bottom row first; `points` is top row first, as `meant` wants.
+      const from = (PICK_SIDE - 1 - row) * PICK_SIDE;
+      const py = y + (row - (PICK_SIDE - 1) / 2) * PICK_STEP;
+      for (let col = 0; col < PICK_SIDE; col++) {
+        const [i, o] = [(from + col) * 4, (row * PICK_SIDE + col) * 3];
+        const depth = unpackDepth(pixels[i]!, pixels[i + 1]!, pixels[i + 2]!, pixels[i + 3]!);
+        if (Number.isNaN(depth)) {
+          points[o] = Number.NaN;
+          continue;
+        }
+        const px = x + (col - (PICK_SIDE - 1) / 2) * PICK_STEP;
+        unprojected.set((px / width) * 2 - 1, 1 - (py / height) * 2, depth * 2 - 1);
+        unprojected.unproject(camera);
+        [points[o], points[o + 1], points[o + 2]] = [unprojected.x, unprojected.y, unprojected.z];
+      }
+    }
   }
+  const meantTests: MeantTests = {
+    ground: (x, y, z) => y < ground(x, z) + ON_GROUND,
+    open: (x, z) => grid.walkable(x, z),
+    building: (x, z) => grid.buildingHeight(x, z) > 0,
+  };
+  /**
+   * The place a tap on a building, touched at (x, z), means: beside it (or the block it's part
+   * of), where it shows round the tap (the front, not the courtyard or the street behind), the
+   * nearest the tap on the screen. Failing that, the place beside it nearest the spot touched.
+   */
+  function besideBuilding(x: number, z: number): [number, number] | null {
+    const places = grid.besideBuilding(x, z, BESIDE_REACH);
+    const cells = new Set(places.map(([px, pz]) => grid.cellAt(px, pz)));
+    const { cols } = grid;
+    const besideIt = (px: number, py: number, pz: number) => {
+      if (!meantTests.ground(px, py, pz) || !grid.walkable(px, pz)) return false;
+      // Its cell or one round it: the depth's pixels and the grid's cells don't quite agree.
+      const cell = grid.cellAt(px, pz);
+      for (let dr = -cols; dr <= cols; dr += cols) {
+        for (let dc = -1; dc <= 1; dc++) if (cells.has(cell + dr + dc)) return true;
+      }
+      return false;
+    };
+    const inSight = nearestShown(points, PICK_SIDE, besideIt);
+    if (inSight) return inSight;
+    let best = Infinity;
+    let found: [number, number] | null = null;
+    for (const [px, pz] of places) {
+      const d = Math.hypot(px - x, pz - z);
+      if (d < best) [best, found] = [d, [px, pz]];
+    }
+    return found;
+  }
+  /** Where to go on from a room's door, for a tap outside the room; dropped by any other. */
+  let onward: [number, number] | null = null;
 
   function tap(clientX: number, clientY: number): void {
     asked++;
+    onward = null;
     bikes?.cancel();
     if (bikes?.busy) return;
     const rect = canvas.getBoundingClientRect();
-    const touched = pickAt(clientX - rect.left, clientY - rect.top, rect.width, rect.height);
-    if (!touched) return;
+    pickAround(clientX - rect.left, clientY - rect.top, rect.width, rect.height);
+    const mid = ((PICK_SIDE * PICK_SIDE - 1) / 2) * 3;
+    const [tx, ty, tz] = [points[mid]!, points[mid + 1]!, points[mid + 2]!];
     const w = avatar.walker;
     // On the avatar itself: stop where it is.
-    const onIt = Math.hypot(touched.x - w.x, touched.z - w.z) < ON_AVATAR;
-    if (onIt && touched.y > feet[1] + 0.3 && touched.y < feet[1] + 3) {
+    if (Math.hypot(tx - w.x, tz - w.z) < ON_AVATAR && ty > feet[1] + 0.3 && ty < feet[1] + 3) {
       w.route = null;
       clearRoute();
       return;
     }
-    // Where it means: in a room, the floor under what it touched (outside the room, out through
-    // its door); outside, the ground under it, or for a building the street beside it (aimFor).
-    let at: [number, number] = [touched.x, touched.z];
-    if (room && interiors) {
-      if (!inRing(interiors.footprint(room), ...at)) {
-        const { door } = room;
-        at = [door.x - Math.sin(door.facing) * 0.8, door.z - Math.cos(door.facing) * 0.8];
-      }
-    } else {
-      const yaw = host.yaw();
-      at = aimFor(grid, touched.x, touched.z, [Math.sin(yaw), Math.cos(yaw)], [w.x, w.z]);
+    // In a room: the floor under what it touched, or, outside the room, out through its door
+    // and on to the place meant there.
+    if (room && interiors && !Number.isNaN(tx) && inRing(interiors.footprint(room), tx, tz)) {
+      if (!walkTo(tx, tz, TAP_REACH)) refuse(tx, tz, 'closed');
+      return;
+    }
+    const found = meant(points, PICK_SIDE, meantTests);
+    const at = found === 'building' ? besideBuilding(tx, tz) : found;
+    if (!at) {
+      if (!Number.isNaN(tx)) refuse(tx, tz, 'closed');
+      return;
     }
     const far = Math.hypot(at[0] - w.x, at[1] - w.z);
     if (far > ROUTE_REACH) refuse(...at, 'far');
-    // A route the router can't find so far off is a long way round: too far, not nowhere.
-    else if (!walkTo(...at, TAP_REACH)) refuse(...at, far > DETOUR ? 'far' : 'closed');
+    else if (room) {
+      const { door } = room;
+      const out = [door.x - Math.sin(door.facing) * 0.8, door.z - Math.cos(door.facing) * 0.8];
+      if (walkTo(out[0]!, out[1]!, TAP_REACH)) onward = at;
+    }
+    // A route the router can't find so far off is a long way round: too far, not nowhere, and
+    // not worth another search (a failed one fills its whole window).
+    else if (!walkTo(...at, TAP_REACH, far > DETOUR ? 1 : TRIES)) {
+      refuse(...at, far > DETOUR ? 'far' : 'closed');
+    }
   }
 
   function wake(): void {
@@ -731,7 +813,12 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     // otherwise the path is drawn and the loop stops before the first step.
     let busy = stirring || w.route !== null || sx !== 0 || sz !== 0;
     if (bikes) busy = bikes.frame(avatar, elapsed) || busy;
-    else if (nearestParked(scene.children, w.x, w.z, RIDE_NEAR)) void loadBikes();
+    else if (
+      performance.now() >= bikesRetry &&
+      nearestParked(scene.children, w.x, w.z, RIDE_NEAR)
+    ) {
+      void loadBikes();
+    }
     if (bikes && bikes.state !== ride) host.onRide?.((ride = bikes.state));
     nearRooms();
     // How fast it goes, for the smoke test, written only as it changes by a step worth noting.

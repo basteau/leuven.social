@@ -73,7 +73,8 @@ const BUDGETS: {
   // here: a chunk loaded from this one would split three.js off the engine. 19.5: lining a
   // room's walls, going straight to a floor, and the review's fixes (rooms retried after a
   // failure, a late answer dropped, in and out with a step past the edge) took it to 19.3 KB,
-  // still under walk mode's 20.5. 22: the walker's figure (2.7 KB), a chunk of its own while
+  // still under walk mode's 20.5. Reading back what a tap touched (a square of depth round it,
+  // the place meant from it, the places beside a building) took it to 19.7 KB. 22: the walker's figure (2.7 KB), a chunk of its own while
   // the traffic shared it, rides here now the traffic is gone: 21.5 KB. 24: the other players
   // (players.ts, crowd.ts: their figures, gaits and name tags), 2 KB.
   {

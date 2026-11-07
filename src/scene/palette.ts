@@ -76,6 +76,11 @@ export const GUESTS = {
   drinks: [0xe8a838, 0xe8a838, 0x6a3220, 0xf0e6b0, 0xf6eedc],
   foam: 0xfbf6ea,
 } as const;
+/**
+ * What passers-by wear on top, on foot or on a bike: the guests' shirts but the brick red, which
+ * in passing reads as the walker's coral shirt.
+ */
+export const PASSERS_BY = GUESTS.shirts.filter((shirt) => shirt !== 0xd2553f);
 
 /**
  * What monuments are made of (OSM `material`): dark warm bronze, pale stone and marble, Belgian
@@ -282,7 +287,7 @@ export const FRONTS: Record<ShopKind, FrontStyle> = {
 /**
  * The walker: a Leuven student dressed for a sunny day, in a coral short-sleeved shirt and
  * cream shorts and sneakers, so they read against grey streets, sandy squares and green parks.
- * Hidden behind a building, their silhouette is the HUD's accent blue (`xray`).
+ * Hidden behind a building, their silhouette is the shirt's coral (`XRAY_LOOK`).
  */
 export const WALKER = {
   skin: 0xf0c49c,
@@ -290,7 +295,6 @@ export const WALKER = {
   shirt: 0xfa8064,
   shorts: 0xe9dcbf,
   sneakers: 0x2c2b30,
-  xray: 0x2f62a8,
 } as const;
 
 /** The route hint: pale dots and a target, ringed in ink like the HUD. */

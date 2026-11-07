@@ -40,6 +40,24 @@ describe('the arrow over the avatar', () => {
     expect(pointerFor(2000, 300, 800, 600, true)!.x).toBe(800 - 32);
   });
 
+  test('at the edge too while it stands under the controls round the screen', () => {
+    // 10 px inside the bottom right corner, under the menu button: on the rectangle's bottom,
+    // toward its corner.
+    for (const figure of [true, false]) {
+      const corner = pointerFor(790, 590, 800, 600, figure, inset)!;
+      expect(corner).toMatchObject({ y: 560, edge: true });
+      expect(corner.x).toBeGreaterThan(700);
+      expect(corner.x).toBeLessThan(780);
+      expect(corner.angle).toBeGreaterThan(-Math.PI / 2);
+      expect(corner.angle).toBeLessThan(0);
+    }
+    // Under the street plate along the top, with the HUD's own insets.
+    expect(pointerFor(400, 40, 800, 600, true)).toMatchObject({ y: 76, edge: true });
+    // Just inside the rectangle, it is on screen as ever.
+    expect(pointerFor(780, 560, 800, 600, true, inset)).toBeNull();
+    expect(pointerFor(10, 30, 800, 600, false, inset)).toMatchObject({ edge: false });
+  });
+
   test('nowhere for a point that isn’t one', () => {
     expect(pointerFor(Number.NaN, 0, 800, 600, true)).toBeNull();
   });

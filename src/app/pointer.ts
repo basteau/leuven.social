@@ -1,7 +1,8 @@
 /**
  * Where the arrow that marks the avatar goes on screen. Over its head when the view is too far
  * out for its figure to read, pointing down at it; at the edge of the screen, pointing toward it,
- * when it's off screen, where it doubles as the way back. Pure, so the shell only places it.
+ * when it's off screen or under the controls round it, where it doubles as the way back. Pure, so
+ * the shell only places it.
  */
 
 /**
@@ -17,13 +18,14 @@ export interface Pointer {
   y: number;
   /** Which way it points, clockwise from straight down (radians). */
   angle: number;
-  /** Off screen: pinned to the edge, pointing the way. */
+  /** Off screen, or under the controls: pinned to the edge, pointing the way. */
   edge: boolean;
 }
 
 /**
  * The arrow for an avatar at (x, y) on a map `width` by `height` (px), whose figure is drawn
- * (`figure`) or not; null when the figure is on screen and needs no arrow.
+ * (`figure`) or not; null when the figure is on screen and needs no arrow. Within the insets
+ * counts as off screen: an arrow over its head would sit under the menu button or off the edge.
  */
 export function pointerFor(
   x: number,
@@ -33,12 +35,12 @@ export function pointerFor(
   figure: boolean,
   inset: Inset = EDGE_INSET,
 ): Pointer | null {
-  const inside = x >= 0 && y >= 0 && x <= width && y <= height;
+  const [left, right] = [inset.left, width - inset.right];
+  const [top, bottom] = [inset.top, height - inset.bottom];
+  const inside = x >= left && y >= top && x <= right && y <= bottom;
   if (inside) return figure ? null : { x, y, angle: 0, edge: false };
   if (!(Number.isFinite(x) && Number.isFinite(y))) return null;
   // From the middle of the inset rectangle toward the avatar, out to its edge.
-  const [left, right] = [inset.left, width - inset.right];
-  const [top, bottom] = [inset.top, height - inset.bottom];
   const [cx, cy] = [(left + right) / 2, (top + bottom) / 2];
   const [dx, dy] = [x - cx, y - cy];
   const reach = Math.min(

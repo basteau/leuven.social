@@ -1,11 +1,4 @@
-import {
-  CustomBlending,
-  GreaterDepth,
-  MeshBasicMaterial,
-  MeshToonMaterial,
-  OneMinusSrcAlphaFactor,
-  SrcAlphaFactor,
-} from 'three';
+import { GreaterDepth, MeshBasicMaterial, MeshToonMaterial } from 'three';
 import type {
   MeshBasicMaterialParameters,
   Texture,
@@ -68,23 +61,19 @@ export function createCharacterMaterial(gradientMap: Texture, fade: Fade): MeshT
 }
 
 /**
- * The avatar's silhouette where a house hides it, as Diablo IV draws its hero: a flat fill in
- * its shirt's coral, half see-through, drawn only where something nearer already filled the depth
- * buffer, so it shows nothing in an open street and the houses themselves never change.
+ * The avatar's silhouette where a house hides it, as Diablo IV draws its hero: a flat, solid fill
+ * in its shirt's coral, drawn only where something nearer already filled the depth buffer, so it
+ * shows nothing in an open street and the houses themselves never change.
  *
- * It has to draw before the figure (its `renderOrder` is lower), or the figure's own front would
- * count as something nearer and the fill would lie over it as a glow. three draws everything
- * `transparent` after everything opaque, whatever the order, so it blends without being
- * transparent: custom blending, the same sums as normal blending, in the opaque pass.
+ * Solid, not see-through: it writes no depth, so a half see-through fill blended again wherever
+ * the body overlaps itself (an arm over the chest, one leg over the other) and built up into a
+ * pale blob with no figure in it. It has to draw before the figure (its `renderOrder` is lower),
+ * or the figure's own front would count as something nearer and the fill would lie over it.
  */
 export const XRAY_LOOK: MeshBasicMaterialParameters = {
   color: WALKER.shirt,
   depthFunc: GreaterDepth,
   depthWrite: false,
-  opacity: 0.45,
-  blending: CustomBlending,
-  blendSrc: SrcAlphaFactor,
-  blendDst: OneMinusSrcAlphaFactor,
 };
 
 /** The silhouette in `color`: by default the avatar's shirt, another player's in theirs. */

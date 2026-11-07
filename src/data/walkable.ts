@@ -14,6 +14,9 @@ import type { Wall } from './cell-grid.ts';
 import type { Bounds, City } from './city.ts';
 import { areaIndex } from './geometry.ts';
 
+/** How many cells out from a building's walls the places beside it reach. */
+const APRON = 5;
+
 /** Cell size in metres: narrower than any footpath, so every path stays connected. */
 export const WALK_CELL = 1;
 /** Narrow paths still get a ribbon at least this wide, so diagonal ones never break apart. */
@@ -245,6 +248,50 @@ export class WalkGrid {
     );
   }
 
+  /**
+   * The open cells (their centres) within `apron` cells of the walls of the building at (x, z)
+   * and of those joined to it (a terrace is one block), and within `radius` metres of (x, z):
+   * the places beside it, on every side, past a café's tables or a bench along its front. Empty
+   * if (x, z) is not in a building.
+   */
+  besideBuilding(x: number, z: number, radius: number, apron = APRON): [number, number][] {
+    const start = this.cellAt(x, z);
+    if (start < 0 || this.buildingHeight(x, z) === 0) return [];
+    const { cols, rows } = this;
+    // How far each cell reached is from the building, in steps: 0 in it.
+    const steps = new Map([[start, 0]]);
+    const beside: number[] = [];
+    // The building first (its cells go on the end and come off it), then out from its walls
+    // in rings (theirs go on the front), so each cell is reached by its fewest steps.
+    const queue = [start];
+    while (queue.length > 0) {
+      const cell = queue.pop()!;
+      const step = steps.get(cell)!;
+      const [c, r] = [cell % cols, Math.floor(cell / cols)];
+      for (const [nc, nr] of [
+        [c - 1, r],
+        [c + 1, r],
+        [c, r - 1],
+        [c, r + 1],
+      ] as const) {
+        if (nc < 0 || nr < 0 || nc >= cols || nr >= rows) continue;
+        const next = nr * cols + nc;
+        const [cx, cz] = this.centre(next);
+        if (steps.has(next) || Math.hypot(cx - x, cz - z) > radius) continue;
+        if (this.value(next) >= SOLID) {
+          if (step > 0) continue; // another building across the street
+          steps.set(next, 0);
+          queue.push(next);
+        } else if (step < apron) {
+          steps.set(next, step + 1);
+          queue.unshift(next);
+          if (this.open(next)) beside.push(next);
+        }
+      }
+    }
+    return beside.map((cell) => this.centre(cell));
+  }
+
   /** Up to `most` open places within `radius` of (x, z), nearest first and spread out. */
   around(x: number, z: number, radius: number, most: number): [number, number][] {
     return this.#grid.around(x, z, radius, (cell) => this.open(cell), most);
@@ -276,34 +323,3 @@ export class WalkGrid {
     }
   }
 }
-
-const PICK_STEP = 0.5;
-
-/**
- * Where a tap that hit the scene at (x, z) means to go. Ground, a tree, a bench or a car: the
- * ground under what it hit. A wall facing the camera (`camera`, a horizontal unit vector toward
- * it): the street at its foot, the one the person sees. A roof: the building itself, so the
- * street on the side of it nearest the one walking (`from`), not one round the back. Out of a
- * building by half-metre steps.
- */
-export function aimFor(
-  grid: WalkGrid,
-  x: number,
-  z: number,
-  camera: readonly [number, number],
-  from: readonly [number, number],
-): [number, number] {
-  const inside = (px: number, pz: number) => grid.buildingHeight(px, pz) > 0;
-  if (!inside(x, z)) return [x, z];
-  const wall = !inside(x + camera[0] * WALL_DEPTH, z + camera[1] * WALL_DEPTH);
-  const [dx, dz] = [from[0] - x, from[1] - z];
-  const length = Math.hypot(dx, dz);
-  const [ux, uz] = wall || length < 1e-6 ? camera : [dx / length, dz / length];
-  for (let k = 0; k < 400 && inside(x, z); k++) {
-    x += ux * PICK_STEP;
-    z += uz * PICK_STEP;
-  }
-  return [x, z];
-}
-/** A hit this close to a building's camera side (m) is on its wall, not its roof. */
-const WALL_DEPTH = 1;
