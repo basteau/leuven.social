@@ -181,7 +181,7 @@ describe('accounts', () => {
     const jar = new Jar();
     expect(as(jar, () => account.signIn('Bram', 'wrong-one'))).rejects.toMatchObject({
       code: 'credentials',
-      message: 'Wrong name or password.',
+      message: 'Wrong name or password. Check both and try again.',
     });
     expect(as(jar, () => account.signIn('nobody', 'whatever1'))).rejects.toMatchObject({
       code: 'credentials',

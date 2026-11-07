@@ -35,7 +35,7 @@ export class AccountError extends Error {
 
 const MESSAGES: Record<AccountErrorCode, string> = {
   taken: 'That name is taken.',
-  credentials: 'Wrong name or password.',
+  credentials: 'Wrong name or password. Check both and try again.',
   name: `Use ${MIN_NAME} to ${MAX_NAME} letters, digits, _, - or . for your name, with no dot at either end.`,
   password: `Use at least ${MIN_PASSWORD} characters.`,
   'signed-out': 'Sign in again to keep your changes.',

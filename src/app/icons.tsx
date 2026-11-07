@@ -53,3 +53,12 @@ export const ArrowIcon = () => (
     />
   </svg>
 );
+
+/** Two people, a head and shoulders each: how many are here. */
+export const PeopleIcon = () => (
+  <svg {...iconBase} width="16" height="16" aria-hidden="true">
+    <circle cx="9" cy="8" r="3" />
+    <path d="M3 19c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5" />
+    <path d="M16 5.5a3 3 0 0 1 0 5.6M18 13.8c1.8.7 3 2.6 3 5.2" />
+  </svg>
+);

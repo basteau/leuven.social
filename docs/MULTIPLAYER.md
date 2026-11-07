@@ -41,7 +41,7 @@ better-auth (`server/auth.ts`) does the security work: password hashing (scrypt)
 - A POST from another origin is refused (403), and so is a socket opened from one.
 - Limits: 30 accounts made an hour from one address (an IPv6 one by its /64), counting only those made, since a campus shares a few addresses and a taken name is no abuse; better-auth's own per-address limits on signing in; and 10 wrong passwords a quarter of an hour for one name, from anywhere, always on.
 - Signing out (or a new password) takes that player's socket off the map (code 4002, `CLOSE_SIGNED_OUT`); the client reconnects as whoever it now is.
-- `src/net/account.ts` turns better-auth's error codes into sentences for people: "That name is taken.", "Wrong name or password.", "Use at least 8 characters.", and the like. A sign-in never says which half was wrong.
+- `src/net/account.ts` turns better-auth's error codes into sentences for people: "That name is taken.", "Wrong name or password. Check both and try again.", "Use at least 8 characters.", and the like. A sign-in never says which half was wrong.
 
 ### Routes
 

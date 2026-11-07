@@ -7,7 +7,19 @@
 .menu.account {
   block-size: fit-content;
   max-block-size: min(40rem, 100dvh - 2rem);
-  inline-size: min(28rem, 100% - 2 * var(--gutter));
+}
+
+/* A centred card on a wide screen; on a narrow one the menu's full-width sheet, nearly as tall as the screen. */
+@media (min-width: 40rem) {
+  .menu.account {
+    inline-size: min(28rem, 100% - 2 * var(--gutter));
+  }
+}
+
+@media (max-width: 40rem) {
+  .menu.account {
+    max-block-size: calc(100dvh - 2rem);
+  }
 }
 
 .account .menu-panel {
@@ -175,12 +187,12 @@
 }
 
 .swatch:active {
-  scale: 0.94;
+  translate: 0 1px;
 }
 
 @media (prefers-reduced-motion: no-preference) {
   .swatch {
-    transition: scale 120ms var(--ease-out);
+    transition: translate 120ms var(--ease-out);
   }
 }
 

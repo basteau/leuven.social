@@ -24,7 +24,7 @@ import type { MenuPage } from './command-menu.tsx';
 import type { Multiplayer } from './multiplayer.ts';
 import { ActionButton } from './controls.tsx';
 import { Credits } from './credits.tsx';
-import { ArrowIcon, BikeIcon, DoorIcon, MenuIcon } from './icons.tsx';
+import { ArrowIcon, BikeIcon, DoorIcon, MenuIcon, PeopleIcon } from './icons.tsx';
 import { createTurnHold, KEYCAPS, layoutKeycaps, modKey } from './input.ts';
 import type { KeyboardLayout, Keycaps } from './input.ts';
 import { introErrorSlot, removeIntro, showKeys, showStep } from './intro.ts';
@@ -47,11 +47,11 @@ const LOAD_STALL_MS = 20_000;
 /** The menu is its own chunk: fetched once the map is up, or as someone reaches for it. */
 const loadMenu = () => import('./command-menu.tsx');
 /** The minimap is its own chunk too, fetched once the map is up. */
-const Minimap = lazy(() => import('./minimap-view.tsx').then((m) => ({ default: m.Minimap })));
+const lazyMinimap = () =>
+  lazy(() => import('./minimap-view.tsx').then((m) => ({ default: m.Minimap })));
 /** The account sheet: its own chunk, fetched the first time it opens. */
-const AccountSheet = lazy(() =>
-  import('./account-sheet.tsx').then((m) => ({ default: m.AccountSheet })),
-);
+const lazySheet = () =>
+  lazy(() => import('./account-sheet.tsx').then((m) => ({ default: m.AccountSheet })));
 /** Whether the minimap shows is remembered on this device. */
 const MINIMAP_KEY = 'leuven-minimap';
 /** React keeps a failed lazy component failed: each try after a failure gets a fresh one. */
@@ -269,14 +269,35 @@ export function App() {
     data.online = online === null ? '' : String(online);
   }, [account, online]);
   const [accountSheet, setAccountSheet] = useState({ open: false, used: false });
+  /** The sheet's chunk didn't download: said in the hint until the next try. */
+  const [sheetFailed, setSheetFailed] = useState(false);
   const multiplayerRef = useRef<Multiplayer | null>(null);
   /** Where the avatar was last, for the other players' chunk when it arrives. */
   const movedRef = useRef<PlayerPose | null>(null);
-  const openAccount = useCallback(() => setAccountSheet({ open: true, used: true }), []);
-  const closeAccount = useCallback(() => {
-    setAccountSheet((a) => ({ ...a, open: false }));
-    mapRef.current?.focus({ focusVisible: false } as FocusOptions);
+  const openAccount = useCallback(() => {
+    setSheetFailed(false);
+    setAccountSheet({ open: true, used: true });
   }, []);
+  const closeAccount = useCallback(() => setAccountSheet((a) => ({ ...a, open: false })), []);
+  // Closed, the sheet gives focus to the map, as the menu does: after the dialog has closed, or
+  // it would hand focus back to the chip, where Space opens the sheet again.
+  const wasAccountOpen = useRef(false);
+  useEffect(() => {
+    if (wasAccountOpen.current && !accountSheet.open) {
+      mapRef.current?.focus({ focusVisible: false } as FocusOptions);
+    }
+    wasAccountOpen.current = accountSheet.open;
+  }, [accountSheet.open]);
+  // A chunk that didn't download (a flaky link) leaves its corner shut, not the map blank: the
+  // next try gets a fresh download.
+  const [AccountSheet, setAccountSheetChunk] = useState(lazySheet);
+  const [Minimap, setMinimapChunk] = useState(lazyMinimap);
+  const onSheetError = useCallback(() => {
+    setAccountSheet({ open: false, used: false });
+    setAccountSheetChunk(() => lazySheet());
+    setSheetFailed(true);
+  }, []);
+  const onMinimapError = useCallback(() => setMinimapChunk(() => lazyMinimap()), []);
   const [menuFailed, setMenuFailed] = useState(false);
   const openMenu = useCallback((page: MenuPage = 'list') => {
     menuOpenRef.current = true;
@@ -566,7 +587,7 @@ export function App() {
     time: () => nextTimeRef.current(),
     'pass-time': () => togglePassingRef.current(),
     minimap: () => toggleMinimapRef.current(),
-    account: () => setAccountSheet({ open: true, used: true }),
+    account: () => openAccount(),
   }));
   /** A command from the menu: the menu closes first, and focus goes to the map for its keys. */
   const run = useCallback(
@@ -712,15 +733,19 @@ export function App() {
                     className="you-dot"
                     style={{ '--shirt': hex(account.outfit.shirt) } as CSSProperties}
                   />
-                  <span className="you-name">{account.name}</span>
+                  <span className="you-name">
+                    <span className="sr-only">You: </span>
+                    {account.name}
+                  </span>
                 </>
               ) : (
                 'Join'
               )}
               {online !== null && online > (account.signedIn ? 1 : 0) && (
                 <span className="you-count">
-                  <span className="sr-only">, </span>
-                  {online} here
+                  <PeopleIcon />
+                  {online}
+                  <span className="sr-only"> here now</span>
                 </span>
               )}
             </button>
@@ -742,6 +767,8 @@ export function App() {
             'Walking couldn’t load. Check your connection and try again.'
           ) : menuFailed ? (
             'The menu couldn’t load. Check your connection and try again.'
+          ) : sheetFailed ? (
+            'Joining couldn’t load. Check your connection and try again.'
           ) : said ? (
             <span key={said.at}>{said.text}</span>
           ) : riding && rideCoach ? (
@@ -772,9 +799,11 @@ export function App() {
 
       <footer className="hud hud-bottom">
         {ready && placeCity && minimap && (
-          <Suspense fallback={null}>
-            <Minimap city={placeCity} />
-          </Suspense>
+          <MenuGuard onError={onMinimapError}>
+            <Suspense fallback={null}>
+              <Minimap city={placeCity} />
+            </Suspense>
+          </MenuGuard>
         )}
         {/*
           By a bike or a building you can go into: what the moment offers, where a thumb finds it.
@@ -824,18 +853,24 @@ export function App() {
       {errorSlot ? createPortal(errorNotice, errorSlot) : errorNotice}
 
       {accountSheet.used && (
-        <Suspense fallback={null}>
-          <AccountSheet
-            open={accountSheet.open}
-            onClose={closeAccount}
-            account={account}
-            online={online}
-            signUp={(name, password) => multiplayer().signUp(name, password)}
-            signIn={(name, password) => multiplayer().signIn(name, password)}
-            signOut={() => multiplayer().signOut()}
-            dress={(outfit) => multiplayerRef.current?.dress(outfit)}
-          />
-        </Suspense>
+        <MenuGuard onError={onSheetError}>
+          <Suspense fallback={null}>
+            <AccountSheet
+              open={accountSheet.open}
+              onClose={closeAccount}
+              account={account}
+              online={online}
+              signUp={(name, password) => multiplayer().signUp(name, password)}
+              signIn={(name, password) => multiplayer().signIn(name, password)}
+              signOut={() =>
+                multiplayer()
+                  .signOut()
+                  .then(() => say('Signed out: a guest again'))
+              }
+              dress={(outfit) => multiplayerRef.current?.dress(outfit)}
+            />
+          </Suspense>
+        </MenuGuard>
       )}
 
       {menu.used && (

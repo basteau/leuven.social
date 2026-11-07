@@ -55,13 +55,19 @@ export function AccountSheet(props: AccountSheetProps) {
   const [joining, setJoining] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const close = () => dialogRef.current?.close();
 
   // The native dialog traps focus and closes on Escape; a click on the backdrop closes it too.
+  // With a keyboard, the name is where typing starts, as the menu's search is.
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
-    else if (!open && dialog.open) dialog.close();
+    if (open && !dialog.open) {
+      dialog.showModal();
+      if (globalThis.matchMedia?.('(pointer: fine)').matches) nameRef.current?.focus();
+    } else if (!open && dialog.open) dialog.close();
   }, [open]);
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -97,6 +103,8 @@ export function AccountSheet(props: AccountSheetProps) {
     setError(null);
     try {
       await (joining ? props.signUp(name, password) : props.signIn(name, password));
+      // The form went with it: focus to the sheet's new title, which says who you are now.
+      titleRef.current?.focus({ focusVisible: true } as FocusOptions);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'That didn’t work. Try again.');
     } finally {
@@ -108,6 +116,8 @@ export function AccountSheet(props: AccountSheetProps) {
     setBusy(true);
     try {
       await props.signOut();
+      // Nothing left to do here: back to the map, as a guest (the app says so).
+      close();
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'That didn’t work. Try again.');
     } finally {
@@ -130,10 +140,10 @@ export function AccountSheet(props: AccountSheetProps) {
     <dialog ref={dialogRef} className="menu account" aria-labelledby={`${uid}-title`}>
       <div className="menu-panel">
         <header className="menu-head">
-          <h2 id={`${uid}-title`} className="menu-title">
+          <h2 ref={titleRef} id={`${uid}-title`} className="menu-title" tabIndex={-1}>
             {account.signedIn ? account.name : joining ? 'Join Leuven' : 'Welcome back'}
           </h2>
-          <button type="button" className="menu-close" aria-label="Close" onClick={onClose}>
+          <button type="button" className="menu-close" aria-label="Close" onClick={close}>
             <svg
               viewBox="0 0 24 24"
               width="20"
@@ -208,13 +218,14 @@ export function AccountSheet(props: AccountSheetProps) {
             <form className="account-form" onSubmit={(event) => void submit(event)}>
               <p className="menu-lede">
                 {joining
-                  ? 'Pick a name and a password, and walk Leuven with everyone else. You’ll come back where you left.'
-                  : 'Your name and password, and you’re back where you left.'}{' '}
+                  ? 'Pick a name and a password, and walk Leuven with everyone else. You’ll come back where you left off.'
+                  : 'Your name and password, and you’re back where you left off.'}{' '}
                 {here}
               </p>
               <label className="field">
                 <span>Name</span>
                 <input
+                  ref={nameRef}
                   name="name"
                   required
                   minLength={3}
@@ -227,6 +238,7 @@ export function AccountSheet(props: AccountSheetProps) {
                   spellCheck={false}
                   enterKeyHint="next"
                 />
+                <small>3 to 20 letters, digits, dots, dashes or underscores; no spaces.</small>
               </label>
               <label className="field">
                 <span>Password</span>

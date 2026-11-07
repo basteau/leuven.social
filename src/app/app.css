@@ -1007,8 +1007,10 @@ kbd {
   display: inline-flex;
   align-items: center;
   gap: var(--space-s);
+  position: relative;
   min-block-size: 40px;
-  max-inline-size: min(16rem, 60vw);
+  /* Room for the street plate beside it, down to a 320 px screen. */
+  max-inline-size: min(16rem, 40vw);
   padding-inline: var(--space-s) var(--space-m);
   border: var(--border) solid var(--ink);
   border-radius: 999px;
@@ -1042,8 +1044,25 @@ kbd {
 }
 
 .you-count {
-  font-weight: 600;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.2em;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
   opacity: 0.75;
+}
+
+/* On the accent, the count needs its full paper to read (4.5:1). */
+.you.primary .you-count {
+  opacity: 1;
+}
+
+/* 40px to the eye, 44px to the thumb, as the menu button. */
+.you::after {
+  position: absolute;
+  inset: -2px;
+  content: '';
 }
 
 .you:active {
