@@ -11,7 +11,7 @@ import {
   turnBetween,
 } from '../data/traffic.ts';
 import type { RoadEdge, RoadGraph } from '../data/traffic.ts';
-import { BUS, CARS, GUESTS } from './palette.ts';
+import { BUS, CARS, PASSERS_BY } from './palette.ts';
 
 /**
  * Traffic: cars, buses, bikes and people moving along the streets (src/data/traffic.ts builds
@@ -580,7 +580,7 @@ export class Traffic {
   }
 
   #paint(kind: VehicleKind): [number, number, number] {
-    const list = kind === 'car' ? CARS : kind === 'bus' ? [BUS.body] : GUESTS.shirts;
+    const list = kind === 'car' ? CARS : kind === 'bus' ? [BUS.body] : PASSERS_BY;
     return srgb(list[Math.floor(this.#random() * list.length)]!);
   }
 
