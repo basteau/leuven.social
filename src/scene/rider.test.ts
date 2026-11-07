@@ -217,6 +217,8 @@ describe('createRiders', () => {
     expect(lit.shader.uniforms).toHaveProperty('uNight');
     expect(compiled(ink).shader.vertexShader).toContain('attribute vec4 state');
     expect(compiled(xray).shader.fragmentShader).toContain(`vPart < ${RIDER}.0`);
+    // Each rider's silhouette in their own shirt.
+    expect(compiled(xray).shader.vertexShader).toContain('vShirt = shirt');
     expect(new Set([lit.key, compiled(ink).key, compiled(xray).key]).size).toBe(3);
     riders.dispose();
   });

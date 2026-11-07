@@ -433,17 +433,24 @@ function riderMaterials(kit: RiderKit): {
   inkMaterial.customProgramCacheKey = () => 'rider-ink-v1';
   // The silhouette where a house hides it, the lamps' glow left out.
   const xrayMaterial = new three.MeshBasicMaterial(kit.xray);
+  // Each in their own shirt's colour (sRGB, as the tints are), so nobody is taken for you.
   xrayMaterial.onBeforeCompile = (shader) => {
-    shader.vertexShader = riderVertexShader(shader.vertexShader);
+    shader.vertexShader = riderVertexShader(shader.vertexShader)
+      .replace('#include <common>', '#include <common>\nvarying vec3 vShirt;')
+      .replace('vState = state;', 'vState = state;\nvShirt = shirt;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying float vPart;')
+      .replace('#include <common>', '#include <common>\nvarying float vPart;\nvarying vec3 vShirt;')
       .replace(
         '#include <clipping_planes_fragment>',
         `#include <clipping_planes_fragment>
         if (vPart < ${RIDER}.0) discard;`,
+      )
+      .replace(
+        '#include <color_fragment>',
+        '#include <color_fragment>\ndiffuseColor.rgb = sRGBTransferEOTF(vec4(vShirt, 1.0)).rgb;',
       );
   };
-  xrayMaterial.customProgramCacheKey = () => 'rider-xray-v3';
+  xrayMaterial.customProgramCacheKey = () => 'rider-xray-v4';
   return { material, inkMaterial, xrayMaterial };
 }
 
