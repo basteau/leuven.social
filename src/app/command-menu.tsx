@@ -10,6 +10,7 @@ import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { PROVIDERS } from '../data/providers.ts';
 import { placesOf } from '../data/places.ts';
 import type { Place } from '../data/places.ts';
+import type { RoomPlace } from '../scene/viewer.ts';
 import { commandsFor, GROUPS, keyCommands, keySheet } from './commands.ts';
 import type { ActionId, CommandState, GroupId, IconName, Keys, KeySection } from './commands.ts';
 import { BikeIcon } from './icons.tsx';
@@ -51,6 +52,8 @@ export interface MenuProps {
   run: (action: ActionId) => void;
   /** Places by name, when the viewer can put the avatar at a spot. */
   places?: { city: PlaceData; go: (place: Place) => void };
+  /** The rooms inside the landmarks, once their data has come, and going inside one. */
+  rooms?: { list: readonly RoomPlace[]; go: (id: string) => void };
 }
 
 type PlaceData = Parameters<typeof placesOf>[0];
@@ -139,7 +142,18 @@ export function CommandMenu(props: MenuProps) {
     const commands = [...commandsFor(state), ...keyCommands(sheet)].map((c): Row =>
       Object.assign(c, { choose: choose(c.action) }),
     );
-    if (!props.places || query.trim().length < PLACE_QUERY) return commands;
+    // The few rooms are always listed: going inside is something to find without knowing a name.
+    const rooms = (props.rooms?.list ?? []).map((room): Row => ({
+      id: `room-${room.id}`,
+      group: 'places',
+      label: `Inside ${room.name}`,
+      detail: 'Go in through its door',
+      keywords: 'inside room interior enter go in church building',
+      keys: [],
+      icon: 'place',
+      choose: () => props.rooms?.go(room.id),
+    }));
+    if (!props.places || query.trim().length < PLACE_QUERY) return [...commands, ...rooms];
     const { go, city } = props.places;
     const places = placesIn(city).map((place): Row => ({
       id: `place-${place.name}`,
@@ -151,10 +165,10 @@ export function CommandMenu(props: MenuProps) {
       icon: 'place',
       choose: () => go(place),
     }));
-    return [...commands, ...places];
+    return [...commands, ...rooms, ...places];
     // props.run and props.onPage are the shell's stable callbacks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, sheet, query, props.places]);
+  }, [state, sheet, query, props.places, props.rooms]);
 
   const groups = useMemo(
     () =>

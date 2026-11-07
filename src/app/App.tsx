@@ -17,7 +17,7 @@ import { CITY_URL, loadCity } from '../data/load.ts';
 import type { Place } from '../data/places.ts';
 import { presetAt } from '../scene/daylight.ts';
 import type { Daylight, PresetId } from '../scene/daylight.ts';
-import type { RideState, Viewer } from '../scene/viewer.ts';
+import type { RideState, RoomPlace, Viewer } from '../scene/viewer.ts';
 import type { ActionId, CommandState } from './commands.ts';
 import type { MenuPage } from './command-menu.tsx';
 import { ActionButton } from './controls.tsx';
@@ -156,6 +156,11 @@ export function App() {
   const [avatarFailed, setAvatarFailed] = useState(false);
   const [avatarShown, setAvatarShown] = useState(false);
   const [street, setStreet] = useState<string | null>(null);
+  /** The room the avatar is in, and its floor, or null in the street. */
+  const [inside, setInside] = useState<{ room: string; floor: string } | null>(null);
+  /** What the menu can take you inside, once the rooms have loaded; why they couldn't. */
+  const [rooms, setRooms] = useState<readonly RoomPlace[]>([]);
+  const [roomsFailed, setRoomsFailed] = useState<string | null>(null);
   const [soundOn, setSoundOn] = useState(sound.on);
   /** The time of day, as the menu names it, and whether the day passes by itself. */
   const [time, setTime] = useState<PresetId>('golden');
@@ -317,6 +322,8 @@ export function App() {
           onAvatarUnavailable: () => setAvatarFailed(true),
           onAvatarShown: setAvatarShown,
           onStreetChange: setStreet,
+          onPlaceChange: setInside,
+          onRoomsUnavailable: setRoomsFailed,
           // The sky behind the canvas and the page's tokens follow the light; the menu's
           // state only when the hour reaches another preset (not every frame of a passing day).
           onDaylight: (light: Daylight) => {
@@ -470,6 +477,25 @@ export function App() {
     [actions, closeMenu],
   );
   const onPage = useCallback((page: MenuPage) => setMenu((m) => ({ ...m, page })), []);
+  // The rooms the menu lists: asked for when it opens, which loads their data if need be.
+  useEffect(() => {
+    if (!menu.open) return;
+    viewerRef.current
+      ?.rooms()
+      .then(setRooms)
+      .catch(() => {});
+  }, [menu.open]);
+  const roomPlaces = useMemo(
+    () => ({
+      list: rooms,
+      go: (id: string) => {
+        closeMenu();
+        sound.tap();
+        viewerRef.current?.goInside(id);
+      },
+    }),
+    [rooms, closeMenu],
+  );
   const commandState: CommandState = useMemo(
     () => ({ ride, running, soundOn, time, passing, traffic, keys, mod }),
     [ride, running, soundOn, time, passing, traffic, keys, mod],
@@ -532,7 +558,7 @@ export function App() {
 
       <header className="hud hud-top">
         {/* Where you are, once the view is close enough to show you: the only plate on screen. */}
-        <StreetSign name={street} />
+        <StreetSign name={inside ? `${inside.room} · ${inside.floor}` : street} />
         <Credits />
         {/*
           The hint, under the corners. Always in the page, empty when there's nothing to say, so
@@ -541,6 +567,8 @@ export function App() {
         <output className="hint">
           {blocked ? (
             'Can’t go there. Pick a street or square.'
+          ) : roomsFailed ? (
+            roomsFailed
           ) : avatarFailed ? (
             'Walking couldn’t load. Check your connection and try again.'
           ) : menuFailed ? (
@@ -620,6 +648,7 @@ export function App() {
               state={commandState}
               run={run}
               places={places}
+              rooms={roomPlaces}
             />
           </Suspense>
         </MenuGuard>

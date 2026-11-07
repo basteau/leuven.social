@@ -496,6 +496,51 @@ async function expectRiding(): Promise<void> {
   await expectHealthyPage('desktop after riding');
 }
 
+/** Long tasks that started after `since` (ms of page time). */
+const tasksSince = (since: number) =>
+  evalJson<number[]>(
+    `new Promise((resolve) => {
+      new PerformanceObserver((list, observer) => {
+        observer.disconnect();
+        resolve(JSON.stringify(list.getEntries().filter((e) => e.startTime > ${since}).map((e) => Math.round(e.duration))));
+      }).observe({ type: 'longtask', buffered: true });
+      setTimeout(() => resolve('[]'), 1000);
+    })`,
+  );
+
+/**
+ * A room: the menu takes the avatar inside Sint-Pieterskerk, through its door, the roof lifted
+ * and its floors drawn, without a long task; a place outside takes it back to the street.
+ */
+async function expectRoom(): Promise<void> {
+  const before = await evalJson<number>('JSON.stringify(performance.now())');
+  await runFromMenu('inside', 'Inside Sint-Pieterskerk');
+  await browser(
+    'wait',
+    '--timeout',
+    '15000',
+    '--fn',
+    `${canvasData('place')} === 'sint-pieterskerk'`,
+  );
+  await browser('wait', '1500');
+  const sign = await evalJson<string>(
+    `JSON.stringify(document.querySelector('.sign-name')?.textContent)`,
+  );
+  if (sign !== 'Sint-Pieterskerk · Nave') throw new Error(`inside, the sign says ${sign}`);
+  await browser('screenshot', `${ARTIFACTS}smoke-room.png`);
+  await expectHealthyPage('desktop inside Sint-Pieterskerk');
+  // Walking about inside, against its walls and pews.
+  await holdKeys(['d'], 600);
+  await holdKeys(['w'], 600);
+  await runFromMenu('grote markt', 'Grote Markt');
+  await browser('wait', '--fn', `${canvasData('place')} === ''`);
+  const hitches = (await tasksSince(before)).filter((ms) => ms > 50);
+  if (hitches.length)
+    throw new Error(`going in and out of a room took ${hitches.join(', ')} ms tasks`);
+  console.log('ok  in and out of Sint-Pieterskerk, its sign, and no long task on the way');
+  await expectHealthyPage('desktop back out of the room');
+}
+
 async function waitForServer(): Promise<void> {
   for (let i = 0; i < 100; i++) {
     if (server.exitCode !== null) {
@@ -573,6 +618,7 @@ try {
 
   await expectWalking();
   await expectRiding();
+  await expectRoom();
 
   await browser('set', 'viewport', '390', '844');
   await openFresh(BASE);
