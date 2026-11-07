@@ -2,7 +2,7 @@
 // and everything under /data/ (the city, the rooms) are network-first, so a rebake
 // or a new icon shows up on the next online visit. Bump CACHE to drop everything after a format
 // change.
-const CACHE = 'leuven-v23'; // city format v23: the traffic's ways know through traffic from destination
+const CACHE = 'leuven-v25'; // city format v25: public places' fronts
 
 self.addEventListener('install', () => self.skipWaiting());
 

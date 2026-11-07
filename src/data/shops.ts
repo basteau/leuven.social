@@ -1,17 +1,21 @@
 /**
  * Shop fronts from OpenStreetMap: each shop, café, bar, restaurant, pharmacy or bank mapped in or
  * beside a footprint has a front on the ground floor, on the wall that faces its street
- * (`frontWall`). The scene draws it by its kind (src/data/shop-kinds.ts):
- * a glazed ground floor under the kind's awning or fascia, and up close a hanging sign and, where
- * OSM maps outdoor seating and the pavement has room, a table with two chairs.
+ * (`frontWall`). The scene draws it by its kind (src/data/shop-kinds.ts): a glazed ground floor
+ * under the kind's awning or fascia, and up close a hanging sign and, where OSM maps outdoor
+ * seating and the pavement has room, a table with two chairs. Public places (a faculty, a school,
+ * a hotel) get a front the same way, from their point or from the building or site they are, for
+ * the sign by their door alone.
  */
 
 import type { Building, Kind, ShopFront } from './city.ts';
 import { footprintOf, frontWall, nearestOn } from './facades.ts';
+import { pointInRing, signedArea } from './geometry.ts';
 import type { Facades, Facing } from './facades.ts';
 import { CLEARANCE, discInFootprint, footprintsOverlap } from './props.ts';
 import type { Footprint, Shapes } from './props.ts';
-import { rank, shopKind } from './shop-kinds.ts';
+import { PLACES, placeKind, rank, shopKind } from './shop-kinds.ts';
+import type { ShopKind } from './shop-kinds.ts';
 
 type Tags = Record<string, string | undefined>;
 
@@ -74,11 +78,16 @@ export function terraceFootprint(p: FrontPoint): Footprint {
   };
 }
 
-/** A shop, as an OSM point: where it is mapped and its tags. */
+/**
+ * A shop or a place, as an OSM point: where it is mapped and its tags. A place read off its
+ * building or site comes with its `kind` and `building` already known.
+ */
 export interface ShopPoint {
   x: number;
   z: number;
   tags: Tags;
+  kind?: ShopKind;
+  building?: number;
 }
 
 export interface FrontInput {
@@ -123,10 +132,10 @@ export function placeFronts(points: readonly ShopPoint[], input: FrontInput): Pl
   const placed: Partial<Record<Facing, number>> = {};
   const skipped: Record<string, number> = {};
   const miss = (why: string) => (skipped[why] = (skipped[why] ?? 0) + 1);
-  for (const { x, z, tags } of points) {
-    const kind = shopKind(tags);
+  for (const { x, z, tags, ...known } of points) {
+    const kind = known.kind ?? shopKind(tags) ?? placeKind(tags);
     if (!kind) continue;
-    const building = footprintOf(facades, x, z);
+    const building = known.building ?? footprintOf(facades, x, z);
     if (building < 0 || skip.has(building)) {
       miss(building < 0 ? 'no footprint' : 'landmark');
       continue;
@@ -143,12 +152,12 @@ export function placeFronts(points: readonly ShopPoint[], input: FrontInput): Pl
     }
     const wall = facades.walls[found.w]!;
     const along = (found.px - wall.ax) * wall.ux + (found.pz - wall.az) * wall.uz;
+    // A place shows once on its building, however many of its departments OSM maps there.
     const twin = fronts.find(
       (f) =>
         f.building === building &&
-        f.edge === wall.edge &&
         f.kind === kind &&
-        Math.abs(f.along - along) < TWIN,
+        (PLACES.has(kind) || (f.edge === wall.edge && Math.abs(f.along - along) < TWIN)),
     );
     if (twin) {
       miss('mapped twice');
@@ -175,12 +184,14 @@ export function placeFronts(points: readonly ShopPoint[], input: FrontInput): Pl
 }
 
 /**
- * Hangs each building's main front (its first) on it as `front`, as the decoder does, and makes
- * houses, flats and other buildings with one `retail`. Returns how many changed kind.
+ * Hangs each building's main front (its first shop's) on it as `front`, as the decoder does, and
+ * makes houses, flats and other buildings with one `retail`. A place's front leaves its building
+ * as it is. Returns how many changed kind.
  */
 export function markShopFronts(buildings: Building[], fronts: readonly ShopFront[]): number {
   let marked = 0;
   for (const front of fronts) {
+    if (PLACES.has(front.kind)) continue;
     const b = buildings[front.building]!;
     b.front ??= front;
     if (!PROMOTED.has(b.kind)) continue;
@@ -188,6 +199,37 @@ export function markShopFronts(buildings: Building[], fronts: readonly ShopFront
     marked++;
   }
   return marked;
+}
+
+/** Buildings smaller than this (m²) are no public place's: a porter's lodge, a bike shed. */
+export const MIN_PLACE_AREA = 80;
+
+/**
+ * The public places read off the buildings rather than a point: a building whose own `building`
+ * value says it (a school, a hotel), else one standing in a place's site (a campus, a school's
+ * grounds, a hospital), each at its middle. Sheds and buildings under MIN_PLACE_AREA are none.
+ */
+export function placePoints(
+  buildings: readonly { ring: ArrayLike<number>; kind: Kind; tag: string | null }[],
+  sites: readonly { kind: ShopKind; ring: ArrayLike<number> }[],
+): ShopPoint[] {
+  const points: ShopPoint[] = [];
+  for (const [i, b] of buildings.entries()) {
+    if (b.kind === 'shed' || Math.abs(signedArea(b.ring)) < MIN_PLACE_AREA) continue;
+    const [x, z] = middle(b.ring);
+    const kind =
+      placeKind({ building: b.tag ?? undefined }) ??
+      sites.find((s) => pointInRing(s.ring, x, z))?.kind;
+    if (kind) points.push({ x, z, tags: {}, kind, building: i });
+  }
+  return points;
+}
+
+/** The middle of a ring's corners. */
+function middle(ring: ArrayLike<number>): [number, number] {
+  let [x, z] = [0, 0];
+  for (let i = 0; i < ring.length; i += 2) [x, z] = [x + ring[i]!, z + ring[i + 1]!];
+  return [(x * 2) / ring.length, (z * 2) / ring.length];
 }
 
 /** What a terrace must keep clear of. */

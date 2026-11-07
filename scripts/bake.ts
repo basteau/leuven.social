@@ -61,7 +61,8 @@ import { carriagewayKind, surfaceOf, crossingMarking } from '../src/data/roads.t
 import type { RoadRole } from '../src/data/roads.ts';
 import { correctRoofColours } from '../src/data/roof-colours.ts';
 import { capShedsUnderTrees } from '../src/data/sheds.ts';
-import { fitTerraces, markShopFronts, placeFronts } from '../src/data/shops.ts';
+import { fitTerraces, markShopFronts, placeFronts, placePoints } from '../src/data/shops.ts';
+import { PLACES, placeKind } from '../src/data/shop-kinds.ts';
 import { bridgeParapets, tankOutline } from '../src/data/structures.ts';
 import { joinLines, nameTable, streetName } from '../src/data/streets.ts';
 import { sidesOf, sidesWithTags, splitAtJunctions, wayFromOsm } from '../src/data/traffic.ts';
@@ -223,6 +224,8 @@ const [
 ]);
 
 const buildings: Building[] = [];
+/** Each building's OSM `building` value, for the public places it says (a school, a hotel). */
+const buildingTags: string[] = [];
 for (const b of local.buildings) {
   const tier = LANDMARK_FOOTPRINTS.includes(b.id) ? 'hero' : b.tier;
   const ring = simplifyRing(normalizeRing(b.ring.flat()), SIMPLIFY[tier]);
@@ -253,6 +256,7 @@ for (const b of local.buildings) {
     building.tower = { x, z, radius, top, tip };
   }
   buildings.push(building);
+  buildingTags.push(b.kind);
 }
 
 // The orthophoto's roof colours, white-balanced on the flat roofs (src/data/roof-colours.ts).
@@ -586,12 +590,24 @@ for (const [i, ring] of plazas.entries()) {
 }
 const publicGround = new RingIndex();
 for (const ring of [...roads, ...plazas]) publicGround.add(ring);
+// Public places too: their points first (a faculty's door, a hotel), then the buildings that
+// say what they are, or stand on a campus, a school's grounds or a hospital's.
+const placeSites = areasOf(osmAreaElements.elements, toLocal).flatMap((a) => {
+  const kind = placeKind(a.tags);
+  return kind ? a.polygons.map((p) => ({ kind, ring: p.outer })) : [];
+});
 const shops = placeFronts(
-  osmPoints.features.flatMap((f) => {
-    if (f.geometry.type !== 'Point') return [];
-    const [x, z] = toLocal(...(f.geometry.coordinates as [number, number]));
-    return areaIndex(AREA, x, z) >= 0 ? [{ x, z, tags: f.properties }] : [];
-  }),
+  [
+    ...osmPoints.features.flatMap((f) => {
+      if (f.geometry.type !== 'Point') return [];
+      const [x, z] = toLocal(...(f.geometry.coordinates as [number, number]));
+      return areaIndex(AREA, x, z) >= 0 ? [{ x, z, tags: f.properties }] : [];
+    }),
+    ...placePoints(
+      buildings.map((b, i) => ({ ring: b.ring, kind: b.kind, tag: buildingTags[i]! })),
+      placeSites,
+    ),
+  ],
   {
     facades,
     streets: segments,
@@ -732,6 +748,13 @@ console.log(
     `shop fronts ${shops.fronts.length} on ${new Set(shops.fronts.map((f) => f.building)).size} buildings, ${terraces} with a terrace: ${reasons(shops.placed)} (skipped ${reasons(shops.skipped)}); main fronts ${Object.entries(
       Object.groupBy(
         buildings.flatMap((b) => b.front ?? []),
+        (f) => f.kind,
+      ),
+    )
+      .map(([kind, list]) => `${list!.length} ${kind}`)
+      .join(', ')}; places ${Object.entries(
+      Object.groupBy(
+        shops.fronts.filter((f) => PLACES.has(f.kind)),
         (f) => f.kind,
       ),
     )
