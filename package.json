@@ -36,6 +36,10 @@
   "dependencies": {
     "@portable/binary": "^0.1.0",
     "@portable/compress": "^0.1.0",
+    "@portable/log": "^0.1.0",
+    "@portable/rate-limit": "^0.1.0",
+    "@portable/websockets": "^0.1.0",
+    "better-auth": "~1.7.18",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "three": "^0.187.0"
