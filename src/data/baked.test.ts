@@ -1,11 +1,12 @@
 import { expect, test } from 'bun:test';
 
-import { AREA, VIEW_AREA } from './area.ts';
+import { AREA, LANDMARK_FOOTPRINTS, VIEW_AREA } from './area.ts';
 import { MAX_NAME, latinOnly } from './boards.ts';
 import { areaIndex, pointAlong, pointInRing, ringInArea } from './geometry.ts';
 import { unpackCity } from './format.ts';
 import { unpackWalk } from './plates.ts';
 import { bikesIn } from './props.ts';
+import { parseRooms, roomProblems } from './rooms.ts';
 import { StreetIndex } from './streets.ts';
 import { PAVEMENT, pavementOf } from './traffic.ts';
 import type { Side } from './city.ts';
@@ -120,4 +121,26 @@ test('public/data/walk.bin decodes into plates that belong to city.bin', async (
   expect(
     walk.boards.every((b) => [...b.name].length <= MAX_NAME && latinOnly(b.name) === b.name),
   ).toBe(true);
+});
+
+// The rooms are authored against the bake: a rebake that moves or reshapes a landmark, or an edit
+// that puts a wall out of its building, fails here rather than at the door.
+test('public/data/rooms.json fits the landmarks in city.bin', async () => {
+  const city = await unpackCity(
+    new Uint8Array(
+      await (await fetch(new URL('../../public/data/city.bin', import.meta.url))).arrayBuffer(),
+    ),
+  );
+  const json: unknown = await (
+    await fetch(new URL('../../public/data/rooms.json', import.meta.url))
+  ).json();
+  const rooms = parseRooms(json);
+  expect(rooms.length).toBeGreaterThan(0);
+  expect(new Set(rooms.map((r) => r.id)).size).toBe(rooms.length);
+  for (const room of rooms) {
+    const b = city.buildings.find((x) => x.id === room.oidn);
+    const building = b && { id: b.id, ring: b.ring, landmark: LANDMARK_FOOTPRINTS.includes(b.id) };
+    expect(roomProblems(room, building)).toEqual([]);
+  }
+  expect(rooms.some((r) => r.floors.length > 1)).toBe(true);
 });
