@@ -96,6 +96,8 @@ const PICK_STEP = 8;
 const BESIDE_REACH = 60;
 /** A surface less than this over the ground (m) is the ground: kerbs, steps, water, cobbles. */
 const ON_GROUND = 0.4;
+/** Everyone starts on Grote Markt within this of its middle (m), so nobody stands on anyone. */
+const SPAWN_SPREAD = 9;
 /** A tap further than this from the avatar (m) is too far to go to: it walks, never jumps. */
 const ROUTE_REACH = 250;
 /** A place chosen from the menu brings the camera at least this close (zoom). */
@@ -251,7 +253,10 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
   // Trunks, benches and lamp posts stand in the way as drawn (src/scene/solids.ts).
   const grid = new WalkGrid(host.city, walkSolids(host.city));
   const router = new Router(grid);
-  const start = grid.nearest(0, 0, 60, true) ?? [0, 0];
+  // On Grote Markt, a few steps from the middle: everyone starts there, not all on one spot.
+  const middle = grid.nearest(0, 0, 60, true) ?? [0, 0];
+  const spots = grid.around(middle[0], middle[1], SPAWN_SPREAD, 12);
+  const start = spots[Math.floor(Math.random() * spots.length)] ?? middle;
   const avatar: Avatar = createAvatar(start[0], start[1], Math.PI);
   // The camera keeps the avatar in the middle from the start.
   controls.pinned = true;
@@ -842,6 +847,9 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     const view = controls.target;
     const here = room?.id ?? '';
     busy = players.frame(now, dt, shown === 'figure', view.x, view.z, here, avatar.floor) || busy;
+    // How many others are drawn, for the smoke test.
+    if (canvas.dataset.players !== String(players.drawn))
+      canvas.dataset.players = String(players.drawn);
     tell();
 
     if (Math.hypot(w.x - publishedAt[0], w.z - publishedAt[1]) >= 1) publish();
