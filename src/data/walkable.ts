@@ -13,8 +13,6 @@ import { CellGrid, TILE, ringBox, wallPush } from './cell-grid.ts';
 import type { Wall } from './cell-grid.ts';
 import type { Bounds, City } from './city.ts';
 import { areaIndex } from './geometry.ts';
-import { FLAT } from './terrain.ts';
-import type { Terrain } from './terrain.ts';
 
 /** Cell size in metres: narrower than any footpath, so every path stays connected. */
 export const WALK_CELL = 1;
@@ -279,59 +277,33 @@ export class WalkGrid {
   }
 }
 
-/** Highest roof the picking ray needs to start above, over the highest ground (m). */
-const PICK_TOP = 100;
 const PICK_STEP = 0.5;
 
 /**
- * Where a click lands on the ground: follows the view ray from above the rooftops down to the
- * first building it meets or the ground (`terrain`'s). A click on a building means the street in
- * front of it, on the side the camera sees, so it backs out to the foot of the wall. `origin` is
- * any point on the ray and `dir` points into the scene; null for a ray that doesn't go down.
+ * Where a tap that hit the scene at (x, z) means to go. Ground, a tree, a bench or a car: the
+ * ground under what it hit. A wall facing the camera (`camera`, a horizontal unit vector toward
+ * it): the street at its foot, the one the person sees. A roof: the building itself, so the
+ * street on the side of it nearest the one walking (`from`), not one round the back. Out of a
+ * building by half-metre steps.
  */
-export function pickPoint(
+export function aimFor(
   grid: WalkGrid,
-  origin: readonly [number, number, number],
-  dir: readonly [number, number, number],
-  terrain: Terrain = FLAT,
-): [number, number] | null {
-  const [ox, oy, oz] = origin;
-  const [dx, dy, dz] = dir;
-  if (dy >= 0) return null;
-  const flat = Math.hypot(dx, dz);
-  // From where the ray is above every roof (or from the eye, for one already below them), in
-  // steps of half a metre across the ground, to where it's under the lowest ground.
-  const t0 = Math.max(0, (oy - terrain.highest - PICK_TOP) / -dy);
-  const step = flat > 1e-6 ? PICK_STEP / flat : 1;
-  const end = (oy - terrain.lowest) / -dy;
-  let [x, z] = [ox + dx * end, oz + dz * end];
-  for (let t = t0; t < end; t += step) {
-    const [px, py, pz] = [ox + dx * t, oy + dy * t, oz + dz * t];
-    if (terrain.height(px, pz) + grid.buildingHeight(px, pz) < py) continue;
-    // Back out toward the camera to the foot of the wall it hit.
-    [x, z] = [px, pz];
-    const back = flat > 1e-6 ? 400 : 0;
-    for (let k = 0; k < back && grid.buildingHeight(x, z) > 0; k++) {
-      x -= (dx / flat) * PICK_STEP;
-      z -= (dz / flat) * PICK_STEP;
-    }
-    break;
+  x: number,
+  z: number,
+  camera: readonly [number, number],
+  from: readonly [number, number],
+): [number, number] {
+  const inside = (px: number, pz: number) => grid.buildingHeight(px, pz) > 0;
+  if (!inside(x, z)) return [x, z];
+  const wall = !inside(x + camera[0] * WALL_DEPTH, z + camera[1] * WALL_DEPTH);
+  const [dx, dz] = [from[0] - x, from[1] - z];
+  const length = Math.hypot(dx, dz);
+  const [ux, uz] = wall || length < 1e-6 ? camera : [dx / length, dz / length];
+  for (let k = 0; k < 400 && inside(x, z); k++) {
+    x += ux * PICK_STEP;
+    z += uz * PICK_STEP;
   }
   return [x, z];
 }
-
-/**
- * The walkable spot nearest where a click lands (`pickPoint`), within `radius` metres (with
- * `street`, the nearest street), or null.
- */
-export function pickWalkable(
-  grid: WalkGrid,
-  origin: readonly [number, number, number],
-  dir: readonly [number, number, number],
-  radius: number,
-  street = false,
-  terrain: Terrain = FLAT,
-): [number, number] | null {
-  const at = pickPoint(grid, origin, dir, terrain);
-  return at && grid.nearest(at[0], at[1], radius, street);
-}
+/** A hit this close to a building's camera side (m) is on its wall, not its roof. */
+const WALL_DEPTH = 1;

@@ -571,7 +571,8 @@ async function expectRoom(): Promise<void> {
   const before = await evalJson<number>('JSON.stringify(performance.now())');
   await runFromMenu('pieters', 'Sint-Pieterskerk');
   await browser('wait', '2000'); // the view has come down to its door
-  await tapAt(640, 400);
+  // A tap on the church's wall (a tree hides its door from here) walks to the wall's foot.
+  await tapAt(900, 580);
   await browser(
     'wait',
     '--timeout',

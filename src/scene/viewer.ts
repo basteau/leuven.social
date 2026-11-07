@@ -971,6 +971,7 @@ export function createViewer(options: ViewerOptions): Viewer {
         streets ??= new StreetIndex(city);
         avatar ??= createAvatarLayer({
           scene,
+          renderer,
           camera,
           controls,
           canvas,

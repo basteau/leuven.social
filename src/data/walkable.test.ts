@@ -17,8 +17,7 @@ const house = (ring: Float32Array): Building => ({
   ring,
   holes: [],
 });
-import { Terrain } from './terrain.ts';
-import { WalkGrid, pickPoint, pickWalkable } from './walkable.ts';
+import { WalkGrid, aimFor } from './walkable.ts';
 
 describe('WalkGrid', () => {
   const grid = new WalkGrid(town);
@@ -74,7 +73,6 @@ describe('WalkGrid', () => {
     expect(yard.nearest(115, 20, 3)).toEqual([115.5, 20.5]);
     // Picking a start in the yard finds the street south of the houses instead.
     expect(yard.nearest(115, 20, 30, true)).toEqual([115.5, 40.5]);
-    expect(pickWalkable(yard, [115, 300, 20], [0, -1, 0], 30, true)).toEqual([115.5, 40.5]);
     expect(yard.nearest(115, 20, 5, true)).toBeNull();
   });
 
@@ -217,60 +215,22 @@ describe('WalkGrid', () => {
   });
 });
 
-describe('pickWalkable', () => {
+describe('aimFor', () => {
   const grid = new WalkGrid(town);
-  // Looking north and down at 45°, as the camera does when its yaw is 0.
-  const down: [number, number, number] = [0, -1, -1];
 
-  test('a ray onto the street lands on the street', () => {
-    expect(pickWalkable(grid, [15, 500, 545], down, 4)).toEqual([15.5, 45.5]);
-  });
-
-  test('a ray onto a roof means the street in front of the building', () => {
-    // It would reach the ground at z = 40, behind the house's front wall at z = 45.
-    const [x, z] = pickWalkable(grid, [50, 500, 540], down, 6)!;
-    expect(x).toBeCloseTo(50.5);
-    expect(z).toBeGreaterThan(45);
-    // The point itself: the foot of that front wall, on the camera's side.
-    const [px, pz] = pickPoint(grid, [50, 500, 540], down)!;
-    expect(px).toBeCloseTo(50);
-    expect(pz).toBeGreaterThanOrEqual(45);
-    expect(pz).toBeLessThan(46);
-    expect(pickPoint(grid, [50, 500, 540], [0, 1, 0])).toBeNull();
-  });
-
-  test('from street level, a house behind the eye is not in the way', () => {
-    // Standing east of the house, looking east along the street.
-    const [x, z] = pickWalkable(grid, [65, 2, 42], [1, -0.1, 0], 2)!;
-    expect(x).toBeCloseTo(85.5);
-    expect(z).toBeCloseTo(42.5);
-  });
-
-  test('looking straight down still works, and looking up finds nothing', () => {
-    expect(pickWalkable(grid, [75, 300, 70], [0, -1, 0], 2)).toEqual([75.5, 70.5]);
-    expect(pickWalkable(grid, [50, 300, 42], [0, -1, 0], 2)).toBeNull();
-    expect(pickWalkable(grid, [15, 0, 45], [0, 1, 0], 4)).toBeNull();
-  });
-
-  test('on raised ground, the ray meets the ground and the roofs on it higher up', () => {
-    const plateau = new Terrain({
-      step: 1000,
-      minX: -1000,
-      minZ: -1000,
-      cols: 3,
-      rows: 3,
-      heights: new Float32Array(9).fill(10),
-    });
-    // Ten metres up, the ray lands where it did on level ground.
-    expect(pickWalkable(grid, [15, 510, 545], down, 4, false, plateau)).toEqual([15.5, 45.5]);
-    const [x, z] = pickWalkable(grid, [50, 510, 540], down, 6, false, plateau)!;
-    expect(x).toBeCloseTo(50.5);
-    expect(z).toBeGreaterThan(45);
-    // From the eye, the ground ahead is no longer at 0.
-    expect(pickWalkable(grid, [65, 12, 42], [1, -0.1, 0], 2, false, plateau)![0]).toBeCloseTo(85.5);
-  });
-
-  test('a ray onto a garden finds nothing if no street is near', () => {
-    expect(pickWalkable(grid, [30, 500, 525], down, 3)).toBeNull();
+  test('a hit on a wall means its foot; on a roof, the side of the building toward the walker', () => {
+    // The house stands from z 38 to 45, x 40 to 60; the camera looks north, from the south (+z).
+    const [x, z] = aimFor(grid, 50, 44.6, [0, 1], [50, 30]);
+    expect(x).toBe(50);
+    expect(z).toBeGreaterThanOrEqual(45);
+    expect(z).toBeLessThan(45.6);
+    // On the roof, with the walker north of the house: out its north side.
+    const [rx, rz] = aimFor(grid, 50, 41, [0, 1], [50, 30]);
+    expect(rx).toBeCloseTo(50);
+    expect(rz).toBeLessThanOrEqual(38);
+    // With the walker on the roof's very spot (never, but): out toward the camera.
+    expect(aimFor(grid, 50, 41, [0, 1], [50, 41])[1]).toBeGreaterThanOrEqual(45);
+    // Ground is where it is.
+    expect(aimFor(grid, 15, 47, [0, 1], [0, 0])).toEqual([15, 47]);
   });
 });

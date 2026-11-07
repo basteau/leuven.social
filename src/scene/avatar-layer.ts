@@ -2,16 +2,19 @@ import {
   BackSide,
   BufferAttribute,
   BufferGeometry,
+  Color,
   InstancedBufferAttribute,
   InstancedMesh,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
+  MeshDepthMaterial,
   MeshToonMaterial,
-  Raycaster,
-  Vector2,
+  RGBADepthPacking,
+  Vector3,
+  WebGLRenderTarget,
 } from 'three';
-import type { Material, OrthographicCamera, Scene, Texture } from 'three';
+import type { Material, OrthographicCamera, Scene, Texture, WebGLRenderer } from 'three';
 
 import { createWalkSounds } from '../audio/walking.ts';
 import { LANDMARK_FOOTPRINTS } from '../data/area.ts';
@@ -21,7 +24,7 @@ import { DOOR_HALF } from '../data/room-grid.ts';
 import type { Room } from '../data/rooms.ts';
 import { Router } from '../data/route.ts';
 import type { Terrain } from '../data/terrain.ts';
-import { WalkGrid, pickPoint } from '../data/walkable.ts';
+import { WalkGrid, aimFor } from '../data/walkable.ts';
 import { avatarState, createAvatar, stepAvatar } from './avatar.ts';
 import type { Avatar, AvatarState } from './avatar.ts';
 import type { Bikes, RideAction, RideState } from './bikes.ts';
@@ -42,6 +45,7 @@ import type { LineBuilder } from './mesh-builder.ts';
 import { clock, decay, ticks } from './motion.ts';
 import { OUTLINE } from './palette.ts';
 import { nearestParked } from './parked.ts';
+import { unpackDepth } from './pick.ts';
 import { passedVertices, routeMarker } from './route-marker.ts';
 import type { RouteMarker } from './route-marker.ts';
 import { walkSolids } from './solids.ts';
@@ -67,6 +71,8 @@ const TAP_REACH = 8;
 const TRIES = 8;
 /** A tap this far off (m) that no route reaches is a long way round: too far, not nowhere. */
 const DETOUR = 80;
+/** A tap that touches the avatar within this of its feet (m) stops it where it is. */
+const ON_AVATAR = 1;
 /** A tap further than this from the avatar (m) is too far to go to: it walks, never jumps. */
 const ROUTE_REACH = 250;
 /** A place chosen from the menu brings the camera at least this close (zoom). */
@@ -112,6 +118,8 @@ export type Refusal = 'closed' | 'far';
 
 export interface AvatarHost {
   scene: Scene;
+  /** The renderer, for reading back what a tap touched. */
+  renderer: WebGLRenderer;
   camera: OrthographicCamera;
   controls: MapControls;
   canvas: HTMLCanvasElement;
@@ -553,45 +561,65 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     wake();
   }
 
-  const raycaster = new Raycaster();
-  const ndc = new Vector2();
-  /** Where a ray meets the plane at height `y`: (x, z). */
-  const onPlane = (y: number): [number, number] => {
-    const { origin: o, direction: d } = raycaster.ray;
-    const k = d.y < 0 ? (o.y - y) / -d.y : 0;
-    return [o.x + d.x * k, o.z + d.z * k];
-  };
+  // What a tap touched, read back from a one-pixel render of the scene under it (pick.ts): the
+  // exact roof, wall, tree, bench, floor or street the person sees there.
+  const pickTarget = new WebGLRenderTarget(1, 1);
+  const pickDepth = new MeshDepthMaterial({ depthPacking: RGBADepthPacking });
+  const pixel = new Uint8Array(4);
+  const hit = new Vector3();
+  const clearColor = new Color();
+  function pickAt(x: number, y: number, width: number, height: number): Vector3 | null {
+    const { renderer } = host;
+    const [target, shadows] = [renderer.getRenderTarget(), renderer.shadowMap.needsUpdate];
+    renderer.getClearColor(clearColor);
+    const clearAlpha = renderer.getClearAlpha();
+    camera.setViewOffset(width, height, Math.floor(x), Math.floor(y), 1, 1);
+    scene.overrideMaterial = pickDepth;
+    renderer.shadowMap.needsUpdate = false;
+    renderer.setRenderTarget(pickTarget);
+    renderer.setClearColor(0xffffff, 1);
+    renderer.clear();
+    renderer.render(scene, camera);
+    renderer.readRenderTargetPixels(pickTarget, 0, 0, 1, 1, pixel);
+    renderer.setRenderTarget(target);
+    renderer.setClearColor(clearColor, clearAlpha);
+    renderer.shadowMap.needsUpdate = shadows;
+    scene.overrideMaterial = null;
+    camera.clearViewOffset();
+    const depth = unpackDepth(pixel[0]!, pixel[1]!, pixel[2]!, pixel[3]!);
+    if (Number.isNaN(depth)) return null;
+    // From the middle of the pixel that was read.
+    const [px, py] = [Math.floor(x) + 0.5, Math.floor(y) + 0.5];
+    return hit.set((px / width) * 2 - 1, 1 - (py / height) * 2, depth * 2 - 1).unproject(camera);
+  }
+
   function tap(clientX: number, clientY: number): void {
     asked++;
     bikes?.cancel();
     if (bikes?.busy) return;
     const rect = canvas.getBoundingClientRect();
-    ndc.set(
-      ((clientX - rect.left) / rect.width) * 2 - 1,
-      -((clientY - rect.top) / rect.height) * 2 + 1,
-    );
-    raycaster.setFromCamera(ndc, camera);
-    const { origin, direction } = raycaster.ray;
-    if (direction.y >= 0) return;
-    // Where it lands: in a room, on its floor (or out through its door); on the street, the
-    // ground under the ray, or the foot of the wall facing the camera for a tap on a building.
-    let at: [number, number] | null;
+    const touched = pickAt(clientX - rect.left, clientY - rect.top, rect.width, rect.height);
+    if (!touched) return;
+    const w = avatar.walker;
+    // On the avatar itself: stop where it is.
+    const onIt = Math.hypot(touched.x - w.x, touched.z - w.z) < ON_AVATAR;
+    if (onIt && touched.y > feet[1] + 0.3 && touched.y < feet[1] + 3) {
+      w.route = null;
+      clearRoute();
+      return;
+    }
+    // Where it means: in a room, the floor under what it touched (outside the room, out through
+    // its door); outside, the ground under it, or for a building the street beside it (aimFor).
+    let at: [number, number] = [touched.x, touched.z];
     if (room && interiors) {
-      at = onPlane(feet[1]);
       if (!inRing(interiors.footprint(room), ...at)) {
         const { door } = room;
         at = [door.x - Math.sin(door.facing) * 0.8, door.z - Math.cos(door.facing) * 0.8];
       }
     } else {
-      at = pickPoint(
-        grid,
-        [origin.x, origin.y, origin.z],
-        [direction.x, direction.y, direction.z],
-        terrain,
-      );
+      const yaw = host.yaw();
+      at = aimFor(grid, touched.x, touched.z, [Math.sin(yaw), Math.cos(yaw)], [w.x, w.z]);
     }
-    if (!at) return;
-    const w = avatar.walker;
     const far = Math.hypot(at[0] - w.x, at[1] - w.z);
     if (far > ROUTE_REACH) refuse(...at, 'far');
     // A route the router can't find so far off is a long way round: too far, not nowhere.
@@ -824,6 +852,8 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       bikes?.dispose();
       interiors?.dispose();
       for (const mesh of [character.mesh, hint, refusal]) scene.remove(mesh);
+      pickTarget.dispose();
+      pickDepth.dispose();
       hint.geometry.dispose();
       hint.material.dispose();
       refusal.geometry.dispose();
