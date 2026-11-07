@@ -5,7 +5,6 @@ import {
   addBuilding,
   buildingsGeometry as indexed,
   cutAt,
-  facadeOf,
   footing,
   partyWalls,
   planRoof,
@@ -187,15 +186,22 @@ describe('buildingsGeometry', () => {
     expect(windingAgreesWithNormals(b)).toBe(true);
     const plain = buildingsGeometry([{ ...b, tower: undefined }]).surfaces;
     const { surfaces } = buildingsGeometry([b]);
-    // Four walls and four spire faces: 36 vertices.
-    expect(surfaces.getAttribute('position').count - plain.getAttribute('position').count).toBe(36);
+    // Four walls and four spire faces, 36 vertices, and the cross on its tip, two bars of 30.
+    expect(surfaces.getAttribute('position').count - plain.getAttribute('position').count).toBe(
+      36 + 60,
+    );
     surfaces.computeBoundingBox();
-    expect(surfaces.boundingBox!.max.y).toBeCloseTo(30);
+    expect(surfaces.boundingBox!.max.y).toBeCloseTo(31.9);
     // Square to the footprint: its corners stand 2.5/√2 m off its centre along x and z.
     expect(surfaces.boundingBox!.max.x).toBeCloseTo(5 + 2.5 / Math.SQRT2);
     // A slender spire on the ridge is an octagon.
     const turret = buildingsGeometry([{ ...b, tower: { ...tower, radius: 1.4 } }]).surfaces;
-    expect(turret.getAttribute('position').count - plain.getAttribute('position').count).toBe(72);
+    expect(turret.getAttribute('position').count - plain.getAttribute('position').count).toBe(
+      72 + 60,
+    );
+    // A tower with no spire to speak of has no cross either.
+    const flat = buildingsGeometry([{ ...b, tower: { ...tower, tip: 19 } }]).surfaces;
+    expect(flat.getAttribute('position').count - plain.getAttribute('position').count).toBe(36);
   });
 });
 
@@ -506,30 +512,4 @@ test('a house stands on the lowest ground under its corners, down to a whole lif
   expect(footing(slope, [3, 0, 8, 0, 8, 5, 3, 5])).toBe(0);
   expect(footing(slope, [7, 0, 9, 0, 9, 5])).toBe(0.5);
   expect(footing(slope, [-3, 0, 0, 0, 0, 5])).toBe(-LIFT_UNIT);
-});
-
-describe('facadeOf', () => {
-  test('gives the walls as drawn, their top, and which are over a shop front', () => {
-    // Its front on the first wall, from (0, 0) to (6, 0): facing -z.
-    const shop = building({
-      roof: 'flat',
-      front: { building: 0, edge: 0, along: 3, kind: 'bakery', terrace: false },
-    });
-    const facade = facadeOf(shop);
-    expect(facade.rings).toEqual([shop.ring]);
-    expect(facade.top).toBe(10);
-    expect(facade.shop(0, -1)).toBe(true);
-    expect(facade.shop(1, 0)).toBe(false);
-    expect(facadeOf(building({ roof: 'flat' })).shop(0, -1)).toBe(false);
-  });
-
-  test('a hipped roof draws its walls on its simplified ring, under its eave', () => {
-    const l = building({
-      roof: 'hipped',
-      ring: new Float32Array([0, 0, 12, 0, 12, 6, 6, 6, 6, 12, 0, 12]),
-    });
-    const facade = facadeOf(l);
-    expect(facade.top).toBeLessThan(10);
-    expect(facade.rings[0]!.length).toBeGreaterThanOrEqual(8);
-  });
 });

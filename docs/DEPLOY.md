@@ -41,12 +41,12 @@ To look at the server: `ssh leuven.exe.xyz 'sudo journalctl -u leuven-server -n 
 
 ## Caching
 
-| Path                                                                                | `Cache-Control`                       | Why                                                    |
-| ----------------------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------ |
-| `/assets/*`                                                                         | `public, max-age=31536000, immutable` | File names carry a content hash                        |
-| `/icons/*`                                                                          | `public, max-age=86400`               | Stable names, rarely change                            |
-| `/api/*`                                                                            | `no-store`                            | Per-user answers and session cookies                   |
-| everything else (`index.html`, `sw.js`, manifest, `data/city.bin`, `data/walk.bin`) | `no-cache`                            | Revalidated by ETag, so a deploy shows up on next load |
+| Path                                                                                  | `Cache-Control`                       | Why                                                    |
+| ------------------------------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------ |
+| `/assets/*`                                                                           | `public, max-age=31536000, immutable` | File names carry a content hash                        |
+| `/icons/*`                                                                            | `public, max-age=86400`               | Stable names, rarely change                            |
+| `/api/*`                                                                              | `no-store`                            | Per-user answers and session cookies                   |
+| everything else (`index.html`, `sw.js`, manifest, `data/city.bin`, `data/rooms.json`) | `no-cache`                            | Revalidated by ETag, so a deploy shows up on next load |
 
 TLS is terminated by exe.dev's proxy; nginx only speaks HTTP on the VM.
 

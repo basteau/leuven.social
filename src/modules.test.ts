@@ -11,7 +11,6 @@ const BROWSER_ONLY = new Set([
   'scene/character-material.ts',
   'scene/avatar-layer.ts',
   'scene/bikes.ts',
-  'scene/plates.ts',
 ]);
 
 test('every pure module is measured by coverage', async () => {

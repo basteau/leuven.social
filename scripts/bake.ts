@@ -1,7 +1,6 @@
 /**
- * Bakes public/data/city.bin, and walk.bin with the plates on the facades, from data/derived/
- * and the GRB and OSM downloads (`bun run data` makes both; see docs/DATA.md). Only this edge
- * reads files; the transforms live in src/data and
+ * Bakes public/data/city.bin from data/derived/ and the GRB and OSM downloads (`bun run data`
+ * makes it; see docs/DATA.md). Only this edge reads files; the transforms live in src/data and
  * are unit-tested. Same inputs, same bytes: `bun run data:check` holds it to that.
  *
  *   bun run bake
@@ -29,17 +28,7 @@ import type {
   Tier,
 } from '../src/data/city.ts';
 import { packCity } from '../src/data/format.ts';
-import {
-  Facades,
-  centroid,
-  junctions,
-  placeHouseNumbers,
-  placeStreetPlates,
-  plateText,
-  streetSegments,
-} from '../src/data/plate-placement.ts';
-import type { Address, Door } from '../src/data/plate-placement.ts';
-import { PROUD, STREET_PLATE_HEIGHT, packWalk } from '../src/data/plates.ts';
+import { Facades, streetSegments } from '../src/data/facades.ts';
 import {
   areaIndex,
   clipLine,
@@ -72,15 +61,14 @@ import { carriagewayKind, surfaceOf, crossingMarking } from '../src/data/roads.t
 import type { RoadRole } from '../src/data/roads.ts';
 import { correctRoofColours } from '../src/data/roof-colours.ts';
 import { capShedsUnderTrees } from '../src/data/sheds.ts';
-import { placeBoards } from '../src/data/boards.ts';
-import { fitTerraces, markShopFronts, placeFronts } from '../src/data/shops.ts';
+import { fitTerraces, markShopFronts, placeFronts, placePoints } from '../src/data/shops.ts';
+import { PLACES, placeKind } from '../src/data/shop-kinds.ts';
 import { bridgeParapets, tankOutline } from '../src/data/structures.ts';
 import { joinLines, nameTable, streetName } from '../src/data/streets.ts';
 import { clearCrowns, mergeTrees, trunkRadius } from '../src/data/trees.ts';
 import { DATA } from './data-files.ts';
 
 const OUT = new URL('../public/data/city.bin', import.meta.url).pathname;
-const WALK_OUT = new URL('../public/data/walk.bin', import.meta.url).pathname;
 const read = async <T>(path: string): Promise<T> => {
   const file = Bun.file(`${DATA}/${path}`);
   if (!(await file.exists())) {
@@ -215,9 +203,7 @@ const [
   osmRoads,
   osmPoints,
   osmPlatforms,
-  osmBuildings,
   landform,
-  osmEntrances,
 ] = await Promise.all([
   read<{ buildings: LocalBuilding[] }>('derived/leuven_buildings_local.json'),
   read<{ trees: [number, number, number][] }>('derived/lidar_trees.json'),
@@ -232,12 +218,12 @@ const [
   read<Collection>('derived/osm_roads.geojson'),
   read<Collection>('derived/osm_points.geojson'),
   read<Overpass>('osm/rail_platforms.json'),
-  read<Overpass>('osm/buildings.json'),
   read<TerrainJson>('derived/terrain.json'),
-  read<{ elements: { lat: number; lon: number; tags: Props }[] }>('osm/entrances.json'),
 ]);
 
 const buildings: Building[] = [];
+/** Each building's OSM `building` value, for the public places it says (a school, a hotel). */
+const buildingTags: string[] = [];
 for (const b of local.buildings) {
   const tier = LANDMARK_FOOTPRINTS.includes(b.id) ? 'hero' : b.tier;
   const ring = simplifyRing(normalizeRing(b.ring.flat()), SIMPLIFY[tier]);
@@ -268,6 +254,7 @@ for (const b of local.buildings) {
     building.tower = { x, z, radius, top, tip };
   }
   buildings.push(building);
+  buildingTags.push(b.kind);
 }
 
 // The orthophoto's roof colours, white-balanced on the flat roofs (src/data/roof-colours.ts).
@@ -601,12 +588,24 @@ for (const [i, ring] of plazas.entries()) {
 }
 const publicGround = new RingIndex();
 for (const ring of [...roads, ...plazas]) publicGround.add(ring);
+// Public places too: their points first (a faculty's door, a hotel), then the buildings that
+// say what they are, or stand on a campus, a school's grounds or a hospital's.
+const placeSites = areasOf(osmAreaElements.elements, toLocal).flatMap((a) => {
+  const kind = placeKind(a.tags);
+  return kind ? a.polygons.map((p) => ({ kind, ring: p.outer })) : [];
+});
 const shops = placeFronts(
-  osmPoints.features.flatMap((f) => {
-    if (f.geometry.type !== 'Point') return [];
-    const [x, z] = toLocal(...(f.geometry.coordinates as [number, number]));
-    return areaIndex(AREA, x, z) >= 0 ? [{ x, z, tags: f.properties }] : [];
-  }),
+  [
+    ...osmPoints.features.flatMap((f) => {
+      if (f.geometry.type !== 'Point') return [];
+      const [x, z] = toLocal(...(f.geometry.coordinates as [number, number]));
+      return areaIndex(AREA, x, z) >= 0 ? [{ x, z, tags: f.properties }] : [];
+    }),
+    ...placePoints(
+      buildings.map((b, i) => ({ ring: b.ring, kind: b.kind, tag: buildingTags[i]! })),
+      placeSites,
+    ),
+  ],
   {
     facades,
     streets: segments,
@@ -669,72 +668,6 @@ const city: City = {
 const bytes = await packCity(city);
 await Bun.write(OUT, bytes);
 
-// The facade plates (src/data/plate-placement.ts), in their own file: only a view close to the
-// street loads it.
-// Addresses are OSM's, on buildings (their middle) and on points where no building has them.
-const address = (x: number, z: number, tags: Props): Address[] => {
-  const [number, street] = [tags['addr:housenumber'], tags['addr:street']?.trim()];
-  if (!number || !street || areaIndex(AREA, x, z) < 0) return [];
-  return [{ x, z, street: nameIndex.get(street) ?? -1, number }];
-};
-const addresses: Address[] = [
-  ...osmBuildings.elements.flatMap((e) => {
-    const outline =
-      e.type === 'way'
-        ? (e.geometry ?? [])
-        : (e.members ?? []).filter((m) => m.role === 'outer').flatMap((m) => m.geometry ?? []);
-    if (!e.tags || outline.length === 0) return [];
-    return address(...centroid(outline.flatMap(({ lon, lat }) => toLocal(lon, lat))), e.tags);
-  }),
-  ...osmPoints.features.flatMap((f) =>
-    f.geometry.type === 'Point'
-      ? address(...toLocal(...(f.geometry.coordinates as [number, number])), f.properties)
-      : [],
-  ),
-];
-// The doors people walk in by: not garages, service or emergency doors.
-const DOOR = /^(yes|main|home|staircase|shop|office)$/;
-const doors: Door[] = osmEntrances.elements.flatMap(({ lat, lon, tags }) => {
-  if (!DOOR.test(tags.entrance ?? '')) return [];
-  const [x, z] = toLocal(lon, lat);
-  const number = tags['addr:housenumber'];
-  return [{ x, z, number: number ? plateText(number) : null }];
-});
-const houses = placeHouseNumbers(addresses, facades, segments, {
-  squares: namedSquares,
-  open: (x, z) => publicGround.contains(x, z),
-  skip: landmarks,
-  doors,
-});
-const streetPlates = placeStreetPlates({
-  junctions: junctions(
-    [...waysByName].flatMap(([name, list]) =>
-      list.map((way) => ({ name: nameIndex.get(name)!, line: way.line })),
-    ),
-  ),
-  facades,
-  streets: segments,
-  lines: streets,
-  names: names.table,
-  eaves: buildings.map((b) => b.eave),
-  height: STREET_PLATE_HEIGHT,
-  skip: landmarks,
-});
-// Each shop front's name, on a board over its window or on its awning (src/data/boards.ts).
-const boards = placeBoards(
-  shops.fronts,
-  buildings.map((b) => b.ring),
-  shops.tags,
-  PROUD,
-);
-const strips = <T extends { x: number; z: number }>(list: T[]) =>
-  list.toSorted((a, b) => Math.floor(a.z / STRIP) - Math.floor(b.z / STRIP) || a.x - b.x);
-const walkBytes = await packWalk({
-  houses: strips(houses.plates),
-  streets: strips(streetPlates.plates),
-  boards: strips(boards.boards),
-});
-await Bun.write(WALK_OUT, walkBytes);
 const reasons = (skipped: Record<string, number>) =>
   Object.entries(skipped)
     .map(([why, n]) => `${n} ${why}`)
@@ -765,6 +698,13 @@ console.log(
       ),
     )
       .map(([kind, list]) => `${list!.length} ${kind}`)
+      .join(', ')}; places ${Object.entries(
+      Object.groupBy(
+        shops.fronts.filter((f) => PLACES.has(f.kind)),
+        (f) => f.kind,
+      ),
+    )
+      .map(([kind, list]) => `${list!.length} ${kind}`)
       .join(', ')}`,
     `roofs ${buildings.filter((b) => b.roof === 'flat').length} flat, ${buildings.filter((b) => b.roof === 'across').length} with the ridge across, ${buildings.filter((b) => b.roofColor !== null).length} with a sampled colour, ${buildings.filter((b) => b.holes.length).length} with courtyards`,
     `props ${props.length} (${placed.nudged} nudged, ${placed.dropped} dropped, ${allTrees.heights.length - trees.heights.length} crowns cleared): ${Object.entries(
@@ -780,9 +720,5 @@ console.log(
     `terrain ${city.terrain.cols} × ${city.terrain.rows} nodes every ${city.terrain.step} m, ${Math.min(...city.terrain.heights).toFixed(1)} to ${Math.max(...city.terrain.heights).toFixed(1)} m about Grote Markt`,
     `street names ${names.table.length}: ${streets.length} streets (${streets.reduce((sum, s) => sum + s.line.length / 2, 0)} points), ${plazaNames.filter((n) => n >= 0).length} of ${plazas.length} squares named`,
     `public/data/city.bin ${(bytes.length / 1024).toFixed(0)} KB gzipped`,
-    `house numbers ${houses.plates.length} of ${addresses.length} addresses: ${reasons(houses.placed)} (skipped ${reasons(houses.skipped)})`,
-    `street plates ${streetPlates.plates.length}: ${reasons(streetPlates.placed)} (skipped ${reasons(streetPlates.skipped)})`,
-    `name boards ${boards.boards.length} of ${shops.fronts.length} fronts, ${new Set(boards.boards.map((b) => b.name)).size} names, ${boards.boards.filter((b) => b.name.endsWith('…')).length} cut (skipped ${reasons(boards.skipped)})`,
-    `public/data/walk.bin ${(walkBytes.length / 1024).toFixed(1)} KB gzipped`,
   ].join('\n'),
 );

@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { rank, shopKind } from './shop-kinds.ts';
+import { PLACES, SHOP_KINDS, placeKind, rank, shopKind } from './shop-kinds.ts';
 import type { ShopKind } from './shop-kinds.ts';
 
 test('a frituur is fast food that fries, by its cuisine or by its name', () => {
@@ -28,7 +28,10 @@ test('amenities, shops and crafts map to their kind', () => {
   expect(shopKind({ shop: 'supermarket' })).toBe('food');
   expect(shopKind({ shop: 'clothes' })).toBe('fashion');
   expect(shopKind({ shop: 'bicycle' })).toBe('bicycle');
-  expect(shopKind({ shop: 'hairdresser' })).toBe('service');
+  expect(shopKind({ shop: 'hairdresser' })).toBe('hairdresser');
+  expect(shopKind({ shop: 'beauty' })).toBe('service');
+  expect(shopKind({ shop: 'greengrocer' })).toBe('greengrocer');
+  expect(shopKind({ shop: 'florist' })).toBe('florist');
   expect(shopKind({ shop: 'books' })).toBe('books');
   expect(shopKind({ shop: 'gift' })).toBe('shop');
   expect(shopKind({ shop: 'yes' })).toBe('shop');
@@ -50,4 +53,25 @@ test('a building shows its most telling front', () => {
   expect(main(['service', 'frituur', 'restaurant'])).toBe('frituur');
   expect(main(['shop', 'bank'])).toBe('bank');
   expect(main(['restaurant', 'cafe'])).toBe('cafe');
+});
+
+test('public places by their amenity, tourism, leisure or building value', () => {
+  expect(placeKind({ amenity: 'university' })).toBe('university');
+  expect(placeKind({ amenity: 'kindergarten' })).toBe('school');
+  expect(placeKind({ tourism: 'guest_house' })).toBe('hotel');
+  expect(placeKind({ leisure: 'sports_centre' })).toBe('sports');
+  expect(placeKind({ building: 'college' })).toBe('university');
+  // The amenity says it before the building does.
+  expect(placeKind({ amenity: 'library', building: 'university' })).toBe('library');
+  expect(placeKind({ amenity: 'parking' })).toBeNull();
+  expect(placeKind({ building: 'house' })).toBeNull();
+  expect(placeKind({})).toBeNull();
+});
+
+test('places come after every shop, and rank after them too', () => {
+  const first = SHOP_KINDS.findIndex((k) => PLACES.has(k));
+  expect(SHOP_KINDS.slice(first).every((k) => PLACES.has(k))).toBe(true);
+  expect(PLACES.has('shop')).toBe(false);
+  expect(main(['university', 'service'])).toBe('service');
+  expect(SHOP_KINDS.every((k) => rank(k) >= 0)).toBe(true);
 });

@@ -308,6 +308,13 @@ describe('shop fronts', () => {
     expect(decoded.buildings.map((b) => b.front)).toEqual([undefined, fronts[0], fronts[2]]);
   });
 
+  test('a public place is no building’s main front, even its only one', () => {
+    const school = { building: 0, edge: 0, along: 2, kind: 'school', terrace: false } as const;
+    const decoded = decodeCity(encodeCity({ ...city, fronts: [school, ...fronts] }));
+    expect(decoded.fronts[0]).toEqual(school);
+    expect(decoded.buildings[0]!.front).toBeUndefined();
+  });
+
   test('rejects a front on a missing building, wall or kind', () => {
     const bad = (front: Partial<City['fronts'][number]>) => {
       const one = [{ ...fronts[2]!, ...front }];

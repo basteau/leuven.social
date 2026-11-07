@@ -1,6 +1,6 @@
 /**
- * How far a shop front's awning reaches along its wall (src/scene/storefronts.ts draws it), and
- * its name board with it (src/data/boards.ts). A module of its own: the furniture chunk and the
+ * How far a shop front's awning reaches along its wall (src/scene/storefronts.ts draws it). A
+ * module of its own: the furniture chunk and the
  * bake share it, and the avatar's share of shops.ts stays as it was.
  */
 
@@ -10,11 +10,11 @@
  */
 export const AWNING_HALF = 2.5;
 export const END_GAP = 0.3;
-/** A front with no more room than this each side (m) gets neither awning nor name board. */
+/** A front with no more room than this each side (m) gets no awning. */
 export const MIN_ROOM = 0.4;
 
 /**
- * How far a front's awning, and its name board, reach each side of it (m): up to AWNING_HALF,
+ * How far a front's awning reaches each side of it (m): up to AWNING_HALF,
  * short of its wall's ends, and halfway to the next front along the same wall (`others`, how far
  * along it each is).
  */
@@ -28,12 +28,14 @@ export function awningRoom(along: number, length: number, others: readonly numbe
 }
 
 /**
- * Potted bay trees either side of a café's, bar's or restaurant's door (src/scene/storefronts.ts
- * draws them; the avatar meets each as a post): `along` each side of the front's middle, `out`
- * from its wall, pots `radius` round. A front needs room for them, and none where its terrace is.
+ * What stands either side of a front's door (src/scene/storefronts.ts draws it; the avatar meets
+ * each as a post): a café's, bar's or restaurant's potted bay trees (a bar's beer barrel for one
+ * of them), a greengrocer's crates of fruit, a florist's buckets of flowers. `along` each side of
+ * the front's middle, `out` from its wall, `radius` round. A front needs room for them, and none
+ * where its terrace is.
  */
 export const DOOR_PLANT = { along: 0.95, out: 0.4, radius: 0.24 } as const;
-const PLANTED = new Set(['cafe', 'bar', 'restaurant']);
+const PLANTED = new Set(['cafe', 'bar', 'restaurant', 'greengrocer', 'florist']);
 
 /** Where a front's door plants stand (x, z pairs), given its point on the wall and its room. */
 export function doorPlants(

@@ -1,9 +1,16 @@
 import { expect, test } from 'bun:test';
 
 import type { Building, ShopFront } from './city.ts';
-import { Facades } from './plate-placement.ts';
+import { Facades } from './facades.ts';
 import { Shapes, propFootprint } from './props.ts';
-import { fitTerraces, frontPoint, markShopFronts, placeFronts, terraceFootprint } from './shops.ts';
+import {
+  fitTerraces,
+  frontPoint,
+  markShopFronts,
+  placeFronts,
+  placePoints,
+  terraceFootprint,
+} from './shops.ts';
 import type { TerraceSurroundings } from './shops.ts';
 
 const rect = (x: number, z: number, w: number, d: number) =>
@@ -41,7 +48,7 @@ test('a front stands on its wall, facing out of the building', () => {
 
 test('each shop gets the wall facing its street, its building the most telling front', () => {
   const street = { 'addr:street': 'Naamsestraat' };
-  const { fronts, tags, placed, skipped } = placeFronts(
+  const { fronts, placed, skipped } = placeFronts(
     [
       { x: 3, z: 2, tags: { amenity: 'fast_food', cuisine: 'friture', ...street } },
       // The same frituur, mapped again as its building.
@@ -58,11 +65,8 @@ test('each shop gets the wall facing its street, its building the most telling f
   expect(fronts).toEqual([
     { building: 0, edge: 0, along: 3, kind: 'frituur', terrace: false },
     { building: 1, edge: 0, along: 2, kind: 'bakery', terrace: true },
-    { building: 1, edge: 0, along: 3, kind: 'service', terrace: false },
+    { building: 1, edge: 0, along: 3, kind: 'hairdresser', terrace: false },
   ]);
-  // The frituur keeps its own tags, and takes its name from its twin.
-  expect(tags.get(fronts[0]!)).toMatchObject({ cuisine: 'friture', name: 'Frituur Tivoli' });
-  expect(tags.get(fronts[1]!)).toEqual({ shop: 'bakery', outdoor_seating: 'yes' });
   expect(placed).toEqual({ 'facing its street': 3 });
   expect(skipped).toEqual({
     'mapped twice': 1,
@@ -72,17 +76,58 @@ test('each shop gets the wall facing its street, its building the most telling f
   });
 });
 
+test('a public place shows once on its building, from its point or its building', () => {
+  const { fronts, skipped } = placeFronts(
+    [
+      { x: 3, z: 2, tags: { amenity: 'university', name: 'Faculty' } },
+      { x: 4, z: 3, tags: { amenity: 'university', name: 'Its institute' } },
+      // Read off the building, on another wall's side: the same place.
+      { x: 3, z: 9, tags: {}, kind: 'university', building: 0 },
+      { x: 9, z: 9, tags: {}, kind: 'hotel', building: 1 },
+    ],
+    input,
+  );
+  expect(fronts.map((f) => [f.building, f.kind])).toEqual([
+    [0, 'university'],
+    [1, 'hotel'],
+  ]);
+  expect(skipped).toEqual({ 'mapped twice': 2 });
+});
+
+test('placePoints finds places by their building or the site they stand on', () => {
+  const big = (x: number) => rect(x, 0, 10, 10);
+  const points = placePoints(
+    [
+      { ring: big(0), kind: 'other', tag: 'school' },
+      { ring: big(20), kind: 'other', tag: 'yes' },
+      { ring: big(40), kind: 'house', tag: 'house' },
+      // Too small, and a shed, on the campus all the same.
+      { ring: rect(22, 12, 4, 4), kind: 'other', tag: 'yes' },
+      { ring: rect(24, 20, 10, 10), kind: 'shed', tag: 'shed' },
+    ],
+    [{ kind: 'university', ring: rect(15, -5, 40, 40) }],
+  );
+  expect(points).toEqual([
+    { x: 5, z: 5, tags: {}, kind: 'school', building: 0 },
+    { x: 25, z: 5, tags: {}, kind: 'university', building: 1 },
+    { x: 45, z: 5, tags: {}, kind: 'university', building: 2 },
+  ]);
+});
+
 test('a building with a front shows its main one and becomes a shop, unless a church', () => {
-  const buildings = [house(0), house(1, 'church')];
+  const buildings = [house(0), house(1, 'church'), house(2)];
   const fronts: ShopFront[] = [
     { building: 0, edge: 0, along: 2, kind: 'cafe', terrace: false },
     { building: 0, edge: 0, along: 4, kind: 'shop', terrace: false },
     { building: 1, edge: 0, along: 2, kind: 'bar', terrace: false },
+    // A school's sign by its door leaves its building a house.
+    { building: 2, edge: 0, along: 2, kind: 'school', terrace: false },
   ];
   expect(markShopFronts(buildings, fronts)).toBe(1);
   expect(buildings.map((b) => [b.kind, b.front?.kind])).toEqual([
     ['retail', 'cafe'],
     ['church', 'bar'],
+    ['house', undefined],
   ]);
 });
 

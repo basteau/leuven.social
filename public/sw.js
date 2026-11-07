@@ -1,8 +1,8 @@
 // Offline support. Hashed build assets are cache-first; pages, icons (their names carry no hash)
-// and everything under /data/ (the city, and walk mode's plates) are network-first, so a rebake
+// and everything under /data/ (the city, the rooms) are network-first, so a rebake
 // or a new icon shows up on the next online visit. Bump CACHE to drop everything after a format
 // change.
-const CACHE = 'leuven-v24'; // city format v24: the traffic's ways went with the traffic
+const CACHE = 'leuven-v26'; // city format v26: public places' fronts, and no traffic's ways
 
 self.addEventListener('install', () => self.skipWaiting());
 

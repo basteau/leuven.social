@@ -32,7 +32,6 @@ describe('the level-of-detail table', () => {
     expect(detailAt(spanOf(1))).toEqual({
       furniture: false,
       avatar: 'none',
-      plates: false,
       streetShadows: false,
       prewarm: false,
     });
@@ -45,7 +44,6 @@ describe('the level-of-detail table', () => {
     expect(detailAt(SPANS.street)).toEqual({
       furniture: true,
       avatar: 'figure',
-      plates: true,
       streetShadows: true,
       prewarm: true,
     });

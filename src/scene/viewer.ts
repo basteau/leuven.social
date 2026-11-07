@@ -1,8 +1,6 @@
 import {
   Box3,
-  BufferAttribute,
   BufferGeometry,
-  CanvasTexture,
   DataTexture,
   DirectionalLight,
   Fog,
@@ -12,12 +10,10 @@ import {
   LineSegments,
   Matrix4,
   Mesh,
-  MeshToonMaterial,
   NearestFilter,
   OrthographicCamera,
   PCFShadowMap,
   RedFormat,
-  SRGBColorSpace,
   Scene,
   Vector2,
   Vector3,
@@ -29,7 +25,7 @@ import type { City } from '../data/city.ts';
 import { clampToArea } from '../data/geometry.ts';
 import type { StreetIndex } from '../data/streets.ts';
 import { Terrain } from '../data/terrain.ts';
-import { addBuilding, facadeOf, footing, partyWalls, wallTop } from './buildings.ts';
+import { addBuilding, footing, partyWalls, wallTop } from './buildings.ts';
 import { AWNING } from './facade-codes.ts';
 import type { PartyWalls } from './buildings.ts';
 import { buildCell, groundRange, partition } from './cells.ts';
@@ -59,7 +55,7 @@ import { LAYER_Y, slabBottom } from './ground.ts';
 import { LINE_LOD } from './paint.ts';
 import { LineBuilder, MeshBuilder, corners, geometryBytes } from './mesh-builder.ts';
 import type { V3 } from './mesh-builder.ts';
-import { OUTLINE, PLATE, SKY } from './palette.ts';
+import { OUTLINE, SKY } from './palette.ts';
 import {
   depthRange,
   fitShadow,
@@ -75,7 +71,6 @@ import { SPIN_EASE, spinStep } from './spin.ts';
 import { isTap } from './tap.ts';
 import type { Spin } from './spin.ts';
 import { terraceParasols } from './terraces.ts';
-import type { Plates } from './plates.ts';
 import type { AvatarLayer, Refusal, RoomPlace } from './avatar-layer.ts';
 import type { Outfit } from './character.ts';
 import type { PlayerPose } from './crowd.ts';
@@ -862,10 +857,6 @@ export function createViewer(options: ViewerOptions): Viewer {
     [fog.near, fog.far] = fogRange(span);
     camera.updateMatrixWorld();
     prepare();
-    // The plates on the facades show close to the street, round where the view looks.
-    const t = controls.target;
-    if (detail.plates) loadFacadePlates();
-    plates?.update(t.x, t.z, detail.plates);
     avatar?.detail(detail, span);
     const shown = detail.avatar === 'figure';
     if (avatar) {
@@ -916,7 +907,6 @@ export function createViewer(options: ViewerOptions): Viewer {
       peakTriangles: peak.triangles,
       vertices: held.vertices,
       geometryBytes: held.bytes,
-      plates: plates?.shown ?? 0,
       avatar: avatarShown,
       zoom: Math.round(camera.zoom * 100) / 100,
     });
@@ -963,7 +953,6 @@ export function createViewer(options: ViewerOptions): Viewer {
   // The avatar is its own chunk, downloaded once the first frame is drawn, with the street
   // names beside it.
   let avatar: AvatarLayer | undefined;
-  let plates: Plates | undefined;
   let loadingAvatar: Promise<AvatarLayer> | undefined;
   let disposed = false;
   function loadAvatar(): Promise<AvatarLayer> {
@@ -1012,45 +1001,6 @@ export function createViewer(options: ViewerOptions): Viewer {
       loadingAvatar = undefined;
     });
     return loadingAvatar;
-  }
-  // The house numbers and street plates on the facades: their own chunk and data, after walk
-  // mode's, and only decoration, so a failure leaves the walk as it was.
-  let loadingPlates = false;
-  function loadFacadePlates(): void {
-    if (loadingPlates) return;
-    loadingPlates = true;
-    import('./plates.ts')
-      .then(({ loadPlates }) =>
-        loadPlates({
-          kit: {
-            three: {
-              BufferAttribute,
-              BufferGeometry,
-              CanvasTexture,
-              Mesh,
-              MeshToonMaterial,
-              SRGBColorSpace,
-            },
-            colours: PLATE,
-          },
-          scene,
-          city,
-          facade: (b) => ({ ...facadeOf(b), foot: footing(terrain, b.ring) }),
-          height: (x, z) => terrain.height(x, z),
-          ground: drawnAt,
-          gradientMap,
-          anisotropy: Math.min(8, renderer.capabilities.getMaxAnisotropy()),
-          compile: (object) => renderer.compileAsync(object, camera, scene),
-          changed: invalidate,
-        }),
-      )
-      .then(
-        (loaded) => {
-          if (disposed) loaded.dispose();
-          else plates = loaded;
-        },
-        (error: unknown) => console.warn('The plates on the facades could not load.', error),
-      );
   }
   function withAvatar(act: (loaded: AvatarLayer) => void): void {
     if (avatar) {
@@ -1389,7 +1339,6 @@ export function createViewer(options: ViewerOptions): Viewer {
       cancelIdle(idleHandle);
       disposed = true;
       avatar?.dispose();
-      plates?.dispose();
       observer.disconnect();
       listening.abort();
       densityQuery?.removeEventListener('change', onDensity);

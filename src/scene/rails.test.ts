@@ -170,5 +170,5 @@ test('a bay is a vault from valley to crown, ends filled, outlined, on four post
 
 test('sleeper codes lie past every road surface and paint code', () => {
   expect(SLEEPER_CODE).toBeGreaterThan((PAINT_KIND.patch + 1) * ANGLES * 2);
-  expect(SLEEPER_CODE).toBeGreaterThan(SURFACE.paving);
+  expect(SLEEPER_CODE).toBeGreaterThan(SURFACE.flowers);
 });

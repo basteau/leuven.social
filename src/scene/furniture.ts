@@ -47,8 +47,8 @@ export interface Furniture {
 }
 
 /**
- * What the chunk takes from the engine rather than importing it, as the plates do: a module
- * the engine, the avatar's chunk and this one all import would be split into a chunk of its own.
+ * What the chunk takes from the engine rather than importing it: a module the engine, the
+ * avatar's chunk and this one all import would be split into a chunk of its own.
  */
 export interface FurnitureKit extends StorefrontKit {
   MeshBuilder: typeof MeshBuilder;

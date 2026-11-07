@@ -36,9 +36,10 @@
  * so most of those take a byte.
  * Shop fronts (v17) follow, by building: each is its building's place in the list (the change
  * from the front before), the edge of its ring it is on, how far along it (decimetres), and its
- * kind's place in SHOP_KINDS with the top bit set for a terrace. A building's first front is its
- * main one: the decoder hangs it on the building as `front`. They come last (v24: the ways
- * the traffic moved along, v19 to v23, went with the traffic).
+ * kind's place in SHOP_KINDS with the top bit set for a terrace (v25: public places among them).
+ * A building's first shop's front is its main one: the decoder hangs it on the building as
+ * `front`. They come last (v24: the ways the traffic moved along, v19 to v23, went with the
+ * traffic; v26: both).
  */
 
 import * as Binary from '@portable/binary';
@@ -70,12 +71,13 @@ import type {
 import { boundsOf } from './geometry.ts';
 import { FIELD_SPORTS, PITCH_SURFACES } from './pitches.ts';
 import type { Field } from './pitches.ts';
-import { SHOP_KINDS } from './shop-kinds.ts';
+import { PLACES, SHOP_KINDS } from './shop-kinds.ts';
 
 const MAGIC = 'LVN1';
 // v16: a byte per bike rack, its fill (`Prop.fill`). v17: the shop fronts. v18: pitch surfaces
-// and the fields painted on them, after the polygon layers. Bump the cache in public/sw.js with it.
-const VERSION = 24;
+// and the fields painted on them, after the polygon layers. v25: more kinds of front, public
+// places among them. v26: those, and no ways for the traffic. Bump the cache in public/sw.js with it.
+const VERSION = 26;
 const DM = 10; // units per metre
 const GROUND = 20; // terrain heights per metre: 5 cm
 const ZIGZAG = { encoding: 'zigzag' } as const;
@@ -176,7 +178,7 @@ function writeFronts(w: Binary.Writer, fronts: readonly ShopFront[]): void {
   }
 }
 
-/** Reads the fronts and hangs each building's first, its main one, on it as `front`. */
+/** Reads the fronts and hangs each building's first shop's, its main one, on it as `front`. */
 function readFronts(r: Binary.Reader, buildings: Building[]): ShopFront[] {
   let place = 0;
   return Array.from({ length: r.varint() }, (): ShopFront => {
@@ -188,7 +190,7 @@ function readFronts(r: Binary.Reader, buildings: Building[]): ShopFront[] {
       throw new CityFormatError(`Bad shop front on building ${building}.`);
     }
     const front = { building, edge, along, kind, terrace: (packed & TERRACE_BIT) !== 0 };
-    b.front ??= front;
+    if (!PLACES.has(kind)) b.front ??= front;
     return front;
   });
 }

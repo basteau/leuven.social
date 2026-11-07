@@ -42,7 +42,6 @@ What loads when:
 | The engine (`viewer.ts`, three.js, the palette)                                                                                                           | With the city, for the first frame                                                |
 | The avatar (`avatar-layer.ts`) and its rooms' code (`interiors.ts`, `room-mesh.ts`, `src/data/rooms.ts`, `room-grid.ts`), the street names (`streets.ts`) | Once the first frame is drawn                                                     |
 | The furniture                                                                                                                                             | Once the first frame is drawn                                                     |
-| The plates (`plates.ts`) and `walk.bin`                                                                                                                   | When the view first comes down to the street (under 60 m tall)                    |
 | The bikes (`bikes.ts`)                                                                                                                                    | When the avatar comes within 25 m of a parked bike, or on F                       |
 | `rooms.json`                                                                                                                                              | When the avatar's figure is in view within 160 m of a landmark, or the menu opens |
 
@@ -64,7 +63,7 @@ Code uses web-standard APIs and the [Portable](https://github.com/portablejs/por
 - Coverage below 95% lines or functions in any file fails the run, even when every test passes: look for the file in the coverage table.
 - `src/modules.test.ts` imports every pure module, so a new file without tests still shows up in coverage instead of hiding.
 - The server's tests drive the presence hub (`server/world.ts`) with fake connections, and start the real server on port 0 with SQLite in memory (`server/server.test.ts`): accounts, cookies and WebSockets end to end, `src/net/account.ts` included. `server/main.ts` only reads the environment and isn't measured.
-- Browser-only code (`viewer.ts`, `avatar-layer.ts`, `bikes.ts`, `plates.ts`, `facade-material.ts`, `character-material.ts`, `load.ts`, the React app; `BROWSER_ONLY` in `src/modules.test.ts`) is checked by the smoke test in `bun run verify` instead.
+- Browser-only code (`viewer.ts`, `avatar-layer.ts`, `bikes.ts`, `facade-material.ts`, `character-material.ts`, `load.ts`, the React app; `BROWSER_ONLY` in `src/modules.test.ts`) is checked by the smoke test in `bun run verify` instead.
 - When you add logic, put it in a pure function in `src/data` or a geometry builder in `src/scene` and test it there. Keep `viewer.ts` thin.
 
 `src/data/baked.test.ts` decodes the committed `public/data/city.bin`, so a broken bake can't ship, and checks `public/data/rooms.json` against it, so a room that no longer fits its building can't either.

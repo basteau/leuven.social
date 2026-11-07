@@ -1,6 +1,6 @@
 import { SHIN, THIGH } from './limb.ts';
 import type { MeshBuilder, V3 } from './mesh-builder.ts';
-import { OUTLINE, PLATE, PROPS, WALKER } from './palette.ts';
+import { OUTLINE, PAPER_WHITE, PROPS, WALKER } from './palette.ts';
 
 /**
  * The figure's shape: a Leuven student in a shirt and shorts, a few chunky blocks on a
@@ -263,7 +263,7 @@ export const shade = (hex: number, k: number) =>
 /**
  * The sneakers' sole, a few shades lighter than the upper. The figure's details take their
  * colours from the palette's own (the belt from wood, the buckle from the signs' brass, the
- * buttons from the plates' paper), so walking adds nothing to the palette the map loads.
+ * buttons from the app's paper), so walking adds nothing to the palette the map loads.
  */
 export const SOLE_COLOR = shade(WALKER.sneakers, 2.4);
 
@@ -396,7 +396,7 @@ export function details(outfit: Outfit): Flat[] {
     onShirt(placket, -0.016, 0.016, 0.93, 1.08),
     onShirt(placket, -0.016, 0.016, 1.08, 1.27),
     ...[1.0, 1.12, 1.22].map((y) =>
-      onShirt(PLATE.paper, -0.012, 0.012, y - 0.012, y + 0.012, 0.007),
+      onShirt(PAPER_WHITE, -0.012, 0.012, y - 0.012, y + 0.012, 0.007),
     ),
     onShirt(shade(outfit.shirt, 0.9), 0.06, 0.16, 1.08, 1.19),
     onShirt(placket, 0.06, 0.16, 1.19, 1.205),
@@ -404,7 +404,7 @@ export function details(outfit: Outfit): Flat[] {
     // The face: eyes with a glint, brows, a nose and a small mouth.
     ...[0.055, -0.11].flatMap((x) => [
       front('head', OUTLINE, [x, x + 0.055, 1.6, 1.67], 0.186, 0.192),
-      front('head', PLATE.paper, [x + 0.03, x + 0.046, 1.645, 1.661], 0.193),
+      front('head', PAPER_WHITE, [x + 0.03, x + 0.046, 1.645, 1.661], 0.193),
       front('head', outfit.hair, [x - 0.008, x + 0.063, 1.692, 1.712], 0.196),
     ]),
     ...nose,

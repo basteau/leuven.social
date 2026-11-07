@@ -360,25 +360,6 @@ function wallRings(
 }
 
 /**
- * A building's walls as drawn, for what hangs on them (the plates): the rings they stand on, the
- * wall top the facade shader counts storeys under, and which walls, by their outward normal, are
- * over a shop front.
- */
-export function facadeOf(b: Building): {
-  rings: readonly ArrayLike<number>[];
-  top: number;
-  shop: (nx: number, nz: number) => boolean;
-} {
-  const plan = planOf(b);
-  const fronts = frontWalls(b, plan.eave);
-  return {
-    rings: wallRings(b, plan),
-    top: plan.eave,
-    shop: (nx, nz) => typeof fronts !== 'number' && fronts(nx, nz) !== plan.eave,
-  };
-}
-
-/**
  * A footprint corner as one number: its coordinates in decimetres, the precision the city file
  * keeps, each offset to be positive and given 21 bits (±100 km).
  */
@@ -389,7 +370,7 @@ const pointKey = (x: number, z: number) =>
  * Where a house's storeys count from: the lowest ground under its corners, where it stands
  * (`terrain.base`), down to a whole LIFT_UNIT, which the shader reads its windows from
  * (mesh-builder.ts). Neighbours of nearly the same base share it, so their windows line up;
- * plates and awnings hang from it too.
+ * awnings and signs hang from it too.
  */
 export const footing = (terrain: Terrain, ring: ArrayLike<number>) =>
   Math.floor(terrain.base(ring) / LIFT_UNIT) * LIFT_UNIT;

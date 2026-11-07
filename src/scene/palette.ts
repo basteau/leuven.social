@@ -249,6 +249,8 @@ export const TREE = {
   jitter: { l: 0.035, hue: 0.16 },
   /** Lightness lost by a 25 m tree against a 7 m one. */
   age: 0.05,
+  /** A cherry or a magnolia in flower, now and then among the smaller trees. */
+  blossom: 0xeba3bb,
 } as const;
 
 /**
@@ -256,6 +258,8 @@ export const TREE = {
  * fascia board where there's none (a pharmacy's green, a bank's blue), and a second colour it is
  * striped with where that's the trade's (a frituur's red and yellow, a bakery's cream and brown).
  * Cafés, bars and restaurants have warm panes, open into the evening; shops goods in the window.
+ * A public place has no front of glass: its two colours are its sign's (storefronts.ts), a
+ * university's KU Leuven blue, a hotel's wine and gold.
  */
 export interface FrontStyle {
   canvas: number;
@@ -282,6 +286,18 @@ export const FRONTS: Record<ShopKind, FrontStyle> = {
   bicycle: { canvas: 0x4a77a8, awning: true, goods: true },
   service: { canvas: 0x6c707a, awning: false },
   shop: { canvas: 0xd2553f, awning: true, goods: true },
+  hairdresser: { canvas: 0x2b3f63, awning: false },
+  greengrocer: { canvas: 0x3f8a3a, stripe: PAPER, awning: true, goods: true },
+  florist: { canvas: 0xc8577a, stripe: 0x4f8a45, awning: true, goods: true },
+  university: { canvas: 0x1d6fa8, stripe: PAPER, awning: false },
+  school: { canvas: 0xf2c14e, stripe: 0xd2553f, awning: false },
+  hotel: { canvas: 0x6b2d3c, stripe: 0xe8b94a, awning: false },
+  museum: { canvas: 0xa8322d, stripe: 0xe8b94a, awning: false },
+  library: { canvas: 0x2f6b4f, stripe: PAPER, awning: false },
+  cinema: { canvas: 0x8c2f3a, stripe: 0xf2cf5b, awning: false },
+  theatre: { canvas: 0x5a2d6b, stripe: 0xf2cf5b, awning: false },
+  hospital: { canvas: PAPER, stripe: 0xd2453f, awning: false },
+  sports: { canvas: 0xe07b2f, stripe: 0x2c2b30, awning: false },
 };
 
 /**
@@ -306,12 +322,8 @@ export const CHIMNEY = 0x8a4a3c;
 export const WINDOW = { glass: 0x2f3a4a, lit: 0xf3c873 } as const;
 
 export const OUTLINE = 0x2b2420;
-/**
- * The enamel plates on the facades (house numbers, street names): the HUD street plate's
- * `--sign` blue and `--paper` rim and letters (app.css), edged in the outlines' ink. Paper on
- * enamel is 7.6:1.
- */
-export const PLATE = { enamel: 0x14518c, paper: 0xfbf6ec, ink: OUTLINE } as const;
+/** The app's `--paper` (app.css), for the few specks of white in the scene: buttons, glints. */
+export const PAPER_WHITE = 0xfbf6ec;
 export const SUN = 0xffe2b8;
 export const SKY_LIGHT = 0xcfe3ff;
 export const BOUNCE_LIGHT = 0x9a8a70;

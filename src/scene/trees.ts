@@ -62,11 +62,19 @@ export const MODEL_HEIGHT = 6.8;
 export const TREE_TRIANGLES = (TRUNK.length + CROWN.length) / 3;
 
 const CROWN_LAB = toOklab(TREE.crown);
+const BLOSSOM_LAB = toOklab(TREE.blossom);
+/** Trees up to this tall (m) may be in flower: a cherry, not a plane or a lime. */
+const BLOSSOM_HEIGHT = 12;
 
-/** A tree's own green: lightness and hue strayed by its seed, darker the older (taller) it is. */
+/**
+ * A tree's own green: lightness and hue strayed by its seed, darker the older (taller) it is.
+ * One small tree in about thirty is in flower instead, pink, the way a few cherries and
+ * magnolias light up Leuven's parks and gardens.
+ */
 export function crownColor(seed: number, height: number): number {
   const unit = (salt: number) => (pick(UNITS, seed * 7 + salt) / (UNITS.length - 1)) * 2 - 1;
-  const [l, a, b] = CROWN_LAB;
+  const blossom = height <= BLOSSOM_HEIGHT && pick(UNITS, seed * 13 + 5) < 2;
+  const [l, a, b] = blossom ? BLOSSOM_LAB : CROWN_LAB;
   const turn = unit(1) * TREE.jitter.hue;
   const [c, s] = [Math.cos(turn), Math.sin(turn)];
   const old = Math.min(Math.max((height - 7) / 18, 0), 1) * TREE.age;
