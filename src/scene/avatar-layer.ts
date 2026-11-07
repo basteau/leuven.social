@@ -262,6 +262,8 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
   let running = false;
   let frame = 0;
   let last = 0;
+  /** What the last simulation step said: still moving, turning or idling. */
+  let stirring = false;
   /** Whether a tick is under way: its own frame, so the viewer draws none on top of it. */
   let ticking = false;
   /** Set once the layer is disposed: a download that lands later does nothing. */
@@ -531,7 +533,6 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
 
   function follow(route: Float32Array): void {
     const w = avatar.walker;
-    [w.x, w.z] = [route[0]!, route[1]!];
     w.route = route;
     w.next = 1;
     w.travelled = 0;
@@ -621,20 +622,20 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
 
     const holding = bikes?.busy ?? false;
     const [sx, sz] = holding ? [0, 0] : screenSteer(host.yaw(), keyRight, keyUp);
-    let moving = false;
     for (let n = ticks(sim, elapsed); n > 0; n--) {
       remember();
       const routed = w.route !== null;
-      moving = stepAvatar(avatar, STEP, sx, sz, underfoot(), running);
+      stirring = stepAvatar(avatar, STEP, sx, sz, underfoot(), running);
       crossings();
       if (avatar.mode === 'foot') sounds.stride(w.phase, w.speed, runBlend(w.speed));
       if (routed && !w.route && !sx && !sz) sounds.routeEnd();
     }
     // Nobody sees an idle figure from far out: it stands still there.
     if (shown !== 'figure' || reducedMotion) w.still = Math.max(w.still, 1e3);
-    // A route set this frame may not have had a step yet (a frame can be too short for one):
-    // it keeps the loop going as much as moving does.
-    let busy = moving || w.route !== null || sx !== 0 || sz !== 0;
+    // A frame too short for a step (the first after a tap often is: its time stamp comes before
+    // the tap's) keeps what the last step said, and a route or keys just given keep it going too:
+    // otherwise the path is drawn and the loop stops before the first step.
+    let busy = stirring || w.route !== null || sx !== 0 || sz !== 0;
     if (bikes) busy = bikes.frame(avatar, elapsed) || busy;
     else if (nearestParked(scene.children, w.x, w.z, RIDE_NEAR)) void loadBikes();
     if (bikes && bikes.state !== ride) host.onRide?.((ride = bikes.state));

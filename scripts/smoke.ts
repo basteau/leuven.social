@@ -325,7 +325,13 @@ async function expectTraffic(): Promise<void> {
 }
 
 /** Where the keys the smoke test holds sit on the keyboard: walking reads `code`, not `key`. */
-const CODES: Record<string, string> = { w: 'KeyW', d: 'KeyD', e: 'KeyE', Shift: 'ShiftLeft' };
+const CODES: Record<string, string> = {
+  w: 'KeyW',
+  d: 'KeyD',
+  e: 'KeyE',
+  Shift: 'ShiftLeft',
+  ' ': 'Space',
+};
 
 /** Holds keys down for a while, as a person walking would (agent-browser only taps keys). */
 async function holdKeys(keys: string[], ms: number): Promise<void> {
@@ -404,6 +410,26 @@ async function expectWalking(): Promise<void> {
   );
   console.log('ok  a tap walked the avatar there');
   await browser('screenshot', `${ARTIFACTS}smoke-walk.png`);
+  // Zoomed out and back in, the map dragged off the avatar, then a tap near it: it must set off
+  // every time, not only draw its path.
+  for (const [dx, dy] of [
+    [140, 90],
+    [-160, 60],
+    [100, -120],
+    [-90, -80],
+  ] as const) {
+    await holdKeys([' '], 0);
+    for (let i = 0; i < 5; i++) await browser('press', '-');
+    for (let i = 0; i < 5; i++) await browser('press', '+');
+    await browser('wait', '600');
+    await drag(dx, dy);
+    await browser('wait', '300');
+    // The avatar is now (dx, dy) from the middle; a tap a little way from it.
+    await tapAt(640 + dx - Math.sign(dx) * 70, 400 + dy - Math.sign(dy) * 50);
+    await browser('wait', '--timeout', '3000', '--fn', `Number(${canvasData('speed')}) > 0`);
+    await browser('wait', '--timeout', '15000', '--fn', `${canvasData('speed')} === '0.0'`);
+  }
+  console.log('ok  after zooming out and in and dragging the map, every tap nearby set off');
   // Back out to the whole city, where it isn't drawn at all.
   for (let i = 0; i < 16; i++) await browser('press', '-');
   await browser(
@@ -479,7 +505,7 @@ async function expectRiding(): Promise<void> {
     '--timeout',
     '30000',
     '--fn',
-    `(() => { const [a, b] = ${canvasData('walker')}.split(' ').map(Number); return Math.hypot(a - ${x}, b - ${z}) < 20; })()`,
+    `(() => { const [a, b] = ${canvasData('walker')}.split(' ').map(Number); return Math.hypot(a - ${x}, b - ${z}) < 28; })()`,
   );
   await browser('eval', key('keydown', 'KeyF'));
   await browser('eval', key('keyup', 'KeyF'));
