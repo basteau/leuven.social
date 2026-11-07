@@ -1,5 +1,5 @@
 /**
- * Walk mode's sounds, in its own chunk: footsteps in time with the stride, a cue going down to
+ * The avatar's sounds, in its chunk: footsteps in time with the stride, a cue going down to
  * the street and back up, a thud landing there, a low pair for a spot nobody can walk to, and a
  * tick when a route starts and ends. Each is scheduled when it happens, never per frame.
  */

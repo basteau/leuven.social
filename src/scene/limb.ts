@@ -1,6 +1,6 @@
 /**
  * The figure's limbs and the two-bone IK that places them: walking puts its feet on the ground
- * with it (character.ts), riding its feet on the pedals and its hands on the bars (rider-pose.ts).
+ * with it (character.ts), and the traffic's riders fitted from it (vehicles.ts).
  * A module of its own, so riding's chunk can pose the figure without the code that builds it.
  */
 

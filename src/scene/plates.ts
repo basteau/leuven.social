@@ -264,7 +264,7 @@ function drawAtlas(texts: Record<Kind, Iterable<string>>, colours: typeof PLATE)
 
 /**
  * What the plates build with, from the viewer's chunk: imported here, three.js would be shared by
- * two lazy chunks (walk mode's and this one), and the bundler would split it out of the viewer
+ * two lazy chunks (the avatar's and this one), and the bundler would split it out of the viewer
  * into one more file that every first visit loads. The palette is a chunk of its own, loaded with
  * the engine (vite.config.ts), so the boards' `FRONTS` come from it directly.
  */

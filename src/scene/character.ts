@@ -331,7 +331,7 @@ export function landing(settle: number): number {
  * Stopped, for IDLE_SECONDS it breathes, glances about and shifts its weight onto one leg and
  * back, and then stands still. With `idle` false (reduced motion) none of that, only the steps.
  *
- * `settle` lands the figure, as when it is set down into walk mode: from 0, the moment its feet
+ * `settle` lands the figure, as when it is set down in a street: from 0, the moment its feet
  * touch the ground, to 1 (the default), settled. The knees give and the arms come forward, then
  * it straightens with a small rebound (`landing`). The feet stay planted throughout.
  */

@@ -1,5 +1,5 @@
 /**
- * Shop name boards, for walk mode: each shop front's name, painted on a board over its window or
+ * Shop name boards, close to the street: each shop front's name, painted on a board over its window or
  * on its awning's valance (src/scene/plates.ts draws them with the plates). The bake chooses the
  * name and places the board on its front (`placeBoards`); walk.bin stores them (src/data/plates.ts).
  */

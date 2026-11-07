@@ -48,7 +48,7 @@ export interface Furniture {
 
 /**
  * What the chunk takes from the engine rather than importing it, as the plates do: a module
- * the engine, walk mode and this chunk all import would be split into a chunk of its own.
+ * the engine, the avatar's chunk and this one all import would be split into a chunk of its own.
  */
 export interface FurnitureKit extends StorefrontKit {
   MeshBuilder: typeof MeshBuilder;
@@ -90,6 +90,6 @@ export function buildFurniture(cell: Cell, kit: FurnitureKit): Furniture {
   return { near, bikes: new Float32Array(bikes), awnings, tall, glow };
 }
 
-// Walk mode and riding stand the walker and the bikes on the ground as drawn too, through the
+// The avatar and the bikes stand on the ground as drawn too, through the
 // viewer, which has this chunk loaded by the time anyone walks.
 export { drawnGround };

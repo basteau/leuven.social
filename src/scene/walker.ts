@@ -18,7 +18,7 @@ import type { Spring } from './motion.ts';
  * too: 5.4 is the jog that open-world games move at by default (about 4.4 m/s life-size, as
  * GTA's and PUBG's), and running a sprint 1.7 times it (about 7 m/s life-size: a game's sprint,
  * and about what a person can keep up), where it was 14.3, faster than a bicycle. Walking is
- * for the streets; the bike (rider.ts) is how to go fast.
+ * for the streets; a bike (`ON_BIKE` in avatar.ts) is how to go fast.
  */
 export const WALK_SPEED = 5.4;
 export const RUN_SPEED = 9.2;

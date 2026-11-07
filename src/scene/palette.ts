@@ -356,7 +356,7 @@ export function pick<T>(list: readonly T[], seed: number): T {
 }
 
 /**
- * The sky behind the walking camera, and the haze that fades the far city into it: the HUD's
+ * The sky behind the map, and the haze that fades the far end of a street into it: the HUD's
  * `--sky-top` and `--sky-horizon` (app.css), so the map's sky and the street's are one.
  */
 export const SKY = { top: 0xa2cee9, horizon: 0xfce4c4 } as const;

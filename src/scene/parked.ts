@@ -1,7 +1,7 @@
 /**
  * The parked bikes, as the street furniture notes them (`buildFurniture`, `PARKED` in props.ts):
- * finding the one nearest the walker, for walk mode to fetch riding's chunk on the way to a rack
- * and for riding to take one. Small, so walk mode carries it.
+ * finding the one nearest the avatar, to fetch the bikes' chunk on the way to a rack and to take
+ * one. Small, so the avatar's chunk carries it.
  */
 
 /** Each parked bike's numbers in a furniture mesh's `userData.bikes`, as props.ts writes them. */
@@ -58,6 +58,3 @@ export function nearestParked(
 
 /** A parked bike's heading as the walker counts it (0 facing +z), from its noted turn. */
 export const parkedHeading = (turn: number) => Math.atan2(Math.cos(turn), Math.sin(turn));
-
-/** Where the bikes someone left about the city are remembered for the visit. */
-export const DROPPED_KEY = 'leuven-dropped-bikes';

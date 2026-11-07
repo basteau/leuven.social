@@ -722,7 +722,8 @@ city.ways = ways;
 const bytes = await packCity(city);
 await Bun.write(OUT, bytes);
 
-// Walk mode's plates (src/data/plate-placement.ts), in their own file: only a walk loads it.
+// The facade plates (src/data/plate-placement.ts), in their own file: only a view close to the
+// street loads it.
 // Addresses are OSM's, on buildings (their middle) and on points where no building has them.
 const address = (x: number, z: number, tags: Props): Address[] => {
   const [number, street] = [tags['addr:housenumber'], tags['addr:street']?.trim()];

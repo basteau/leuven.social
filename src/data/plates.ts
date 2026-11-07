@@ -1,5 +1,5 @@
 /**
- * House-number and street-name plates on the facades, for walk mode: where each hangs, which
+ * House-number and street-name plates on the facades, close to the street: where each hangs, which
  * way its wall faces and what it says. The bake places them (src/data/plate-placement.ts) and
  * writes them to their own file, `public/data/walk.bin`, which only a walk downloads.
  *

@@ -203,5 +203,5 @@ export function createSound(env: SoundEnv = browserEnv): Sound {
   return sound;
 }
 
-/** The page's one sound engine, shared by the HUD and walk mode. */
+/** The page's one sound engine, shared by the HUD and the avatar. */
 export const sound = createSound();
