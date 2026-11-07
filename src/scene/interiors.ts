@@ -8,7 +8,7 @@ import { Router } from '../data/route.ts';
 import { ROOMS_FILE, RoomLoadError, ceiling, parseRooms, standing } from '../data/rooms.ts';
 import type { Room } from '../data/rooms.ts';
 import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
-import { addUnderfloor, buildDoor, buildFloor } from './room-mesh.ts';
+import { addLining, addUnderfloor, buildDoor, buildFloor } from './room-mesh.ts';
 
 /**
  * The rooms in the scene: rooms.json fetched, each room's floors built as meshes in the city's
@@ -151,6 +151,7 @@ export function createInteriors(kit: InteriorsKit, rooms: Room[]): Interiors {
       if (floor.level === 0) {
         kit.openWalls(room.oidn, top(room), mesh, lines);
         addUnderfloor(mesh, rings.get(room) ?? [], foot(room));
+        addLining(mesh, rings.get(room) ?? [], foot(room), top(room));
       }
       buildFloor(room, floor, foot(room), mesh, lines);
       const surfaces = new Mesh(mesh.build({ facade: true, keep: true }), kit.material);

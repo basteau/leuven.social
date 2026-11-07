@@ -53,7 +53,7 @@ export interface MenuProps {
   /** Places by name, when the viewer can put the avatar at a spot. */
   places?: { city: PlaceData; go: (place: Place) => void };
   /** The rooms inside the landmarks, once their data has come, and going inside one. */
-  rooms?: { list: readonly RoomPlace[]; go: (id: string) => void };
+  rooms?: { list: readonly RoomPlace[]; go: (id: string, level: number) => void };
 }
 
 type PlaceData = Parameters<typeof placesOf>[0];
@@ -143,16 +143,18 @@ export function CommandMenu(props: MenuProps) {
       Object.assign(c, { choose: choose(c.action) }),
     );
     // The few rooms are always listed: going inside is something to find without knowing a name.
-    const rooms = (props.rooms?.list ?? []).map((room): Row => ({
-      id: `room-${room.id}`,
-      group: 'places',
-      label: `Inside ${room.name}`,
-      detail: 'Go in through its door',
-      keywords: 'inside room interior enter go in church building',
-      keys: [],
-      icon: 'place',
-      choose: () => props.rooms?.go(room.id),
-    }));
+    const rooms = (props.rooms?.list ?? []).flatMap((room) =>
+      room.floors.map(({ level, name }): Row => ({
+        id: `room-${room.id}-${level}`,
+        group: 'places',
+        label: level ? `${room.name}, ${name.toLowerCase()}` : `Inside ${room.name}`,
+        detail: level ? 'Up the stair inside' : 'Go in through its door',
+        keywords: `inside room interior enter go in church building floor upstairs ${name}`,
+        keys: [],
+        icon: 'place',
+        choose: () => props.rooms?.go(room.id, level),
+      })),
+    );
     if (!props.places || query.trim().length < PLACE_QUERY) return [...commands, ...rooms];
     const { go, city } = props.places;
     const places = placesIn(city).map((place): Row => ({

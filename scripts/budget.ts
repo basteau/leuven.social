@@ -98,7 +98,7 @@ const BUDGETS: {
   // 12: lanes from the kerbs, cars queuing behind bikes, routes by class, and the people and
   // cyclists near the view drawn as the walker's figure on the rideable bike (the figure's
   // shader, the near meshes and their tints) took it to 11.6 KB; the figure and the bike
-  // themselves are chunks shared with walk mode and riding, counted below.
+  // themselves are chunks shared with the avatar, counted below.
   // 12.5: the lamps' halos, beams in three strips that soften at the edges, and the bikes'
   // lamps and pools (0.3 KB), asked for. 13: standing on the slope and on the squares (the
   // squares found by their boxes), and no gridlock, at 12.6 KB. 14: corners and bends built

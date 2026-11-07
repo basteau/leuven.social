@@ -281,6 +281,27 @@ export function addUnderfloor(mesh: MeshBuilder, ring: ArrayLike<number>, foot: 
   mesh.polygon(points(flat, 0), ShapeUtils.triangulateShape(vectors(flat), []), FLOOR, UP);
 }
 
+/**
+ * The inside of the building's own walls, from the room's floor up to `top`: with the roof lifted
+ * the camera sees the far walls from within, where the building only faces out.
+ */
+export function addLining(
+  mesh: MeshBuilder,
+  ring: ArrayLike<number>,
+  foot: number,
+  top: number,
+): void {
+  mesh.lift = foot;
+  const n = ring.length / 2;
+  const ccw = signedArea(Array.from(ring)) > 0 ? 1 : -1;
+  for (let i = 0; i < n; i++) {
+    const [ax, az] = [ring[i * 2]!, ring[i * 2 + 1]!];
+    const [bx, bz] = [ring[((i + 1) % n) * 2]!, ring[((i + 1) % n) * 2 + 1]!];
+    const inward: V3 = [-(bz - az) * ccw, 0, (bx - ax) * ccw];
+    mesh.quad([ax, 0, az], [bx, 0, bz], [bx, top - foot, bz], [ax, top - foot, az], STONE, inward);
+  }
+}
+
 /** The door from the street: a dark arch on the outside of its wall, 2.4 m wide, 3.4 tall. */
 export function buildDoor(room: Room, foot: number): MeshBuilder {
   const mesh = new MeshBuilder();

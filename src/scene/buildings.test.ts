@@ -317,6 +317,19 @@ describe('landmarks', () => {
       model.base + ORNATE,
     );
   });
+
+  test('opened for a room, it is its walls cut down, with no roof', () => {
+    const b = building({ id, tier: 'hero', kind: 'civic', height: 30, ring });
+    const mesh = new MeshBuilder();
+    addBuilding(mesh, new LineBuilder(), b, undefined, 0, 8);
+    const g = mesh.build({ keep: true });
+    expect(g.boundingBox!.max.y).toBeCloseTo(8);
+    const normal = g.getAttribute('normal');
+    const ups = Array.from({ length: normal.count }, (_, i) => normal.getY(i));
+    expect(ups.every((y) => Math.abs(y) < 0.01)).toBe(true); // walls only
+    // Four walls, facing out.
+    expect(mesh.indices).toBe(4 * 6);
+  });
 });
 
 describe('party walls', () => {

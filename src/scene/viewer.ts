@@ -166,8 +166,8 @@ export interface Viewer {
   ride(action: RideAction): void;
   /** The rooms there are inside the landmarks, for the menu (their data loads now if need be). */
   rooms(): Promise<RoomPlace[]>;
-  /** Puts the avatar inside a room, just in from its door. */
-  goInside(id: string): void;
+  /** Puts the avatar inside a room, just in from its door, or on floor `level`. */
+  goInside(id: string, level?: number): void;
   /** The time of day: the preset nearest the hour, and whether the day is passing. */
   timeOfDay(): { preset: PresetId; passing: boolean };
   /** Steps to the next time of day (morning, midday, golden hour, dusk, night) and names it. */
@@ -1240,7 +1240,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     if (draw) invalidate();
   }
   // What moves by itself: the day passing, and the traffic. While either does, a frame loop of
-  // its own steps them and draws (unless walk mode is drawing every frame already); otherwise
+  // its own steps them and draws (unless the avatar's loop is drawing every frame already); otherwise
   // the map renders on demand as ever. A hidden tab pauses it with its animation frames.
   let passing = false;
   let trafficWanted = !reducedMotion;
@@ -1422,7 +1422,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     goTo: (x, z) => withAvatar((loaded) => loaded.goTo(x, z)),
     ride: (action) => withAvatar((loaded) => loaded.ride(action)),
     rooms: () => loadAvatar().then((loaded) => loaded.rooms()),
-    goInside: (id) => withAvatar((loaded) => loaded.goInside(id)),
+    goInside: (id, level) => withAvatar((loaded) => loaded.goInside(id, level)),
     spin: spinMap,
     timeOfDay: () => ({ preset: presetAt(hour), passing }),
     nextTimeOfDay,

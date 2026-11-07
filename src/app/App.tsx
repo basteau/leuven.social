@@ -488,10 +488,10 @@ export function App() {
   const roomPlaces = useMemo(
     () => ({
       list: rooms,
-      go: (id: string) => {
+      go: (id: string, level: number) => {
         closeMenu();
         sound.tap();
-        viewerRef.current?.goInside(id);
+        viewerRef.current?.goInside(id, level);
       },
     }),
     [rooms, closeMenu],

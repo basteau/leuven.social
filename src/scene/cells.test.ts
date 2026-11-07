@@ -7,6 +7,7 @@ import { drawnGround } from './drawn-ground.ts';
 import { buildFurniture, propBase } from './furniture.ts';
 import { LAYER_Y, slabBottom } from './ground.ts';
 import { MeshBuilder, unindexed } from './mesh-builder.ts';
+import { LANDMARK_MODELS } from './landmark-models.ts';
 import { PARKED } from './props.ts';
 import { FLAT, FLAT_GRID, Terrain } from '../data/terrain.ts';
 
@@ -392,4 +393,20 @@ test('a prop stands on the lowest ground under its footprint', () => {
   expect(base).toBeLessThan(slope.height(20, 0));
   expect(base).toBeGreaterThan(slope.height(20, 0) - 0.5);
   expect(propBase(FLAT, plinth)).toBe(0);
+});
+
+test('a hero landmark’s range in its cell is noted, so a room can draw it as nothing', () => {
+  const [id] = [...LANDMARK_MODELS.keys()];
+  const town: City = {
+    ...city,
+    buildings: [{ ...house(id!, box(30, 30, 20, 20)), tier: 'hero' }, house(3, box(10, 10, 8, 8))],
+  };
+  const [cell] = partition(town);
+  const built = buildCell(cell!, town.area, partyWalls(town.buildings));
+  const range = built.landmarks.get(id!)!;
+  expect(built.landmarks.size).toBe(1);
+  expect(range.to).toBeGreaterThan(range.from);
+  expect(range.lineTo).toBeGreaterThan(range.lineFrom);
+  expect(range.from).toBeGreaterThanOrEqual(built.shadowFrom);
+  expect(range.to).toBeLessThanOrEqual(built.fineVertices);
 });

@@ -510,7 +510,8 @@ const tasksSince = (since: number) =>
 
 /**
  * A room: the menu takes the avatar inside Sint-Pieterskerk, through its door, the roof lifted
- * and its floors drawn, without a long task; a place outside takes it back to the street.
+ * and its floors drawn, and up to its organ gallery, without a long task; a place outside takes
+ * it back to the street.
  */
 async function expectRoom(): Promise<void> {
   const before = await evalJson<number>('JSON.stringify(performance.now())');
@@ -532,12 +533,25 @@ async function expectRoom(): Promise<void> {
   // Walking about inside, against its walls and pews.
   await holdKeys(['d'], 600);
   await holdKeys(['w'], 600);
+  // Upstairs: the organ gallery, the nave drawn below it through the stairwell.
+  await runFromMenu('gallery', 'Sint-Pieterskerk, organ gallery');
+  await browser('wait', '--fn', `${canvasData('floor')} === '1'`);
+  await browser(
+    'wait',
+    '--fn',
+    `document.querySelector('.sign-name')?.textContent === 'Sint-Pieterskerk · Organ gallery'`,
+  );
+  await browser('wait', '1500');
+  await browser('screenshot', `${ARTIFACTS}smoke-gallery.png`);
+  await expectHealthyPage('desktop on the organ gallery');
   await runFromMenu('grote markt', 'Grote Markt');
   await browser('wait', '--fn', `${canvasData('place')} === ''`);
   const hitches = (await tasksSince(before)).filter((ms) => ms > 50);
   if (hitches.length)
     throw new Error(`going in and out of a room took ${hitches.join(', ')} ms tasks`);
-  console.log('ok  in and out of Sint-Pieterskerk, its sign, and no long task on the way');
+  console.log(
+    'ok  in and out of Sint-Pieterskerk, up to its gallery, its sign, and no long task on the way',
+  );
   await expectHealthyPage('desktop back out of the room');
 }
 

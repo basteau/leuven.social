@@ -197,6 +197,12 @@ test('arrays are let go once the GPU has them', () => {
   const points = lines.build().getAttribute('position') as BufferAttribute;
   points.onUploadCallback();
   expect(points.array).toBeNull();
+  // Unless kept, for what nothing builds again after a lost GPU context (a room's ink).
+  const ink = lines.build({ keep: true });
+  (ink.getAttribute('position') as BufferAttribute).onUploadCallback();
+  ink.index!.onUploadCallback();
+  expect(ink.getAttribute('position').array).not.toBeNull();
+  expect(ink.index!.array).not.toBeNull();
   // Kept, for a mesh a lost GPU context would need to upload again.
   const kept = mesh.build({ facade: true, keep: true });
   for (const a of [kept.index!, ...Object.values(kept.attributes)]) {

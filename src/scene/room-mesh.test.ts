@@ -4,7 +4,7 @@ import { HALL } from '../data/rooms.fixture.ts';
 import { PROP_SIZES } from '../data/rooms.ts';
 import { corners } from './mesh-builder.ts';
 import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
-import { addProp, addUnderfloor, addWall, buildDoor, buildFloor } from './room-mesh.ts';
+import { addLining, addProp, addUnderfloor, addWall, buildDoor, buildFloor } from './room-mesh.ts';
 
 /** The unit normals of a built mesh, one per vertex. */
 function normals(mesh: MeshBuilder): [number, number, number][] {
@@ -99,4 +99,26 @@ test('under the room, the whole footprint is floored, facing up', () => {
   expect(mesh.indices).toBe(6);
   expect(geometry.boundingBox!.max.y).toBeCloseTo(1.5);
   expect(normals(mesh).every(([, y]) => y > 0.9)).toBe(true);
+});
+
+test('the building’s walls are lined inside, turned in, from the floor to the cut', () => {
+  for (const ring of [
+    [0, 0, 20, 0, 20, 12, 0, 12],
+    [0, 12, 20, 12, 20, 0, 0, 0],
+  ]) {
+    const mesh = new MeshBuilder();
+    addLining(mesh, ring, 1, 9);
+    const geometry = mesh.build({ keep: true });
+    expect(geometry.boundingBox!.min.y).toBeCloseTo(1);
+    expect(geometry.boundingBox!.max.y).toBeCloseTo(9);
+    const n = normals(mesh);
+    // The wall along z 0 faces +z, into the building, whichever way the ring runs.
+    const position = geometry.getAttribute('position');
+    for (let i = 0; i < position.count; i++) {
+      const [x, z] = [position.getX(i), position.getZ(i)];
+      const [nx, , nz] = n[i]!;
+      // Every face looks toward the middle.
+      expect(nx * (10 - x) + nz * (6 - z)).toBeGreaterThanOrEqual(-1e-6);
+    }
+  }
 });

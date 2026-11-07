@@ -89,6 +89,8 @@ const KERB_EASE = 0.04;
 const RIDE_NEAR = 25;
 /** The avatar far out: its marker is this share of the place marker's size. */
 const DOT_SHARE = 0.5;
+/** Put somewhere by a jump, the figure lands into its pose over this long (s). */
+const LAND = 0.5;
 /** Zoom eases to a place's with this half-life (s). */
 const ZOOM_EASE = 0.12;
 /** Inside a room the camera keeps between these zooms: the room fills the view, not a speck. */
@@ -144,6 +146,8 @@ export interface AvatarHost {
 export interface RoomPlace {
   id: string;
   name: string;
+  /** Its floors, by level and name: the menu can take you up to one. */
+  floors: { level: number; name: string }[];
 }
 
 export interface AvatarLayer {
@@ -168,8 +172,8 @@ export interface AvatarLayer {
   ride(action: RideAction): void;
   /** The rooms there are, once their data has loaded (it loads now if it hasn't). */
   rooms(): Promise<RoomPlace[]>;
-  /** Puts the avatar inside a room, just in from its door. */
-  goInside(id: string): void;
+  /** Puts the avatar inside a room, just in from its door, or at the top of the stair to `level`. */
+  goInside(id: string, level?: number): void;
   /** What's worth drawing at the view's span, each frame the viewer draws. */
   detail(detail: Detail, span: number): void;
   dispose(): void;
@@ -660,11 +664,24 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     avatar.rise = floor - host.groundAt(x, z);
     [feet[0], feet[1], feet[2]] = [x, floor, z];
     const onFoot = avatar.mode === 'foot' || (bikes?.busy ?? false);
+    const settle = reducedMotion || !(jumped >= 0 && jumped < LAND) ? 1 : jumped / LAND;
     character.mesh.visible = shown === 'figure' && onFoot;
     if (character.mesh.visible) {
       applyPose(
         character,
-        poseAt(pose, w.speed, phase, w.still, !reducedMotion, w.turning, 0, w.surge, heading),
+        // Put somewhere by a jump, it lands into its pose: knees giving, a small rebound.
+        poseAt(
+          pose,
+          w.speed,
+          phase,
+          w.still,
+          !reducedMotion,
+          w.turning,
+          0,
+          w.surge,
+          heading,
+          settle,
+        ),
       );
       character.mesh.position.set(x, floor + FEET_Y, z);
       character.mesh.rotation.y = heading;
@@ -758,22 +775,33 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       recentring = following = true;
       wake();
     },
-    rooms: () => loadRooms().then((loaded) => loaded.rooms.map(({ id, name }) => ({ id, name }))),
-    goInside(id) {
+    rooms: () =>
+      loadRooms().then((loaded) =>
+        loaded.rooms.map(({ id, name, floors }) => ({
+          id,
+          name,
+          floors: floors.map((f) => ({ level: f.level, name: f.name })),
+        })),
+      ),
+    goInside(id, level = 0) {
       loadRooms().then(
         (loaded) => {
           const into = loaded.byId(id);
           if (!into) return;
+          // Just in from the door, or a step past the top of the stair up to the floor asked for.
           const { door } = into;
-          const [x, z] = [
-            door.x + Math.sin(door.facing) * INSIDE,
-            door.z + Math.cos(door.facing) * INSIDE,
-          ];
-          const spot = loaded.grid(into, 0).nearest(x, z, 3) ?? [x, z];
+          const stair = into.floors.flatMap((f) => f.stairs).find((s) => s.to === level);
+          const [from, facing, reach] =
+            level && stair
+              ? [[stair.x, stair.z], stair.angle, stair.depth / 2 + 1]
+              : [[door.x, door.z], door.facing, INSIDE];
+          const [x, z] = [from[0]! + Math.sin(facing) * reach, from[1]! + Math.cos(facing) * reach];
+          const on = level && stair ? level : 0;
+          const spot = loaded.grid(into, on).nearest(x, z, 3) ?? [x, z];
           if (avatar.mode === 'bike') bikes?.act('toggle', avatar);
           jumpTo(...spot);
-          avatar.walker.heading = door.facing;
-          enter(into, 0);
+          avatar.walker.heading = facing;
+          enter(into, on);
           if (camera.zoom < 12) zoomGoal = 12;
         },
         () => {}, // said by onRoomsUnavailable
