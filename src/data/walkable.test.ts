@@ -18,7 +18,7 @@ const house = (ring: Float32Array): Building => ({
   holes: [],
 });
 import { Terrain } from './terrain.ts';
-import { WalkGrid, pickWalkable } from './walkable.ts';
+import { WalkGrid, pickPoint, pickWalkable } from './walkable.ts';
 
 describe('WalkGrid', () => {
   const grid = new WalkGrid(town);
@@ -195,6 +195,12 @@ describe('WalkGrid', () => {
     expect(grid.walkable(22.5, 25)).toBe(false);
   });
 
+  test('around offers open places round a spot, nearest first', () => {
+    const places = grid.around(50, 42, 8, 4);
+    expect(places.length).toBe(4);
+    for (const [x, z] of places) expect(grid.walkable(x, z)).toBe(true);
+  });
+
   test('nearest finds the closest open cell within reach', () => {
     expect(grid.nearest(15.2, 45.7, 3)).toEqual([15.5, 45.5]);
     const [x, z] = grid.nearest(50, 44, 5)!;
@@ -225,6 +231,12 @@ describe('pickWalkable', () => {
     const [x, z] = pickWalkable(grid, [50, 500, 540], down, 6)!;
     expect(x).toBeCloseTo(50.5);
     expect(z).toBeGreaterThan(45);
+    // The point itself: the foot of that front wall, on the camera's side.
+    const [px, pz] = pickPoint(grid, [50, 500, 540], down)!;
+    expect(px).toBeCloseTo(50);
+    expect(pz).toBeGreaterThanOrEqual(45);
+    expect(pz).toBeLessThan(46);
+    expect(pickPoint(grid, [50, 500, 540], [0, 1, 0])).toBeNull();
   });
 
   test('from street level, a house behind the eye is not in the way', () => {

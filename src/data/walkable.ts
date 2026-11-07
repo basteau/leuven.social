@@ -247,6 +247,11 @@ export class WalkGrid {
     );
   }
 
+  /** Up to `most` open places within `radius` of (x, z), nearest first and spread out. */
+  around(x: number, z: number, radius: number, most: number): [number, number][] {
+    return this.#grid.around(x, z, radius, (cell) => this.open(cell), most);
+  }
+
   /** Rasterises one tile from everything that touches it. */
   #fill(tile: Uint8Array, x0: number, z0: number, t: number): void {
     const grid = this.#grid;
@@ -279,18 +284,15 @@ const PICK_TOP = 100;
 const PICK_STEP = 0.5;
 
 /**
- * Where a click lands, for walking there: follows the view ray from above the rooftops down
- * to the first building it meets or the ground (`terrain`'s). A click on a building means the
- * street in front of it, on the side the camera sees. Returns the nearest walkable spot within
- * `radius` metres (with `street`, the nearest street), or null. `origin` is any point on the ray
- * and `dir` points into the scene.
+ * Where a click lands on the ground: follows the view ray from above the rooftops down to the
+ * first building it meets or the ground (`terrain`'s). A click on a building means the street in
+ * front of it, on the side the camera sees, so it backs out to the foot of the wall. `origin` is
+ * any point on the ray and `dir` points into the scene; null for a ray that doesn't go down.
  */
-export function pickWalkable(
+export function pickPoint(
   grid: WalkGrid,
   origin: readonly [number, number, number],
   dir: readonly [number, number, number],
-  radius: number,
-  street = false,
   terrain: Terrain = FLAT,
 ): [number, number] | null {
   const [ox, oy, oz] = origin;
@@ -315,5 +317,21 @@ export function pickWalkable(
     }
     break;
   }
-  return grid.nearest(x, z, radius, street);
+  return [x, z];
+}
+
+/**
+ * The walkable spot nearest where a click lands (`pickPoint`), within `radius` metres (with
+ * `street`, the nearest street), or null.
+ */
+export function pickWalkable(
+  grid: WalkGrid,
+  origin: readonly [number, number, number],
+  dir: readonly [number, number, number],
+  radius: number,
+  street = false,
+  terrain: Terrain = FLAT,
+): [number, number] | null {
+  const at = pickPoint(grid, origin, dir, terrain);
+  return at && grid.nearest(at[0], at[1], radius, street);
 }

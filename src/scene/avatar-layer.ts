@@ -2,7 +2,6 @@ import {
   BackSide,
   BufferAttribute,
   BufferGeometry,
-  GreaterDepth,
   InstancedBufferAttribute,
   InstancedMesh,
   Matrix4,
@@ -22,11 +21,11 @@ import { DOOR_HALF } from '../data/room-grid.ts';
 import type { Room } from '../data/rooms.ts';
 import { Router } from '../data/route.ts';
 import type { Terrain } from '../data/terrain.ts';
-import { WalkGrid, pickWalkable } from '../data/walkable.ts';
+import { WalkGrid, pickPoint } from '../data/walkable.ts';
 import { avatarState, createAvatar, stepAvatar } from './avatar.ts';
 import type { Avatar, AvatarState } from './avatar.ts';
 import type { Bikes, RideAction, RideState } from './bikes.ts';
-import { createCharacterMaterial, createXrayMaterial } from './character-material.ts';
+import { XRAY_LOOK, createCharacterMaterial, createXrayMaterial } from './character-material.ts';
 import type { Fade } from './character-material.ts';
 import { CHARACTER_SCALE, applyPose, createCharacter, poseAt, restPose } from './character.ts';
 import { loose } from './collide.ts';
@@ -62,8 +61,12 @@ import { STEP, runBlend } from './walker.ts';
  * tested elsewhere (avatar.ts, follow.ts, walker.ts, the grids and routes); this is the glue.
  */
 
-/** How far the nearest walkable spot may lie from a tap (m). */
+/** How far the open ground a tap means may lie from where it lands (m), and how many places
+ * round it are tried before it's refused. */
 const TAP_REACH = 8;
+const TRIES = 8;
+/** A tap this far off (m) that no route reaches is a long way round: too far, not nowhere. */
+const DETOUR = 80;
 /** A tap further than this from the avatar (m) is too far to go to: it walks, never jumps. */
 const ROUTE_REACH = 250;
 /** A place chosen from the menu brings the camera at least this close (zoom). */
@@ -312,14 +315,14 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
         gradientMap: host.gradientMap,
         night: host.night,
         ink: OUTLINE,
-        greaterDepth: GreaterDepth,
+        xray: XRAY_LOOK,
         scene,
         canvas,
         body,
         floor: host.groundAt,
         shadowsChanged: host.shadowsChanged,
       });
-      bikes.show(shown === 'figure');
+      bikes.show(true);
       wake();
       return bikes;
     });
@@ -502,17 +505,32 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     marker = undefined;
   }
 
-  /** Walks (or rides) to a spot along a route, on the street or the room's floor. */
-  function walkTo(x: number, z: number): boolean {
+  /**
+   * Walks (or rides) along a route, on the street or the room's floor, to the first of the places
+   * round (x, z), within `reach`, that one leads to: the spot itself if it's open, then the
+   * nearest open ground, spread out so a walled-in garden or the far side of a fence is passed
+   * over for the pavement beside it. Whether one did.
+   */
+  function walkTo(x: number, z: number, reach = 3): boolean {
     const w = avatar.walker;
     const here = underfoot();
     const by = room && interiors ? interiors.router(room, avatar.floor) : router;
-    const from = here.walkable(w.x, w.z) ? [w.x, w.z] : here.nearest(w.x, w.z, 2);
-    // A spot the grid has closed (beside a rack, against a wall) is reached by the open cell
-    // nearest it.
-    const to = here.walkable(x, z) ? [x, z] : here.nearest(x, z, 3);
-    const route = from && to && by.route(from[0]!, from[1]!, to[0]!, to[1]!, loose);
-    if (!route) return false;
+    const from = here.walkable(w.x, w.z) ? [w.x, w.z] : here.nearest(w.x, w.z, 4);
+    if (!from) return false;
+    const places = here.around(x, z, reach, TRIES);
+    if (here.walkable(x, z)) places.unshift([x, z]);
+    for (const [tx, tz] of places) {
+      const route = by.route(from[0]!, from[1]!, tx, tz, loose);
+      if (route) {
+        follow(route);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function follow(route: Float32Array): void {
+    const w = avatar.walker;
     [w.x, w.z] = [route[0]!, route[1]!];
     w.route = route;
     w.next = 1;
@@ -524,7 +542,6 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     hint.geometry = marker.geometry;
     hint.visible = true;
     wake();
-    return true;
   }
 
   function refuse(x: number, z: number, why: Refusal): void {
@@ -543,13 +560,6 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     const k = d.y < 0 ? (o.y - y) / -d.y : 0;
     return [o.x + d.x * k, o.z + d.z * k];
   };
-  /** Within reach of the avatar, or refused as too far. */
-  const reachable = (x: number, z: number) => {
-    const w = avatar.walker;
-    if (Math.hypot(x - w.x, z - w.z) <= ROUTE_REACH) return true;
-    refuse(x, z, 'far');
-    return false;
-  };
   function tap(clientX: number, clientY: number): void {
     asked++;
     bikes?.cancel();
@@ -562,31 +572,29 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     raycaster.setFromCamera(ndc, camera);
     const { origin, direction } = raycaster.ray;
     if (direction.y >= 0) return;
-    // In a room, where the ray meets its floor: there, or out through the door.
+    // Where it lands: in a room, on its floor (or out through its door); on the street, the
+    // ground under the ray, or the foot of the wall facing the camera for a tap on a building.
+    let at: [number, number] | null;
     if (room && interiors) {
-      const [x, z] = onPlane(feet[1]);
-      const { door } = room;
-      const out = !inRing(interiors.footprint(room), x, z);
-      const [tx, tz] = out
-        ? [door.x - Math.sin(door.facing) * 0.8, door.z - Math.cos(door.facing) * 0.8]
-        : [x, z];
-      if (!walkTo(tx, tz)) refuse(x, z, 'closed');
-      return;
+      at = onPlane(feet[1]);
+      if (!inRing(interiors.footprint(room), ...at)) {
+        const { door } = room;
+        at = [door.x - Math.sin(door.facing) * 0.8, door.z - Math.cos(door.facing) * 0.8];
+      }
+    } else {
+      at = pickPoint(
+        grid,
+        [origin.x, origin.y, origin.z],
+        [direction.x, direction.y, direction.z],
+        terrain,
+      );
     }
-    const spot = pickWalkable(
-      grid,
-      [origin.x, origin.y, origin.z],
-      [direction.x, direction.y, direction.z],
-      TAP_REACH,
-      false,
-      terrain,
-    );
-    if (!spot) {
-      const t = controls.target;
-      refuse(...onPlane(ground(t.x, t.z)), 'closed');
-      return;
-    }
-    if (reachable(...spot) && !walkTo(...spot)) refuse(...spot, 'closed');
+    if (!at) return;
+    const w = avatar.walker;
+    const far = Math.hypot(at[0] - w.x, at[1] - w.z);
+    if (far > ROUTE_REACH) refuse(...at, 'far');
+    // A route the router can't find so far off is a long way round: too far, not nowhere.
+    else if (!walkTo(...at, TAP_REACH)) refuse(...at, far > DETOUR ? 'far' : 'closed');
   }
 
   function wake(): void {
@@ -624,7 +632,9 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     }
     // Nobody sees an idle figure from far out: it stands still there.
     if (shown !== 'figure' || reducedMotion) w.still = Math.max(w.still, 1e3);
-    let busy = moving || sx !== 0 || sz !== 0;
+    // A route set this frame may not have had a step yet (a frame can be too short for one):
+    // it keeps the loop going as much as moving does.
+    let busy = moving || w.route !== null || sx !== 0 || sz !== 0;
     if (bikes) busy = bikes.frame(avatar, elapsed) || busy;
     else if (nearestParked(scene.children, w.x, w.z, RIDE_NEAR)) void loadBikes();
     if (bikes && bikes.state !== ride) host.onRide?.((ride = bikes.state));
@@ -699,7 +709,8 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     avatar.rise = floor - host.groundAt(x, z);
     [feet[0], feet[1], feet[2]] = [x, floor, z];
     const onFoot = avatar.mode === 'foot' || (bikes?.busy ?? false);
-    character.mesh.visible = shown === 'figure' && onFoot;
+    // Drawn at every zoom, under its arrow when that's too far out to read it.
+    character.mesh.visible = onFoot;
     if (!character.mesh.visible) return;
     applyPose(
       character,
@@ -802,7 +813,6 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       prewarm = detail.prewarm;
       if (detail.avatar === shown) return;
       shown = detail.avatar;
-      bikes?.show(shown === 'figure');
       const w = avatar.walker;
       place(w.x, w.z, w.heading, w.phase, 0);
     },

@@ -196,6 +196,39 @@ export class CellGrid {
     }
     return best;
   }
+
+  /**
+   * Up to `most` centres of cells `ok` takes within `radius` of (x, z), nearest first, each at
+   * least `apart` metres from those before it: places to try in turn, spread out so one walled-in
+   * pocket isn't tried twice.
+   */
+  around(
+    x: number,
+    z: number,
+    radius: number,
+    ok: (cell: number) => boolean,
+    most: number,
+    apart = 1.5,
+  ): [number, number][] {
+    const found: [number, number, number][] = [];
+    const steps = Math.ceil(radius / this.size);
+    for (let dz = -steps; dz <= steps; dz++) {
+      for (let dx = -steps; dx <= steps; dx++) {
+        const cell = this.cellAt(x + dx * this.size, z + dz * this.size);
+        if (cell < 0 || !ok(cell)) continue;
+        const [cx, cz] = this.centre(cell);
+        const d = Math.hypot(cx - x, cz - z);
+        if (d <= radius) found.push([cx, cz, d]);
+      }
+    }
+    found.sort((a, b) => a[2] - b[2]);
+    const chosen: [number, number][] = [];
+    for (const [cx, cz] of found) {
+      if (chosen.length >= most) break;
+      if (chosen.every(([px, pz]) => Math.hypot(px - cx, pz - cz) >= apart)) chosen.push([cx, cz]);
+    }
+    return chosen;
+  }
 }
 
 /** Whether (x, z) is inside a ring, by even-odd crossings. */

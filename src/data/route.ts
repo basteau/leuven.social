@@ -7,7 +7,10 @@ import { WALK_CELL } from './walkable.ts';
 import type { WalkGrid } from './walkable.ts';
 
 /** What a route needs of a grid: the street's (WalkGrid) or a room's floor (RoomGrid). */
-export type RouteGrid = Pick<WalkGrid, 'cols' | 'rows' | 'cellAt' | 'centre' | 'open' | 'walkable'>;
+export type RouteGrid = Pick<
+  WalkGrid,
+  'cols' | 'rows' | 'cellAt' | 'centre' | 'open' | 'walkable' | 'nearest' | 'around'
+>;
 
 /** How far past the box around both ends a route may wander (m). */
 const MARGIN = 60;

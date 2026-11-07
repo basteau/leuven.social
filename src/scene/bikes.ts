@@ -2,13 +2,13 @@ import type {
   BackSide,
   BufferAttribute,
   BufferGeometry,
-  DepthModes,
   InstancedBufferAttribute,
   InstancedMesh,
   Material,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
+  MeshBasicMaterialParameters,
   MeshToonMaterial,
   Scene,
   Texture,
@@ -66,8 +66,8 @@ export interface BikesKit {
   gradientMap: Texture;
   night: { value: number };
   ink: number;
-  /** three's GreaterDepth: the x-ray draws only where something nearer hides the rider. */
-  greaterDepth: DepthModes;
+  /** The figure's silhouette where a house hides it (`XRAY_LOOK`): the rider gets the same. */
+  xray: MeshBasicMaterialParameters;
   scene: Scene;
   canvas: HTMLElement;
   /** The figure's material: bikes left standing take it, blob shadow and all. */
@@ -183,13 +183,9 @@ export function createBikes(kit: BikesKit): Bikes {
   rider.receiveShadow = true;
   const riderInk = new three.InstancedMesh(hullGeometry, inkMaterial, 1);
   riderInk.instanceMatrix = rider.instanceMatrix;
-  // Its silhouette where a house hides it, as the walker's: a checkerboard in the HUD's blue,
-  // drawn only where something nearer filled the depth buffer, the lamps' glow left out.
-  const xray = new three.MeshBasicMaterial({
-    color: WALKER.xray,
-    depthFunc: kit.greaterDepth,
-    depthWrite: false,
-  });
+  // Its silhouette where a house hides it, as the walker's (`XRAY_LOOK`), the lamps' glow left
+  // out. Drawn before the rider (its render order), in the opaque pass.
+  const xray = new three.MeshBasicMaterial(kit.xray);
   xray.onBeforeCompile = (shader) => {
     shader.vertexShader = vehicleVertexShader(shader.vertexShader);
     shader.fragmentShader = shader.fragmentShader
@@ -197,10 +193,10 @@ export function createBikes(kit: BikesKit): Bikes {
       .replace(
         '#include <clipping_planes_fragment>',
         `#include <clipping_planes_fragment>
-        if (vPart < ${FIGURE}.0 || mod(floor(gl_FragCoord.x) + floor(gl_FragCoord.y), 2.0) >= 1.0) discard;`,
+        if (vPart < ${FIGURE}.0) discard;`,
       );
   };
-  xray.customProgramCacheKey = () => 'rider-xray-v1';
+  xray.customProgramCacheKey = () => 'rider-xray-v2';
   const riderXray = new three.InstancedMesh(bodyGeometry, xray, 1);
   riderXray.instanceMatrix = rider.instanceMatrix;
   [riderXray.renderOrder, rider.renderOrder, riderInk.renderOrder] = [1, 2, 2];

@@ -75,3 +75,22 @@ test('walls push a body out, by the deepest reach', () => {
   wallPush(walls, 9.6, 2, 0.5, 3, twice);
   expect(twice[0]).toBeLessThan(0);
 });
+
+test('places round a spot: the nearest open ones first, spread out, as many as asked', () => {
+  // Open everywhere but a wall along x 4–5.
+  const grid = new CellGrid({ minX: 0, minZ: 0, maxX: 20, maxZ: 20 }, (tile, x0, z0) => {
+    tile.fill(1);
+    grid.fillRing(tile, [4, 0, 5, 0, 5, 20, 4, 20], 0, x0, z0);
+  });
+  const open = (cell: number) => grid.value(cell) === 1;
+  const places = grid.around(4.5, 10.5, 4, open, 5);
+  expect(places).toHaveLength(5);
+  const d = places.map(([x, z]) => Math.hypot(x - 4.5, z - 10.5));
+  expect(d).toEqual(d.toSorted((a, b) => a - b));
+  for (const [x] of places) expect(x < 4 || x > 5).toBe(true);
+  for (const [i, [x, z]] of places.entries()) {
+    for (const [px, pz] of places.slice(0, i))
+      expect(Math.hypot(x - px, z - pz)).toBeGreaterThanOrEqual(1.5);
+  }
+  expect(grid.around(4.5, 10.5, 0.4, open, 5)).toEqual([]);
+});

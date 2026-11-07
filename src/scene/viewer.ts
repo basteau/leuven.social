@@ -183,6 +183,8 @@ export interface Viewer {
 }
 
 const ROTATE_MS = 280;
+/** The avatar's arrow points this far over its feet (m): just over its head, drawn 1.3× life. */
+const OVER_HEAD = 2.7;
 /** The street sign looks the name up again once the avatar has moved this far (m). */
 const STREET_STEP = 1;
 interface CellEntry {
@@ -868,8 +870,10 @@ export function createViewer(options: ViewerOptions): Viewer {
     avatar?.detail(detail, span);
     const shown = detail.avatar === 'figure';
     if (avatar) {
-      // Where the avatar is on screen, for its arrow: only when that changes by a pixel.
-      at.set(...avatar.feet).project(camera);
+      // Just over the avatar's head on screen, for its arrow to point at without covering the
+      // figure: only when that changes by a pixel.
+      const [fx, fy, fz] = avatar.feet;
+      at.set(fx, fy + OVER_HEAD, fz).project(camera);
       const [ax, ay] = [((at.x + 1) / 2) * width, ((1 - at.y) / 2) * height];
       // Written as "not within a pixel", so the first frame (NaN) says where it is too.
       const still = Math.abs(ax - avatarAt[0]) < 1 && Math.abs(ay - avatarAt[1]) < 1;

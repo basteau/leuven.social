@@ -175,6 +175,10 @@ describe('a room’s walk grid', () => {
     expect(ground.closed(3, 3)).toBe(0);
     expect(gallery.closed(10, 6)).toBe(1);
     expect(ground.nearest(6, 6, 2)).not.toBeNull();
+    // Round the pew: open places beside it, nearest first, none in it.
+    const round = ground.around(6, 6, 3, 4);
+    expect(round.length).toBeGreaterThan(0);
+    for (const [x, z] of round) expect(ground.walkable(x, z)).toBe(true);
     expect(gallery.nearest(5, 6, 2)).toBeNull();
   });
 

@@ -116,6 +116,11 @@ export class RoomGrid {
     return sum[2];
   }
 
+  /** Up to `most` open places within `radius` of (x, z), nearest first and spread out. */
+  around(x: number, z: number, radius: number, most: number): [number, number][] {
+    return this.#grid.around(x, z, radius, (cell) => this.open(cell), most);
+  }
+
   /** The open cell centre nearest (x, z) within `radius` metres, or null. */
   nearest(x: number, z: number, radius: number): [number, number] | null {
     return this.#grid.nearest(x, z, radius, (cell) => this.open(cell));
