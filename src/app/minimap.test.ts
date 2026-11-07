@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { Building } from '../data/city.ts';
-import { MAP_COLOURS, drawMinimap, indexCity } from './minimap.ts';
+import { MAP_COLOURS, covers, drawCity, drawMinimap, indexCity } from './minimap.ts';
 import type { Pen } from './minimap.ts';
 
 const square = (x: number, z: number, half: number) =>
@@ -33,6 +33,7 @@ function recorder() {
     rotate: (a: number) => calls.push(`rotate ${a}`),
     scale: (x: number) => calls.push(`scale ${x}`),
     fillRect: () => calls.push('fillRect'),
+    drawImage: (_i: unknown, ...at: number[]) => calls.push(`drawImage ${at.join(' ')}`),
     beginPath: () => calls.push('beginPath'),
     moveTo: () => {
       moves++;
@@ -66,34 +67,56 @@ describe('indexCity', () => {
   });
 });
 
-describe('drawMinimap', () => {
-  test('draws what is near, each ring once, turned to the view; then the others and you', () => {
+describe('drawCity', () => {
+  test('draws what is in reach, each ring once, layer by layer, inked', () => {
     const index = indexCity(city);
     const { pen, calls, fills, moves } = recorder();
-    const others = [
-      { x: 5, z: 5, colour: 0xff0000 },
-      { x: -20, z: 0, colour: 0x00ff00 },
-    ];
-    drawMinimap(pen, index, { x: 0, z: 0, heading: 0.5, facing: 1, range: 300, size: 200 }, others);
-    // The ground, then each layer in order, then a dot each (theirs, then yours).
+    drawCity(pen, index, 0, 0, 600, 400);
     expect(calls[0]).toBe('save');
     expect(calls).toContain('fillRect');
-    expect(calls).toContain('rotate -0.5');
-    expect(calls).toContain('rotate -1');
-    expect(fills.slice(0, 5)).toEqual([
+    // North up: nothing turned.
+    expect(calls.some((c) => c.startsWith('rotate'))).toBe(false);
+    expect(fills).toEqual([
       MAP_COLOURS.green,
       MAP_COLOURS.water,
       MAP_COLOURS.roads,
       MAP_COLOURS.plazas,
       MAP_COLOURS.buildings,
     ]);
-    expect(fills.slice(5)).toEqual(['#ff0000', '#00ff00', '#fbf6ea']);
     // The far house is left out; the wide one, in two buckets, is drawn once (and the green,
-    // the water, the road and the near house): five rings, plus your notch.
-    expect(moves()).toBe(5 + 1);
-    expect(calls.filter((c) => c === 'arc')).toHaveLength(3);
-    // The houses' outlines, then a rim round each dot.
-    expect(calls.filter((c) => c === 'stroke')).toHaveLength(1 + 3);
+    // the water, the road and the near house): five rings.
+    expect(moves()).toBe(5);
+    expect(calls.filter((c) => c === 'stroke')).toHaveLength(1);
     expect(calls.at(-1)).toBe('restore');
+  });
+});
+
+describe('drawMinimap', () => {
+  test('the city image turned to the view, then the others, then you', () => {
+    const { pen, calls, fills, moves } = recorder();
+    const others = [
+      { x: 5, z: 5, colour: 0xff0000 },
+      { x: -20, z: 0, colour: 0x00ff00 },
+    ];
+    const image = { image: {} as CanvasImageSource, x: 10, z: -10, span: 600 };
+    drawMinimap(pen, image, { x: 0, z: 0, heading: 0.5, facing: 1, range: 300, size: 200 }, others);
+    expect(calls).toContain('rotate -0.5');
+    expect(calls).toContain('rotate -1');
+    // The image, centred on where it was drawn, its span a side.
+    expect(calls).toContain('drawImage -290 -310 600 600');
+    expect(fills).toEqual(['#ff0000', '#00ff00', '#fbf6ea']);
+    expect(moves()).toBe(1);
+    expect(calls.filter((c) => c === 'arc')).toHaveLength(3);
+    expect(calls.at(-1)).toBe('restore');
+  });
+
+  test('a city image covers the minimap until you walk far enough from its middle', () => {
+    const image = { image: {} as CanvasImageSource, x: 0, z: 0, span: 720 };
+    expect(covers(null, 0, 0, 360)).toBe(false);
+    expect(covers(image, 0, 0, 360)).toBe(true);
+    expect(covers(image, 100, 0, 360)).toBe(true);
+    expect(covers(image, 110, 0, 360)).toBe(false);
+    // Drawn for another range: drawn again.
+    expect(covers(image, 0, 0, 1400)).toBe(false);
   });
 });

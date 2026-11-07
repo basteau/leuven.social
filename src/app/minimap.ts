@@ -18,6 +18,7 @@ export type Pen = Pick<
   | 'rotate'
   | 'scale'
   | 'fillRect'
+  | 'drawImage'
   | 'beginPath'
   | 'moveTo'
   | 'lineTo'
@@ -109,31 +110,45 @@ export interface MinimapView {
   size: number;
 }
 
+/** The city drawn once round a spot, north up, for the minimap to turn and move under you. */
+export interface CityImage {
+  image: CanvasImageSource;
+  /** Its middle (m) and how many metres a side it covers. */
+  x: number;
+  z: number;
+  span: number;
+}
+
+/** Whether a city image drawn for `range` still covers the minimap round (x, z), turned any way. */
+export const covers = (city: CityImage | null, x: number, z: number, range: number) =>
+  city !== null &&
+  city.span === range * 2 &&
+  // The minimap's corners reach range/2·√2 from its middle; the image, `range` from its own.
+  Math.hypot(x - city.x, z - city.z) <= range * (1 - Math.SQRT1_2);
+
 /**
- * Draws the city within reach of the middle, turned to the view, then the others, then you: a
- * paper dot with an inked rim and a notch the way you face. The round frame is CSS's.
+ * The city's footprints, squares, water and parks within `span` metres round (x, z), north up,
+ * inked as the city is, filling a `size`-pixel square: drawn once, and again only as you leave it.
  */
-export function drawMinimap(
+export function drawCity(
   pen: Pen,
   index: MinimapIndex,
-  view: MinimapView,
-  others: readonly Dot[],
+  x: number,
+  z: number,
+  span: number,
+  size: number,
 ): void {
-  const { size, range } = view;
-  const scale = size / range;
+  const scale = size / span;
   pen.save();
   pen.setTransform(1, 0, 0, 1, 0, 0);
   pen.fillStyle = MAP_COLOURS.ground;
   pen.fillRect(0, 0, size, size);
-  // Metres east and south of you, turned so the view's way is up, onto the canvas.
   pen.translate(size / 2, size / 2);
-  pen.rotate(-view.heading);
   pen.scale(scale, scale);
-  pen.translate(-view.x, -view.z);
-  // A half-diagonal's reach covers the square however it's turned.
-  const reach = (range / 2) * Math.SQRT2;
-  const [i0, i1] = [Math.floor((view.x - reach) / BUCKET), Math.floor((view.x + reach) / BUCKET)];
-  const [j0, j1] = [Math.floor((view.z - reach) / BUCKET), Math.floor((view.z + reach) / BUCKET)];
+  pen.translate(-x, -z);
+  const half = span / 2;
+  const [i0, i1] = [Math.floor((x - half) / BUCKET), Math.floor((x + half) / BUCKET)];
+  const [j0, j1] = [Math.floor((z - half) / BUCKET), Math.floor((z + half) / BUCKET)];
   const drawn = new Set<Float32Array>();
   for (const layer of LAYERS) {
     pen.fillStyle = MAP_COLOURS[layer];
@@ -152,11 +167,38 @@ export function drawMinimap(
     pen.fill();
   }
   // The houses' ink, a hairline, as the city's outlines: the last layer's path is still open.
-  const px = 1 / scale;
   pen.strokeStyle = MAP_COLOURS.outline;
-  pen.lineWidth = px * (size / 200);
+  pen.lineWidth = 1 / scale;
   pen.stroke();
+  pen.restore();
+}
+
+/**
+ * The minimap for a frame: the city image turned so the view's way is up and moved so you are in
+ * the middle, then the others as dots in their shirts' colours, then you, a paper dot with an
+ * inked rim and a notch the way you face. The round frame is CSS's.
+ */
+export function drawMinimap(
+  pen: Pen,
+  city: CityImage,
+  view: MinimapView,
+  others: readonly Dot[],
+): void {
+  const { size, range } = view;
+  const scale = size / range;
+  pen.save();
+  pen.setTransform(1, 0, 0, 1, 0, 0);
+  pen.fillStyle = MAP_COLOURS.ground;
+  pen.fillRect(0, 0, size, size);
+  // Metres east and south of you, turned so the view's way is up, onto the canvas.
+  pen.translate(size / 2, size / 2);
+  pen.rotate(-view.heading);
+  pen.scale(scale, scale);
+  pen.translate(-view.x, -view.z);
+  const half = city.span / 2;
+  pen.drawImage(city.image, city.x - half, city.z - half, city.span, city.span);
   // The dots stay one size on screen, however far the map reaches.
+  const px = 1 / scale;
   pen.lineWidth = 1.5 * px * (size / 160);
   pen.strokeStyle = MAP_COLOURS.ink;
   const dot = size / 40;
