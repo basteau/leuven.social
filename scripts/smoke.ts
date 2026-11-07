@@ -57,8 +57,11 @@ const MAX_GEOMETRY_MB = 80;
  */
 const MAX_LONG_TASK_MS = 150;
 
+/** The browser the test drives is muted: footsteps and bells have no business on the speakers. */
+const BROWSER_ENV = { ...process.env, AGENT_BROWSER_ARGS: '--mute-audio' };
+
 async function run(cmd: string[]): Promise<string> {
-  const proc = Bun.spawn(cmd, { stdout: 'pipe', stderr: 'pipe' });
+  const proc = Bun.spawn(cmd, { stdout: 'pipe', stderr: 'pipe', env: BROWSER_ENV });
   const [out, err, code] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
@@ -220,7 +223,7 @@ async function expectMenu(): Promise<void> {
   const rows = await evalJson<{ label: string; keys: string }[]>(
     `JSON.stringify([...document.querySelectorAll('[role=option]')].map((o) => ({ label: o.querySelector('.menu-option-label').textContent, keys: o.querySelector('.keycaps').textContent })))`,
   );
-  for (const name of ['Walk here', 'Zoom in', 'Turn left', 'Reset view', 'Mute']) {
+  for (const name of ['Back to you', 'Zoom in', 'Turn left', 'Reset view', 'Mute']) {
     const row = rows.find((r) => r.label === name);
     if (!row?.keys) throw new Error(`the menu has no "${name}" with its keys`);
   }
@@ -332,57 +335,70 @@ async function holdKeys(keys: string[], ms: number): Promise<void> {
 
 const canvasData = (name: string) => `document.querySelector('canvas')?.dataset.${name}`;
 
-/** Walking has started and the walker has dropped in and landed (it publishes where it stands). */
-const landed = `${canvasData('walk')} === 'walk' && !!${canvasData('walker')}`;
+const walker = () => evalJson<string>(`JSON.stringify(${canvasData('walker')} ?? '')`);
 
-/** Pans and the like are no taps: the map must still be the map, with nobody on it. */
-async function expectOnMap(after: string): Promise<void> {
-  const mode = await evalJson<string>(
-    `JSON.stringify((${canvasData('walk')} ?? 'map') + ' ' + (${canvasData('walker')} ?? ''))`,
-  );
-  if (mode.trim() !== 'map') throw new Error(`${after} started a walk (${mode})`);
-  console.log(`ok  ${after} didn't start a walk`);
+/** Pans and the like are no taps: the avatar must still be where it was. */
+async function expectStill(after: string, before: string): Promise<void> {
+  const now = await walker();
+  if (now !== before) throw new Error(`${after} moved the avatar (${before} to ${now})`);
+  console.log(`ok  ${after} didn't move the avatar`);
+}
+
+/** Zooms in with the + key until the view shows the avatar's figure, then brings it back. */
+async function zoomToStreet(): Promise<void> {
+  for (let i = 0; i < 14; i++) await browser('press', '+');
+  // Dispatched, not pressed: agent-browser's Escape hides the page, which stops its frames.
+  await holdKeys(['Escape'], 0);
+  await browser('wait', '--fn', `${canvasData('avatar')} === 'true'`);
 }
 
 /**
- * Walk mode: click a spot on the map, dive down to it while the walker drops in, walk, run and
- * turn the view a little, then fly back to the map.
+ * The avatar, there from the start: zoom down to the street, walk and run it with the keys,
+ * tap somewhere for it to walk to, and check the street sign and the plates on the facades.
  */
 async function expectWalking(): Promise<void> {
-  // From the default view, so landing back on the map costs what the first frame does.
   await browser('press', 'r');
-  await browser('wait', '400');
-  await browser('mouse', 'move', '640', '400');
-  await browser('mouse', 'down');
-  await browser('mouse', 'up');
-  await browser('wait', '--fn', landed);
-  const start = await evalJson<string>(`JSON.stringify(${canvasData('walker')})`);
+  await browser('wait', '--fn', `!!${canvasData('walker')}`);
+  await zoomToStreet();
+  await browser('wait', '1500'); // the camera has come back to the avatar
+  const start = await walker();
   await holdKeys(['d'], 800);
   await holdKeys(['Shift', 'w'], 800);
-  await holdKeys(['e'], 400);
-  // The walker publishes where it stands once it has stopped and stopped idling.
+  // The avatar publishes where it stands once it has stopped.
   await browser('wait', '--fn', `${canvasData('walker')} !== ${JSON.stringify(start)}`);
   await expectHealthyPage('desktop walking');
-  // The street sign names where the walker stands, from OSM's names in city.bin.
+  // The street sign names where the avatar stands, from OSM's names in city.bin.
   await browser('wait', '--fn', `!!document.querySelector('.sign-name')?.textContent`);
   const street = await evalJson<string>(
     `JSON.stringify(document.querySelector('.sign-name').textContent)`,
   );
-  console.log(`ok  street sign while walking: ${street}`);
-  // House numbers and street plates hang on the facades round the walker (walk.bin).
+  console.log(`ok  street sign close to the street: ${street}`);
+  // House numbers and street plates hang on the facades round the view (walk.bin).
   await browser('wait', '--fn', `Number(${canvasData('plates')}) > 0`);
   const plates = await evalJson<string>(`JSON.stringify(${canvasData('plates')})`);
-  console.log(`ok  plates on the facades while walking: ${plates}`);
+  console.log(`ok  plates on the facades close to the street: ${plates}`);
+  // A tap a little way off walks it there.
+  const before = await walker();
+  await browser('mouse', 'move', '700', '360');
+  await browser('mouse', 'down');
+  await browser('mouse', 'up');
+  await browser(
+    'wait',
+    '--timeout',
+    '15000',
+    '--fn',
+    `${canvasData('walker')} !== ${JSON.stringify(before)}`,
+  );
+  console.log('ok  a tap walked the avatar there');
   await browser('screenshot', `${ARTIFACTS}smoke-walk.png`);
-  // Back to the map from the menu (riding below goes back with Escape).
-  await runFromMenu('map', 'Back to the map');
-  // Back on the map once the flight up has landed.
+  // Back out to the whole city, where it isn't drawn at all.
+  for (let i = 0; i < 16; i++) await browser('press', '-');
   await browser(
     'wait',
     '--fn',
-    `${canvasData('walk')} === 'map' && ${canvasData('walker')} === '' && ${canvasData('plates')} === '0'`,
+    `${canvasData('avatar')} === 'false' && ${canvasData('plates')} === '0'`,
   );
-  await expectHealthyPage('desktop back on the map');
+  await expectHealthyPage('desktop zoomed back out');
 }
 
 /** The rack with bikes nearest the middle of the map, from the city file the page loads. */
@@ -400,18 +416,23 @@ const canvasNumber = async (name: string) =>
   Number(await evalJson<string>(`JSON.stringify(${canvasData(name)} ?? '')`));
 
 /**
- * Riding: start a walk by the rack nearest the middle (the map dragged so it's in the middle of
- * the view, then W), F walks to its nearest bike and gets on, W pedals and D turns, F gets off and leaves
- * the bike standing there.
+ * Riding: drag the map so the rack nearest the middle is in the middle of the view and tap it,
+ * which sends the avatar there; F walks to its nearest bike and gets on, W rides and D turns,
+ * F gets off and leaves the bike standing there.
  */
 async function expectRiding(): Promise<void> {
   const [x, z] = await nearestRack();
   await browser('press', 'r');
+  await browser('wait', '400');
   // The map turned a quarter from north, at zoom 1: 800 px show 560 m. A drag keeps the ground
   // under the pointer: across by its screen width, along foreshortened by the isometric pitch.
   const k = 800 / 560;
   const s = Math.SQRT1_2;
   const [dx, dy] = [-(x * s - z * s) * k, (-x * s - z * s) * k * Math.sqrt(1 / 3)];
+  // Standing still, so whatever moves it from here is the drag's doing.
+  await browser('wait', '--fn', `${canvasData('speed')} === '0.0'`);
+  await browser('wait', '500');
+  const before = await walker();
   await browser('mouse', 'move', '640', '400');
   await browser('mouse', 'down');
   for (let i = 1; i <= 4; i++) {
@@ -424,20 +445,30 @@ async function expectRiding(): Promise<void> {
   }
   await browser('mouse', 'up');
   await browser('wait', '400');
-  await expectOnMap('dragging the map');
-  // W walks from the street nearest the middle of the view, which the drag brought the rack to.
-  await browser('press', 'w');
-  await browser('wait', '--fn', landed);
-  const [wx, wz] = (await evalJson<string>(`JSON.stringify(${canvasData('walker')})`))
-    .split(' ')
-    .map(Number);
-  if (!(Math.hypot(wx! - x, wz! - z) < 30)) {
-    throw new Error(`riding: dragged to the rack at ${x}, ${z} but landed at ${wx}, ${wz}`);
-  }
+  await expectStill('dragging the map', before);
+  // A tap in the middle of the view, where the drag brought the rack, sends the avatar there.
+  await browser('mouse', 'move', '640', '400');
+  await browser('mouse', 'down');
+  await browser('mouse', 'up');
+  await browser(
+    'wait',
+    '--timeout',
+    '20000',
+    '--fn',
+    `${canvasData('walker')} !== ${JSON.stringify(before)} && !${canvasData('walker')}.includes('NaN')`,
+  );
+  await zoomToStreet();
+  await browser(
+    'wait',
+    '--timeout',
+    '20000',
+    '--fn',
+    `(() => { const [a, b] = ${canvasData('walker')}.split(' ').map(Number); return Math.hypot(a - ${x}, b - ${z}) < 40; })()`,
+  );
   await browser('eval', key('keydown', 'KeyF'));
   await browser('eval', key('keyup', 'KeyF'));
   await browser('wait', '--timeout', '20000', '--fn', `${canvasData('ride')} === 'riding'`);
-  await browser('wait', '1000');
+  await browser('wait', '500');
   await browser('eval', key('keydown', 'KeyW'));
   // The fastest it got within three seconds: the street may end in something in the way.
   let speed = 0;
@@ -449,7 +480,7 @@ async function expectRiding(): Promise<void> {
   await browser('wait', '400');
   await browser('screenshot', `${ARTIFACTS}smoke-ride.png`);
   await browser('eval', `${key('keyup', 'KeyD')};${key('keyup', 'KeyW')}`);
-  // A cruise is 11.5 m/s, 95% of it in 3.1 s (rider.ts); the street may end sooner.
+  // A cruise is 11.5 m/s (ON_BIKE in avatar.ts); the street may end sooner.
   if (!(speed > 7)) throw new Error(`riding: ${speed} m/s at most pedalling 3 s (more than 7)`);
   console.log(`ok  riding: ${speed} m/s pedalling 3 s`);
   await expectHealthyPage('desktop riding');
@@ -463,12 +494,6 @@ async function expectRiding(): Promise<void> {
   );
   console.log('ok  got off and left the bike standing');
   await expectHealthyPage('desktop after riding');
-  await holdKeys(['Escape'], 0);
-  await browser(
-    'wait',
-    '--fn',
-    `${canvasData('walk')} === 'map' && ${canvasData('walker')} === ''`,
-  );
 }
 
 async function waitForServer(): Promise<void> {
@@ -545,7 +570,6 @@ try {
   }
   await browser('wait', '400');
   await expectHealthyPage('desktop zoomed out, panned');
-  await expectOnMap('panning the map');
 
   await expectWalking();
   await expectRiding();

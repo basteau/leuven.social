@@ -49,7 +49,7 @@ export interface MenuProps {
   takeTyped: () => string;
   state: CommandState;
   run: (action: ActionId) => void;
-  /** Places to walk to by name, when the viewer can put the walker at a spot. */
+  /** Places by name, when the viewer can put the avatar at a spot. */
   places?: { city: PlaceData; go: (place: Place) => void };
 }
 
@@ -103,8 +103,6 @@ interface Row {
 const PLACE_QUERY = 2;
 const PLACES_SHOWN = 6;
 
-const MODE_NAMES = { map: 'On the map', walk: 'On foot' } as const;
-
 /** Keycaps side by side, alternatives apart. */
 export function KeyCaps({ keys }: { keys: Keys }) {
   return (
@@ -147,7 +145,7 @@ export function CommandMenu(props: MenuProps) {
       id: `place-${place.name}`,
       group: 'places',
       label: place.name,
-      detail: place.kind === 'square' ? 'Square · walk here' : 'Street · walk here',
+      detail: place.kind === 'square' ? 'Square · go there' : 'Street · go there',
       keywords: place.kind,
       keys: [],
       icon: 'place',
@@ -410,7 +408,7 @@ export function CommandMenu(props: MenuProps) {
         </div>
 
         <footer className="menu-foot">
-          <span>{state.ride === 'riding' ? 'On a bike' : MODE_NAMES[state.mode]}</span>
+          <span>{state.ride === 'riding' ? 'On a bike' : 'On foot'}</span>
           <span className="menu-foot-keys" aria-hidden="true">
             <kbd>↑</kbd>
             <kbd>↓</kbd> move <kbd>↵</kbd> choose <kbd>Esc</kbd>{' '}
@@ -422,9 +420,9 @@ export function CommandMenu(props: MenuProps) {
   );
 }
 
-/** Every key and gesture, the mode at hand first. */
+/** Every key and gesture, what moves you now first. */
 function Help({ sheet, state }: { sheet: KeySection[]; state: CommandState }) {
-  const first = state.ride === 'riding' ? 'ride' : state.mode === 'walk' ? 'walk' : 'map';
+  const first = state.ride === 'riding' ? 'ride' : 'walk';
   const sections = sheet.toSorted((a, b) => Number(b.id === first) - Number(a.id === first));
   return (
     <div className="menu-page">

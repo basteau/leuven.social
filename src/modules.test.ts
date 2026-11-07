@@ -9,8 +9,8 @@ const BROWSER_ONLY = new Set([
   'scene/viewer.ts',
   'scene/facade-material.ts',
   'scene/character-material.ts',
-  'scene/walk.ts',
-  'scene/ride.ts',
+  'scene/avatar-layer.ts',
+  'scene/bikes.ts',
   'scene/plates.ts',
 ]);
 

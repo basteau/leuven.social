@@ -62,45 +62,30 @@ const BUDGETS: {
   },
   // The whole R23 ring plus Heverlee; the ceiling agreed for the city data is 1 MB.
   { label: 'City data (already gzipped)', pattern: 'data/city.bin', limit: 1024 * KB, gzip: false },
-  // Walk mode downloads the first time someone walks (or hovers Walk), not with the map. The
-  // walker's planted-foot gait, its rig and its bevelled, inked figure take about 1.8 KB of it,
-  // and walking on the terrain about 0.6 KB more: 16 KB. Riding gets a chunk of its own.
-  // 16.5: riding's hooks (fetching its chunk near a rack, handing it the body, the camera's
-  // retuning) and the collide and slide, pose IK and parked-bike lookup it shares from here.
-  // 18: starting a walk where someone clicks, GTA style (about 1.5 KB): the marker that drops
-  // on the spot and the dust of the landing, the walker dropping in and settling, its wave
-  // leaving, the dive, the cross-fade for reduced motion and flights that turn round midway.
-  // 20: the figure's polish (about 1.5 KB): its collar, placket, pocket, belt, hands, face and
-  // hair as data, and the gait's counter-rotation, idle weight shift, stop and landing.
-  // Still 20 at 19.9: standing on the drawn ground, routing round dropped bikes and starting a
-  // walk from the side when a house is behind the walker added 0.4 KB.
+  // The avatar loads once the first frame is drawn: its figure, walking it by the screen,
+  // routes and jumps, the marker, and the camera following it. Walk mode was 20.5 KB with its
+  // chase camera, flight, sky dome, thumb stick and spawn dive; one camera and one avatar took
+  // that to about 13.2 KB.
   {
-    label: 'Walk mode JS (on first walk)',
-    pattern: 'assets/walk-*.js',
-    // 20.5: walk mode meets the café tables and the bay trees by café doors (0.1 KB).
-    limit: 20.5 * KB,
+    label: 'Avatar JS (after first frame)',
+    pattern: 'assets/avatar-layer-*.js',
+    limit: 14 * KB,
     gzip: true,
   },
-  // The street-name lookup for the sign, a chunk beside walk mode's that loads with it.
+  // The street-name lookup for the sign, a chunk beside the avatar's that loads with it.
   {
-    label: 'Street names JS (with walk mode)',
+    label: 'Street names JS (with the avatar)',
     pattern: 'assets/streets-*.js',
     limit: 1.5 * KB,
     gzip: true,
   },
-  // Riding loads near a rack (or on F): the bike's physics, rig and model, the rider's pose, the
-  // glue that takes and leaves bikes, and its sounds. The plan said 7 KB; riding along a route,
-  // swinging a racked bike round to the open street and baking the bikes left about the city
-  // into one mesh took it to about 8.8. 10: the richer bike asked for (round spoked wheels,
-  // mudguards, a chain and its guard, a lamp, a bell, grips, carrier stays, a basket) and the
-  // rider's arms reaching bars turned twice as far took it to about 9.6. 12: getting on and off
-  // asked for (about 2.4 KB): rolling a bike out of its rack and walking it round, the keyed
-  // swing of a leg over the carrier with legs that splay to planted feet, the kickstand, stepping
-  // away and handing the camera and the walk back smoothly.
+  // Bikes load near a rack (or on F): taking and leaving one, the bell, the bikes left standing.
+  // Riding was 12 KB with its kinematic bicycle, rider IK and scripted mounts; a bike is now the
+  // avatar at a bike's paces, drawn as the traffic's own cyclist, at about 2.8 KB.
   {
-    label: 'Riding JS (near a rack)',
-    pattern: 'assets/ride-*.js',
-    limit: 12 * KB,
+    label: 'Bikes JS (near a rack)',
+    pattern: 'assets/bikes-*.js',
+    limit: 3 * KB,
     gzip: true,
   },
   // The traffic loads once the first frame is drawn: the road graph and its router, the
@@ -115,33 +100,36 @@ const BUDGETS: {
   // lamps and pools (0.3 KB), asked for. 13: standing on the slope and on the squares (the
   // squares found by their boxes), and no gridlock, at 12.6 KB. 14: corners and bends built
   // in lane space, spawning out of the view's corners and turning round at a cul-de-sac in
-  // view (0.7 KB), at 13.3 KB.
+  // view (0.7 KB), at 13.3 KB. 17: the bike's rig (2.8 KB), its own chunk while riding shared
+  // it, now rides here, as the avatar's bike draws the traffic's cyclist; the figure's chunk
+  // below went from 6 KB to 3, so the two together are 20 KB as before.
   {
     label: 'Traffic JS (after first frame)',
     pattern: 'assets/vehicles-*.js',
-    limit: 14 * KB,
+    limit: 17 * KB,
     gzip: true,
   },
-  // The walker's figure and the rideable bike, shared by the traffic (which loads first) with
-  // walk mode and riding, so the one figure and the one bike are drawn in every role.
+  // The walker's figure, shared by the traffic (which loads first) with the avatar, so the one
+  // figure is drawn in every role.
   {
-    label: 'Figure and bike JS (with the traffic)',
-    pattern: 'assets/{figure,bike-rig}-*.js',
-    limit: 6 * KB,
+    label: 'Figure JS (with the traffic)',
+    pattern: 'assets/figure-*.js',
+    limit: 3 * KB,
     gzip: true,
   },
-  // The plates on the facades load after walk mode, in a chunk and a data file of their own.
+  // The plates on the facades load once the view comes down to the street, in a chunk and a
+  // data file of their own.
   // 6: the shops' name boards (fitting a name to its front, its paint at 4.5:1, hanging it on
   // the awning's valance or the fascia, and the shader that paints under the letters) took the
   // chunk from 4.6 to 5.6 KB. 5.8: just above that.
   {
-    label: 'Facade plates JS (on first walk)',
+    label: 'Facade plates JS (near the street)',
     pattern: 'assets/plates-*.js',
     limit: 5.8 * KB,
     gzip: true,
   },
   // Street furniture, monuments and the shop fronts' awnings, signs and terraces load once the
-  // first frame is drawn, with the prop and terrace footprints they share with walk mode.
+  // first frame is drawn, with the prop and terrace footprints they share with the avatar.
   // 6: the storefronts' shapes and the fronts' places on their walls added 1.6 KB.
   // 7: standing each parked bike on the ground as drawn (the layers' outlines) and the bikes'
   // detail asked for (round spoked wheels, cranks, chain guard, kickstand, lamp, basket) took it

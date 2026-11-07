@@ -427,48 +427,6 @@ kbd {
   translate: -50% -50%;
 }
 
-/* The thumb stick, under the thumb that steers: a ring and the knob that follows it. */
-.stick,
-.stick-ghost {
-  position: absolute;
-  inline-size: 104px;
-  block-size: 104px;
-  border: var(--border) solid var(--ink);
-  border-radius: 50%;
-  background: color-mix(in oklch, var(--paper) 45%, transparent);
-}
-
-.stick {
-  inset-block-start: 0;
-  inset-inline-start: 0;
-  margin-block-start: -52px;
-  margin-inline-start: -52px;
-  box-shadow: var(--shadow-hard);
-}
-
-.stick-knob {
-  position: absolute;
-  inset: 30px;
-  border: var(--border) solid var(--ink);
-  border-radius: 50%;
-  background: var(--paper);
-}
-
-/* Before the first step on a touch screen: where the left thumb walks, dashed and see-through. */
-.stick-ghost {
-  inset-block-end: calc(18% + env(safe-area-inset-bottom, 0px));
-  inset-inline-start: calc(12% + env(safe-area-inset-left, 0px));
-  display: none;
-  border-style: dashed;
-  opacity: 0.8;
-}
-
-@media (pointer: coarse) {
-  .stick-ghost {
-    display: block;
-  }
-}
-
 /*
  * The menu: one big inked sheet of paper over the city. A dialog, centred with a fixed height
  * so the list doesn't jump while typing; a sheet from the bottom edge on a narrow screen.

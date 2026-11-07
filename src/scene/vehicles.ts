@@ -847,17 +847,23 @@ export interface TrafficLayer {
 /** The instance attributes the figure's tints come in. */
 const TINTS = ['paint', 'trim', 'skin', 'hair'] as const;
 
+/** What the vehicles' materials take from the engine. */
+export type MaterialKit = Pick<
+  TrafficKit,
+  'three' | 'linearVertexColors' | 'bayer' | 'gradientMap' | 'night' | 'ink'
+>;
+
 /**
- * The traffic on the streets, drawn: one instanced mesh per kind, with an inverted hull in ink
- * behind it sharing its matrices, two draw calls a kind, and for people and cyclists a second
- * pair in the walker's figure (NEAR_SHAPES) that the nearest of them move to each frame. Bodies
- * take the city's toon shading and its shadows; `paint` colours the painted parts per instance
- * (with `trim`, `skin` and `hair` for the figures) and `state` (the stride, the brakes, the
- * indicator, a blink offset) drives the limbs and the lamps.
+ * The vehicles' two materials: the bodies' toon shading with their parts (the figure's bones,
+ * the lamps, the beams, the tints) and their ink hulls', and the clock the indicators blink by.
+ * Shared by the traffic and the avatar's bike (bikes.ts), which draws the same rider.
  */
-export function createTrafficLayer(kit: TrafficKit, seed = 1): TrafficLayer {
-  const { three, MeshBuilder, linearVertexColors, gradientMap, night } = kit;
-  const traffic = new Traffic(kit.city.ways, seed);
+export function vehicleMaterials(kit: MaterialKit): {
+  material: MeshToonMaterial;
+  inkMaterial: MeshBasicMaterial;
+  time: { value: number };
+} {
+  const { three, linearVertexColors, gradientMap, night } = kit;
   const time = { value: 0 };
   const material = new three.MeshToonMaterial({ vertexColors: true, gradientMap });
   material.onBeforeCompile = (shader: WebGLProgramParametersWithUniforms) => {
@@ -921,6 +927,21 @@ export function createTrafficLayer(kit: TrafficKit, seed = 1): TrafficLayer {
       );
   };
   inkMaterial.customProgramCacheKey = () => 'vehicle-ink-v4';
+  return { material, inkMaterial, time };
+}
+
+/**
+ * The traffic on the streets, drawn: one instanced mesh per kind, with an inverted hull in ink
+ * behind it sharing its matrices, two draw calls a kind, and for people and cyclists a second
+ * pair in the walker's figure (NEAR_SHAPES) that the nearest of them move to each frame. Bodies
+ * take the city's toon shading and its shadows; `paint` colours the painted parts per instance
+ * (with `trim`, `skin` and `hair` for the figures) and `state` (the stride, the brakes, the
+ * indicator, a blink offset) drives the limbs and the lamps.
+ */
+export function createTrafficLayer(kit: TrafficKit, seed = 1): TrafficLayer {
+  const { three, MeshBuilder } = kit;
+  const traffic = new Traffic(kit.city.ways, seed);
+  const { material, inkMaterial, time } = vehicleMaterials(kit);
   const meshes: InstancedMesh[] = [];
   const matrix = new three.Matrix4();
   const tilt = new three.Matrix4();

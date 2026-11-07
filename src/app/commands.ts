@@ -1,17 +1,17 @@
 /**
- * Everything the app can do, as the menu lists it: what each command is called in the mode at
- * hand, the keys that do the same, and what it runs. Pure, so the menu stays a thin view of it.
+ * Everything the app can do, as the menu lists it: what each command is called at the moment
+ * (on foot or on a bike), the keys that do the same, and what it runs. Pure, so the menu stays a
+ * thin view of it. There are no modes: the map is the camera far from the avatar.
  */
 
 import { PRESETS, nextPreset } from '../scene/daylight.ts';
 import type { PresetId } from '../scene/daylight.ts';
-import type { RideState, WalkMode } from '../scene/viewer.ts';
+import type { RideState } from '../scene/viewer.ts';
 import type { Keycaps } from './input.ts';
 
 /** What the app does when a command runs; the shell maps each to the viewer or its own state. */
 export type ActionId =
-  | 'centre'
-  | 'map'
+  | 'recentre'
   | 'zoom-in'
   | 'zoom-out'
   | 'turn-left'
@@ -30,7 +30,7 @@ export type ActionId =
 export type GroupId = 'walk' | 'map' | 'view' | 'general' | 'places' | 'keys';
 
 export const GROUPS: Record<GroupId, string> = {
-  walk: 'On foot',
+  walk: 'You',
   map: 'Map',
   view: 'View',
   general: 'General',
@@ -82,7 +82,6 @@ export interface Command {
 }
 
 export interface CommandState {
-  mode: WalkMode;
   ride: RideState;
   running: boolean;
   soundOn: boolean;
@@ -96,91 +95,71 @@ export interface CommandState {
   mod: string;
 }
 
-const view = (s: CommandState): Command[] => {
-  const walking = s.mode === 'walk';
-  return [
-    {
-      id: 'zoom-in',
-      group: 'view',
-      label: walking ? 'Closer' : 'Zoom in',
-      detail: walking ? 'Bring the camera closer' : undefined,
-      keywords: 'zoom in closer bigger magnify',
-      keys: [['+']],
-      icon: 'plus',
-      action: 'zoom-in',
-    },
-    {
-      id: 'zoom-out',
-      group: 'view',
-      label: walking ? 'Further' : 'Zoom out',
-      detail: walking ? 'Take the camera further back' : undefined,
-      keywords: 'zoom out further smaller overview',
-      keys: [['−']],
-      icon: 'minus',
-      action: 'zoom-out',
-    },
-    {
-      id: 'turn-left',
-      group: 'view',
-      label: 'Turn left',
-      detail: walking ? 'Turn the view an eighth' : 'Turn the map a quarter',
-      keywords: 'rotate turn view left anticlockwise',
-      keys: [[s.keys.KeyQ]],
-      icon: 'turn-left',
-      action: 'turn-left',
-    },
-    {
-      id: 'turn-right',
-      group: 'view',
-      label: 'Turn right',
-      detail: walking ? 'Turn the view an eighth' : 'Turn the map a quarter',
-      keywords: 'rotate turn view right clockwise',
-      keys: [[s.keys.KeyE]],
-      icon: 'turn-right',
-      action: 'turn-right',
-    },
-    ...(walking
-      ? []
-      : [
-          {
-            id: 'reset',
-            group: 'view',
-            label: 'Reset view',
-            detail: 'Back over Grote Markt, north at the top',
-            keywords: 'north up compass home centre center default',
-            keys: [['R']],
-            icon: 'compass',
-            action: 'reset',
-          } satisfies Command,
-        ]),
-  ];
-};
+const view = (s: CommandState): Command[] => [
+  {
+    id: 'zoom-in',
+    group: 'view',
+    label: 'Zoom in',
+    detail: 'Down to the street',
+    keywords: 'zoom in closer bigger magnify street',
+    keys: [['+']],
+    icon: 'plus',
+    action: 'zoom-in',
+  },
+  {
+    id: 'zoom-out',
+    group: 'view',
+    label: 'Zoom out',
+    detail: 'Up to the whole city',
+    keywords: 'zoom out further smaller overview map city',
+    keys: [['−']],
+    icon: 'minus',
+    action: 'zoom-out',
+  },
+  {
+    id: 'turn-left',
+    group: 'view',
+    label: 'Turn left',
+    detail: 'Turn the map a quarter',
+    keywords: 'rotate turn view left anticlockwise',
+    keys: [[s.keys.KeyQ]],
+    icon: 'turn-left',
+    action: 'turn-left',
+  },
+  {
+    id: 'turn-right',
+    group: 'view',
+    label: 'Turn right',
+    detail: 'Turn the map a quarter',
+    keywords: 'rotate turn view right clockwise',
+    keys: [[s.keys.KeyE]],
+    icon: 'turn-right',
+    action: 'turn-right',
+  },
+  {
+    id: 'reset',
+    group: 'view',
+    label: 'Reset view',
+    detail: 'Back over Grote Markt, north at the top',
+    keywords: 'north up compass home centre center default',
+    keys: [['R']],
+    icon: 'compass',
+    action: 'reset',
+  },
+];
 
-const modeCommands = (s: CommandState): Command[] => {
-  if (s.mode === 'map') {
-    return [
-      {
-        id: 'walk',
-        group: 'map',
-        label: 'Walk here',
-        detail: 'From the street in the middle of the view, or click any street',
-        keywords: 'walk start street ground person centre center middle spawn',
-        keys: [[s.keys.KeyW], ['↵']],
-        icon: 'walk',
-        action: 'centre',
-      },
-    ];
-  }
+const yours = (s: CommandState): Command[] => {
   const riding = s.ride === 'riding';
   return [
     {
-      id: 'map',
+      id: 'recentre',
       group: 'walk',
-      label: 'Back to the map',
-      keywords: 'map back leave exit stop overview',
+      label: 'Back to you',
+      detail: 'The view comes back to where you are',
+      keywords: 'me you find centre center recentre follow where am i back home avatar',
       keys: [['Esc']],
-      icon: 'back',
-      action: 'map',
+      icon: 'pin',
+      action: 'recentre',
     },
     ...(s.ride
       ? [
@@ -293,7 +272,7 @@ const general = (s: CommandState): Command[] => [
 
 /** The commands for the moment, in the order the menu lists them before anything is typed. */
 export function commandsFor(state: CommandState): Command[] {
-  return [...modeCommands(state), ...view(state), ...general(state)];
+  return [...yours(state), ...view(state), ...general(state)];
 }
 
 export interface KeyRow {
@@ -309,50 +288,40 @@ export interface KeySection {
   rows: KeyRow[];
 }
 
-/** Every key and gesture, by mode: the menu's Keys group and its Controls page. */
+/** Every key and gesture, by what they move: the menu's Keys group and its Controls page. */
 export function keySheet(k: Keycaps, mod: string): KeySection[] {
   return [
     {
       id: 'map',
-      title: 'On the map',
+      title: 'The map',
       rows: [
         { what: 'Pan', keys: [['←', '↑', '↓', '→']], touch: 'Drag' },
-        { what: 'Zoom', keys: [['+', '−']], touch: 'Pinch, or scroll with a mouse' },
+        {
+          what: 'Zoom, down to the street',
+          keys: [['+', '−']],
+          touch: 'Pinch, or scroll with a mouse',
+        },
         { what: 'Turn the map', keys: [[k.KeyQ, k.KeyE]], touch: 'From this menu' },
         { what: 'Reset the view', keys: [['R']] },
-        { what: 'Walk from any street', keys: [['Click']], touch: 'Tap it' },
-        { what: 'Walk from the middle', keys: [[k.KeyW], ['↵']] },
       ],
     },
     {
       id: 'walk',
       title: 'On foot',
       rows: [
-        {
-          what: 'Walk',
-          keys: [
-            [k.KeyW, k.KeyA, k.KeyS, k.KeyD],
-            ['←', '↑', '↓', '→'],
-          ],
-          touch: 'Left thumb',
-        },
-        { what: 'Run', keys: [['Shift']], touch: 'Push the stick to its rim' },
-        { what: 'Look around', keys: [['Drag']], touch: 'Right thumb' },
-        { what: 'Walk to a spot', keys: [['Click']], touch: 'Tap a street' },
-        { what: 'Turn the view', keys: [[k.KeyQ, k.KeyE]] },
-        { what: 'Closer, further', keys: [['+', '−']] },
-        { what: 'Back to the map', keys: [['Esc']] },
+        { what: 'Walk', keys: [[k.KeyW, k.KeyA, k.KeyS, k.KeyD]], touch: 'Tap where to go' },
+        { what: 'Run', keys: [['Shift']], touch: 'From this menu' },
+        { what: 'Walk to a spot, or go there', keys: [['Click']], touch: 'Tap it' },
+        { what: 'Back to you', keys: [['Esc']], touch: 'From this menu' },
       ],
     },
     {
       id: 'ride',
       title: 'On a bike',
       rows: [
-        { what: 'Get on or off', keys: [['F']] },
-        { what: 'Pedal', keys: [[k.KeyW]], touch: 'Left thumb rides where it points' },
-        { what: 'Brake, then back up', keys: [[k.KeyS]], touch: 'Pull the stick back' },
-        { what: 'Steer', keys: [[k.KeyA, k.KeyD]] },
-        { what: 'Sprint', keys: [['Shift']], touch: 'Push the stick to its rim' },
+        { what: 'Get on or off', keys: [['F']], touch: 'The Ride button' },
+        { what: 'Ride', keys: [[k.KeyW, k.KeyA, k.KeyS, k.KeyD]], touch: 'Tap where to go' },
+        { what: 'Sprint', keys: [['Shift']] },
         { what: 'Ring the bell', keys: [['B']] },
       ],
     },

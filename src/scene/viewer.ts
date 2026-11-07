@@ -4,7 +4,6 @@ import {
   BufferAttribute,
   BufferGeometry,
   CanvasTexture,
-  Color,
   DataTexture,
   DirectionalLight,
   Fog,
@@ -28,7 +27,7 @@ import {
   Vector3,
   WebGLRenderer,
 } from 'three';
-import type { Material, Object3D, PerspectiveCamera } from 'three';
+import type { Material, Object3D } from 'three';
 
 import type { City } from '../data/city.ts';
 import { clampToArea } from '../data/geometry.ts';
@@ -45,8 +44,6 @@ import {
   BAYER,
   createFacadeMaterial,
   createGlowMaterial,
-  fadeInkNearCamera,
-  fadeNearCamera,
   setNight,
   setPixelSize,
 } from './facade-material.ts';
@@ -91,30 +88,36 @@ import type { Spin } from './spin.ts';
 import { terraceParasols } from './terraces.ts';
 import type { Plates } from './plates.ts';
 import type { TrafficLayer } from './vehicles.ts';
-import type { RideAction, RideState } from './ride.ts';
-import type { Walk, WalkMode } from './walk.ts';
+import type { AvatarLayer } from './avatar-layer.ts';
+import type { RideAction, RideState } from './bikes.ts';
+import {
+  CAMERA_DISTANCE,
+  MAX_ZOOM,
+  MIN_ZOOM,
+  PITCH,
+  SPANS,
+  VIEW_HEIGHT,
+  detailAt,
+  fogRange,
+  spanOf,
+} from './lod.ts';
+import type { Detail } from './lod.ts';
 
-export type { WalkMode } from './walk.ts';
-export type { RideState } from './ride.ts';
+export type { RideAction, RideState } from './bikes.ts';
 
 export interface ViewerOptions {
   canvas: HTMLCanvasElement;
   /** Focusable element whose arrow keys pan the map. */
   keyTarget: HTMLElement;
-  /** A layer over the canvas that takes no pointer events, for walk mode's thumb stick. */
-  overlay: HTMLElement;
   city: City;
   reducedMotion: boolean;
-  /**
-   * Walk mode changed: walking from the moment a spawn begins (the flight down plays after), or
-   * back on the map from the moment leaving begins (the flight up plays after).
-   */
-  onWalkModeChange?: (mode: WalkMode) => void;
-  /** A spot that can't be walked to was chosen: a greyed marker there shakes its head too. */
-  onWalkBlocked?: () => void;
-  /** Walk mode's code couldn't be downloaded (it loads the first time someone walks). */
-  onWalkUnavailable?: () => void;
-  /** The street or square under the walker changed (null: none, or not walking). */
+  /** A tap on ground nobody can walk to: a greyed marker there shakes its head too. */
+  onBlocked?: () => void;
+  /** The avatar's code couldn't be downloaded (it loads once the first frame is drawn). */
+  onAvatarUnavailable?: () => void;
+  /** The view came close enough to show the avatar's figure, or went too far for it. */
+  onAvatarShown?: (shown: boolean) => void;
+  /** The street or square under the avatar changed (null: none, or the view too far out). */
   onStreetChange?: (name: string | null) => void;
   /** A bike is near enough to ride, or being ridden, or neither any more. */
   onRideChange?: (state: RideState) => void;
@@ -133,33 +136,25 @@ export interface Viewer {
   rotate(direction: 1 | -1): void;
   /**
    * Keeps turning while a turn control is held: -1 left, 1 right, 0 lets go. The map then
-   * settles on the next quarter view; walking, the view turns as with a held Q or E.
+   * settles on the next quarter view.
    */
   spin(direction: number): void;
   /** Multiplies the zoom, within the controls' limits. */
   zoomBy(factor: number): void;
   resetView(): void;
-  /** Starts downloading walk mode, for when someone is about to walk. */
-  preloadWalk(): void;
-  /**
-   * Starts walking from the street nearest a spot on the ground (metres east and south of the
-   * middle, as `City` has them): a marker drops there and the camera dives down to the walker.
-   */
-  walkAt(x: number, z: number): void;
-  /** Starts walking from the street nearest what's under a point on screen (client px). */
-  walkAtScreen(clientX: number, clientY: number): void;
-  /** Starts walking from the street nearest the middle of the view. */
-  walkFromCentre(): void;
-  /** Back to the map: the walker waves and the camera rises to the nearest quarter view. */
-  stopWalking(): void;
-  /** Walks toward a direction on screen while held: right and up, each from -1 to 1. */
+  /** Walks the avatar toward a direction on screen while held: right and up, each from -1 to 1. */
   steer(right: number, up: number): void;
-  /** Runs instead of walking, while on. */
+  /** Runs (or sprints on a bike) instead of walking, while on. */
   run(on: boolean): void;
-  /** Turns the walking view while held: -1 left, 1 right, 0 stops. */
-  look(direction: number): void;
-  /** Gets on or off the nearest bike, rings its bell, or gets riding ready (`warm`). */
-  ride(action: RideAction | 'warm'): void;
+  /** Brings the camera back to the avatar. */
+  recentre(): void;
+  /**
+   * Puts the avatar on the street nearest a spot on the ground (metres east and south of the
+   * middle, as `City` has them) and brings the camera there.
+   */
+  goTo(x: number, z: number): void;
+  /** Gets on or off the nearest bike, or rings its bell. */
+  ride(action: RideAction): void;
   /** The time of day: the preset nearest the hour, and whether the day is passing. */
   timeOfDay(): { preset: PresetId; passing: boolean };
   /** Steps to the next time of day (morning, midday, golden hour, dusk, night) and names it. */
@@ -175,21 +170,9 @@ export interface Viewer {
   dispose(): void;
 }
 
-/** Metres of city shown top to bottom at zoom 1. */
-const VIEW_HEIGHT = 560;
-const PITCH = Math.atan(1 / Math.SQRT2); // true isometric, ≈ 35.26°
-const CAMERA_DISTANCE = 2000;
 const ROTATE_MS = 280;
-/** The street sign looks the name up again once the walker (or the view) has moved this far (m). */
+/** The street sign looks the name up again once the avatar has moved this far (m). */
 const STREET_STEP = 1;
-/**
- * From the street: shadows cover this far round the walker, whichever way it looks, with this
- * margin for roofs (m), and are redrawn once over 1.6× coarser than that needs. Close up, a
- * shadow texel spans many pixels, so the square stays tight: about 12 cm a texel.
- */
-const WALK_SHADOW = 45;
-const WALK_SHADOW_REACH = 30;
-const WALK_SHADOW_COARSER = 1.6;
 interface CellEntry {
   cell: Cell;
   box: Box3;
@@ -241,15 +224,8 @@ const LIGHTS_ONLY = 1 << 2;
 const FRAME_CALLS = 160;
 const FRAME_TRIANGLES = 1_150_000;
 /**
- * Zoom from which street furniture shows. Further out a lamp post is a stray pixel, and the
- * frames that show the most city are the ones that can least afford it. It casts shadows only
- * from the street: on the map a bench's shadow is a texel or two under the shadow lookup's lift,
- * and redrawing the map's square with the city's bikes and lamps took half a million triangles.
- */
-const PROP_ZOOM = 2;
-/**
- * How far round the view's target the traffic keeps (m): at least this, so a walker sees the
- * streets round them busy, and at most this, the whole map zoomed out.
+ * How far round the view's target the traffic keeps (m): at least this, so the streets round the
+ * avatar are busy, and at most this, the whole map zoomed out.
  */
 const TRAFFIC_NEAR = 250;
 const TRAFFIC_REACH = 1100;
@@ -302,7 +278,7 @@ function toonGradient(): DataTexture {
 }
 
 export function createViewer(options: ViewerOptions): Viewer {
-  const { canvas, keyTarget, overlay, city, reducedMotion } = options;
+  const { canvas, keyTarget, city, reducedMotion } = options;
   // Dense screens are smooth already; only standard-density ones pay for multisampling.
   const density = Math.min(globalThis.devicePixelRatio || 1, 2);
   const renderer = new WebGLRenderer({ canvas, alpha: true, antialias: density < 1.5 });
@@ -316,8 +292,8 @@ export function createViewer(options: ViewerOptions): Viewer {
   renderer.shadowMap.autoUpdate = false;
 
   const scene = new Scene();
-  // Walking fades the far city into the horizon's haze. The fog is always there, far off on
-  // the map, so starting a walk never recompiles the city's shaders.
+  // Close in, the far end of the street fades into the horizon's haze (`fogRange`). The fog is
+  // always there, far off on the map, so zooming in never recompiles the city's shaders.
   const fog = new Fog(SKY.horizon, 1e7, 1e7 + 1);
   scene.fog = fog;
   const gradientMap = toonGradient();
@@ -326,7 +302,6 @@ export function createViewer(options: ViewerOptions): Viewer {
   // A mesh without a `facade` attribute (street furniture) reads 0: a plain surface.
   Object.assign(material, { defaultAttributeValues: { facade: [0], lift: [0] } });
   const ink = new LineBasicMaterial({ color: OUTLINE });
-  fadeInkNearCamera(ink);
   // The lamps' light at night: the same night uniform as the windows.
   const lamps = { value: 0 };
   const glowMaterial = createGlowMaterial(lamps);
@@ -418,7 +393,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   }
 
   /**
-   * The ground as its cell draws it under a spot (drawn-ground.ts), for the walker and the bikes
+   * The ground as its cell draws it under a spot (drawn-ground.ts), for the avatar and the bikes
    * to stand on. Read by the furniture chunk; till that loads, the pavement's height.
    */
   let lastCell: CellEntry | undefined;
@@ -514,6 +489,8 @@ export function createViewer(options: ViewerOptions): Viewer {
   );
   let [nearest, farthest] = depthRange(light, cityCorners);
   let shadow: ShadowSquare | undefined;
+  /** What the view's span says is worth drawing (lod.ts), as of the last frame. */
+  let detail: Detail = detailAt(VIEW_HEIGHT);
   let propsShown = false;
   const shadowFrustum = new Frustum();
   /** Whether cells built since the shadow map was drawn cast into it. */
@@ -522,18 +499,14 @@ export function createViewer(options: ViewerOptions): Viewer {
   const needFrustum = new Frustum();
   const needProjection = new Matrix4();
 
+  // The one camera, from the whole city down to a street (lod.ts).
   const camera = new OrthographicCamera(-1, 1, 1, -1, 1, CAMERA_DISTANCE * 2);
   // Arrow keys pan while the map has focus.
   const controls = new MapControls(camera, canvas, keyTarget, () => onChange());
+  [controls.minZoom, controls.maxZoom] = [MIN_ZOOM, MAX_ZOOM];
 
-  // The camera that draws: the map's, or the walking one while walking.
-  let view: OrthographicCamera | PerspectiveCamera = camera;
-  let street: PerspectiveCamera | undefined;
   /** Height of the view (m) where it looks: what decides how much detail is worth drawing. */
-  const viewSpan = () =>
-    street
-      ? 2 * street.position.distanceTo(controls.target) * Math.tan((street.fov * Math.PI) / 360)
-      : VIEW_HEIGHT / camera.zoom;
+  const viewSpan = () => spanOf(camera.zoom);
 
   let yaw = Math.PI / 4;
   function placeCamera(): void {
@@ -544,7 +517,8 @@ export function createViewer(options: ViewerOptions): Viewer {
       t.z + Math.cos(yaw) * Math.cos(PITCH) * CAMERA_DISTANCE,
     );
     camera.lookAt(t);
-    controls.update();
+    clampTarget();
+    invalidate();
   }
 
   let width = 0;
@@ -564,23 +538,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     const halfW = halfH * (buffer.x / buffer.y);
     Object.assign(camera, { left: -halfW, right: halfW, top: halfH, bottom: -halfH });
     camera.updateProjectionMatrix();
-    walk?.resized();
     invalidate();
-  }
-
-  // The ground all round the walker, reused each frame.
-  const square: [number, number, number][] = [
-    [0, 0, 0],
-    [0, 0, 0],
-    [0, 0, 0],
-    [0, 0, 0],
-  ];
-  function around(x: number, z: number, reach: number): readonly V3[] {
-    for (let i = 0; i < 4; i++) {
-      square[i]![0] = x + (i === 1 || i === 2 ? reach : -reach);
-      square[i]![2] = z + (i >= 2 ? reach : -reach);
-    }
-    return square;
   }
 
   const frustum = new Frustum();
@@ -590,8 +548,8 @@ export function createViewer(options: ViewerOptions): Viewer {
   const ground = SCREEN_CORNERS.map((): [number, number, number] => [0, 0, 0]);
   /** Points `frustum` at what the view sees now. */
   function aim(): void {
-    view.updateMatrixWorld();
-    viewProjection.multiplyMatrices(view.projectionMatrix, view.matrixWorldInverse);
+    camera.updateMatrixWorld();
+    viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     frustum.setFromProjectionMatrix(viewProjection);
   }
 
@@ -606,7 +564,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     // redraw if that adds to a square already drawn. The rest of the square, its room to pan,
     // waits for the idle builder (see `buildInBackground`).
     let added = false;
-    const fromStreet = view !== camera && walk?.flightSpan === undefined;
+    const fromStreet = detail.streetShadows;
     for (const entry of cells) {
       if (!entry.objects.length && needFrustum.intersectsBox(entry.box)) {
         build(entry);
@@ -632,24 +590,20 @@ export function createViewer(options: ViewerOptions): Viewer {
    * moved), and aims `needFrustum` at the part of it that casts into the view.
    */
   function fitShadowToView(): boolean {
-    // The ground under the screen's corners, as far as shadows can reach into the view. From
-    // the street that's the haze, all round the walker, so looking about never redraws them.
+    // The ground under the screen's corners, as far as shadows can reach into the view.
     camera.getWorldDirection(forward);
     const span = viewSpan();
     const t = controls.target;
-    const reach = Math.max(WALK_SHADOW, walk?.flightSpan ?? span);
-    if (view === camera) {
-      for (const [i, [x, y]] of SCREEN_CORNERS.entries()) {
-        corner.set(x, y, -1).unproject(camera);
-        corner.addScaledVector(forward, (t.y - corner.y) / forward.y);
-        [ground[i]![0], ground[i]![2]] = [corner.x, corner.z];
-      }
+    for (const [i, [x, y]] of SCREEN_CORNERS.entries()) {
+      corner.set(x, y, -1).unproject(camera);
+      corner.addScaledVector(forward, (t.y - corner.y) / forward.y);
+      [ground[i]![0], ground[i]![2]] = [corner.x, corner.z];
     }
-    const need = shadowNeeds(light, view === camera ? ground : around(t.x, t.z, reach));
-    need.half += view === camera ? Math.min(SHADOW_REACH, span / 4) : WALK_SHADOW_REACH;
-    propsShown = span <= VIEW_HEIGHT / PROP_ZOOM;
-    const coarser = view === camera ? SHADOW_COARSER : WALK_SHADOW_COARSER;
-    const refit = !shadow || !shadowCovers(shadow, need, coarser);
+    const need = shadowNeeds(light, ground);
+    need.half += Math.min(SHADOW_REACH, span / 4);
+    detail = detailAt(span);
+    propsShown = detail.furniture;
+    const refit = !shadow || !shadowCovers(shadow, need, SHADOW_COARSER);
     if (refit) fitShadowTo(need);
     const [dx, dy] = [need.x - shadow!.x, need.y - shadow!.y];
     const { near: front, far: back, matrixWorldInverse } = sun.shadow.camera;
@@ -706,16 +660,14 @@ export function createViewer(options: ViewerOptions): Viewer {
       triangles += drawn(mesh);
     };
     const pixel = viewSpan() / buffer.y;
-    // From above a trunk's shadow hides in its crown's; from the street it doesn't. Mid-flight
-    // the shadow square spans the map view, where a trunk's or a lamp's shadow is less than a
-    // texel; landing refits it round the walker with theirs.
-    const flying = walk?.flightSpan !== undefined;
-    const fromStreet = view !== camera && !flying;
+    // From above a trunk's shadow hides in its crown's; close to the street it doesn't, and a
+    // lamp's or a bench's shadow is more than a texel.
+    const fromStreet = detail.streetShadows;
     for (const entry of cells) {
-      const { box, objects, detail, trunksFrom, shadowFrom, fineVertices } = entry;
+      const { box, objects, detail: marks, trunksFrom, shadowFrom, fineVertices } = entry;
       const [surfaces, outlines, casters] = objects as [Mesh?, Mesh?, Mesh?];
       if (!surfaces || !outlines || !casters) continue;
-      const skip = pixel > MAST_PIXEL ? detail.masts : pixel > RAIL_PIXEL ? detail.rails : 0;
+      const skip = pixel > MAST_PIXEL ? marks.masts : pixel > RAIL_PIXEL ? marks.rails : 0;
       outlines.geometry.setDrawRange(skip * 2, Infinity);
       const inView = frustum.intersectsBox(box);
       surfaces.visible = inView;
@@ -817,19 +769,20 @@ export function createViewer(options: ViewerOptions): Viewer {
     }
   }
   function render(): void {
-    if (street) {
-      street.aspect = buffer.x / buffer.y;
-      street.updateProjectionMatrix();
-    }
-    // World metres per drawing-buffer pixel (where the walking camera looks, from the street):
-    // how much road paint and texture is worth drawing.
-    const unit = viewSpan() / renderer.getDrawingBufferSize(buffer).y;
+    // World metres per drawing-buffer pixel: how much road paint and texture is worth drawing.
+    const span = viewSpan();
+    const unit = span / renderer.getDrawingBufferSize(buffer).y;
     setPixelSize(material, unit);
-    view.updateMatrixWorld();
+    [fog.near, fog.far] = fogRange(span);
+    camera.updateMatrixWorld();
     prepare();
-    // The plates on the facades show on foot, not in the flight down or back up.
+    // The plates on the facades show close to the street, round where the view looks.
     const t = controls.target;
-    plates?.update(t.x, t.z, walk?.mode === 'walk' && walk.flightSpan === undefined);
+    if (detail.plates) loadFacadePlates();
+    plates?.update(t.x, t.z, detail.plates);
+    avatar?.detail(detail, span);
+    const shown = detail.avatar === 'figure';
+    if (shown !== avatarShown) options.onAvatarShown?.((avatarShown = shown));
     // Fine road paint is drawn last in each cell, so a view too far out to see it can stop short.
     for (const { objects, fineVertices } of cells) {
       (objects[0] as Mesh | undefined)?.geometry.setDrawRange(
@@ -843,9 +796,9 @@ export function createViewer(options: ViewerOptions): Viewer {
     // layer that holds only the lights, and nothing clears or draws on the screen, which keeps
     // showing the last frame. The view follows on the next one.
     const alone = shadowPass && !together;
-    if (alone) [view.layers.mask, renderer.autoClear] = [LIGHTS_ONLY, false];
-    renderer.render(scene, view);
-    if (alone) [view.layers.mask, renderer.autoClear] = [VIEW_LAYER, true];
+    if (alone) [camera.layers.mask, renderer.autoClear] = [LIGHTS_ONLY, false];
+    renderer.render(scene, camera);
+    if (alone) [camera.layers.mask, renderer.autoClear] = [VIEW_LAYER, true];
     // The cost of this very frame and the most any frame cost, for the smoke test and anyone
     // debugging, with what the GPU holds. Frames that redraw the static shadow map (on load, and
     // when the view leaves its square) cost more.
@@ -863,6 +816,8 @@ export function createViewer(options: ViewerOptions): Viewer {
       plates: plates?.shown ?? 0,
       traffic: trafficShown,
       trafficSteps,
+      avatar: avatarShown,
+      zoom: Math.round(camera.zoom * 100) / 100,
     });
     if (alone) {
       invalidate();
@@ -873,21 +828,21 @@ export function createViewer(options: ViewerOptions): Viewer {
     signHeading();
   }
 
-  // The street sign: names are looked up only while walking, and again only after a step. The
-  // lookup arrives with walk mode, so the map's first load doesn't carry it.
+  // The street sign: the street or square under the avatar, while the view is close enough to
+  // show it, looked up again only after a step. The lookup arrives with the avatar's chunk.
   let streets: StreetIndex | undefined;
   let signed: string | null = null;
   const signedAt = { x: Number.NaN, z: Number.NaN };
+  let avatarShown = false;
   function signStreet(): void {
     if (!options.onStreetChange) return;
-    const t = controls.target;
     let name: string | null = null;
-    if (walk?.mode === 'walk') {
-      if (Math.hypot(t.x - signedAt.x, t.z - signedAt.z) < STREET_STEP) return;
-      signedAt.x = t.x;
-      signedAt.z = t.z;
+    if (avatar && viewSpan() <= SPANS.figure) {
+      const { x, z } = avatar.state;
+      if (Math.hypot(x - signedAt.x, z - signedAt.z) < STREET_STEP) return;
+      [signedAt.x, signedAt.z] = [x, z];
       if (!streets) return;
-      name = streets.nameAt(t.x, t.z, signed);
+      name = streets.nameAt(x, z, signed);
     } else signedAt.x = Number.NaN;
     if (name !== signed) options.onStreetChange((signed = name));
   }
@@ -896,69 +851,59 @@ export function createViewer(options: ViewerOptions): Viewer {
   let heading = Number.NaN;
   function signHeading(): void {
     if (!options.onHeading) return;
-    view.getWorldDirection(facing);
+    camera.getWorldDirection(facing);
     const now = Math.atan2(facing.x, -facing.z);
     if (Math.abs(now - heading) < 1e-3) return;
     options.onHeading((heading = now));
   }
 
-  // Walking is its own chunk, downloaded the first time someone walks (or is about to).
-  let walk: Walk | undefined;
+  // The avatar is its own chunk, downloaded once the first frame is drawn, with the street
+  // names beside it.
+  let avatar: AvatarLayer | undefined;
   let plates: Plates | undefined;
-  let loadingWalk: Promise<Walk> | undefined;
+  let loadingAvatar: Promise<AvatarLayer> | undefined;
   let disposed = false;
-  function loadWalk(): Promise<Walk> {
-    loadingWalk ??= Promise.all([import('./walk.ts'), import('../data/streets.ts')]).then(
-      ([{ createWalk }, { StreetIndex }]) => {
-        if (disposed) throw new Error('The map closed while walk mode loaded.');
+  function loadAvatar(): Promise<AvatarLayer> {
+    loadingAvatar ??= Promise.all([import('./avatar-layer.ts'), import('../data/streets.ts')]).then(
+      ([{ createAvatarLayer }, { StreetIndex }]) => {
+        if (disposed) throw new Error('The map closed while the avatar loaded.');
         streets ??= new StreetIndex(city);
-        walk ??= createWalk({
+        avatar ??= createAvatarLayer({
           scene,
           camera,
           controls,
           canvas,
-          overlay,
           city,
           terrain,
           groundAt: drawnAt,
           gradientMap,
-          glow: glowMaterial,
-          fog,
-          sky: skyColours,
+          night: material.userData.night as { value: number },
           reducedMotion,
           yaw: () => yaw,
-          setYaw: (to) => {
-            yaw = to;
-          },
           placeCamera,
-          useView: (to) => {
-            street = to ?? undefined;
-            view = to ?? camera;
-          },
           render: renderNow,
-          renderer,
-          onRide: options.onRideChange,
-          onModeChange: (mode) => {
-            // A held turn on the map mustn't fight the flight down.
-            if (mode === 'walk') stopTurning();
-            options.onWalkModeChange?.(mode);
-            signStreet();
+          shadowsChanged: () => {
+            renderer.shadowMap.needsUpdate = true;
           },
-          ...(options.onWalkBlocked && { onBlocked: options.onWalkBlocked }),
+          ...(options.onBlocked && { onBlocked: options.onBlocked }),
+          ...(options.onRideChange && { onRide: options.onRideChange }),
         });
-        loadFacadePlates();
-        return walk;
+        invalidate();
+        return avatar;
       },
     );
     // A failed download can be tried again.
-    loadingWalk.catch(() => {
-      loadingWalk = undefined;
+    loadingAvatar.catch(() => {
+      loadingAvatar = undefined;
     });
-    return loadingWalk;
+    return loadingAvatar;
   }
   // The house numbers and street plates on the facades: their own chunk and data, after walk
   // mode's, and only decoration, so a failure leaves the walk as it was.
+  let loadingPlates = false;
   function loadFacadePlates(): void {
+    if (loadingPlates) return;
+    loadingPlates = true;
     import('./plates.ts')
       .then(({ loadPlates }) =>
         loadPlates({
@@ -980,9 +925,8 @@ export function createViewer(options: ViewerOptions): Viewer {
           ground: drawnAt,
           gradientMap,
           anisotropy: Math.min(8, renderer.capabilities.getMaxAnisotropy()),
-          compile: (object) => renderer.compileAsync(object, view, scene),
+          compile: (object) => renderer.compileAsync(object, camera, scene),
           changed: invalidate,
-          fadeNearCamera: (plate) => fadeNearCamera(plate, 'plates-v1'),
         }),
       )
       .then(
@@ -993,15 +937,15 @@ export function createViewer(options: ViewerOptions): Viewer {
         (error: unknown) => console.warn('The plates on the facades could not load.', error),
       );
   }
-  function withWalk(act: (loaded: Walk) => void): void {
-    if (walk) {
-      act(walk);
+  function withAvatar(act: (loaded: AvatarLayer) => void): void {
+    if (avatar) {
+      act(avatar);
       return;
     }
-    loadWalk().then(act, (error: unknown) => {
+    loadAvatar().then(act, (error: unknown) => {
       if (disposed) return;
       console.error(error);
-      options.onWalkUnavailable?.();
+      options.onAvatarUnavailable?.();
     });
   }
 
@@ -1012,8 +956,8 @@ export function createViewer(options: ViewerOptions): Viewer {
     render();
   }
   function invalidate(): void {
-    // While walking, the walk loop draws every frame itself.
-    if (frame || walk?.animating) return;
+    // While the avatar moves, its loop draws every frame itself.
+    if (frame || avatar?.animating) return;
     frame = requestAnimationFrame(() => {
       frame = 0;
       render();
@@ -1032,18 +976,15 @@ export function createViewer(options: ViewerOptions): Viewer {
       t.set(cx, cy, cz);
     }
   }
+  /** The view moved by hand: a pan, a pinch, a wheel. Following the avatar waits a while. */
   function onChange(): void {
     clampTarget();
+    avatar?.moved();
     invalidate();
   }
 
   let spin = 0;
   function rotate(direction: 1 | -1): void {
-    if (walk?.mode === 'walk') {
-      walk.turn(direction);
-      return;
-    }
-    walk?.land();
     const from = yaw;
     const to =
       Math.round((yaw - Math.PI / 4) / (Math.PI / 2)) * (Math.PI / 2) +
@@ -1060,30 +1001,23 @@ export function createViewer(options: ViewerOptions): Viewer {
       const t = Math.min(1, (now - start) / ROTATE_MS);
       yaw = from + (to - from) * (1 - (1 - t) ** 3);
       placeCamera();
-      // Already inside a frame: don't wait for the next one, unless the walk loop draws it.
-      if (!walk?.animating) renderNow();
+      // Already inside a frame: don't wait for the next one, unless the avatar's loop draws it.
+      if (!avatar?.animating) renderNow();
       spin = t < 1 ? requestAnimationFrame(step) : 0;
     };
     spin = requestAnimationFrame(step);
   }
 
-  // A held turn control: on the map a spin of its own; walking, a look, with the turn keys'.
+  // A held turn control: a spin of its own, settling on the next quarter view.
   const turning: Spin = { held: 0, rate: 0, to: Number.NaN };
-  let looking = 0;
   function stopTurning(): void {
     cancelAnimationFrame(spin);
     turning.rate = 0;
   }
-  function look(direction: number): void {
-    looking = direction;
-    walk?.look(Math.sign(looking + turning.held));
-  }
   function spinMap(direction: number): void {
     turning.held = direction;
-    look(looking);
     // Let go, a spin under way settles by itself.
-    if (!direction || walk?.mode === 'walk') return;
-    walk?.land();
+    if (!direction) return;
     stopTurning();
     turning.to = Number.NaN;
     let last = performance.now();
@@ -1097,27 +1031,21 @@ export function createViewer(options: ViewerOptions): Viewer {
       );
       last = now;
       placeCamera();
-      if (!walk?.animating) renderNow();
+      if (!avatar?.animating) renderNow();
       spin = turning.held || turning.rate ? requestAnimationFrame(step) : 0;
     };
     spin = requestAnimationFrame(step);
   }
 
   function zoomBy(factor: number): void {
-    if (walk?.mode === 'walk') {
-      walk.zoom(factor);
-      return;
-    }
-    walk?.land();
     camera.zoom = Math.min(controls.maxZoom, Math.max(controls.minZoom, camera.zoom * factor));
     camera.updateProjectionMatrix();
-    controls.update();
     invalidate();
   }
 
   function resetView(): void {
     stopTurning();
-    walk?.land();
+    avatar?.moved();
     yaw = Math.PI / 4;
     camera.zoom = 1;
     camera.updateProjectionMatrix();
@@ -1125,7 +1053,8 @@ export function createViewer(options: ViewerOptions): Viewer {
     placeCamera();
   }
 
-  // A tap on the map (not a pan, not a pinch) starts a walk there. On foot, walk mode has its own.
+  // A tap on the map (not a pan, not a pinch) sends the avatar there: the one pointer handler
+  // besides the map controls' pan, pinch and wheel.
   const listening = new AbortController();
   const listen = (type: string, handle: (event: PointerEvent) => void) =>
     canvas.addEventListener(type as 'pointerup', handle, { signal: listening.signal });
@@ -1146,9 +1075,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   const lift = (event: PointerEvent) => {
     const tap = event.type === 'pointerup' && still(event, true);
     if (event.pointerId === press?.pointerId) press = null;
-    if (tap && walk?.mode !== 'walk') {
-      withWalk((loaded) => loaded.startAtScreen(event.clientX, event.clientY));
-    }
+    if (tap) withAvatar((loaded) => loaded.tap(event.clientX, event.clientY));
   };
   listen('pointerup', lift);
   listen('pointercancel', lift);
@@ -1192,9 +1119,8 @@ export function createViewer(options: ViewerOptions): Viewer {
   canvas.addEventListener('webglcontextrestored', onRestored);
 
   // The time of day: Leuven's own clock when the map opens, then whatever is asked for. The
-  // lights, the fog, the walking sky's colours and the night uniform all follow it; the sun
+  // lights, the fog and the night uniform all follow it; the sun
   // the shadow map sees moves in quarter-hour steps, each a redraw of the static shadows.
-  const skyColours = { horizon: { value: new Color() }, top: { value: new Color() } };
   let hour = leuvenHour();
   let daylight = daylightAt(hour);
   let sunHour = Number.NaN;
@@ -1206,8 +1132,6 @@ export function createViewer(options: ViewerOptions): Viewer {
     sky.groundColor.set(daylight.bounce);
     sky.intensity = daylight.skyIntensity;
     fog.color.set(daylight.horizon);
-    skyColours.horizon.value.set(daylight.horizon);
-    skyColours.top.value.set(daylight.top);
     setNight(material, daylight.night);
     lamps.value = Math.max(0, (daylight.night - LAMPS_ON) / (1 - LAMPS_ON));
     const step = sunStep(hour);
@@ -1237,9 +1161,9 @@ export function createViewer(options: ViewerOptions): Viewer {
   function tickLive(now: number): void {
     liveFrame = 0;
     if (!alive()) return;
-    // On the map, every other frame is plenty for cars a few pixels long, and half the GPU time
-    // on a phone; walking draws every frame anyway.
-    if (!walk?.animating && now - liveLast < 1000 / LIVE_FPS) {
+    // Every other frame is plenty for cars a few pixels long, and half the GPU time on a phone;
+    // while the avatar moves its loop draws every frame anyway.
+    if (!avatar?.animating && now - liveLast < 1000 / LIVE_FPS) {
       liveFrame = requestAnimationFrame(tickLive);
       return;
     }
@@ -1251,13 +1175,13 @@ export function createViewer(options: ViewerOptions): Viewer {
     }
     if (trafficLayer && trafficWanted) {
       // The fleet keeps to the streets round where the view looks: as far as it can see, and
-      // at least a few streets round the walker.
+      // at least a few streets round it.
       const t = controls.target;
       const radius = Math.min(TRAFFIC_REACH, Math.max(TRAFFIC_NEAR, viewSpan() * 0.9));
       trafficShown = trafficLayer.update(dt, t.x, t.z, radius);
       trafficSteps++;
     }
-    if (!walk?.animating) renderNow();
+    if (!avatar?.animating) renderNow();
     liveFrame = requestAnimationFrame(tickLive);
   }
   function wake(): void {
@@ -1301,7 +1225,7 @@ export function createViewer(options: ViewerOptions): Viewer {
         const standIns = new Scene();
         standIns.add(...trafficLayer.meshes);
         return renderer
-          .compileAsync(standIns, view, scene)
+          .compileAsync(standIns, camera, scene)
           .catch(() => {}) // the first frame compiles anyway
           .then(() => {
             if (disposed || !trafficLayer) return;
@@ -1390,6 +1314,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     renderNow();
     idleHandle = idle(buildInBackground);
     if (trafficWanted) loadTraffic();
+    withAvatar(() => {});
   })();
 
   return {
@@ -1397,17 +1322,11 @@ export function createViewer(options: ViewerOptions): Viewer {
     rotate,
     zoomBy,
     resetView,
-    preloadWalk: () => {
-      loadWalk().catch(() => {}); // a warm-up: the next real attempt reports any failure
-    },
-    walkAt: (x, z) => withWalk((loaded) => loaded.startAt(x, z)),
-    walkAtScreen: (x, y) => withWalk((loaded) => loaded.startAtScreen(x, y)),
-    walkFromCentre: () => withWalk((loaded) => loaded.startAtCentre()),
-    stopWalking: () => walk?.exit(),
-    steer: (x, y) => walk?.steer(x, y),
-    run: (on) => walk?.run(on),
-    ride: (action) => walk?.ride(action),
-    look,
+    steer: (x, y) => avatar?.steer(x, y),
+    run: (on) => avatar?.run(on),
+    recentre: () => avatar?.recentre(),
+    goTo: (x, z) => withAvatar((loaded) => loaded.goTo(x, z)),
+    ride: (action) => withAvatar((loaded) => loaded.ride(action)),
     spin: spinMap,
     timeOfDay: () => ({ preset: presetAt(hour), passing }),
     nextTimeOfDay,
@@ -1425,7 +1344,7 @@ export function createViewer(options: ViewerOptions): Viewer {
       trafficLayer?.dispose();
       cancelIdle(idleHandle);
       disposed = true;
-      walk?.dispose();
+      avatar?.dispose();
       plates?.dispose();
       observer.disconnect();
       listening.abort();

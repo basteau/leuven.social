@@ -1,35 +1,30 @@
 import { useEffect } from 'react';
 import type { RefObject } from 'react';
 
-import type { Viewer, WalkMode } from '../scene/viewer.ts';
+import type { Viewer } from '../scene/viewer.ts';
 import { idleRepeat, menuKey } from './input.ts';
 import type { TurnHold } from './input.ts';
 
 /**
- * Keys held while walking, by where they sit rather than what they type, so W A S D and Q E
- * keep their shape on AZERTY (Belgium's own layout) as on QWERTY. Walking keys are screen
- * directions (right, up); turning keys turn the view (left -1, right 1); Shift runs.
+ * Keys held to walk, by where they sit rather than what they type, so W A S D and Q E keep their
+ * shape on AZERTY (Belgium's own layout) as on QWERTY. Walking keys are screen directions (right,
+ * up); turning keys turn the map (left -1, right 1); Shift runs. The arrows pan the map (the map
+ * controls take them), so every key has one meaning.
  */
 const WALK_KEYS: Record<string, readonly [number, number]> = {
   KeyW: [0, 1],
-  ArrowUp: [0, 1],
   KeyS: [0, -1],
-  ArrowDown: [0, -1],
   KeyA: [-1, 0],
-  ArrowLeft: [-1, 0],
   KeyD: [1, 0],
-  ArrowRight: [1, 0],
 };
-const LOOK_KEYS: Record<string, 1 | -1> = { KeyQ: -1, KeyE: 1 };
+const TURN_KEYS: Record<string, 1 | -1> = { KeyQ: -1, KeyE: 1 };
 const RUN_KEYS = new Set(['ShiftLeft', 'ShiftRight']);
 
 export interface ShortcutTarget {
   app: RefObject<HTMLElement | null>;
   viewer: RefObject<Viewer | null>;
-  mode: RefObject<WalkMode>;
   /** The Run toggle: on, Shift isn't needed. */
   running: RefObject<boolean>;
-  startWalk: () => void;
   /** A walking key went down: someone is walking with the keyboard. */
   onWalkKey: () => void;
   toggleSound: () => void;
@@ -38,7 +33,7 @@ export interface ShortcutTarget {
   togglePassing: () => void;
   /** C: traffic on or off. */
   toggleTraffic: () => void;
-  /** Q and E on the map: a tap turns a quarter; held, they keep turning. */
+  /** Q and E: a tap turns the map a quarter; held, they keep turning. */
   turnHold: TurnHold;
   /** ⌘K, Ctrl+K, ⌘P, Ctrl+P and `/` open the menu at its list; `?` at the controls. */
   openMenu: (page: 'list' | 'help') => void;
@@ -51,11 +46,11 @@ export interface ShortcutTarget {
 }
 
 /**
- * The keyboard: arrows pan, + and - zoom, Q and E turn, M mutes, T and P set the time of day, C the traffic, R resets and W walks on the map
- * (Q, E and W by position, like walking's keys); held keys walk, run and look while walking, and
- * ride a bike after F (W pedals, S brakes, A and D steer, Shift sprints, B rings the bell).
- * ⌘K and its kin open the menu. Shortcuts act while focus is anywhere in the app except the
- * menu, not in the rest of the page.
+ * The keyboard, one map of keys with no modes: arrows pan, + and - zoom, Q and E turn the map,
+ * held W A S D walk the avatar (Shift runs), F takes or leaves a bike and B rings its bell, Esc
+ * brings the view back to the avatar, R resets the view, M mutes, T and P set the time of day and
+ * C the traffic. ⌘K and its kin open the menu. Shortcuts act while focus is anywhere in the app
+ * except the menu, not in the rest of the page.
  */
 export function useShortcuts(target: ShortcutTarget): void {
   useEffect(() => {
@@ -63,14 +58,13 @@ export function useShortcuts(target: ShortcutTarget): void {
     if (!app) return;
     const held = new Set<string>();
     const steer = () => {
-      let [right, up, look] = [0, 0, 0];
+      let [right, up] = [0, 0];
       for (const key of held) {
         const [r, u] = WALK_KEYS[key] ?? [0, 0];
-        [right, up, look] = [right + r, up + u, look + (LOOK_KEYS[key] ?? 0)];
+        [right, up] = [right + r, up + u];
       }
       const viewer = target.viewer.current;
       viewer?.steer(Math.sign(right), Math.sign(up));
-      viewer?.look(Math.sign(look));
       viewer?.run(target.running.current || [...held].some((code) => RUN_KEYS.has(code)));
     };
     const release = () => {
@@ -111,10 +105,8 @@ export function useShortcuts(target: ShortcutTarget): void {
       if (!viewer) return;
       const key = event.key.toLowerCase();
       const { code } = event;
-      const mode = target.mode.current;
-      const walking =
-        Object.hasOwn(WALK_KEYS, code) || Object.hasOwn(LOOK_KEYS, code) || RUN_KEYS.has(code);
-      if (mode === 'walk' && walking) {
+      const walking = Object.hasOwn(WALK_KEYS, code) || RUN_KEYS.has(code);
+      if (walking) {
         target.onWalkKey();
         event.preventDefault();
         if (!held.has(code)) {
@@ -123,26 +115,21 @@ export function useShortcuts(target: ShortcutTarget): void {
         }
         return;
       }
-      // Turning and walking go by position here too, so a key does the same on the map as on
-      // foot; the rest are named for what they do (M mutes, R resets), so they go by letter.
+      // Turning goes by position too, like walking; the rest are named for what they do (M mutes,
+      // R resets), so they go by letter.
       // A held key's repeats are no new presses: the hold goes by its keydown and keyup, and only
       // zoom goes on while its key is held.
       if (idleRepeat(event)) return;
-      const turn = LOOK_KEYS[code];
+      const turn = TURN_KEYS[code];
       if (turn) {
         target.turnHold.press(code, turn, viewer);
         return;
       }
       const byCode: Record<string, () => void> = {
-        ...(mode === 'map' && { KeyW: target.startWalk }),
-        // On foot, F gets on the nearest bike (or off it) and B rings its bell.
-        ...(mode === 'walk' && {
-          KeyF: () => viewer.ride('toggle'),
-          KeyB: () => viewer.ride('bell'),
-        }),
+        // F gets on the nearest bike (or off it) and B rings its bell.
+        KeyF: () => viewer.ride('toggle'),
+        KeyB: () => viewer.ride('bell'),
       };
-      // Enter on a focused button or link presses that instead.
-      const onControl = event.target instanceof Element && !!event.target.closest('button, a');
       const byKey: Record<string, () => void> = {
         '+': () => viewer.zoomBy(1.25),
         '=': () => viewer.zoomBy(1.25),
@@ -151,9 +138,8 @@ export function useShortcuts(target: ShortcutTarget): void {
         t: target.nextTime,
         p: target.togglePassing,
         c: target.toggleTraffic,
-        ...(mode !== 'walk' && { r: () => viewer.resetView() }),
-        ...(mode === 'map' && !onControl && { enter: target.startWalk }),
-        ...(mode !== 'map' && { escape: () => viewer.stopWalking() }),
+        r: () => viewer.resetView(),
+        escape: () => viewer.recentre(),
       };
       (byCode[code] ?? byKey[key])?.();
     };

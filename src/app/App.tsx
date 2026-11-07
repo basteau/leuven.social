@@ -17,7 +17,7 @@ import { CITY_URL, loadCity } from '../data/load.ts';
 import type { Place } from '../data/places.ts';
 import { presetAt } from '../scene/daylight.ts';
 import type { Daylight, PresetId } from '../scene/daylight.ts';
-import type { RideState, Viewer, WalkMode } from '../scene/viewer.ts';
+import type { RideState, Viewer } from '../scene/viewer.ts';
 import type { ActionId, CommandState } from './commands.ts';
 import type { MenuPage } from './command-menu.tsx';
 import { ActionButton } from './controls.tsx';
@@ -63,20 +63,15 @@ class MenuGuard extends Component<{ onError: () => void; children: ReactNode }> 
 }
 
 /** The map's description, naming the keys as this keyboard types them. */
-const mapLabels = (k: Keycaps, mod: string): Record<WalkMode, string> => ({
-  map: `Map of Leuven’s centre around Grote Markt, Oude Markt and Ladeuzeplein. Drag or use the arrow keys to pan; scroll, pinch or press plus and minus to zoom; ${k.KeyQ} and ${k.KeyE} turn the view; click or tap a street to start walking there, or press ${k.KeyW} to start in the middle of the view. ${mod} K or slash opens the menu, with every command and key.`,
-  walk: `Walking in Leuven. ${k.KeyW}, ${k.KeyA}, ${k.KeyS} and ${k.KeyD} or the arrow keys walk, and hold Shift to run; drag to look around; click or tap a street to walk there; hold ${k.KeyQ} or ${k.KeyE} to turn the view; F rides the nearest bike; Escape returns to the map.`,
-});
+const mapLabel = (k: Keycaps, mod: string) =>
+  `Map of Leuven’s centre around Grote Markt, Oude Markt and Ladeuzeplein, with you on it. Drag or use the arrow keys to pan; scroll, pinch or press plus and minus to zoom, down to the street; ${k.KeyQ} and ${k.KeyE} turn the map. ${k.KeyW}, ${k.KeyA}, ${k.KeyS} and ${k.KeyD} walk, and hold Shift to run; click or tap a street to walk there; F rides the nearest bike; Escape brings the view back to you. ${mod} K or slash opens the menu, with every command and key.`;
 /** Riding, the map says how. */
-const rideLabel = (k: Keycaps) =>
-  `Riding a bike in Leuven. ${k.KeyW} pedals, ${k.KeyS} brakes and backs up, ${k.KeyA} and ${k.KeyD} steer, Shift sprints, B rings the bell and F gets off; click or tap a street to ride there.`;
-
-/** Walk mode downloads on first use; say so only if that takes long enough to notice. */
-const WALK_LOADING_MS = 250;
+const rideLabel = (k: Keycaps, mod: string) =>
+  `Riding a bike in Leuven. ${k.KeyW}, ${k.KeyA}, ${k.KeyS} and ${k.KeyD} ride, Shift sprints, B rings the bell and F gets off; click or tap a street to ride there. Escape brings the view back to you. ${mod} K or slash opens the menu.`;
 
 /**
- * How to walk is shown on the first walk, until a few seconds after the first step, and then
- * not again on this device: the keys are in the menu, and the gestures are a game's.
+ * How to walk is shown the first time the view comes close enough to show the avatar, until a
+ * few seconds after the first step, and then not again on this device: the keys are in the menu.
  */
 const COACHED_KEY = 'leuven-walk-coached';
 const COACH_AFTER_STEP_MS = 4_000;
@@ -95,8 +90,6 @@ const TIME_SAID: Record<PresetId, string> = {
 };
 /** A colour as CSS, for the sky tokens. */
 const hex = (colour: number) => `#${colour.toString(16).padStart(6, '0')}`;
-
-type WalkLoad = 'idle' | 'loading' | 'failed';
 
 const reducedMotion = () => globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
@@ -150,20 +143,18 @@ export function App() {
   const appRef = useRef<HTMLElement>(null);
   const mapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const overlayRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
-  // Q and E on the map: a tap is a step; held, they keep turning.
+  // Q and E: a tap is a step; held, they keep turning.
   const [turnHold] = useState(createTurnHold);
   const [status, setStatus] = useState<Status>({ state: 'loading' });
   const [attempt, setAttempt] = useState(0);
   const retryRef = useRef<HTMLButtonElement>(null);
-  const [walkMode, setWalkMode] = useState<WalkMode>('map');
-  const walkModeRef = useRef(walkMode);
   const [blocked, setBlocked] = useState(0);
   const [running, setRunning] = useState(false);
   const runningRef = useRef(running);
-  const [walkLoad, setWalkLoad] = useState<WalkLoad>('idle');
-  const walkLoadTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  /** Whether the avatar's code failed to download, and whether the view is close enough to show it. */
+  const [avatarFailed, setAvatarFailed] = useState(false);
+  const [avatarShown, setAvatarShown] = useState(false);
   const [street, setStreet] = useState<string | null>(null);
   const [soundOn, setSoundOn] = useState(sound.on);
   /** The time of day, as the menu names it, and whether the day passes by itself. */
@@ -260,13 +251,6 @@ export function App() {
     return typed;
   }, []);
 
-  /** Starts walk mode, saying it's getting ready if its download is slow. */
-  const startWalkRef = useRef(() => {
-    clearTimeout(walkLoadTimer.current);
-    setWalkLoad('idle');
-    walkLoadTimer.current = setTimeout(() => setWalkLoad('loading'), WALK_LOADING_MS);
-    viewerRef.current?.walkFromCentre();
-  });
   /** Someone took a first step: the coach has done its job, and goes after a moment. */
   const steppedRef = useRef(() => {
     setBlocked(0);
@@ -280,8 +264,7 @@ export function App() {
   useEffect(() => {
     const map = mapRef.current;
     const canvas = canvasRef.current;
-    const overlay = overlayRef.current;
-    if (!map || !canvas || !overlay) return;
+    if (!map || !canvas) return;
     const abort = new AbortController();
     setStatus({ state: 'loading' });
     publish({ state: 'loading' });
@@ -328,29 +311,11 @@ export function App() {
         const viewer = createViewer({
           canvas,
           keyTarget: map,
-          overlay,
           city: loaded,
           reducedMotion: reducedMotion() ?? false,
-          onWalkModeChange: (mode) => {
-            clearTimeout(walkLoadTimer.current);
-            setWalkLoad('idle');
-            walkModeRef.current = mode;
-            setWalkMode(mode);
-            turnHold.release(); // a held turn ends with the mode it began in
-            setBlocked(0);
-            // Keep the keys working, whatever started or ended the walk.
-            map.focus({ focusVisible: false } as FocusOptions);
-          },
-          onWalkBlocked: () => {
-            // Refused, so nothing is getting ready: the hint mustn't say so once this clears.
-            clearTimeout(walkLoadTimer.current);
-            setWalkLoad('idle');
-            setBlocked(performance.now());
-          },
-          onWalkUnavailable: () => {
-            clearTimeout(walkLoadTimer.current);
-            setWalkLoad('failed');
-          },
+          onBlocked: () => setBlocked(performance.now()),
+          onAvatarUnavailable: () => setAvatarFailed(true),
+          onAvatarShown: setAvatarShown,
           onStreetChange: setStreet,
           // The sky behind the canvas and the page's tokens follow the light; the menu's
           // state only when the hour reaches another preset (not every frame of a passing day).
@@ -404,7 +369,7 @@ export function App() {
       viewerRef.current?.dispose();
       viewerRef.current = null;
     };
-  }, [attempt, turnHold]);
+  }, [attempt]);
 
   const ready = status.state === 'ready';
 
@@ -421,9 +386,7 @@ export function App() {
   useShortcuts({
     app: appRef,
     viewer: viewerRef,
-    mode: walkModeRef,
     running: runningRef,
-    startWalk: () => startWalkRef.current(),
     onWalkKey: () => steppedRef.current(),
     toggleSound: () => toggleSoundRef.current(),
     nextTime: () => nextTimeRef.current(),
@@ -465,24 +428,23 @@ export function App() {
     say(runningRef.current ? (sprint ? 'Sprinting' : 'Running') : sprint ? 'Riding' : 'Walking');
   });
 
-  // "Can't walk there" stays until the next try, so nobody misses it. A touch while walking is a
-  // step (the thumb stick), a look or a tap to go somewhere: the coach can go too.
+  // "Can't go there" stays until the next try, so nobody misses it. A touch with the avatar in
+  // view is a tap to go somewhere: the coach can go too.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || (!blocked && !(walkMode === 'walk' && coach))) return;
+    if (!map || (!blocked && !(avatarShown && coach))) return;
     const clear = () => {
       setBlocked(0);
-      if (walkModeRef.current === 'walk') steppedRef.current();
+      if (avatarShown) steppedRef.current();
     };
     map.addEventListener('pointerdown', clear, { once: true, passive: true });
     return () => map.removeEventListener('pointerdown', clear);
-  }, [blocked, walkMode, coach]);
+  }, [blocked, avatarShown, coach]);
 
   const viewer = () => viewerRef.current;
   /** What each of the menu's commands does: thin calls into the viewer and the shell's state. */
   const [actions] = useState((): Record<Exclude<ActionId, 'help' | 'about'>, () => void> => ({
-    centre: () => startWalkRef.current(),
-    map: () => viewerRef.current?.stopWalking(),
+    recentre: () => viewerRef.current?.recentre(),
     'zoom-in': () => viewerRef.current?.zoomBy(1.25),
     'zoom-out': () => viewerRef.current?.zoomBy(0.8),
     'turn-left': () => viewerRef.current?.rotate(-1),
@@ -509,10 +471,10 @@ export function App() {
   );
   const onPage = useCallback((page: MenuPage) => setMenu((m) => ({ ...m, page })), []);
   const commandState: CommandState = useMemo(
-    () => ({ mode: walkMode, ride, running, soundOn, time, passing, traffic, keys, mod }),
-    [walkMode, ride, running, soundOn, time, passing, traffic, keys, mod],
+    () => ({ ride, running, soundOn, time, passing, traffic, keys, mod }),
+    [ride, running, soundOn, time, passing, traffic, keys, mod],
   );
-  // Places by name: choosing one starts a walk there, as a click on the map would.
+  // Places by name: choosing one puts you there, and brings the view down to the street.
   const places = useMemo(
     () =>
       placeCity
@@ -521,7 +483,7 @@ export function App() {
             go: (place: Place) => {
               closeMenu();
               sound.tap();
-              viewerRef.current?.walkAt(place.x, place.z);
+              viewerRef.current?.goTo(place.x, place.z);
             },
           }
         : undefined,
@@ -529,8 +491,8 @@ export function App() {
   );
 
   // The Ride pill goes once no bike is near. Pressed, it had focus, which would fall to the page
-  // and take the keys with it: back to the map, as after a walk starts or ends.
-  const pill = ready && walkMode === 'walk' && !!ride;
+  // and take the keys with it: back to the map.
+  const pill = ready && !!ride;
   const hadPill = useRef(false);
   useEffect(() => {
     if (hadPill.current && !pill && document.activeElement === document.body) {
@@ -539,7 +501,7 @@ export function App() {
     hadPill.current = pill;
   }, [pill]);
 
-  const coaching = walkMode === 'walk' && coach && !blocked;
+  const coaching = ready && avatarShown && coach && !blocked;
   const errorSlot = status.state === 'error' ? introErrorSlot() : null;
   const errorNotice = status.state === 'error' && (
     <div className="load-error" role="alert">
@@ -556,31 +518,21 @@ export function App() {
   );
 
   return (
-    <main ref={appRef} className="app" data-walk={walkMode}>
+    <main ref={appRef} className="app">
       <div
         ref={mapRef}
         className="map"
         tabIndex={0}
         role="application"
         aria-roledescription="map"
-        aria-label={
-          walkMode === 'walk' && riding ? rideLabel(keys) : mapLabels(keys, mod)[walkMode]
-        }
+        aria-label={riding ? rideLabel(keys, mod) : mapLabel(keys, mod)}
       >
         <canvas ref={canvasRef} className="city" />
       </div>
-      <div ref={overlayRef} className="overlay" aria-hidden="true">
-        {/* Where the left thumb walks, until it has. Touch screens only (CSS). */}
-        {coaching && (
-          <div className="stick-ghost">
-            <span className="stick-knob" />
-          </div>
-        )}
-      </div>
 
       <header className="hud hud-top">
-        {/* Where you are, on foot: the only plate on screen. */}
-        <StreetSign name={walkMode === 'walk' ? street : null} />
+        {/* Where you are, once the view is close enough to show you: the only plate on screen. */}
+        <StreetSign name={street} />
         <Credits />
         {/*
           The hint, under the corners. Always in the page, empty when there's nothing to say, so
@@ -588,35 +540,33 @@ export function App() {
         */}
         <output className="hint">
           {blocked ? (
-            'Can’t walk there. Pick a street or square.'
-          ) : walkLoad === 'loading' ? (
-            'Getting ready to walk…'
-          ) : walkLoad === 'failed' ? (
+            'Can’t go there. Pick a street or square.'
+          ) : avatarFailed ? (
             'Walking couldn’t load. Check your connection and try again.'
           ) : menuFailed ? (
             'The menu couldn’t load. Check your connection and try again.'
           ) : said ? (
             <span key={said.at}>{said.text}</span>
-          ) : walkMode === 'walk' && riding && rideCoach ? (
+          ) : riding && rideCoach ? (
             <>
               <span className="hint-keys">
-                <kbd>{keys.KeyW}</kbd> pedals, <kbd>{keys.KeyS}</kbd> brakes, <kbd>{keys.KeyA}</kbd>{' '}
-                <kbd>{keys.KeyD}</kbd> steer, <kbd>Shift</kbd> sprints. <kbd>F</kbd> gets off
-                anywhere.
+                <kbd>{keys.KeyW}</kbd> <kbd>{keys.KeyA}</kbd> <kbd>{keys.KeyS}</kbd>{' '}
+                <kbd>{keys.KeyD}</kbd> ride, <kbd>Shift</kbd> sprints, <kbd>B</kbd> rings the bell.{' '}
+                <kbd>F</kbd> gets off anywhere.
               </span>
               <span className="hint-touch">
-                Left thumb rides where it points; push to the rim to sprint.
+                Tap a street to ride there. Ride gets you off again.
               </span>
             </>
           ) : coaching ? (
             <>
               <span className="hint-keys">
                 <kbd>{keys.KeyW}</kbd> <kbd>{keys.KeyA}</kbd> <kbd>{keys.KeyS}</kbd>{' '}
-                <kbd>{keys.KeyD}</kbd> walk, hold <kbd>Shift</kbd> to run, drag to look.{' '}
-                <kbd>Esc</kbd> for the map.
+                <kbd>{keys.KeyD}</kbd> walk, hold <kbd>Shift</kbd> to run, click to go somewhere.{' '}
+                <kbd>Esc</kbd> brings the view back to you.
               </span>
               <span className="hint-touch">
-                Left thumb walks, right thumb looks. The menu takes you back to the map.
+                Tap a street to walk there. Pinch to zoom; the menu holds the rest.
               </span>
             </>
           ) : null}

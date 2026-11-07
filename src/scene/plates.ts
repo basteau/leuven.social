@@ -293,12 +293,12 @@ export interface PlatesHost {
   compile(object: Object3D): Promise<unknown>;
   /** Asks for a frame: the plates are ready to show. */
   changed(): void;
-  /** Lets a plate dither away near the walking camera with the wall it's on. */
-  fadeNearCamera(material: Material): void;
+  /** Lets a plate dither away with the wall it's on, where that stands in front of the avatar. */
+  dither?(material: Material): void;
 }
 
 export interface Plates {
-  /** Where the walker is and whether plates show (only on foot, not during the flight). */
+  /** Where the view looks and whether plates show (close to the street). */
   update(x: number, z: number, show: boolean): void;
   /** How many plates the mesh holds now, for the smoke test. */
   readonly shown: number;
@@ -330,11 +330,11 @@ export function createPlates(host: PlatesHost, data: WalkData): Plates {
     gradientMap: host.gradientMap,
     vertexColors: true,
   });
-  host.fadeNearCamera(material);
+  host.dither?.(material);
   // Where the atlas is clear (a board's), its paint: the vertex colour, under paper letters.
-  const fade = material.onBeforeCompile;
+  const dither = material.onBeforeCompile;
   material.onBeforeCompile = (shader, renderer) => {
-    fade.call(material, shader, renderer);
+    dither.call(material, shader, renderer);
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <color_fragment>',
       'diffuseColor = vec4(mix(vColor.rgb, diffuseColor.rgb, diffuseColor.a), 1.0);',

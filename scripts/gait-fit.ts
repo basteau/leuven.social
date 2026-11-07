@@ -1,14 +1,14 @@
 /**
- * Fits the walker's gait and the rider's pedalling to harmonics for the traffic's figures:
- * samples `poseAt` (walking) and `rideAt` (one turn of the crank) over a cycle and prints each
- * joint as its mean and three cosine and sine pairs, which `GAIT` in src/scene/vehicles.ts
+ * Fits the walker's gait to harmonics for the traffic's figures: samples `poseAt` over a cycle
+ * and prints each joint as its mean and three cosine and sine pairs, which `GAIT` in src/scene/vehicles.ts
  * carries (the thigh, knee and foot; the arms and hips are read off the ranges printed too).
- * Run it again after changing the gait, and paste the numbers.
+ * Run it again after changing the gait, and paste the numbers. The pedalling (`GAIT.ride`) was
+ * fitted the same way to the rider's pose, which went with the chase camera's riding: it stays
+ * as data.
  *
  *   bun scripts/gait-fit.ts
  */
 import { poseAt, restPose } from '../src/scene/character.ts';
-import { rideAt } from '../src/scene/rider-pose.ts';
 import { WALK_SPEED } from '../src/scene/walker.ts';
 const N = 64;
 function fit(samples: number[], harmonics: number) {
@@ -47,13 +47,6 @@ for (const [name, sample] of [
     (t: number) => {
       const p = restPose();
       return poseAt(p, WALK_SPEED, t, 10, false);
-    },
-  ],
-  [
-    'ride',
-    (t: number) => {
-      const p = restPose();
-      return rideAt(p, { crank: t, steer: 0, stand: 0, foot: 0, look: 0, lean: 0 });
     },
   ],
 ] as const) {

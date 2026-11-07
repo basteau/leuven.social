@@ -1,38 +1,24 @@
 import { describe, expect, test } from 'bun:test';
 
 import {
-  DROP,
-  FALL,
   MARKER_INDICES,
   MARK,
   MARK_FROM,
   MARK_MIN,
   PUFF,
   PUFF_TO,
-  SETTLE,
-  SPAWN_FLIGHT,
-  SPAWN_HOLD,
-  WAVE,
-  bodyStretch,
-  fallHeight,
+  avatarDot,
   markerDrop,
+  markerGeometry,
   markerRadius,
   puff,
-  settling,
-  spawnMarker,
-  wave,
-} from './spawn.ts';
+} from './marker.ts';
 
 const range = (from: number, to: number, step: number) =>
   Array.from({ length: Math.round((to - from) / step) + 1 }, (_, i) => from + i * step);
 
-describe('the spawn', () => {
-  test('is over in under two seconds, tap to settled', () => {
-    expect(SPAWN_HOLD + SPAWN_FLIGHT + SETTLE).toBeLessThan(2);
-    expect(FALL).toBeLessThan(SPAWN_FLIGHT / 2);
-  });
-
-  test('drops the marker onto the spot, overshooting once, then holds it', () => {
+describe('the marker', () => {
+  test('drops onto the spot, overshooting once, then holds it', () => {
     expect(markerDrop(-1)).toBe(MARK_FROM);
     expect(markerDrop(0)).toBeCloseTo(MARK_FROM);
     expect(markerDrop(MARK)).toBe(1);
@@ -42,36 +28,10 @@ describe('the spawn', () => {
     expect(Math.min(...sizes)).toBeGreaterThan(0.8);
   });
 
-  test('keeps the marker one size on screen, but never smaller than a step', () => {
+  test('keeps one size on screen, but never smaller than a step', () => {
     expect(markerRadius(560)).toBeCloseTo(17.9, 1);
     expect(markerRadius(56)).toBeCloseTo(1.79, 2);
     expect(markerRadius(4)).toBe(MARK_MIN);
-  });
-
-  test('drops the walker in faster and faster, out of sight before its fall', () => {
-    expect(fallHeight(FALL + 0.01)).toBe(Infinity);
-    expect(fallHeight(FALL)).toBeCloseTo(DROP);
-    expect(fallHeight(0)).toBe(0);
-    expect(fallHeight(-1)).toBe(0);
-    const early = fallHeight(FALL) - fallHeight(FALL * 0.9);
-    const late = fallHeight(FALL * 0.1) - fallHeight(0);
-    expect(late).toBeLessThan(early);
-  });
-
-  test('stretches falling, squashes landing, and settles back to its own height', () => {
-    expect(bodyStretch(-FALL)).toBeCloseTo(1);
-    expect(bodyStretch(-0.0001)).toBeCloseTo(1.16, 2);
-    expect(bodyStretch(0)).toBeCloseTo(0.7);
-    const after = range(0, 1, 0.01).map(bodyStretch);
-    expect(Math.max(...after.slice(5))).toBeGreaterThan(1); // springs up past its height
-    expect(bodyStretch(1)).toBe(1);
-    expect(Math.abs(bodyStretch(0.5) - 1)).toBeLessThan(0.02);
-  });
-
-  test('settles from just landed to standing', () => {
-    expect(settling(-0.1)).toBe(0);
-    expect(settling(0)).toBe(1);
-    expect(settling(0.5)).toBeLessThan(0.02);
   });
 
   test('puffs dust outward, thinning until it is gone', () => {
@@ -84,21 +44,18 @@ describe('the spawn', () => {
     expect(spread).toBeLessThanOrEqual(PUFF_TO);
     expect(left).toBeLessThan(0.25);
   });
-
-  test('waves leaving: the arm up in front, the forearm going, then down again', () => {
-    expect(wave(-0.1)).toBeNull();
-    expect(wave(Number.NaN)).toBeNull();
-    expect(wave(WAVE)).toBeNull();
-    expect(wave(0)).toEqual([-0, -0]);
-    const elbows = range(0.2, 0.6, 0.02).map((t) => wave(t)![1]);
-    expect(Math.max(...elbows) - Math.min(...elbows)).toBeGreaterThan(0.6);
-    expect(wave(0.4)![0]).toBeCloseTo(-2.7);
-    expect(Math.abs(wave(WAVE - 0.01)![0])).toBeLessThan(0.1);
-  });
 });
 
-describe('the spawn marker', () => {
-  const geometry = spawnMarker();
+test('far out, the avatar is two triangles lying flat, facing up', () => {
+  const dot = avatarDot();
+  expect(dot.index!.count).toBe(6);
+  const position = dot.getAttribute('position');
+  for (let i = 0; i < position.count; i++) expect(position.getY(i)).toBe(0);
+  expect(dot.getAttribute('normal').getY(0)).toBeGreaterThan(0);
+});
+
+describe("the marker's shape", () => {
+  const geometry = markerGeometry();
   const position = geometry.getAttribute('position');
 
   test('is the target first and the puffs after it', () => {

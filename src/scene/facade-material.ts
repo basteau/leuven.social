@@ -1,5 +1,5 @@
 import { Color, MeshBasicMaterial, MeshToonMaterial, Vector4 } from 'three';
-import type { LineBasicMaterial, Material, Texture } from 'three';
+import type { Texture } from 'three';
 
 import { SHOP_KINDS } from '../data/shop-kinds.ts';
 import { AWNING, LANCETS, ORNATE, SHOP_FRONT } from './facade-codes.ts';
@@ -23,62 +23,6 @@ export const BAYER = `float bayer2(vec2 a) { a = mod(floor(a), 2.0); return frac
 float bayer4(vec2 a) { return bayer2(0.5 * a) * 0.25 + bayer2(a); }`;
 
 /**
- * How near the walking camera (m) the city dithers away; 0 on the map, where nothing does. One
- * uniform for the city's materials, set by walk mode.
- */
-export const nearFade = { value: 0 };
-/**
- * The ground round the walking camera, as y = a + b · x + c · z, for the street
- * the dither spares. Set by walk mode with `nearFade`.
- */
-export const nearGround = { value: [0, 0, 0] };
-
-const NEAR_FADE = `uniform float uNearFade;
-uniform vec3 uNearGround;
-float overGround(vec3 w) { return w.y - dot(uNearGround, vec3(1.0, w.xz)); }
-${BAYER}`;
-
-/**
- * Drops the fragment at `world` in a dither the nearer it is to the camera, from `nearFade` in
- * to about half that, where all of it is gone: whatever the walking camera backs into (a
- * facade, a trunk, a crown, a lamp post) opens up rather than filling the screen, and a house
- * it stands in shows none of its insides. Still no blending or sorting. `keep` spares the
- * street underfoot.
- */
-const nearDiscard = (world: string, keep: string) =>
-  `if (uNearFade > 0.0 && !(${keep}) &&
-    bayer4(gl_FragCoord.xy) >= smoothstep(0.45 * uNearFade, uNearFade, distance(${world}, cameraPosition))) discard;`;
-
-/**
- * A plain three.js material dithers away near the walking camera like the city's walls, all but
- * what `keep` spares (GLSL on `vNearWorld`, the fragment's world position).
- */
-export function fadeNearCamera(material: Material, key: string, keep = 'false'): void {
-  material.onBeforeCompile = (shader) => {
-    shader.uniforms.uNearFade = nearFade;
-    shader.uniforms.uNearGround = nearGround;
-    shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vNearWorld;')
-      .replace(
-        '#include <project_vertex>',
-        '#include <project_vertex>\nvNearWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;',
-      );
-    shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', `#include <common>\nvarying vec3 vNearWorld;\n${NEAR_FADE}`)
-      .replace(
-        '#include <clipping_planes_fragment>',
-        `#include <clipping_planes_fragment>\n${nearDiscard('vNearWorld', keep)}`,
-      );
-  };
-  material.customProgramCacheKey = () => key;
-}
-
-/** The city's ink lines dither away near the walking camera too, all but those on the ground. */
-export function fadeInkNearCamera(ink: LineBasicMaterial): void {
-  fadeNearCamera(ink, 'ink-v2', 'overGround(vNearWorld) < 0.45');
-}
-
-/**
  * The one material every cell draws with: toon shading plus detail from world position.
  * - Walls (`facade` > 0 holds the wall top, plus a code for a church or a shop front's kind,
  *   facade-codes.ts): windows in each building's own rhythm, or a church's tall pointed lancets,
@@ -92,8 +36,6 @@ export function fadeInkNearCamera(ink: LineBasicMaterial): void {
  * - Railway sleepers (codes from `SLEEPER_CODE`, rails.ts): a band of them along each track, from
  *   the distance along it, fading to their average tint when they get finer than a pixel.
  * - Shade everywhere keeps a richer version of its surface's own hue (lighting.ts).
- * - While walking, whatever stands within a couple of metres of the camera dithers away
- *   (`nearFade`), all but the street.
  * None of it costs a triangle.
  */
 export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
@@ -125,8 +67,6 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
     shader.uniforms.uFront = { value: fronts };
     shader.uniforms.uPixel = pixel;
     shader.uniforms.uNight = night;
-    shader.uniforms.uNearFade = nearFade;
-    shader.uniforms.uNearGround = nearGround;
     shader.vertexShader = linearVertexColors(shader.vertexShader)
       .replace(
         '#include <common>',
@@ -191,7 +131,7 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
         varying vec3 vWorld;
         varying vec2 vWallNormal;
         varying float vUp;
-        ${NEAR_FADE}
+        ${BAYER}
         // Sleepers: one per metre, wider apart than the real 0.6 m so a standard screen still
         // resolves them at the closest zoom.
         const float SLEEPER_PITCH = 1.0;
@@ -203,11 +143,6 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
           return mix(mix(hash2(i), hash2(i + vec2(1.0, 0.0)), u.x),
                      mix(hash2(i + vec2(0.0, 1.0)), hash2(i + vec2(1.0, 1.0)), u.x), u.y);
         }`,
-      )
-      .replace(
-        '#include <clipping_planes_fragment>',
-        `#include <clipping_planes_fragment>
-        ${nearDiscard('vWorld', 'vUp > 0.5 && overGround(vWorld) < 0.45')}`,
       )
       .replace(
         '#include <color_fragment>',
