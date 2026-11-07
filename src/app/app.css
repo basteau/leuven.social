@@ -1001,6 +1001,16 @@ kbd {
 
 .top-end .credits {
   grid-column: auto;
+  /* Its two lines under the chip, leaving the street plate the rest of a narrow screen. */
+  max-inline-size: 8rem;
+}
+
+/* On the narrowest phones the plate's name a step smaller, so a room's name fits a line. */
+@media (max-width: 24rem) {
+  .sign {
+    padding-inline: var(--space-s);
+    font-size: 0.8125rem;
+  }
 }
 
 .you {

@@ -201,3 +201,10 @@
   flex-wrap: wrap;
   gap: var(--space-s);
 }
+
+/* Focus lands on the title once you've joined: its ring hugs your name, not the whole header. */
+.account .menu-title {
+  flex: none;
+  margin-inline-end: auto;
+  border-radius: 6px;
+}

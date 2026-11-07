@@ -11,8 +11,9 @@ export function StreetSign(props: { name: string | null }) {
         <span className="sign">
           <span className="sr-only">On </span>
           {/* Keyed, so each new name gets its own entrance. */}
+          {/* A name breaks between words, never at its own hyphen (Sint-Pieterskerk). */}
           <span key={props.name} className="sign-name">
-            {props.name}
+            {props.name.replaceAll('-', '\u2011')}
           </span>
         </span>
       )}
