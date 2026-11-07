@@ -298,6 +298,74 @@ test('each parked bike stands on the ground drawn under its wheels: a slope, a p
   expect(onPavement).toBeGreaterThan(0);
 });
 
+test('drawing a parked bike as nothing leaves nothing of it, and touches nothing else', () => {
+  const [west] = partition(city);
+  const rack = { kind: 'bikes' as const, x: 30, z: 40, angle: 0.3, size: 12, fill: 0.7 };
+  // Racks among what's built before and after them: a lamp, a bench, a statue, a parasol's table.
+  const cell = {
+    ...west!,
+    props: [
+      { kind: 'lamp' as const, x: 20, z: 60, angle: 0, size: 0 },
+      rack,
+      { kind: 'statue' as const, x: 50, z: 70, angle: 0, size: 4, width: 2, depth: 2 },
+      { ...rack, x: 60, angle: -1.2, size: 20, fill: 1 },
+      ...west!.props,
+    ],
+    parasols: [{ x: 80, z: 80, ux: 1, uz: 0, color: 0xffffff }],
+  };
+  const { near, bikes } = buildFurniture(cell, kit);
+  const g = near.build();
+  const index = g.index!.array;
+  const position = g.getAttribute('position');
+  const count = bikes.length / PARKED.stride;
+  expect(count).toBeGreaterThan(10);
+  // Which bike's range each index is in, or -1.
+  const owner = new Int32Array(index.length).fill(-1);
+  let last = 0;
+  for (let b = 0; b < count; b++) {
+    const at = b * PARKED.stride;
+    const [from, to] = [bikes[at + PARKED.from]!, bikes[at + PARKED.to]!];
+    // Whole triangles, in order, none overlapping.
+    expect(from % 3).toBe(0);
+    expect(to % 3).toBe(0);
+    expect(from).toBeGreaterThanOrEqual(last);
+    expect((to - from) / 3).toBeGreaterThanOrEqual(78);
+    owner.fill(b, from, to);
+    last = to;
+  }
+  expect(last).toBeLessThanOrEqual(index.length);
+  // A bike's vertices are its own, and within its reach of where it stands.
+  const vertexOwner = new Int32Array(position.count).fill(-2);
+  for (let k = 0; k < index.length; k++) {
+    const v = index[k]!;
+    if (vertexOwner[v] === -2) vertexOwner[v] = owner[k]!;
+    expect(vertexOwner[v]).toBe(owner[k]!);
+  }
+  for (let v = 0; v < position.count; v++) {
+    const b = vertexOwner[v]!;
+    if (b < 0) continue;
+    const at = b * PARKED.stride;
+    const reach = Math.hypot(
+      position.getX(v) - bikes[at + PARKED.x]!,
+      position.getZ(v) - bikes[at + PARKED.z]!,
+    );
+    expect(reach).toBeLessThan(1.2);
+  }
+  // Zeroed, each range is degenerate triangles only, and every other index is as it was.
+  for (let b = 0; b < count; b++) {
+    const at = b * PARKED.stride;
+    const [from, to] = [bikes[at + PARKED.from]!, bikes[at + PARKED.to]!];
+    const zeroed = index.slice();
+    zeroed.fill(0, from, to);
+    for (let k = 0; k < zeroed.length; k += 3) {
+      const [i, j, l] = [zeroed[k]!, zeroed[k + 1]!, zeroed[k + 2]!];
+      if (k >= from && k < to) expect(i === j && j === l).toBe(true);
+      else expect([i, j, l]).toEqual([index[k]!, index[k + 1]!, index[k + 2]!]);
+      if (i !== j) expect(vertexOwner[i]).not.toBe(b);
+    }
+  }
+});
+
 test('the drawn ground is the highest layer at a point: a path, a pitch, a cell’s edge', () => {
   const [west] = partition(city);
   const drawn = drawnGround(FLAT, west!, LAYER_Y);
