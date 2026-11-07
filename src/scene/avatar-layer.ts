@@ -114,8 +114,11 @@ const PERIMETER = 5;
 /** Going in, you stand this far in from the door; coming out, this far out from it (m). */
 const INSIDE = 3;
 const OUTSIDE = 2;
-/** After the rooms failed to load, they are tried again no sooner than this (ms). */
-const ROOMS_RETRY_MS = 30_000;
+/**
+ * After the rooms or the bikes failed to load, they are tried again no sooner than this (ms): a
+ * chunk gone with a deploy since the page opened would otherwise be asked for every frame.
+ */
+const RETRY_MS = 30_000;
 
 /** requestIdleCallback where there is one (not in Safari), else a moment later. */
 const idle = (run: () => void): number =>
@@ -314,6 +317,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
   // The bikes are a chunk of their own, downloaded near a rack (or on F).
   let bikes: Bikes | undefined;
   let loadingBikes: Promise<Bikes> | undefined;
+  let bikesRetry = 0;
   let ride: RideState = '';
   let shownSpeed = Number.NaN;
   const loadBikes = () => {
@@ -348,8 +352,11 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       wake();
       return bikes;
     });
-    // A failed download is tried again near the next rack.
-    loadingBikes.catch(() => (loadingBikes = undefined));
+    // A failed download is tried again near a rack a while from now, or at once on F.
+    loadingBikes.catch(() => {
+      loadingBikes = undefined;
+      bikesRetry = performance.now() + RETRY_MS;
+    });
     return loadingBikes;
   };
 
@@ -389,7 +396,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       (error: unknown) => {
         // Said once; tried again on a later approach, a while from now.
         loadingInteriors = undefined;
-        roomsRetry = performance.now() + ROOMS_RETRY_MS;
+        roomsRetry = performance.now() + RETRY_MS;
         if (!disposed) {
           host.onRoomsUnavailable?.(
             error instanceof Error ? error.message : 'The insides of the buildings couldn’t load.',
@@ -740,7 +747,12 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     // otherwise the path is drawn and the loop stops before the first step.
     let busy = stirring || w.route !== null || sx !== 0 || sz !== 0;
     if (bikes) busy = bikes.frame(avatar, elapsed) || busy;
-    else if (nearestParked(scene.children, w.x, w.z, RIDE_NEAR)) void loadBikes();
+    else if (
+      performance.now() >= bikesRetry &&
+      nearestParked(scene.children, w.x, w.z, RIDE_NEAR)
+    ) {
+      void loadBikes();
+    }
     if (bikes && bikes.state !== ride) host.onRide?.((ride = bikes.state));
     nearRooms();
     // How fast it goes, for the smoke test, written only as it changes by a step worth noting.
