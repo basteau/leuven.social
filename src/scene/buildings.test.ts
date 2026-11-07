@@ -186,15 +186,22 @@ describe('buildingsGeometry', () => {
     expect(windingAgreesWithNormals(b)).toBe(true);
     const plain = buildingsGeometry([{ ...b, tower: undefined }]).surfaces;
     const { surfaces } = buildingsGeometry([b]);
-    // Four walls and four spire faces: 36 vertices.
-    expect(surfaces.getAttribute('position').count - plain.getAttribute('position').count).toBe(36);
+    // Four walls and four spire faces, 36 vertices, and the cross on its tip, two bars of 30.
+    expect(surfaces.getAttribute('position').count - plain.getAttribute('position').count).toBe(
+      36 + 60,
+    );
     surfaces.computeBoundingBox();
-    expect(surfaces.boundingBox!.max.y).toBeCloseTo(30);
+    expect(surfaces.boundingBox!.max.y).toBeCloseTo(31.9);
     // Square to the footprint: its corners stand 2.5/√2 m off its centre along x and z.
     expect(surfaces.boundingBox!.max.x).toBeCloseTo(5 + 2.5 / Math.SQRT2);
     // A slender spire on the ridge is an octagon.
     const turret = buildingsGeometry([{ ...b, tower: { ...tower, radius: 1.4 } }]).surfaces;
-    expect(turret.getAttribute('position').count - plain.getAttribute('position').count).toBe(72);
+    expect(turret.getAttribute('position').count - plain.getAttribute('position').count).toBe(
+      72 + 60,
+    );
+    // A tower with no spire to speak of has no cross either.
+    const flat = buildingsGeometry([{ ...b, tower: { ...tower, tip: 19 } }]).surfaces;
+    expect(flat.getAttribute('position').count - plain.getAttribute('position').count).toBe(36);
   });
 });
 

@@ -218,5 +218,45 @@ export function addTower(
   const sides = tower.radius < TURRET ? 8 : 4;
   const { radius, top, tip } = tower;
   const spire: Spire = { type: 'spire', u: 0, v: 0, radius, sides, top, tip };
-  addSpire(mesh, lines, { cx: tower.x, cz: tower.z, ux, uz }, spire, wall, roof);
+  const f = { cx: tower.x, cz: tower.z, ux, uz };
+  addSpire(mesh, lines, f, spire, wall, roof);
+  // A gilt cross on the spire's tip, square to the nave, so a church reads as one from afar.
+  if (tip > top + 2) {
+    bar(mesh, f, [-0.12, 0.12], [-0.12, 0.12], [tip - 0.3, tip + 1.9]);
+    bar(mesh, f, [-0.12, 0.12], [-0.6, 0.6], [tip + 1, tip + 1.25]);
+  }
+}
+
+/** The cross's gilt. */
+const GILT = 0xd9a441;
+
+/** A box in a landmark's frame, its four sides and its top, for the cross on a spire. */
+function bar(
+  mesh: MeshBuilder,
+  f: Frame,
+  [u0, u1]: readonly [number, number],
+  [v0, v1]: readonly [number, number],
+  [y0, y1]: readonly [number, number],
+): void {
+  const corners = [
+    [u0, v0],
+    [u1, v0],
+    [u1, v1],
+    [u0, v1],
+  ] as const;
+  for (let k = 0; k < 4; k++) {
+    const [[au, av], [bu, bv]] = [corners[k]!, corners[(k + 1) % 4]!];
+    const out = point(f, (au + bu) / 2, (av + bv) / 2, 0);
+    const hint: V3 = [out[0] - f.cx, 0, out[2] - f.cz];
+    mesh.quad(
+      point(f, au, av, y0),
+      point(f, bu, bv, y0),
+      point(f, bu, bv, y1),
+      point(f, au, av, y1),
+      GILT,
+      hint,
+    );
+  }
+  const top = corners.map(([u, v]) => point(f, u, v, y1));
+  mesh.quad(top[0]!, top[1]!, top[2]!, top[3]!, GILT, [0, 1, 0]);
 }
