@@ -109,30 +109,32 @@ Sint-Pieterskerk has an inside (`public/data/rooms.json`, `src/data/rooms.ts`), 
 
 The size and render budgets are enforced by `bun run verify`; if one is exceeded, the run fails:
 
-| What                                                                            | Limit    | Checked by          |
-| ------------------------------------------------------------------------------- | -------- | ------------------- |
-| App shell JS (React + the shell), gzipped                                       | 85.5 KB  | `scripts/budget.ts` |
-| 3D engine JS (three.js chunk, palette), gzipped                                 | 171.5 KB | `scripts/budget.ts` |
-| Furniture JS (after the first frame)                                            | 8.5 KB   | `scripts/budget.ts` |
-| Avatar JS, with its rooms, figure and the other players (after the first frame) | 24 KB    | `scripts/budget.ts` |
-| Street names JS (with the avatar)                                               | 1.5 KB   | `scripts/budget.ts` |
-| Bikes JS (near a rack)                                                          | 3 KB     | `scripts/budget.ts` |
-| Rider JS, with the bike's rig (with the bikes, or when another player rides)    | 7 KB     | `scripts/budget.ts` |
-| Facade plates JS (close to the street)                                          | 5.8 KB   | `scripts/budget.ts` |
-| Plates data (`walk.bin`), gzipped                                               | 96 KB    | `scripts/budget.ts` |
-| Rooms data (`rooms.json`), gzipped                                              | 80 KB    | `scripts/budget.ts` |
-| Minimap JS (once the map is up)                                                 | 2 KB     | `scripts/budget.ts` |
-| First-load JS (shell + engine)                                                  | 257 KB   | `scripts/budget.ts` |
-| CSS, gzipped                                                                    | 3.5 KB   | `scripts/budget.ts` |
-| HTML, with the loading screen inline, gzipped                                   | 7 KB     | `scripts/budget.ts` |
-| Menu JS (loaded while the city is built)                                        | 6.5 KB   | `scripts/budget.ts` |
-| City data                                                                       | 1 MB     | `scripts/budget.ts` |
-| Draw calls per frame                                                            | 160      | `scripts/smoke.ts`  |
-| Triangles per frame                                                             | 1.15M    | `scripts/smoke.ts`  |
-| Vertices, every cell built                                                      | 3.3M     | `scripts/smoke.ts`  |
-| Geometry on the GPU, every cell built                                           | 80 MB    | `scripts/smoke.ts`  |
-| Longest main-thread task while loading                                          | 150 ms   | `scripts/smoke.ts`  |
-| Console errors and warnings                                                     | 0        | `scripts/smoke.ts`  |
+| What                                                                            | Limit           | Checked by          |
+| ------------------------------------------------------------------------------- | --------------- | ------------------- |
+| App shell JS (React + the shell), gzipped                                       | 87 KB           | `scripts/budget.ts` |
+| 3D engine JS (three.js chunk, palette), gzipped                                 | 171.5 KB        | `scripts/budget.ts` |
+| Furniture JS (after the first frame)                                            | 8.5 KB          | `scripts/budget.ts` |
+| Avatar JS, with its rooms, figure and the other players (after the first frame) | 25 KB           | `scripts/budget.ts` |
+| Street names JS (with the avatar)                                               | 1.5 KB          | `scripts/budget.ts` |
+| Bikes JS (near a rack)                                                          | 3 KB            | `scripts/budget.ts` |
+| Rider JS, with the bike's rig (with the bikes, or when another player rides)    | 7 KB            | `scripts/budget.ts` |
+| Facade plates JS (close to the street)                                          | 5.8 KB          | `scripts/budget.ts` |
+| Plates data (`walk.bin`), gzipped                                               | 96 KB           | `scripts/budget.ts` |
+| Rooms data (`rooms.json`), gzipped                                              | 80 KB           | `scripts/budget.ts` |
+| Minimap JS (once the map is up)                                                 | 2 KB            | `scripts/budget.ts` |
+| Account sheet JS and CSS (when first opened)                                    | 2.5 KB, 1.25 KB | `scripts/budget.ts` |
+| Multiplayer JS: accounts, presence, protocol (once the map is up)               | 8.5 KB          | `scripts/budget.ts` |
+| First-load JS (shell + engine)                                                  | 258 KB          | `scripts/budget.ts` |
+| CSS loaded with the page, gzipped                                               | 3.75 KB         | `scripts/budget.ts` |
+| HTML, with the loading screen inline, gzipped                                   | 7 KB            | `scripts/budget.ts` |
+| Menu JS (loaded while the city is built)                                        | 7 KB            | `scripts/budget.ts` |
+| City data                                                                       | 1 MB            | `scripts/budget.ts` |
+| Draw calls per frame                                                            | 160             | `scripts/smoke.ts`  |
+| Triangles per frame                                                             | 1.15M           | `scripts/smoke.ts`  |
+| Vertices, every cell built                                                      | 3.3M            | `scripts/smoke.ts`  |
+| Geometry on the GPU, every cell built                                           | 80 MB           | `scripts/smoke.ts`  |
+| Longest main-thread task while loading                                          | 150 ms          | `scripts/smoke.ts`  |
+| Console errors and warnings                                                     | 0               | `scripts/smoke.ts`  |
 
 Every frame keeps the same cap, shadow redraws included. A redraw draws the casting cells a second time, so when the view and the redraw together would pass the cap, the redraw gets a frame of its own: it draws only the shadow map, the screen keeps showing the last frame, and the view follows on the next one (`FRAME_CALLS`, `FRAME_TRIANGLES` in `viewer.ts`). Smaller redraws, such as those close to the street, share their frame with the view as before.
 

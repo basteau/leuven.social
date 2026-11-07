@@ -25,6 +25,7 @@ export type ActionId =
   | 'time'
   | 'pass-time'
   | 'minimap'
+  | 'account'
   | 'help'
   | 'about';
 
@@ -52,6 +53,7 @@ export type IconName =
   | 'turn-right'
   | 'compass'
   | 'map'
+  | 'person'
   | 'sound-on'
   | 'sound-off'
   | 'sun'
@@ -93,6 +95,8 @@ export interface CommandState {
   passing: boolean;
   /** Whether the minimap shows in its corner. */
   minimap: boolean;
+  /** Whether you're signed in: you can change your look, or join. */
+  signedIn: boolean;
   keys: Keycaps;
   /** The menu's chord on this platform: ⌘ or Ctrl. */
   mod: string;
@@ -174,6 +178,19 @@ const yours = (s: CommandState): Command[] => {
       keys: [['Space']],
       icon: 'pin',
       action: 'recentre',
+    },
+    {
+      id: 'account',
+      group: 'walk',
+      label: s.signedIn ? 'Your look' : 'Join Leuven',
+      detail: s.signedIn
+        ? 'Your colours, as everyone sees them; or sign out'
+        : 'A name and a password, to walk with everyone else',
+      keywords:
+        'account join sign in up log in out register name password look clothes colours outfit dress avatar shirt hair skin multiplayer players',
+      keys: [['L']],
+      icon: 'person',
+      action: 'account',
     },
     ...(s.door
       ? [
@@ -321,6 +338,7 @@ export function keySheet(k: Keycaps, mod: string): KeySection[] {
         { what: 'Turn the map', keys: [[k.KeyQ, k.KeyE]], touch: 'From this menu' },
         { what: 'North up, back to you', keys: [['R']] },
         { what: 'Show or hide the minimap', keys: [['N']], touch: 'From this menu' },
+        { what: 'Join, or change your look', keys: [['L']], touch: 'The button at the top' },
       ],
     },
     {

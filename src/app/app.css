@@ -989,6 +989,88 @@ kbd {
 }
 
 /*
+ * You, in the top end corner: a pill with a dot in your shirt's colour and your name, or Join.
+ * Pressed, the account sheet. The credit sits under it.
+ */
+.top-end {
+  grid-column: 2;
+  display: grid;
+  justify-items: end;
+  gap: var(--space-s);
+}
+
+.top-end .credits {
+  grid-column: auto;
+}
+
+.you {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-s);
+  min-block-size: 40px;
+  max-inline-size: min(16rem, 60vw);
+  padding-inline: var(--space-s) var(--space-m);
+  border: var(--border) solid var(--ink);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: var(--shadow-hard);
+  font: 700 0.875rem / 1 var(--font-ui);
+  white-space: nowrap;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.you.primary {
+  background: var(--accent);
+  color: var(--paper);
+  padding-inline-start: var(--space-m);
+}
+
+.you-dot {
+  flex: none;
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+  border: var(--border) solid var(--ink);
+  border-radius: 50%;
+  background: var(--shirt);
+}
+
+.you-name {
+  overflow: clip;
+  text-overflow: ellipsis;
+}
+
+.you-count {
+  font-weight: 600;
+  opacity: 0.75;
+}
+
+.you:active {
+  translate: 0 calc(var(--lift) - 1px);
+  box-shadow: var(--shadow-pressed);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .you:not(.primary):hover {
+    background: var(--paper-press);
+  }
+
+  .you.primary:hover {
+    background: var(--accent-press);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .you {
+    transition:
+      translate 120ms var(--ease-out),
+      box-shadow 120ms var(--ease-out),
+      background-color 120ms var(--ease-out);
+  }
+}
+
+/*
  * A narrow screen: a sheet from the bottom edge, its own height, the top corners rounded, clear
  * of the home indicator. It slides the whole way, since that's where it goes back to.
  */

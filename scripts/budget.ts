@@ -26,8 +26,10 @@ const BUDGETS: {
     // 85: the time of day (1.5 KB): its keyframes and clock (daylight.ts, which the shell and
     // the engine share, so the bundler keeps it with the shell), the sky tokens, T and P.
     // 85.5: the arrow that shows where you are, over your head far out and at the edge of the
-    // screen when you're off it (0.4 KB), asked for.
-    limit: 85.5 * KB,
+    // screen when you're off it (0.4 KB), asked for. 87: other people (1.3 KB), asked for: who
+    // you are in the corner (Join, or your name and how many are here), the account sheet and
+    // the other players' chunk loaded once the map is up, the minimap's place and its key.
+    limit: 87 * KB,
     gzip: true,
   },
   // The engine, and the palette it shares with the chunks it loads later (vite.config.ts).
@@ -49,8 +51,30 @@ const BUDGETS: {
     limit: 171.5 * KB,
     gzip: true,
   },
-  // 3.5: just above 3.1 KB.
-  { label: 'CSS', pattern: 'assets/*.css', limit: 3.5 * KB, gzip: true },
+  // 3.5: just above 3.1 KB. 3.75: the minimap, the other players' name tags and who you are in
+  // the corner (0.4 KB). The account sheet's own styles load with it, below.
+  { label: 'CSS', pattern: 'assets/index-*.css', limit: 3.75 * KB, gzip: true },
+  {
+    label: 'Account sheet CSS (when opened)',
+    pattern: 'assets/account-sheet-*.css',
+    limit: 1.25 * KB,
+    gzip: true,
+  },
+  // The account sheet: joining, signing in, and your look, fetched the first time it opens.
+  {
+    label: 'Account sheet JS (when opened)',
+    pattern: 'assets/account-sheet-*.js',
+    limit: 2.5 * KB,
+    gzip: true,
+  },
+  // Other people, once the map is up: accounts, the presence socket (and Portable's
+  // reconnecting WebSocket), the binary protocol and the smoothing between updates.
+  {
+    label: 'Multiplayer JS (once the map is up)',
+    pattern: 'assets/multiplayer-*.js',
+    limit: 8.5 * KB,
+    gzip: true,
+  },
   // The page itself paints the loading screen before any script or stylesheet: the tokens, its
   // styles and the diorama's SVG are inline (about 3 KB of it the little town).
   // 7: just above 6.7 KB.
@@ -60,7 +84,8 @@ const BUDGETS: {
     label: 'Menu JS (while building)',
     pattern: 'assets/command-menu-*.js',
     // 6: just above 5.8 KB. 6.5: Time of day and Let the day pass, with their icons (0.4 KB).
-    limit: 6.5 * KB,
+    // 7: the minimap's toggle and Join Leuven or Your look, with their icons (0.3 KB).
+    limit: 7 * KB,
     gzip: true,
   },
   // The whole R23 ring plus Heverlee; the ceiling agreed for the city data is 1 MB.
@@ -76,11 +101,12 @@ const BUDGETS: {
   // still under walk mode's 20.5. Reading back what a tap touched (a square of depth round it,
   // the place meant from it, the places beside a building) took it to 19.7 KB. 22: the walker's figure (2.7 KB), a chunk of its own while
   // the traffic shared it, rides here now the traffic is gone: 21.5 KB. 24: the other players
-  // (players.ts, crowd.ts: their figures, gaits and name tags), 2 KB.
+  // (players.ts, crowd.ts: their figures, gaits and name tags), 2 KB. 25: with the tap's
+  // read-back above, 24.2 KB.
   {
     label: 'Avatar JS (after first frame)',
     pattern: 'assets/avatar-layer-*.js',
-    limit: 24 * KB,
+    limit: 25 * KB,
     gzip: true,
   },
   // The street-name lookup for the sign, a chunk beside the avatar's that loads with it.
@@ -161,11 +187,12 @@ const BUDGETS: {
   // 256: a day and a night over the city (1.6 KB): the light's keyframes, the lamps' glow
   // and the sun that moves the shadows. 257.5: the traffic's hooks in the engine (1.2 KB).
   // 256.5: the traffic went (256.2 KB). 257: the minimap's place, its key and the store it
-  // reads, and the other players' tags (0.5 KB).
+  // reads, and the other players' tags (0.5 KB). 258: who you are in the corner and the account
+  // and multiplayer chunks' loading (1.1 KB), asked for.
   {
     label: 'First-load JS',
     pattern: 'assets/{index,viewer}-*.js',
-    limit: 257 * KB,
+    limit: 258 * KB,
     gzip: true,
     closure: true,
   },

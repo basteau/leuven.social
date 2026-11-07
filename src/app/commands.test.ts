@@ -12,6 +12,7 @@ const state = (over: Partial<CommandState> = {}): CommandState => ({
   time: 'golden',
   passing: false,
   minimap: true,
+  signedIn: false,
   keys: KEYCAPS,
   mod: '⌘',
   ...over,
@@ -23,6 +24,7 @@ describe('commandsFor', () => {
   test('no modes: you, the view and the general commands, in that order', () => {
     expect(ids(state())).toEqual([
       'recentre',
+      'account',
       'run',
       'zoom-in',
       'zoom-out',

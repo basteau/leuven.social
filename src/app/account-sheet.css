@@ -1,0 +1,191 @@
+/* The account sheet's own styles, loaded with its chunk; the sheet itself is the menu's (app.css). */
+
+/*
+ * Who you are: the account sheet is the menu's sheet, as tall as what it holds. Signed out, a name
+ * and a password; signed in, a flat figure in your colours and a row of swatches a part.
+ */
+.menu.account {
+  block-size: fit-content;
+  max-block-size: min(40rem, 100dvh - 2rem);
+  inline-size: min(28rem, 100% - 2 * var(--gutter));
+}
+
+.account .menu-panel {
+  block-size: auto;
+  max-block-size: inherit;
+}
+
+.account-body {
+  display: grid;
+  gap: var(--space-l);
+  padding: var(--space-l) 1.125rem 1.25rem;
+}
+
+.account .menu-lede {
+  margin: 0;
+}
+
+.account-form {
+  display: grid;
+  gap: var(--space-m);
+}
+
+.field {
+  display: grid;
+  gap: var(--space-xs);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.field input {
+  block-size: var(--bar);
+  padding-inline: var(--space-m);
+  border: var(--border) solid var(--ink);
+  border-radius: var(--radius-inner);
+  background: var(--paper);
+  color: var(--ink);
+  /* 16px at least, so focusing it doesn't zoom a phone's page. */
+  font: 600 max(1rem, 16px) / 1.2 var(--font-ui);
+}
+
+.field input:focus-visible {
+  outline-offset: 0;
+}
+
+.field input:user-invalid {
+  border-color: oklch(52% 0.17 28);
+}
+
+.field small {
+  color: color-mix(in oklch, var(--ink) 70%, var(--paper));
+  font-size: 0.8125rem;
+  font-weight: 500;
+}
+
+.account-error {
+  margin: 0;
+  padding: var(--space-s) var(--space-m);
+  border: var(--border) solid oklch(52% 0.17 28);
+  border-radius: var(--radius-inner);
+  background: oklch(95% 0.03 28);
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+
+.account-switch {
+  justify-self: center;
+  min-block-size: var(--control);
+  padding-inline: var(--space-m);
+  border: 0;
+  border-radius: var(--radius-inner);
+  background: none;
+  color: var(--accent);
+  font: 700 0.875rem / 1.2 var(--font-ui);
+  cursor: pointer;
+}
+
+.account-switch:active {
+  background: var(--paper-press);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .account-switch:hover {
+    text-decoration: underline;
+  }
+}
+
+.account-you {
+  display: flex;
+  align-items: center;
+  gap: var(--space-l);
+}
+
+.account-preview {
+  flex: none;
+  inline-size: 4.5rem;
+  block-size: auto;
+}
+
+.swatches {
+  display: grid;
+  gap: var(--space-s);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.swatches legend {
+  padding: 0;
+  margin-block-end: var(--space-s);
+  font-size: 0.875rem;
+  font-weight: 750;
+}
+
+.swatch-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-s);
+}
+
+/* A swatch: a 36px disc of its colour, 44px to the thumb; the one worn has a thick inked ring. */
+.swatch {
+  position: relative;
+  display: grid;
+  place-items: center;
+  inline-size: 36px;
+  block-size: 36px;
+  border: var(--border) solid var(--ink);
+  border-radius: 50%;
+  background: var(--swatch);
+  cursor: pointer;
+}
+
+.swatch::after {
+  position: absolute;
+  inset: -6px;
+  content: '';
+}
+
+.swatch input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.swatch:has(input:checked) {
+  box-shadow:
+    0 0 0 3px var(--paper),
+    0 0 0 5px var(--ink);
+}
+
+.swatch:has(input:checked)::before {
+  inline-size: 10px;
+  block-size: 10px;
+  border: var(--border) solid var(--ink);
+  border-radius: 50%;
+  background: var(--paper);
+  content: '';
+}
+
+.swatch:has(input:focus-visible) {
+  outline: 3px solid var(--accent);
+  outline-offset: 5px;
+}
+
+.swatch:active {
+  scale: 0.94;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .swatch {
+    transition: scale 120ms var(--ease-out);
+  }
+}
+
+.account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-s);
+}

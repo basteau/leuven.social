@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 import { sound } from '../audio/sound.ts';
@@ -17,9 +17,11 @@ import { CITY_URL, loadCity } from '../data/load.ts';
 import type { Place } from '../data/places.ts';
 import { presetAt } from '../scene/daylight.ts';
 import type { Daylight, PresetId } from '../scene/daylight.ts';
-import type { Refusal, RideState, RoomPlace, Viewer } from '../scene/viewer.ts';
+import type { PlayerPose, Refusal, RideState, RoomPlace, Viewer } from '../scene/viewer.ts';
+import type { Account } from './account-sheet.tsx';
 import type { ActionId, CommandState } from './commands.ts';
 import type { MenuPage } from './command-menu.tsx';
+import type { Multiplayer } from './multiplayer.ts';
 import { ActionButton } from './controls.tsx';
 import { Credits } from './credits.tsx';
 import { ArrowIcon, BikeIcon, DoorIcon, MenuIcon } from './icons.tsx';
@@ -46,6 +48,10 @@ const LOAD_STALL_MS = 20_000;
 const loadMenu = () => import('./command-menu.tsx');
 /** The minimap is its own chunk too, fetched once the map is up. */
 const Minimap = lazy(() => import('./minimap-view.tsx').then((m) => ({ default: m.Minimap })));
+/** The account sheet: its own chunk, fetched the first time it opens. */
+const AccountSheet = lazy(() =>
+  import('./account-sheet.tsx').then((m) => ({ default: m.AccountSheet })),
+);
 /** Whether the minimap shows is remembered on this device. */
 const MINIMAP_KEY = 'leuven-minimap';
 /** React keeps a failed lazy component failed: each try after a failure gets a fresh one. */
@@ -253,6 +259,24 @@ export function App() {
   /** What was typed while the menu was on its way, for its search. */
   const typedRef = useRef('');
   const [CommandMenu, setCommandMenu] = useState(lazyMenu);
+  /** Who you are on the map, how many are on it, and the sheet to join or change your look. */
+  const [account, setAccount] = useState<Account>({ signedIn: false });
+  const [online, setOnline] = useState<number | null>(null);
+  // Who you are and how many are here, on <html> for the smoke test.
+  useEffect(() => {
+    const data = document.documentElement.dataset;
+    data.account = account.signedIn ? account.name : '';
+    data.online = online === null ? '' : String(online);
+  }, [account, online]);
+  const [accountSheet, setAccountSheet] = useState({ open: false, used: false });
+  const multiplayerRef = useRef<Multiplayer | null>(null);
+  /** Where the avatar was last, for the other players' chunk when it arrives. */
+  const movedRef = useRef<PlayerPose | null>(null);
+  const openAccount = useCallback(() => setAccountSheet({ open: true, used: true }), []);
+  const closeAccount = useCallback(() => {
+    setAccountSheet((a) => ({ ...a, open: false }));
+    mapRef.current?.focus({ focusVisible: false } as FocusOptions);
+  }, []);
   const [menuFailed, setMenuFailed] = useState(false);
   const openMenu = useCallback((page: MenuPage = 'list') => {
     menuOpenRef.current = true;
@@ -389,6 +413,8 @@ export function App() {
           onMove: (state) => {
             live.me = { x: state.x, z: state.z, facing: state.heading };
             live.changed();
+            movedRef.current = state;
+            multiplayerRef.current?.moved(state);
           },
           onHeading: (heading) => {
             live.heading = heading;
@@ -406,6 +432,19 @@ export function App() {
           setPlaceCity(loaded);
           publish({ state: 'ready' }, viewer);
           cacheForOffline();
+          // Other people: a chunk of its own, once the map is up. Without it the map is yours alone.
+          import('./multiplayer.ts').then(
+            ({ startMultiplayer }) => {
+              if (abort.signal.aborted) return;
+              const multiplayer = startMultiplayer(viewer, {
+                account: setAccount,
+                online: setOnline,
+              });
+              if (movedRef.current) multiplayer.moved(movedRef.current);
+              multiplayerRef.current = multiplayer;
+            },
+            (error: unknown) => console.warn('Other players couldn’t load.', error),
+          );
         });
       })
       .catch((error: unknown) => {
@@ -424,6 +463,8 @@ export function App() {
     return () => {
       watch.stop();
       abort.abort();
+      multiplayerRef.current?.dispose();
+      multiplayerRef.current = null;
       viewerRef.current?.dispose();
       viewerRef.current = null;
     };
@@ -448,6 +489,7 @@ export function App() {
     onWalkKey: () => steppedRef.current(),
     toggleSound: () => toggleSoundRef.current(),
     toggleMinimap: () => toggleMinimapRef.current(),
+    openAccount,
     nextTime: () => nextTimeRef.current(),
     togglePassing: () => togglePassingRef.current(),
     turnHold,
@@ -502,6 +544,12 @@ export function App() {
   }, [blocked, avatarShown, coach]);
 
   const viewer = () => viewerRef.current;
+  /** The other players' chunk, or why there's no joining yet. */
+  const multiplayer = () => {
+    const loaded = multiplayerRef.current;
+    if (!loaded) throw new Error('Still connecting. Try again in a moment.');
+    return loaded;
+  };
   /** What each of the menu's commands does: thin calls into the viewer and the shell's state. */
   const [actions] = useState((): Record<Exclude<ActionId, 'help' | 'about'>, () => void> => ({
     recentre: () => viewerRef.current?.recentre(),
@@ -518,6 +566,7 @@ export function App() {
     time: () => nextTimeRef.current(),
     'pass-time': () => togglePassingRef.current(),
     minimap: () => toggleMinimapRef.current(),
+    account: () => setAccountSheet({ open: true, used: true }),
   }));
   /** A command from the menu: the menu closes first, and focus goes to the map for its keys. */
   const run = useCallback(
@@ -551,8 +600,19 @@ export function App() {
     [rooms, closeMenu],
   );
   const commandState: CommandState = useMemo(
-    () => ({ ride, door, running, soundOn, time, passing, minimap, keys, mod }),
-    [ride, door, running, soundOn, time, passing, minimap, keys, mod],
+    () => ({
+      ride,
+      door,
+      running,
+      soundOn,
+      time,
+      passing,
+      minimap,
+      signedIn: account.signedIn,
+      keys,
+      mod,
+    }),
+    [ride, door, running, soundOn, time, passing, minimap, account.signedIn, keys, mod],
   );
   // Places by name: choosing one takes the view there, down to the street; you walk there.
   const places = useMemo(
@@ -634,7 +694,39 @@ export function App() {
       <header className="hud hud-top">
         {/* Where you are, once the view is close enough to show you: the only plate on screen. */}
         <StreetSign name={inside ? `${inside.room} · ${inside.floor}` : street} />
-        <Credits />
+        <div className="top-end">
+          {ready && (
+            <button
+              type="button"
+              className={account.signedIn ? 'you' : 'you primary'}
+              aria-haspopup="dialog"
+              aria-keyshortcuts="L"
+              onClick={() => {
+                sound.tap();
+                openAccount();
+              }}
+            >
+              {account.signedIn ? (
+                <>
+                  <span
+                    className="you-dot"
+                    style={{ '--shirt': hex(account.outfit.shirt) } as CSSProperties}
+                  />
+                  <span className="you-name">{account.name}</span>
+                </>
+              ) : (
+                'Join'
+              )}
+              {online !== null && online > (account.signedIn ? 1 : 0) && (
+                <span className="you-count">
+                  <span className="sr-only">, </span>
+                  {online} here
+                </span>
+              )}
+            </button>
+          )}
+          <Credits />
+        </div>
         {/*
           The hint, under the corners. Always in the page, empty when there's nothing to say, so
           changes are announced.
@@ -730,6 +822,21 @@ export function App() {
       </footer>
 
       {errorSlot ? createPortal(errorNotice, errorSlot) : errorNotice}
+
+      {accountSheet.used && (
+        <Suspense fallback={null}>
+          <AccountSheet
+            open={accountSheet.open}
+            onClose={closeAccount}
+            account={account}
+            online={online}
+            signUp={(name, password) => multiplayer().signUp(name, password)}
+            signIn={(name, password) => multiplayer().signIn(name, password)}
+            signOut={() => multiplayer().signOut()}
+            dress={(outfit) => multiplayerRef.current?.dress(outfit)}
+          />
+        </Suspense>
+      )}
 
       {menu.used && (
         <MenuGuard onError={onMenuError}>

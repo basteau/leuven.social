@@ -30,6 +30,8 @@ export interface ShortcutTarget {
   toggleSound: () => void;
   /** N: the minimap on or off. */
   toggleMinimap: () => void;
+  /** L: your account, to join or change your look. */
+  openAccount: () => void;
   /** T steps to the next time of day; P lets the day pass, or holds it. */
   nextTime: () => void;
   togglePassing: () => void;
@@ -139,6 +141,7 @@ export function useShortcuts(target: ShortcutTarget): void {
         '-': () => viewer.zoomBy(0.8),
         m: target.toggleSound,
         n: target.toggleMinimap,
+        l: target.openAccount,
         t: target.nextTime,
         p: target.togglePassing,
         r: () => viewer.resetView(),
