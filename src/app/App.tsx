@@ -594,7 +594,12 @@ export function App() {
           aria-label="Back to you"
           hidden
           tabIndex={-1}
-          onClick={() => viewerRef.current?.recentre()}
+          onClick={() => {
+            viewerRef.current?.recentre();
+            // Back on screen, the avatar needs no arrow: it hides, and its focus would fall to the
+            // page and take the map's keys with it.
+            mapRef.current?.focus({ focusVisible: false } as FocusOptions);
+          }}
         >
           <ArrowIcon />
         </button>
