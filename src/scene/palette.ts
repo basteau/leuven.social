@@ -256,6 +256,8 @@ export const TREE = {
   jitter: { l: 0.035, hue: 0.16 },
   /** Lightness lost by a 25 m tree against a 7 m one. */
   age: 0.05,
+  /** A cherry or a magnolia in flower, now and then among the smaller trees. */
+  blossom: 0xeba3bb,
 } as const;
 
 /**

@@ -338,7 +338,7 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
           float detail = 1.0 - smoothstep(0.25, 0.4, fwidth(along));
           float sleeper = mix(0.5, step(fract(along), 0.5), detail);
           diffuseColor.rgb *= mix(0.84, 1.0, sleeper);
-        } else if (vFacade < -0.5 && vFacade > ${f(-SURFACE.paving - 0.5)}) {
+        } else if (vFacade < -0.5 && vFacade > ${f(-SURFACE.flowers - 0.5)}) {
           float surface = floor(0.5 - vFacade);
           vec2 p = vWorld.xz;
           float pixel = max(fwidth(p.x), fwidth(p.y));
@@ -365,6 +365,19 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
             float joint = 1.0 - step(width, g.x) * step(width, g.y);
             shade = 1.0 + 0.03 * (hash2(floor(p / 1.2)) - 0.5) * (1.0 - smoothstep(0.3, 0.6, pixel))
               - 0.07 * joint * (1.0 - smoothstep(0.1, 0.15, pixel));
+          } else if (surface == ${f(SURFACE.flowers)}) {
+            // A flower here and there on the grass, one in six cells of 0.9 m at most, each
+            // its own spot in its cell: yellow, white or pink. Only once a flower spans a
+            // couple of pixels, so the lawn never sparkles as the map moves.
+            vec2 q = p / 0.9;
+            vec2 cell = floor(q);
+            float h = hash2(cell);
+            vec2 spot = vec2(hash2(cell + 17.0), hash2(cell + 31.0)) * 0.6 + 0.2;
+            float bloom = step(length(fract(q) - spot) * 0.9, 0.1) * step(h, 0.16) *
+              (1.0 - smoothstep(0.045, 0.07, pixel));
+            vec3 petal = h < 0.07 ? vec3(0.95, 0.75, 0.16) : h < 0.12 ? vec3(0.93, 0.9, 0.84) : vec3(0.9, 0.42, 0.55);
+            diffuseColor.rgb = mix(diffuseColor.rgb, petal, bloom);
+            shade = 1.0;
           }
           diffuseColor.rgb *= shade;
         }`,
@@ -387,7 +400,7 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
         #include <opaque_fragment>`,
       );
   };
-  material.customProgramCacheKey = () => 'facade-v10';
+  material.customProgramCacheKey = () => 'facade-v11';
   return material;
 }
 

@@ -213,7 +213,9 @@ export function addGround(
   // what is mapped inside something else shows: railway land is the land a railway owns, with
   // its grass verges and copses on it; a wood in a park, a pitch or car park in either.
   addRings(mesh, layers.railLand, LAYER_Y.railLand, GROUND.railway);
-  addRings(mesh, layers.green, LAYER_Y.green, GROUND.green);
+  // Lawns and parks speckled with daisies and buttercups, close in (facade-material.ts).
+  for (const ring of layers.green)
+    addRing(mesh, ring, LAYER_Y.green, GROUND.green, SURFACE.flowers);
   addRings(mesh, layers.woods, LAYER_Y.woods, GROUND.woods);
   for (const { surface, ring } of layers.pitches) {
     addRing(mesh, ring, surface === 'tartan' ? PITCH_Y.track : PITCH_Y.pitch, PITCH[surface]);

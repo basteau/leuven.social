@@ -55,10 +55,17 @@ test('a tree can be written in parts, trunk and crown apart', () => {
 });
 
 test('every tree has its own green near the crown colour, older ones darker', () => {
-  const greens = Array.from({ length: 100 }, (_, seed) => crownColor(seed, 10));
+  const crowns = Array.from({ length: 300 }, (_, seed) => crownColor(seed, 10));
+  const greens = crowns.filter((c) => deltaE(c, TREE.crown) < 0.08);
   expect(new Set(greens).size).toBeGreaterThan(30);
-  for (const green of greens) expect(deltaE(green, TREE.crown)).toBeLessThan(0.08);
   expect(toOklab(crownColor(5, 25))[0]).toBeLessThan(toOklab(crownColor(5, 7))[0]);
+  // The rest are in flower: a few of the small trees, none of the tall ones.
+  const pink = crowns.filter((c) => deltaE(c, TREE.blossom) < 0.08);
+  expect(pink.length + greens.length).toBe(crowns.length);
+  expect(pink.length / crowns.length).toBeGreaterThan(0.01);
+  expect(pink.length / crowns.length).toBeLessThan(0.06);
+  const tall = Array.from({ length: 300 }, (_, seed) => crownColor(seed, 20));
+  expect(tall.every((c) => deltaE(c, TREE.crown) < 0.08)).toBe(true);
 });
 
 test('a trunk is never drawn wider than street furniture keeps clear of', () => {

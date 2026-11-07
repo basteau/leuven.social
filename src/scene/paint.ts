@@ -10,9 +10,12 @@ import { PAINT } from './palette.ts';
  * says which way across its mark it lies, so the vertex shader can widen a line to a whole pixel,
  * or fold away a mark too fine to see and show its average instead: no flicker, no extra geometry.
  */
-export const SURFACE = { plain: 0, asphalt: 1, sett: 2, paving: 3 } as const;
+export const SURFACE = { plain: 0, asphalt: 1, sett: 2, paving: 3, flowers: 4 } as const;
 
-/** The texture each surface gets: joints for stone, a grain for asphalt, nothing for the rest. */
+/**
+ * The texture each surface gets: joints for stone, a grain for asphalt, nothing for the rest.
+ * Lawns and parks are speckled with flowers (`SURFACE.flowers`, ground.ts).
+ */
 export const SURFACE_OF: Record<Surface, number> = {
   asphalt: SURFACE.asphalt,
   concrete: SURFACE.paving,
