@@ -141,9 +141,22 @@ export function createInteriors(kit: InteriorsKit, rooms: Room[]): Interiors {
   );
 
   const drawn = new Map<Room, Drawn[]>();
+  /** The room whose floors show, if any. */
+  let showing: Room | null = null;
+  function discard(room: Room): void {
+    for (const { objects } of drawn.get(room) ?? []) {
+      for (const o of objects) {
+        scene.remove(o);
+        o.geometry.dispose();
+      }
+    }
+    drawn.delete(room);
+  }
   function prewarm(room: Room): Drawn[] {
     let floors = drawn.get(room);
     if (floors) return floors;
+    // One room built ahead at a time, besides the one shown: what is held stays bounded.
+    for (const other of drawn.keys()) if (other !== showing) discard(other);
     floors = room.floors.map((floor) => {
       const mesh = new MeshBuilder();
       const lines = new LineBuilder();
@@ -196,6 +209,7 @@ export function createInteriors(kit: InteriorsKit, rooms: Room[]): Interiors {
     top,
     prewarm: (room) => void prewarm(room),
     show(room, level) {
+      showing = room;
       for (const [r, door] of doors) door.visible = r !== room;
       for (const [r, floors] of drawn) {
         for (const f of floors) {
@@ -212,14 +226,7 @@ export function createInteriors(kit: InteriorsKit, rooms: Room[]): Interiors {
         scene.remove(door);
         door.geometry.dispose();
       }
-      for (const floors of drawn.values()) {
-        for (const { objects } of floors) {
-          for (const o of objects) {
-            scene.remove(o);
-            o.geometry.dispose();
-          }
-        }
-      }
+      for (const room of drawn.keys()) discard(room);
     },
   };
 }

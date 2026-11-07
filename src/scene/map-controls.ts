@@ -38,7 +38,6 @@ export class MapControls {
   readonly #onChange: () => void;
   readonly #pointers = new Map<number, { x: number; y: number }>();
   readonly #listening = new AbortController();
-  #cursor: 'grab' | 'auto' = 'grab';
   // Scratch, so a drag allocates nothing.
   readonly #from = new Vector3();
   readonly #to = new Vector3();
@@ -65,15 +64,6 @@ export class MapControls {
     on(surface, 'wheel', (e: WheelEvent) => this.#wheel(e));
     on(surface, 'contextmenu', (e: Event) => e.preventDefault());
     on(keys, 'keydown', (e: KeyboardEvent) => this.#key(e));
-  }
-
-  /** 'grab' on the map, 'auto' while walking. */
-  get cursorStyle(): 'grab' | 'auto' {
-    return this.#cursor;
-  }
-  set cursorStyle(style: 'grab' | 'auto') {
-    this.#cursor = style;
-    this.#surface.style.cursor = style;
   }
 
   /** Tells the viewer the camera was moved by hand. */
@@ -130,7 +120,7 @@ export class MapControls {
     if (!this.enabled || (event.pointerType === 'mouse' && event.button !== 0)) return;
     this.#surface.setPointerCapture?.(event.pointerId);
     this.#pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
-    if (this.#cursor === 'grab') this.#surface.style.cursor = 'grabbing';
+    this.#surface.style.cursor = 'grabbing';
   }
 
   #move(event: PointerEvent): void {
@@ -157,7 +147,7 @@ export class MapControls {
 
   #up(event: PointerEvent): void {
     this.#pointers.delete(event.pointerId);
-    if (!this.#pointers.size) this.#surface.style.cursor = this.#cursor;
+    if (!this.#pointers.size) this.#surface.style.cursor = 'grab';
   }
 
   #wheel(event: WheelEvent): void {

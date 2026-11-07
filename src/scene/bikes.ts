@@ -97,6 +97,8 @@ export interface Bikes {
   readonly busy: boolean;
   /** Ends getting on or off at once, where it was going: the avatar is put somewhere else. */
   finish(a: Avatar): void;
+  /** Gives up walking to a bike: the avatar was sent somewhere else. */
+  cancel(): void;
   /** Bikes and riders show with the street furniture, not from far out. */
   show(near: boolean): void;
   dispose(): void;
@@ -105,6 +107,8 @@ export interface Bikes {
 /** Within this of a bike (m), it can be taken there and then; within FETCH, F walks there first. */
 const NEAR = 2;
 const FETCH = 30;
+/** A route to a bike ends at the open ground nearest it, this much further off at most (m). */
+const ARRIVED = 1.5;
 /** Getting on or off (s): the avatar glides onto the bike or off beside it. */
 const TAKE = 0.6;
 /** Getting off, the avatar steps out this far to the bike's left (m). */
@@ -310,6 +314,7 @@ export function createBikes(kit: BikesKit): Bikes {
 
   let ride: RideState = '';
   function publish(next: RideState): void {
+    if (next === ride && canvas.dataset.ride === next) return;
     canvas.dataset.ride = next;
     ride = next;
   }
@@ -323,16 +328,23 @@ export function createBikes(kit: BikesKit): Bikes {
   let wheel = 0;
   let leaning = 0;
 
-  function take(a: Avatar): BikeChores {
+  /**
+   * Takes the nearest bike within reach, or says where to walk to fetch it (then taken on arrival,
+   * where a route may end a little short of it: `ARRIVED`).
+   */
+  function take(a: Avatar, arrived = false): BikeChores {
     const w = a.walker;
-    const found = nearest(w.x, w.z, FETCH);
+    fetching = false;
+    // No bike stands in a room; one outside its walls is out of reach.
+    if (a.place) return {};
+    const found = nearest(w.x, w.z, arrived ? NEAR + ARRIVED : FETCH);
     if (!found) return {};
     const { stand } = found;
-    if (Math.hypot(stand.x - w.x, stand.z - w.z) > NEAR) {
+    if (Math.hypot(stand.x - w.x, stand.z - w.z) > (arrived ? NEAR + ARRIVED : NEAR)) {
+      if (arrived) return {};
       fetching = true;
       return { walkTo: [stand.x, stand.z] };
     }
-    fetching = false;
     if (found.dropped) {
       dropped = dropped.filter((d) => d !== found.dropped);
       current = found.dropped;
@@ -426,14 +438,14 @@ export function createBikes(kit: BikesKit): Bikes {
       if (glide) glide.t = 1;
       if (glide) this.frame(a, 0);
     },
+    cancel() {
+      fetching = false;
+    },
     frame(a, dt) {
       const w = a.walker;
       let busy = false;
       // Walked to a bike to take it: taken on arrival.
-      if (fetching && !w.route) {
-        fetching = false;
-        take(a);
-      }
+      if (fetching && !w.route) take(a, true);
       if (glide) {
         glide.t = Math.min(1, glide.t + dt / TAKE);
         const s = glide.t * glide.t * (3 - 2 * glide.t);
@@ -456,7 +468,7 @@ export function createBikes(kit: BikesKit): Bikes {
         if (wheel !== was) sounds.freewheel(wheel, w.speed, w.accel <= 0);
       }
       rider.visible = riderInk.visible = riderXray.visible = riding && shown;
-      const near = !riding && nearest(w.x, w.z, NEAR) !== null;
+      const near = !riding && !a.place && nearest(w.x, w.z, NEAR) !== null;
       publish(a.mode === 'bike' ? 'riding' : near ? 'near' : '');
       return busy;
     },

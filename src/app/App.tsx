@@ -78,6 +78,8 @@ const COACH_AFTER_STEP_MS = 4_000;
 /** The first ride is coached for a few seconds, once per device. */
 const RIDE_COACHED_KEY = 'leuven-ride-coached';
 const RIDE_COACH_MS = 7_000;
+/** A download that failed is said this long (ms). */
+const FAILED_MS = 8_000;
 /** What a command did, where nothing else on screen shows it (sound, running), for a moment. */
 const SAID_MS = 2_000;
 /** What the hint says of each time of day as T steps to it. */
@@ -161,6 +163,15 @@ export function App() {
   /** What the menu can take you inside, once the rooms have loaded; why they couldn't. */
   const [rooms, setRooms] = useState<readonly RoomPlace[]>([]);
   const [roomsFailed, setRoomsFailed] = useState<string | null>(null);
+  // A failed download is said for a while, not for the rest of the visit: the next try may work.
+  useEffect(() => {
+    if (!roomsFailed && !avatarFailed) return;
+    const timer = setTimeout(() => {
+      setRoomsFailed(null);
+      setAvatarFailed(false);
+    }, FAILED_MS);
+    return () => clearTimeout(timer);
+  }, [roomsFailed, avatarFailed]);
   const [soundOn, setSoundOn] = useState(sound.on);
   /** The time of day, as the menu names it, and whether the day passes by itself. */
   const [time, setTime] = useState<PresetId>('golden');

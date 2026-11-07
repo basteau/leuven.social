@@ -210,13 +210,22 @@ export function stairAt(s: Stair, x: number, z: number, margin = 0): number {
 export const floorAt = (room: Room, level: number) => room.floors.find((f) => f.level === level);
 
 /** The stairs that touch a floor: up from it, and up to it from below, with their lower floor. */
-export function stairsOf(room: Room, level: number): { stair: Stair; from: Floor }[] {
-  return room.floors.flatMap((from) =>
-    from.stairs
-      .filter((stair) => from.level === level || stair.to === level)
-      .map((stair) => ({ stair, from })),
-  );
+export function stairsOf(room: Room, level: number): readonly { stair: Stair; from: Floor }[] {
+  // Asked every step on a floor, so worked out once a room and level.
+  let byLevel = stairCache.get(room);
+  if (!byLevel) stairCache.set(room, (byLevel = new Map()));
+  let found = byLevel.get(level);
+  if (!found) {
+    found = room.floors.flatMap((from) =>
+      from.stairs
+        .filter((stair) => from.level === level || stair.to === level)
+        .map((stair) => ({ stair, from })),
+    );
+    byLevel.set(level, found);
+  }
+  return found;
 }
+const stairCache = new WeakMap<Room, Map<number, { stair: Stair; from: Floor }[]>>();
 
 /**
  * Where the avatar is in a room at (x, z) on floor `level`: on a stair, the floor it counts as

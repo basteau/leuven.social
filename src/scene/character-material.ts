@@ -15,7 +15,7 @@ const CHECKER = 'mod(floor(gl_FragCoord.x) + floor(gl_FragCoord.y), 2.0) < 1.0';
 const BAYER = `uniform float fade;\n${DITHER}`;
 const FADED = 'bayer4(gl_FragCoord.xy) >= fade';
 
-/** How much of the walker to draw, 0 to 1: shared by its materials, set by the walk loop. */
+/** How much of the figure to draw, 0 to 1: shared by its materials. */
 export interface Fade {
   value: number;
 }

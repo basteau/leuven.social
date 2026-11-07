@@ -923,7 +923,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     if (!options.onStreetChange) return;
     let name: string | null = null;
     if (avatar && viewSpan() <= SPANS.figure) {
-      const { x, z } = avatar.state;
+      const [x, , z] = avatar.feet;
       if (Math.hypot(x - signedAt.x, z - signedAt.z) < STREET_STEP) return;
       [signedAt.x, signedAt.z] = [x, z];
       if (!streets) return;
@@ -1141,7 +1141,8 @@ export function createViewer(options: ViewerOptions): Viewer {
     stopTurning();
     avatar?.moved();
     yaw = Math.PI / 4;
-    camera.zoom = 1;
+    // Inside a room the zoom keeps to the room's limits.
+    camera.zoom = Math.min(controls.maxZoom, Math.max(controls.minZoom, 1));
     camera.updateProjectionMatrix();
     controls.target.set(0, 0, 0);
     placeCamera();

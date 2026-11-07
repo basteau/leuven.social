@@ -153,13 +153,13 @@ describe('MapControls', () => {
     expect(changes()).toBe(1);
   });
 
-  test('walking turns the grab cursor off, and dispose lets the page scroll again', () => {
+  test('a grab cursor that grabs while dragging, and dispose lets the page scroll again', () => {
     const { controls, surface } = setup();
     expect(surface.style).toEqual({ cursor: 'grab', touchAction: 'none' });
-    controls.cursorStyle = 'auto';
-    expect(controls.cursorStyle).toBe('auto');
     surface.dispatchEvent(pointer('pointerdown', 1, 10, 10));
-    expect(surface.style.cursor).toBe('auto');
+    expect(surface.style.cursor).toBe('grabbing');
+    surface.dispatchEvent(pointer('pointerup', 1, 10, 10));
+    expect(surface.style.cursor).toBe('grab');
     surface.dispatchEvent(new Event('contextmenu', { cancelable: true }));
     controls.dispose();
     expect(surface.style.touchAction).toBe('');

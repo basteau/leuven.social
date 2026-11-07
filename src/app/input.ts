@@ -89,7 +89,7 @@ export function strayPress(detail: number, sinceMount: number): boolean {
 export const HOLD_MS = 300;
 
 export interface Turner {
-  /** One step: a quarter of the way round on the map, an eighth while walking. */
+  /** One step: a quarter of the way round. */
   rotate(direction: 1 | -1): void;
   /** Keeps turning while held: -1 left, 1 right, 0 lets go. */
   spin(direction: number): void;

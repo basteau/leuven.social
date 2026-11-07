@@ -27,6 +27,8 @@ export class RoomGrid {
   readonly #grid: CellGrid;
   readonly #walls: Wall[] = [];
   #query = 0;
+  /** Scratch for `wallOverlap`, which a step calls several times: nothing allocated. */
+  readonly #sum: [number, number, number] = [0, 0, 0];
 
   constructor(room: Room, level: number) {
     const floor = floorAt(room, level);
@@ -105,7 +107,8 @@ export class RoomGrid {
 
   /** How far a circle reaches into the room's walls, rails and furnishings (as `WalkGrid`). */
   wallOverlap(x: number, z: number, radius: number, out: [number, number]): number {
-    const sum: [number, number, number] = [0, 0, 0];
+    const sum = this.#sum;
+    [sum[0], sum[1], sum[2]] = [0, 0, 0];
     wallPush(this.#walls, x, z, radius, ++this.#query, sum);
     const length = Math.hypot(sum[0], sum[1]);
     if (length < 1e-9) return 0;

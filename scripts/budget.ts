@@ -67,11 +67,14 @@ const BUDGETS: {
   // chase camera, flight, sky dome, thumb stick and spawn dive; one camera and one avatar took
   // that to about 13.2 KB. 19: the rooms inside the landmarks (5.4 KB): reading and checking
   // rooms.json, each floor's walk grid, its meshes, the stairs, and going in and out. They ride
-  // here: a chunk loaded from this one would split three.js off the engine.
+  // here: a chunk loaded from this one would split three.js off the engine. 19.5: lining a
+  // room's walls, going straight to a floor, and the review's fixes (rooms retried after a
+  // failure, a late answer dropped, in and out with a step past the edge) took it to 19.3 KB,
+  // still under walk mode's 20.5.
   {
     label: 'Avatar JS (after first frame)',
     pattern: 'assets/avatar-layer-*.js',
-    limit: 19 * KB,
+    limit: 19.5 * KB,
     gzip: true,
   },
   // The street-name lookup for the sign, a chunk beside the avatar's that loads with it.

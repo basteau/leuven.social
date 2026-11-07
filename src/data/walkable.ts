@@ -91,6 +91,9 @@ export class WalkGrid {
   readonly #ribbons: Ribbon[][];
   readonly #walls: Wall[][];
   readonly #doors: Door[] = [];
+  /** Scratch for `wallOverlap`, which a step calls several times: nothing allocated. */
+  readonly #sum: [number, number, number] = [0, 0, 0];
+  readonly #skip = (px: number, pz: number) => this.#inDoor(px, pz);
   #query = 0;
 
   constructor(city: WalkLayers, solids: Solids = { posts: [], rings: [] }) {
@@ -237,9 +240,10 @@ export class WalkGrid {
    * the nearest face, but in a doorway.
    */
   wallOverlap(x: number, z: number, radius: number, out: [number, number]): number {
-    const sum: [number, number, number] = [0, 0, 0];
+    const sum = this.#sum;
+    [sum[0], sum[1], sum[2]] = [0, 0, 0];
     const query = ++this.#query;
-    const skip = this.#doors.length ? (px: number, pz: number) => this.#inDoor(px, pz) : undefined;
+    const skip = this.#doors.length ? this.#skip : undefined;
     const [c0, r0] = this.#grid.tileOf(x - radius, z - radius);
     const [c1, r1] = this.#grid.tileOf(x + radius, z + radius);
     for (let r = r0; r <= r1; r++) {

@@ -101,6 +101,18 @@ const ROOMS_NEAR = 160;
 const PREWARM_NEAR = 60;
 /** Going in from the menu, the avatar stands this far inside the door (m). */
 const INSIDE = 3;
+/** In or out, a step this far past the footprint's edge at the door (m). */
+const EDGE = 0.3;
+/** After the rooms failed to load, they are tried again no sooner than this (ms). */
+const ROOMS_RETRY_MS = 30_000;
+
+/** requestIdleCallback where there is one (not in Safari), else a moment later. */
+const idle = (run: () => void): number =>
+  'requestIdleCallback' in globalThis
+    ? requestIdleCallback(run, { timeout: 1000 })
+    : (setTimeout(run, 50) as unknown as number);
+const cancelIdle = (handle: number) =>
+  'cancelIdleCallback' in globalThis ? cancelIdleCallback(handle) : clearTimeout(handle);
 
 export interface AvatarHost {
   scene: Scene;
@@ -268,6 +280,15 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
   let keyUp = 0;
   let running = false;
   let frame = 0;
+  /** Whether a tick is under way: its own frame, so the viewer draws none on top of it. */
+  let ticking = false;
+  /** Set once the layer is disposed: a download that lands later does nothing. */
+  let disposed = false;
+  /**
+   * Counts what the person asked for last (a tap, a place, going in, a bike), so an answer that
+   * arrives after something newer was asked for is dropped.
+   */
+  let asked = 0;
   let last = 0;
   /** When the view was last moved by hand (ms), and whether a recentre was asked for. */
   let movedAt = -Infinity;
@@ -279,6 +300,10 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
   /** What the view's span allows: the figure, a marker, or nothing. */
   let shown: Detail['avatar'] = 'none';
   let span = 560;
+  /** Whether the view is close enough to build rooms near the avatar ahead of a visit. */
+  let prewarm = false;
+  /** The camera's target as it glides, reused each frame. */
+  const goal = { x: 0, z: 0 };
   /** Seconds since the avatar was put somewhere by a jump, NaN with none playing. */
   let jumped = Number.NaN;
   /** A spot nobody can reach: how long since its greyed marker dropped (s), and where. */
@@ -290,6 +315,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
   let loadingBikes: Promise<Bikes> | undefined;
   const loadBikes = () => {
     loadingBikes ??= import('./bikes.ts').then(({ createBikes }) => {
+      if (disposed) throw new Error('The map closed while the bikes loaded.');
       bikes = createBikes({
         three: {
           BackSide,
@@ -352,20 +378,30 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
         shadowsChanged: host.shadowsChanged,
       },
       host.base,
-    ).then((loaded) => {
-      interiors = loaded;
-      // Their doors open in the street's grid too: the threshold is open on both sides.
-      for (const r of loaded.rooms) grid.openDoor(r.door.x, r.door.z, DOOR_HALF);
-      wake();
-      return loaded;
-    });
-    loadingInteriors.catch((error: unknown) => {
-      host.onRoomsUnavailable?.(
-        error instanceof Error ? error.message : 'The insides of the buildings couldn’t load.',
-      );
-    });
+    ).then(
+      (loaded) => {
+        if (disposed) throw new Error('The map closed while the rooms loaded.');
+        interiors = loaded;
+        // Their doors open in the street's grid too: the threshold is open on both sides.
+        for (const r of loaded.rooms) grid.openDoor(r.door.x, r.door.z, DOOR_HALF);
+        wake();
+        return loaded;
+      },
+      (error: unknown) => {
+        // Said once; tried again on a later approach, a while from now.
+        loadingInteriors = undefined;
+        roomsRetry = performance.now() + ROOMS_RETRY_MS;
+        if (!disposed) {
+          host.onRoomsUnavailable?.(
+            error instanceof Error ? error.message : 'The insides of the buildings couldn’t load.',
+          );
+        }
+        throw error;
+      },
+    );
     return loadingInteriors;
   };
+  let roomsRetry = 0;
   /** The ground underfoot: the street's, or the room's floor. */
   const underfoot = () => (room && interiors ? interiors.grid(room, avatar.floor) : grid);
 
@@ -405,13 +441,19 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
   function crossings(): void {
     if (!interiors) return;
     const w = avatar.walker;
+    // How far in through a room's door (m): in and out each need a step past the footprint's
+    // edge, so a body brushing it doesn't flicker between the two.
+    const into = (r: Room) =>
+      (w.x - r.door.x) * Math.sin(r.door.facing) + (w.z - r.door.z) * Math.cos(r.door.facing);
     if (!room) {
-      const into = interiors.roomAt(w.x, w.z);
-      const atDoor = into && Math.hypot(w.x - into.door.x, w.z - into.door.z) <= DOOR_HALF + 0.5;
-      if (into && atDoor && avatar.mode === 'foot') enter(into, 0);
+      const at = interiors.roomAt(w.x, w.z);
+      const atDoor = at && Math.hypot(w.x - at.door.x, w.z - at.door.z) <= DOOR_HALF + 0.5;
+      if (at && atDoor && into(at) > EDGE && avatar.mode === 'foot') enter(at, 0);
       return;
     }
-    if (!inRing(interiors.footprint(room), w.x, w.z)) {
+    const out = !inRing(interiors.footprint(room), w.x, w.z);
+    const byDoor = Math.hypot(w.x - room.door.x, w.z - room.door.z) <= DOOR_HALF + 1;
+    if (out && (!byDoor || into(room) < -EDGE)) {
       leave();
       return;
     }
@@ -424,20 +466,23 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
   }
   /** Rooms nearby: their data loads, and, close to the street, the nearest is built ahead. */
   let prewarming = 0;
+  const prewarmed = new Set<Room>();
   function nearRooms(): void {
     const w = avatar.walker;
     if (!interiors) {
       const close = landmarks.some(([x, z]) => Math.hypot(x - w.x, z - w.z) < ROOMS_NEAR);
-      if (close && shown === 'figure') void loadRooms().catch(() => {});
+      const due = !loadingInteriors && performance.now() >= roomsRetry;
+      if (close && shown === 'figure' && due) void loadRooms().catch(() => {});
       return;
     }
-    const near = !room && span <= 60 ? interiors.near(w.x, w.z, PREWARM_NEAR) : undefined;
-    if (!near || prewarming) return;
-    const idle = globalThis.requestIdleCallback ?? ((run: () => void) => setTimeout(run, 50));
+    const near = !room && prewarm ? interiors.near(w.x, w.z, PREWARM_NEAR) : undefined;
+    if (!near || prewarming || prewarmed.has(near)) return;
     prewarming = idle(() => {
-      interiors?.prewarm(near);
       prewarming = 0;
-    }) as number;
+      if (disposed) return;
+      interiors?.prewarm(near);
+      prewarmed.add(near);
+    });
   }
 
   function clearRoute(): void {
@@ -499,6 +544,8 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
   const raycaster = new Raycaster();
   const ndc = new Vector2();
   function tap(clientX: number, clientY: number): void {
+    asked++;
+    bikes?.cancel();
     const rect = canvas.getBoundingClientRect();
     ndc.set(
       ((clientX - rect.left) / rect.width) * 2 - 1,
@@ -555,12 +602,21 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
   }
 
   function wake(): void {
-    if (frame) return;
+    if (frame || disposed) return;
     last = performance.now();
     frame = requestAnimationFrame(tick);
   }
 
   function tick(now: number): void {
+    ticking = true;
+    try {
+      advance(now);
+    } finally {
+      ticking = false;
+    }
+  }
+
+  function advance(now: number): void {
     frame = 0;
     const elapsed = Math.max(0, (now - last) / 1000);
     const dt = Math.min(0.05, elapsed);
@@ -615,7 +671,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     if (following && strength > 0) {
       const t = controls.target;
       const lead = reducedMotion ? 0 : w.speed * LEAD;
-      const goal = { x: t.x, z: t.z };
+      [goal.x, goal.z] = [t.x, t.z];
       const on = recentre(
         goal,
         x + Math.sin(heading) * lead,
@@ -747,7 +803,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
 
   return {
     get animating() {
-      return frame !== 0;
+      return frame !== 0 || ticking;
     },
     get state() {
       return avatarState(avatar);
@@ -755,13 +811,19 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     feet,
     steer(right, up) {
       [keyRight, keyUp] = [right, up];
-      if (right || up) wake();
+      if (right || up) {
+        asked++;
+        bikes?.cancel();
+        wake();
+      }
     },
     run(on) {
       running = on;
     },
     tap,
     goTo(x, z) {
+      asked++;
+      bikes?.cancel();
       const spot = grid.nearest(x, z, PLACE_REACH, true);
       if (!spot) {
         refuse(x, z);
@@ -784,10 +846,11 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
         })),
       ),
     goInside(id, level = 0) {
+      const request = ++asked;
       loadRooms().then(
         (loaded) => {
           const into = loaded.byId(id);
-          if (!into) return;
+          if (!into || request !== asked || disposed) return;
           // Just in from the door, or a step past the top of the stair up to the floor asked for.
           const { door } = into;
           const stair = into.floors.flatMap((f) => f.stairs).find((s) => s.to === level);
@@ -813,17 +876,21 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       zoomGoal = Number.NaN;
     },
     ride(action) {
+      const request = action === 'bell' ? asked : ++asked;
       loadBikes().then(
         (loaded) => {
+          if (request !== asked || disposed) return;
           const chores = loaded.act(action, avatar);
-          if (chores.walkTo) walkTo(...chores.walkTo);
+          // Out of reach after all: walking to it is given up.
+          if (chores.walkTo && !walkTo(...chores.walkTo)) loaded.cancel();
           wake();
         },
         () => {}, // nothing to ride: the street stays the street
       );
     },
-    detail(detail, now) {
-      span = now;
+    detail(detail, height) {
+      span = height;
+      prewarm = detail.prewarm;
       if (detail.avatar === shown) {
         if (dot.visible) dot.scale.setScalar(markerRadius(span) * DOT_SHARE);
         return;
@@ -834,7 +901,9 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       place(w.x, w.z, w.heading, w.phase, 0);
     },
     dispose() {
+      disposed = true;
       cancelAnimationFrame(frame);
+      cancelIdle(prewarming);
       bikes?.dispose();
       interiors?.dispose();
       for (const mesh of [character.mesh, hint, pin, dot]) scene.remove(mesh);

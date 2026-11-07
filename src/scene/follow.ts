@@ -46,7 +46,7 @@ export function recentre(at: Target, x: number, z: number, strength: number, dt:
 }
 
 /**
- * The world direction (x, z) of a key or stick held toward `right` and `up` on screen, for a camera
+ * The world direction (x, z) of keys held toward `right` and `up` on screen, for a camera
  * at `yaw` (radians, 0 looking toward -z from the +z side): up is away from the camera. With the
  * map's yaw in quarter turns, W walks up the screen whichever way the map is turned.
  */

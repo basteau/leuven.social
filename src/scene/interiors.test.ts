@@ -130,3 +130,20 @@ describe('loading the rooms', () => {
     await expect(loadInteriors(kit(), '/')).rejects.toBeInstanceOf(RoomLoadError);
   });
 });
+
+test('one room is built ahead at a time, besides the one shown', () => {
+  const k = kit();
+  const b: Room = { ...HALL, id: 'b' };
+  const c: Room = { ...HALL, id: 'c' };
+  const rooms = createInteriors(k, [HALL, b, c]);
+  rooms.show(HALL, 0);
+  rooms.prewarm(b);
+  // Three doors, and two rooms' floors: the shown one's stays.
+  expect(k.scene.children).toHaveLength(3 + 4 + 4);
+  rooms.prewarm(c);
+  // b was built ahead and never shown: it goes when another is.
+  expect(k.scene.children).toHaveLength(3 + 4 + 4);
+  rooms.show(null, 0);
+  rooms.prewarm(b);
+  expect(k.scene.children).toHaveLength(3 + 4);
+});
