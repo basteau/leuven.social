@@ -2,6 +2,7 @@ import type {
   BackSide,
   BufferAttribute,
   BufferGeometry,
+  DepthModes,
   InstancedBufferAttribute,
   InstancedMesh,
   Material,
@@ -22,7 +23,13 @@ import type { MeshBuilder } from './mesh-builder.ts';
 import { WALKER } from './palette.ts';
 import { PARKED, nearestParked, parkedHeading } from './parked.ts';
 import type { Furniture } from './parked.ts';
-import { NEAR_SHAPES, RIDE_HEIGHT, vehicleMaterials } from './vehicles.ts';
+import {
+  FIGURE,
+  NEAR_SHAPES,
+  RIDE_HEIGHT,
+  vehicleMaterials,
+  vehicleVertexShader,
+} from './vehicles.ts';
 
 /**
  * Bikes for the avatar: take a parked one (F, or the Ride pill) and ride it as a faster walk with
@@ -59,6 +66,8 @@ export interface BikesKit {
   gradientMap: Texture;
   night: { value: number };
   ink: number;
+  /** three's GreaterDepth: the x-ray draws only where something nearer hides the rider. */
+  greaterDepth: DepthModes;
   scene: Scene;
   canvas: HTMLElement;
   /** The figure's material: bikes left standing take it, blob shadow and all. */
@@ -168,7 +177,28 @@ export function createBikes(kit: BikesKit): Bikes {
   rider.receiveShadow = true;
   const riderInk = new three.InstancedMesh(hullGeometry, inkMaterial, 1);
   riderInk.instanceMatrix = rider.instanceMatrix;
-  for (const mesh of [rider, riderInk]) {
+  // Its silhouette where a house hides it, as the walker's: a checkerboard in the HUD's blue,
+  // drawn only where something nearer filled the depth buffer, the lamps' glow left out.
+  const xray = new three.MeshBasicMaterial({
+    color: WALKER.xray,
+    depthFunc: kit.greaterDepth,
+    depthWrite: false,
+  });
+  xray.onBeforeCompile = (shader) => {
+    shader.vertexShader = vehicleVertexShader(shader.vertexShader);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying float vPart;')
+      .replace(
+        '#include <clipping_planes_fragment>',
+        `#include <clipping_planes_fragment>
+        if (vPart < ${FIGURE}.0 || mod(floor(gl_FragCoord.x) + floor(gl_FragCoord.y), 2.0) >= 1.0) discard;`,
+      );
+  };
+  xray.customProgramCacheKey = () => 'rider-xray-v1';
+  const riderXray = new three.InstancedMesh(bodyGeometry, xray, 1);
+  riderXray.instanceMatrix = rider.instanceMatrix;
+  [riderXray.renderOrder, rider.renderOrder, riderInk.renderOrder] = [1, 2, 2];
+  for (const mesh of [rider, riderInk, riderXray]) {
     mesh.frustumCulled = false;
     mesh.visible = false;
     scene.add(mesh);
@@ -418,7 +448,7 @@ export function createBikes(kit: BikesKit): Bikes {
         wheel += (w.speed * dt) / (WHEEL * SCALE);
         if (wheel !== was) sounds.freewheel(wheel, w.speed, w.accel <= 0);
       }
-      rider.visible = riderInk.visible = riding && shown;
+      rider.visible = riderInk.visible = riderXray.visible = riding && shown;
       const near = !riding && nearest(w.x, w.z, NEAR) !== null;
       publish(a.mode === 'bike' ? 'riding' : near ? 'near' : '');
       return busy;
@@ -428,7 +458,8 @@ export function createBikes(kit: BikesKit): Bikes {
       standing.visible = near && dropped.length > 0;
     },
     dispose() {
-      for (const mesh of [rider, riderInk, standing]) scene.remove(mesh);
+      for (const mesh of [rider, riderInk, riderXray, standing]) scene.remove(mesh);
+      xray.dispose();
       bodyGeometry.dispose();
       hullGeometry.dispose();
       standing.geometry.dispose();

@@ -2,6 +2,7 @@ import {
   BackSide,
   BufferAttribute,
   BufferGeometry,
+  GreaterDepth,
   InstancedBufferAttribute,
   InstancedMesh,
   Matrix4,
@@ -114,6 +115,8 @@ export interface AvatarLayer {
   /** Whether a frame of its own is on its way, so the viewer needn't draw one. */
   readonly animating: boolean;
   readonly state: AvatarState;
+  /** Where its feet are drawn this frame (m), for what stands in front of it to dither away. */
+  readonly feet: readonly [number, number, number];
   /** Walks toward a direction on screen while held: right and up, each from -1 to 1. */
   steer(right: number, up: number): void;
   /** Runs (or sprints on a bike) while on. */
@@ -216,6 +219,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
   remember();
   let kerb = 0;
   let onFeet = false;
+  const feet: [number, number, number] = [0, 0, 0];
 
   let keyRight = 0;
   let keyUp = 0;
@@ -261,6 +265,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
         gradientMap: host.gradientMap,
         night: host.night,
         ink: OUTLINE,
+        greaterDepth: GreaterDepth,
         scene,
         canvas,
         body,
@@ -464,6 +469,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     kerb = reducedMotion || !onFeet ? step : decay(kerb, step, KERB_EASE, dt);
     onFeet = true;
     const floor = ground(x, z) + kerb + avatar.rise;
+    [feet[0], feet[1], feet[2]] = [x, floor, z];
     const onFoot = avatar.mode === 'foot' || (bikes?.busy ?? false);
     character.mesh.visible = shown === 'figure' && onFoot;
     if (character.mesh.visible) {
@@ -540,6 +546,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     get state() {
       return avatarState(avatar);
     },
+    feet,
     steer(right, up) {
       [keyRight, keyUp] = [right, up];
       if (right || up) wake();

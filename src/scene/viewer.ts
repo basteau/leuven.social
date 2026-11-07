@@ -43,7 +43,10 @@ import type { buildFurniture, drawnGround } from './furniture.ts';
 import {
   BAYER,
   createFacadeMaterial,
+  avatarDither,
   createGlowMaterial,
+  viewDirection,
+  ditherInFront,
   setNight,
   setPixelSize,
 } from './facade-material.ts';
@@ -102,6 +105,7 @@ import {
   spanOf,
 } from './lod.ts';
 import type { Detail } from './lod.ts';
+import { ditherRadius } from './occlusion.ts';
 
 export type { RideAction, RideState } from './bikes.ts';
 
@@ -302,6 +306,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   // A mesh without a `facade` attribute (street furniture) reads 0: a plain surface.
   Object.assign(material, { defaultAttributeValues: { facade: [0], lift: [0] } });
   const ink = new LineBasicMaterial({ color: OUTLINE });
+  ditherInFront(ink, 'ink-v3');
   // The lamps' light at night: the same night uniform as the windows.
   const lamps = { value: 0 };
   const glowMaterial = createGlowMaterial(lamps);
@@ -782,6 +787,10 @@ export function createViewer(options: ViewerOptions): Viewer {
     plates?.update(t.x, t.z, detail.plates);
     avatar?.detail(detail, span);
     const shown = detail.avatar === 'figure';
+    // What stands between the camera and the avatar dithers away, while its figure shows.
+    const [fx, fy, fz] = avatar?.feet ?? [0, 0, 0];
+    avatarDither.value.set(fx, fy, fz, shown && avatar ? ditherRadius(span) : 0);
+    camera.getWorldDirection(viewDirection.value);
     if (shown !== avatarShown) options.onAvatarShown?.((avatarShown = shown));
     // Fine road paint is drawn last in each cell, so a view too far out to see it can stop short.
     for (const { objects, fineVertices } of cells) {
@@ -927,6 +936,7 @@ export function createViewer(options: ViewerOptions): Viewer {
           anisotropy: Math.min(8, renderer.capabilities.getMaxAnisotropy()),
           compile: (object) => renderer.compileAsync(object, camera, scene),
           changed: invalidate,
+          dither: (plate) => ditherInFront(plate, 'plates-v2'),
         }),
       )
       .then(

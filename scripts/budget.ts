@@ -81,11 +81,12 @@ const BUDGETS: {
   },
   // Bikes load near a rack (or on F): taking and leaving one, the bell, the bikes left standing.
   // Riding was 12 KB with its kinematic bicycle, rider IK and scripted mounts; a bike is now the
-  // avatar at a bike's paces, drawn as the traffic's own cyclist, at about 2.8 KB.
+  // avatar at a bike's paces, drawn as the traffic's own cyclist, at about 2.8 KB. 3.5: the
+  // rider's x-ray silhouette behind houses, as the walker has (0.3 KB).
   {
     label: 'Bikes JS (near a rack)',
     pattern: 'assets/bikes-*.js',
-    limit: 3 * KB,
+    limit: 3.5 * KB,
     gzip: true,
   },
   // The traffic loads once the first frame is drawn: the road graph and its router, the
