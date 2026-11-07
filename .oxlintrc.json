@@ -147,6 +147,35 @@
       }
     },
     {
+      "files": ["src/net/**"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["node:*", "node:*/**", "bun:*", "bun"],
+                "message": "Keep code runtime-portable: use web APIs or @portable/* (see docs/CODE.md)."
+              },
+              {
+                "group": [
+                  "three",
+                  "three/*",
+                  "react",
+                  "react-dom",
+                  "react-dom/*",
+                  "**/scene/**",
+                  "**/app/**",
+                  "**/audio/**"
+                ],
+                "message": "src/net is web APIs and @portable/*: no three.js, React or other layers but src/data (see docs/CODE.md)."
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "files": ["**/*.test.ts"],
       "rules": {
         "no-restricted-imports": [

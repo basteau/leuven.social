@@ -7,9 +7,10 @@ The code is split by what it is allowed to know about. Lint enforces the arrows,
 | Layer       | Holds                                                                               | May import                                                           |
 | ----------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
 | `src/data`  | The city model, the binary format, geometry and projection maths, the map area      | `@portable/*` and web APIs only. No three.js, React or other layers. |
-| `src/scene` | Everything 3D: meshes, materials, camera, controls, the render loop                 | `src/data`, `src/audio`, three.js. No React.                         |
+| `src/net`   | Multiplayer in the browser: the wire format, accounts, presence, smoothing          | `src/data`, `@portable/*` and web APIs. No three.js or React.        |
+| `src/scene` | Everything 3D: meshes, materials, camera, controls, the render loop                 | `src/data`, `src/net`, `src/audio`, three.js. No React.              |
 | `src/audio` | The few UI, walking and riding sounds, synthesised with Web Audio                   | Web APIs only. No three.js, React or other layers.                   |
-| `src/app`   | The React shell: the command menu, the few things on the map, loading, shortcuts    | `src/data`, `src/scene`, `src/audio`                                 |
+| `src/app`   | The React shell: the command menu, the few things on the map, loading, shortcuts    | `src/data`, `src/net`, `src/scene`, `src/audio`                      |
 | `scripts/`  | Build-time edges: fetching and baking data, icons, budgets, the smoke test, deploys | `src/data`, plus the `Bun` global for files and processes            |
 
 `src/scene` exposes one entry point, `createViewer()`. It returns a small imperative handle, so React never touches three.js objects:
