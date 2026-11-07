@@ -888,6 +888,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
   }
   publish();
   place(avatar.walker.x, avatar.walker.z, avatar.walker.heading, 0, 0);
+  tell();
 
   /** Pins the camera to the avatar: it glides back to it and keeps it in the middle. */
   function pinCamera(): void {

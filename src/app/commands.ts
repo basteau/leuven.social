@@ -24,6 +24,7 @@ export type ActionId =
   | 'sound'
   | 'time'
   | 'pass-time'
+  | 'minimap'
   | 'help'
   | 'about';
 
@@ -50,6 +51,7 @@ export type IconName =
   | 'turn-left'
   | 'turn-right'
   | 'compass'
+  | 'map'
   | 'sound-on'
   | 'sound-off'
   | 'sun'
@@ -89,7 +91,8 @@ export interface CommandState {
   /** The time of day on the map, and whether the day is passing by itself. */
   time: PresetId;
   passing: boolean;
-  /** Cars, buses and bikes on the streets. */
+  /** Whether the minimap shows in its corner. */
+  minimap: boolean;
   keys: Keycaps;
   /** The menu's chord on this platform: ⌘ or Ctrl. */
   mod: string;
@@ -145,6 +148,17 @@ const view = (s: CommandState): Command[] => [
     keys: [['R']],
     icon: 'compass',
     action: 'reset',
+  },
+  {
+    id: 'minimap',
+    group: 'view',
+    label: 'Minimap',
+    detail: s.minimap ? 'The streets round you, in the corner' : 'Hidden',
+    keywords: 'minimap map overview radar corner where others players',
+    keys: [['N']],
+    icon: 'map',
+    on: s.minimap,
+    action: 'minimap',
   },
 ];
 
@@ -306,6 +320,7 @@ export function keySheet(k: Keycaps, mod: string): KeySection[] {
         },
         { what: 'Turn the map', keys: [[k.KeyQ, k.KeyE]], touch: 'From this menu' },
         { what: 'North up, back to you', keys: [['R']] },
+        { what: 'Show or hide the minimap', keys: [['N']], touch: 'From this menu' },
       ],
     },
     {

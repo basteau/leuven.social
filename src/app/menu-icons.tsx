@@ -70,6 +70,14 @@ export const CompassIcon = () => (
   </svg>
 );
 
+/** A folded map: three panels. */
+export const MapIcon = () => (
+  <svg {...base}>
+    <path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z" />
+    <path d="M9 3v15M15 6v15" />
+  </svg>
+);
+
 /** A speaker with sound coming out (on), or crossed out (off). */
 export const SoundIcon = (props: { on: boolean }) => (
   <svg {...base}>

@@ -121,7 +121,8 @@ The size and render budgets are enforced by `bun run verify`; if one is exceeded
 | Facade plates JS (close to the street)                                          | 5.8 KB   | `scripts/budget.ts` |
 | Plates data (`walk.bin`), gzipped                                               | 96 KB    | `scripts/budget.ts` |
 | Rooms data (`rooms.json`), gzipped                                              | 80 KB    | `scripts/budget.ts` |
-| First-load JS (shell + engine)                                                  | 256.5 KB | `scripts/budget.ts` |
+| Minimap JS (once the map is up)                                                 | 2 KB     | `scripts/budget.ts` |
+| First-load JS (shell + engine)                                                  | 257 KB   | `scripts/budget.ts` |
 | CSS, gzipped                                                                    | 3.5 KB   | `scripts/budget.ts` |
 | HTML, with the loading screen inline, gzipped                                   | 7 KB     | `scripts/budget.ts` |
 | Menu JS (loaded while the city is built)                                        | 6.5 KB   | `scripts/budget.ts` |

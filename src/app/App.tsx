@@ -26,6 +26,7 @@ import { ArrowIcon, BikeIcon, DoorIcon, MenuIcon } from './icons.tsx';
 import { createTurnHold, KEYCAPS, layoutKeycaps, modKey } from './input.ts';
 import type { KeyboardLayout, Keycaps } from './input.ts';
 import { introErrorSlot, removeIntro, showKeys, showStep } from './intro.ts';
+import { live } from './live.ts';
 import { loadStep, stallWatch, unlessAborted } from './loading.ts';
 import type { LoadState } from './loading.ts';
 import { pointerFor } from './pointer.ts';
@@ -43,6 +44,10 @@ const LOAD_STALL_MS = 20_000;
 
 /** The menu is its own chunk: fetched once the map is up, or as someone reaches for it. */
 const loadMenu = () => import('./command-menu.tsx');
+/** The minimap is its own chunk too, fetched once the map is up. */
+const Minimap = lazy(() => import('./minimap-view.tsx').then((m) => ({ default: m.Minimap })));
+/** Whether the minimap shows is remembered on this device. */
+const MINIMAP_KEY = 'leuven-minimap';
 /** React keeps a failed lazy component failed: each try after a failure gets a fresh one. */
 const lazyMenu = () => lazy(() => loadMenu().then((m) => ({ default: m.CommandMenu })));
 
@@ -146,6 +151,8 @@ export function App() {
   const appRef = useRef<HTMLElement>(null);
   const mapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  /** Where the other players' names float over the map. */
+  const tagsRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
   // Q and E: a tap is a step; held, they keep turning.
   const [turnHold] = useState(createTurnHold);
@@ -183,6 +190,14 @@ export function App() {
   const [time, setTime] = useState<PresetId>('golden');
   const [passing, setPassing] = useState(false);
   const passingRef = useRef(false);
+  const [minimap, setMinimap] = useState(() => {
+    try {
+      return localStorage.getItem(MINIMAP_KEY) !== '0';
+    } catch {
+      return true;
+    }
+  });
+  const minimapRef = useRef(minimap);
   const [said, setSaid] = useState<{ text: string; at: number } | null>(null);
   const say = useCallback((text: string) => setSaid({ text, at: performance.now() }), []);
   useEffect(() => {
@@ -333,6 +348,7 @@ export function App() {
           canvas,
           city: loaded,
           reducedMotion: reducedMotion() ?? false,
+          ...(tagsRef.current && { tags: tagsRef.current }),
           onBlocked: setBlocked,
           onAvatarUnavailable: () => setAvatarFailed(true),
           onAvatarAt: (x, y, figure) => {
@@ -369,6 +385,14 @@ export function App() {
           onRideChange: (state) => {
             rideRef.current = state;
             setRide(state);
+          },
+          onMove: (state) => {
+            live.me = { x: state.x, z: state.z, facing: state.heading };
+            live.changed();
+          },
+          onHeading: (heading) => {
+            live.heading = heading;
+            live.changed();
           },
         });
         viewerRef.current = viewer;
@@ -423,6 +447,7 @@ export function App() {
     running: runningRef,
     onWalkKey: () => steppedRef.current(),
     toggleSound: () => toggleSoundRef.current(),
+    toggleMinimap: () => toggleMinimapRef.current(),
     nextTime: () => nextTimeRef.current(),
     togglePassing: () => togglePassingRef.current(),
     turnHold,
@@ -442,6 +467,17 @@ export function App() {
     setPassing(passingRef.current);
     viewerRef.current?.passTime(passingRef.current);
     say(passingRef.current ? 'The day passes' : 'The day stands still');
+  });
+
+  const toggleMinimapRef = useRef(() => {
+    minimapRef.current = !minimapRef.current;
+    setMinimap(minimapRef.current);
+    try {
+      localStorage.setItem(MINIMAP_KEY, minimapRef.current ? '1' : '0');
+    } catch {
+      // Shown again next time: harmless.
+    }
+    say(minimapRef.current ? 'Minimap on' : 'Minimap off');
   });
 
   const toggleRunRef = useRef(() => {
@@ -481,6 +517,7 @@ export function App() {
     sound: () => toggleSoundRef.current(),
     time: () => nextTimeRef.current(),
     'pass-time': () => togglePassingRef.current(),
+    minimap: () => toggleMinimapRef.current(),
   }));
   /** A command from the menu: the menu closes first, and focus goes to the map for its keys. */
   const run = useCallback(
@@ -514,8 +551,8 @@ export function App() {
     [rooms, closeMenu],
   );
   const commandState: CommandState = useMemo(
-    () => ({ ride, door, running, soundOn, time, passing, keys, mod }),
-    [ride, door, running, soundOn, time, passing, keys, mod],
+    () => ({ ride, door, running, soundOn, time, passing, minimap, keys, mod }),
+    [ride, door, running, soundOn, time, passing, minimap, keys, mod],
   );
   // Places by name: choosing one takes the view there, down to the street; you walk there.
   const places = useMemo(
@@ -571,6 +608,7 @@ export function App() {
         aria-label={riding ? rideLabel(keys, mod) : mapLabel(keys, mod)}
       >
         <canvas ref={canvasRef} className="city" />
+        <div ref={tagsRef} className="player-tags" aria-hidden="true" />
         {/*
           Where you are: an arrow over your head while the view is too far out to see you, and at
           the edge of the screen, pointing your way, when you're off it; that one takes you back.
@@ -636,6 +674,11 @@ export function App() {
       </header>
 
       <footer className="hud hud-bottom">
+        {ready && placeCity && minimap && (
+          <Suspense fallback={null}>
+            <Minimap city={placeCity} />
+          </Suspense>
+        )}
         {/*
           By a bike or a building you can go into: what the moment offers, where a thumb finds it.
         */}

@@ -321,6 +321,106 @@ kbd {
 }
 
 /*
+ * The minimap: a round window on the streets round you, in the bottom start corner, turned the way
+ * the view looks. Pressed, it shows more of the city; it sinks into its shadow like a button.
+ */
+.minimap {
+  grid-column: 1;
+  justify-self: start;
+  inline-size: clamp(5.5rem, 24vw, 9.5rem);
+  aspect-ratio: 1;
+  padding: 0;
+  overflow: clip;
+  border: var(--border) solid var(--ink);
+  border-radius: 50%;
+  background: var(--paper);
+  box-shadow: var(--shadow-hard);
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.minimap canvas {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+.minimap:active {
+  translate: 0 calc(var(--lift) - 1px);
+  box-shadow: var(--shadow-pressed);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .minimap {
+    transition:
+      translate 120ms var(--ease-out),
+      box-shadow 120ms var(--ease-out);
+  }
+}
+
+/* On a phone the moment's pill sits over the minimap and the menu button, not squeezed between. */
+@media (max-width: 30rem) {
+  .bar {
+    grid-column: 1 / -1;
+    grid-row: 1;
+    justify-self: center;
+  }
+
+  .bar:empty {
+    display: none;
+  }
+
+  .minimap,
+  .menu-trigger {
+    grid-row: 2;
+  }
+}
+
+/*
+ * The other players' names, over their heads: a small paper tag with a dot in their shirt's
+ * colour. Placed by transform from the viewer's frames, so a pan moves them without a layout.
+ */
+.player-tags {
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  pointer-events: none;
+}
+
+.player-tag {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.3em;
+  max-inline-size: 12rem;
+  padding-block: 0.15em;
+  padding-inline: 0.4em 0.55em;
+  translate: -50% -100%;
+  border: 1.5px solid var(--ink);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: clip;
+  will-change: transform;
+}
+
+.player-tag::before {
+  flex: none;
+  inline-size: 0.6em;
+  block-size: 0.6em;
+  border: 1px solid var(--ink);
+  border-radius: 50%;
+  background: var(--shirt, var(--accent));
+  content: '';
+}
+
+/*
  * The street plate, on foot: Leuven's enamel blue under a paper rim, in the start corner, the
  * HUD's version of the plates on the facades. Nothing that looks like a plate is pressable.
  */

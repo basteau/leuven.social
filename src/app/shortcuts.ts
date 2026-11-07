@@ -28,6 +28,8 @@ export interface ShortcutTarget {
   /** A walking key went down: someone is walking with the keyboard. */
   onWalkKey: () => void;
   toggleSound: () => void;
+  /** N: the minimap on or off. */
+  toggleMinimap: () => void;
   /** T steps to the next time of day; P lets the day pass, or holds it. */
   nextTime: () => void;
   togglePassing: () => void;
@@ -46,7 +48,8 @@ export interface ShortcutTarget {
 /**
  * The keyboard, one map of keys with no modes: + and - zoom, Q and E turn the map,
  * held W A S D walk the avatar (Shift runs), F takes or leaves a bike and B rings its bell, Space
- * (or Esc) brings the view back to the avatar, R turns north up and back to you, M mutes, and T and
+ * (or Esc) brings the view back to the avatar, R turns north up and back to you, M mutes, N shows
+ * or hides the minimap, and T and
  * P set the time of day. ⌘K and its kin open the menu. Shortcuts act while focus is anywhere in the app
  * except the menu, not in the rest of the page.
  */
@@ -135,6 +138,7 @@ export function useShortcuts(target: ShortcutTarget): void {
         '=': () => viewer.zoomBy(1.25),
         '-': () => viewer.zoomBy(0.8),
         m: target.toggleSound,
+        n: target.toggleMinimap,
         t: target.nextTime,
         p: target.togglePassing,
         r: () => viewer.resetView(),

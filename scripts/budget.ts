@@ -103,6 +103,13 @@ const BUDGETS: {
   },
   // The rider (rider.ts) and the bike's rig: the avatar's and the other players' bikes, loaded
   // with the bikes or when someone near rides. 6.5 KB, where the traffic and its figure were 20.
+  // The minimap: its index of the city's footprints and drawing them round you, once the map is up.
+  {
+    label: 'Minimap JS (once the map is up)',
+    pattern: 'assets/minimap-view-*.js',
+    limit: 2 * KB,
+    gzip: true,
+  },
   {
     label: 'Rider JS (with the bikes)',
     pattern: 'assets/rider-*.js',
@@ -152,11 +159,12 @@ const BUDGETS: {
   // 253.5: each house its own style, and roofs with chimneys and dormers (1.8 KB).
   // 256: a day and a night over the city (1.6 KB): the light's keyframes, the lamps' glow
   // and the sun that moves the shadows. 257.5: the traffic's hooks in the engine (1.2 KB).
-  // 256.5: the traffic went (256.2 KB).
+  // 256.5: the traffic went (256.2 KB). 257: the minimap's place, its key and the store it
+  // reads, and the other players' tags (0.5 KB).
   {
     label: 'First-load JS',
     pattern: 'assets/{index,viewer}-*.js',
-    limit: 256.5 * KB,
+    limit: 257 * KB,
     gzip: true,
     closure: true,
   },
