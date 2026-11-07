@@ -76,11 +76,6 @@ export const GUESTS = {
   drinks: [0xe8a838, 0xe8a838, 0x6a3220, 0xf0e6b0, 0xf6eedc],
   foam: 0xfbf6ea,
 } as const;
-/**
- * What passers-by wear on top, on foot or on a bike: the guests' shirts but the brick red, which
- * in passing reads as the walker's coral shirt.
- */
-export const PASSERS_BY = GUESTS.shirts.filter((shirt) => shirt !== 0xd2553f);
 
 /**
  * What monuments are made of (OSM `material`): dark warm bronze, pale stone and marble, Belgian

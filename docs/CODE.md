@@ -42,6 +42,9 @@ What loads when:
 | The engine (`viewer.ts`, three.js, the palette)                                                                                                           | With the city, for the first frame                                                |
 | The avatar (`avatar-layer.ts`) and its rooms' code (`interiors.ts`, `room-mesh.ts`, `src/data/rooms.ts`, `room-grid.ts`), the street names (`streets.ts`) | Once the first frame is drawn                                                     |
 | The furniture                                                                                                                                             | Once the first frame is drawn                                                     |
+| The minimap (`minimap-view.tsx`), the other players (`multiplayer.ts`, `src/net/`)                                                                        | Once the first frame is drawn                                                     |
+| The account sheet (`account-sheet.tsx` and its CSS)                                                                                                       | When it is first opened (the corner, L or the menu)                               |
+| The rider and the bike's rig (`rider.ts`)                                                                                                                 | With the bikes, or when another player near rides                                 |
 | The bikes (`bikes.ts`)                                                                                                                                    | When the avatar comes within 25 m of a parked bike, or on F                       |
 | `rooms.json`                                                                                                                                              | When the avatar's figure is in view within 160 m of a landmark, or the menu opens |
 
