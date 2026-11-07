@@ -11,17 +11,19 @@ half-migrated at a phase boundary.
 
 ## Status: done
 
-Phases 0–7 are in on `top-down` (tag `pre-top-down` for the rollback), Phase 8 measured below. The decisions in §8 were settled as recommended: a fixed 35.26° pitch (the occlusion sweep passes at it, so nothing argued for more), the avatar always present, interiors for well-known landmarks only (Sint-Pieterskerk first), and the facade palette indoors. `bun run verify` is green.
+Phases 0–7 are in on `top-down` (tag `pre-top-down` for the rollback), Phase 8 measured below. The decisions in §8 were settled as recommended: a fixed 35.26° pitch at every zoom (kept when the see-through opening went: a research pass found a steeper camera barely clears 6–8 m streets while flattening the facades), the avatar always present, interiors for well-known landmarks only (Sint-Pieterskerk first), and the facade palette indoors. `bun run verify` is green.
 
 ### Where the build differs from the plan, and why
 
-- **Paces.** The plan's 1.5 m/s on foot and 6–11 on a bike are life-size speeds; the figure is drawn 1.3× life size and its gait (stride, cadence, planted feet, the traffic's fitted harmonics) is tuned to 5.4 m/s walking and 9.2 running, which already felt slow on Leuven's long streets at 4. They stay; a bike cruises at 11.5 m/s and sprints at 17.5 (the old rider's numbers), with momentum. Changing them means refitting the gait.
+- **Paces.** The plan's 1.5 m/s on foot and 6–11 on a bike are life-size speeds; the figure is drawn 1.3× life size and its gait (stride, cadence, planted feet, the traffic's fitted harmonics) is tuned to 5.4 m/s walking and 9.2 running, which already felt slow on Leuven's long streets at 4. They stay; a bike cruises at 11.5 m/s and sprints at 17.5 (the old rider's numbers), and otherwise handles exactly as walking does (`ON_BIKE = { ...ON_FOOT, … }`: the same starts, stops and turns; its momentum went). Changing them means refitting the gait.
 - **Opening a landmark (§3.1).** Rather than rebuilding its cell with an `open` set, each cell notes its landmarks' index ranges (`LandmarkRange`) and keeps those two index arrays; going in zeroes the range and uploads only it (as a taken bike's), and the walls cut down to the room's ceiling (`addBuilding`'s `cut`) are drawn in the room's ground-floor mesh. No cell rebuild, no hitch to prewarm away, no second variant of a cell held in memory. The smoke test fails on any long task going in or out.
 - **Rooms' schema.** `oidn` is a number (as `Building.id` is), and a room has an `id` for the page and the tests; floors have a `name` for the sign; a wall may have its own `height` (a balustrade); stairs have an `angle`, as footprints aren't axis-aligned. Props are of known kinds with sizes in `PROP_SIZES`, which the grid and the mesh share.
 - **Floors below.** All floors up to the avatar's are drawn, not only through stairwells and atriums: a gallery is a partial slab, so the nave is seen past its edge as much as through its hole. Inside the church that is 4 draw calls and about 2,900 triangles.
-- **The LOD table.** Interior floors show whenever the avatar is inside (zoom 8–20, so a span of 28–70 m), not under 20 m, which the zoom clamp would never reach. The avatar's figure shows at 120 m and under, its marker between 120 and 400.
-- **Thresholds.** In and out happen 0.3 m past the footprint's edge at the door rather than at a cell boundary, which keeps the switch to one step and stops a body brushing the edge from flickering.
-- **Occlusion sweep (Phase 4).** A unit test over `city.bin` (`occlusion.test.ts`) walks every street within 60 m of Grote Markt from all four quarter views at zoom 40 and finds the avatar hidden by a house for no time at all, which is stricter than 250 ms; there is no browser sweep.
+- **The LOD table.** Interior floors show whenever the avatar is inside (zoom 8–20, so a span of 28–70 m), not under 20 m, which the zoom clamp would never reach. The avatar's figure shows at 120 m and under; further out an HTML arrow over it marks where it is (`src/app/pointer.ts`), and at the screen's edge when it is off screen. The 3D diamond marker the plan had between 120 and 400 m went.
+- **Doors and thresholds.** Going in is by Enter (or a Go in pill) within 5 m of the building, from any side, which puts the avatar 3 m in from the door; Enter again puts it 2 m in front of the door. Walking in through the door isn't possible (the street grid's doorway, `WalkGrid.openDoor`, went); walking out still is, 0.3 m past the footprint's edge at the door rather than at a cell boundary, which keeps the switch to one step and stops a body brushing the edge from flickering. The door is the one thing that moves the avatar at once.
+- **Occlusion (Phase 4).** Nothing is cut away in front of the avatar any more: the dithered opening (`occlusion.ts`, the facade material's `avatarDither` and `viewDirection` uniforms, the plates' hook) and its sweep over `city.bin` (`occlusion.test.ts`) are gone. A house may hide the avatar; behind it the figure shows as a flat coral silhouette at 45% opacity, as Diablo IV draws its hero. A steeper camera was the alternative and lost: at 65° a 7 m street is still 64% hidden and the facades keep 42% of their height. The rider's silhouette is still the old blue checkerboard.
+- **Camera.** Not a follow that waits 2 s after a pan (`followStrength`, gone) but pinned to the avatar (`MapControls.pinned`), gliding after it with a 0.18 s half-life until a drag past the 8 px tap slop lets go; Space (or Esc), W A S D, R or the edge arrow pin it again. Pinned, wheel and pinch zoom about the avatar. Arrow-key panning went: the arrows do nothing.
+- **Moving.** W A S D, or a tap within 250 m, which walks or rides there along a route; further is refused ("Too far to walk. Get closer first."), as is a tap with no ground ("Can’t go there. Pick a street or square."). The plan's jump for far taps and menu places went: places in the menu take the camera there (`lookAt`, down to zoom 8), and the menu lists the rooms by name rather than by floor. `goTo` and `goInside` left the viewer's API; `lookAt` and `door` came in.
 - **Chunks.** The rooms' code rides in the avatar's chunk (a chunk loaded from a chunk splits three.js off the engine); only `rooms.json` waits. Bikes stayed a chunk of their own (3.1 KB). The bike's rig moved into the traffic chunk, which draws the avatar's rider too. `rider-pose.ts` went, so `scripts/gait-fit.ts` fits the walk only and the pedalling harmonics stay as data.
 - **Persistence.** Bikes left standing are no longer remembered across page loads.
 
@@ -40,6 +42,8 @@ Budgets after the migration (gzipped, as `scripts/budget.ts` counts them):
 | First load              | 257.2 KB     | 257.1 KB                                                                                               |
 | Rooms data              | —            | 1.2 KB (limit 80)                                                                                      |
 
+Since then (`fc05abb`, the pinned camera, the arrow and doors as the one jump): the avatar 18.7 KB of 19.5, the engine 172.0 KB of 172.5, and the app shell's limit 85.5 KB for the arrow (0.4 KB).
+
 The latest frame at each zoom, with the traffic on (headless Chrome, golden hour):
 
 | Zoom  | Desktop 1280×800    | Phone 390×844       |
@@ -55,7 +59,7 @@ The heaviest frame of a whole smoke run is 151 calls and 1.06M triangles, zoomed
 
 ### Left for later
 
-- The smoke test goes in and out of the church and up to its gallery through the menu; the door crossing and the stair's floor switch are covered by unit tests on the real `rooms.json` (`avatar.test.ts`), not by walking them in the browser.
+- The smoke test takes the view to Sint-Pieterskerk from the menu, taps beside it and goes in and out with Enter; the route from the door to the gallery and the stair's floor switch are covered by unit tests on the real `rooms.json` (`avatar.test.ts`), not by walking them in the browser, and walking out through the door gap is checked by neither.
 - Footsteps and the bell were left as they were: they are events, not tied to the camera, and sound the same top-down. The old flight's whoosh no longer plays.
 - More rooms: the Universiteitsbibliotheek's reading room is the obvious next one (a hole for an atrium).
 
