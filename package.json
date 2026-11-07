@@ -11,8 +11,11 @@
   "type": "module",
   "packageManager": "bun@1.4.4",
   "scripts": {
-    "dev": "vite",
+    "dev": "bun run --parallel dev:web dev:server",
+    "dev:web": "vite",
+    "dev:server": "bun --watch server/main.ts",
     "build": "vite build",
+    "build:server": "bun build server/main.ts --target=bun --outdir dist-server",
     "preview": "vite preview",
     "verify": "bun run verify:quick && bun run build && bun run budget && bun run smoke",
     "verify:quick": "bun run --parallel --no-exit-on-error format:check lint typecheck test",
