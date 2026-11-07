@@ -239,7 +239,7 @@ export function createBikes(kit: BikesKit): Bikes {
       index: new Uint16Array(n * BIKE_MOST.indices),
     };
     const at = { vertices: 0, indices: 0 };
-    for (const d of dropped) bakeBike(d, SCALE, into, at);
+    for (const d of dropped) bakeBike(d, SCALE, into, at, kit.floor);
     const g = new three.BufferGeometry();
     const v = at.vertices;
     g.setAttribute('position', new three.BufferAttribute(into.position.subarray(0, v * 3), 3));

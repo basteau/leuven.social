@@ -461,24 +461,40 @@ export interface Stand {
 /**
  * A bike left on its stand, baked: the rest pose with its bars turned, scaled up, leaned, turned
  * and placed, all on bone 0, so bikes left about the city share one mesh and one draw call.
- * Written into `into` after the vertices and indices already there (`at`).
+ * Written into `into` after the vertices and indices already there (`at`). With `ground` (the
+ * ground as drawn at a spot), it stands on the ground under each wheel, pitched between them as
+ * a parked bike is, and its blob shadow lies on the ground under it whatever the lean: leaned
+ * with the bike, half of it sank into the street, flickering where the two crossed.
  */
 export function bakeBike(
   stand: Stand,
   scaleBy: number,
   into: BikeArrays,
   at: { vertices: number; indices: number },
+  ground?: (x: number, z: number) => number,
 ): void {
   const bike = bikeArrays(stand.look);
   const pivot = bonePivot(BIKE_BONES.indexOf('steer'));
   const [cs, ss] = [Math.cos(stand.steer), Math.sin(stand.steer)];
   const [cl, sl] = [Math.cos(stand.lean), Math.sin(stand.lean)];
   const [ch, sh] = [Math.cos(stand.heading), Math.sin(stand.heading)];
+  // The ground under each wheel, ahead along (sin h, cos h) and behind.
+  const reach = AXLE * scaleBy;
+  const [rear, front] = ground
+    ? [
+        ground(stand.x - sh * reach, stand.z - ch * reach),
+        ground(stand.x + sh * reach, stand.z + ch * reach),
+      ]
+    : [stand.y, stand.y];
+  const pitch = Math.atan2(front - rear, 2 * reach);
+  const [cp, sp] = [Math.cos(pitch), Math.sin(pitch)];
+  const y0 = (front + rear) / 2;
   const place = (
     src: Float32Array,
     i: number,
     on: number,
     point: boolean,
+    shadow: boolean,
     out: Float32Array,
     o: number,
   ) => {
@@ -490,18 +506,25 @@ export function bakeBike(
       if (point) [x, z] = [x + pivot[0], z + pivot[2]];
     }
     if (point) [x, y, z] = [x * scaleBy, y * scaleBy, z * scaleBy];
-    // Lean about the forward axis (toward +x is a positive lean), then turn to the heading.
-    [x, y] = [x * cl + y * sl, -x * sl + y * cl];
+    // Lean about the forward axis (toward +x is a positive lean), pitch onto the ground under
+    // the wheels, then turn to the heading. The shadow stays level, under it.
+    if (!shadow) {
+      [x, y] = [x * cl + y * sl, -x * sl + y * cl];
+      [y, z] = [y * cp + z * sp, -y * sp + z * cp];
+    }
     [x, z] = [x * ch + z * sh, -x * sh + z * ch];
-    out[o] = x + (point ? stand.x : 0);
-    out[o + 1] = y + (point ? stand.y : 0);
-    out[o + 2] = z + (point ? stand.z : 0);
+    if (!point) [out[o], out[o + 1], out[o + 2]] = [x, y, z];
+    else {
+      [x, z] = [x + stand.x, z + stand.z];
+      [out[o], out[o + 1], out[o + 2]] = [x, y + (shadow && ground ? ground(x, z) : y0), z];
+    }
   };
   const n = bike.bone.length;
   for (let v = 0; v < n; v++) {
     const o = (at.vertices + v) * 3;
-    place(bike.position, v * 3, bike.bone[v]!, true, into.position, o);
-    place(bike.normal, v * 3, bike.bone[v]!, false, into.normal, o);
+    const shadow = bike.dither[v] === 1;
+    place(bike.position, v * 3, bike.bone[v]!, true, shadow, into.position, o);
+    place(bike.normal, v * 3, bike.bone[v]!, false, shadow, into.normal, o);
     into.color.set(bike.color.subarray(v * 3, v * 3 + 3), o);
     into.bone[at.vertices + v] = 0;
     into.dither[at.vertices + v] = bike.dither[v]!;

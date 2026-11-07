@@ -138,23 +138,29 @@ describe('the rideable bike', () => {
       const n = a.normal.subarray(v * 3, v * 3 + 3);
       expect(Math.hypot(n[0]!, n[1]!, n[2]!)).toBeCloseTo(1);
     }
-    // Each triangle's winding agrees with its normal: it faces the way it is lit.
-    for (let t = 0; t < a.index.length; t += 3) {
-      const [i, j, k] = [a.index[t]!, a.index[t + 1]!, a.index[t + 2]!];
-      const p = (n: number) => [a.position[n * 3]!, a.position[n * 3 + 1]!, a.position[n * 3 + 2]!];
-      const [A, B, C] = [p(i), p(j), p(k)];
-      const u = B.map((x, m) => x - A[m]!);
-      const w = C.map((x, m) => x - A[m]!);
-      const n = [
-        u[1]! * w[2]! - u[2]! * w[1]!,
-        u[2]! * w[0]! - u[0]! * w[2]!,
-        u[0]! * w[1]! - u[1]! * w[0]!,
-      ];
-      const face = a.normal.subarray(i * 3, i * 3 + 3);
-      expect(n[0]! * face[0]! + n[1]! * face[1]! + n[2]! * face[2]!).toBeGreaterThanOrEqual(-1e-12);
-    }
+    expectFacing(a, a.index.length);
   });
 });
+
+/** Each triangle's winding agrees with its normal: it faces the way it is lit. */
+function expectFacing(a: BikeArrays, indices: number): void {
+  for (let t = 0; t < indices; t += 3) {
+    const [i, j, k] = [a.index[t]!, a.index[t + 1]!, a.index[t + 2]!];
+    const p = (n: number) => [a.position[n * 3]!, a.position[n * 3 + 1]!, a.position[n * 3 + 2]!];
+    const [A, B, C] = [p(i), p(j), p(k)];
+    const u = B.map((x, m) => x - A[m]!);
+    const w = C.map((x, m) => x - A[m]!);
+    const n = [
+      u[1]! * w[2]! - u[2]! * w[1]!,
+      u[2]! * w[0]! - u[0]! * w[2]!,
+      u[0]! * w[1]! - u[1]! * w[0]!,
+    ];
+    const face = a.normal.subarray(i * 3, i * 3 + 3);
+    expect(n[0]! * face[0]! + n[1]! * face[1]! + n[2]! * face[2]!).toBeGreaterThanOrEqual(-1e-9);
+  }
+}
+
+const slope = (x: number, z: number) => 3 + (x + z) * 0.08 * Math.SQRT1_2;
 
 describe('a bike left on its stand', () => {
   test('bakes where it stands, scaled, turned and leaning, two bikes into one mesh', () => {
@@ -184,5 +190,39 @@ describe('a bike left on its stand', () => {
       const n = into.normal.subarray(v * 3, v * 3 + 3);
       expect(Math.hypot(n[0]!, n[1]!, n[2]!)).toBeCloseTo(1);
     }
+    expectFacing(into, at.indices);
+  });
+
+  test('stands on the ground under each wheel, its shadow lying on it whatever the lean', () => {
+    // Rising 8% to the north-east (`slope`), under a bike facing it and leaning on its stand.
+    const ground = slope;
+    const stand = { x: 4, y: 0, z: -2, heading: Math.PI / 4, lean: 0.1, steer: 0.3, look: 0 };
+    const into = empty();
+    const at = { vertices: 0, indices: 0 };
+    bakeBike(stand, 1.3, into, at, ground);
+    const [ch, sh] = [Math.cos(stand.heading), Math.sin(stand.heading)];
+    const lowest = [Infinity, Infinity];
+    for (let v = 0; v < at.vertices; v++) {
+      const [x, y, z] = [
+        into.position[v * 3]!,
+        into.position[v * 3 + 1]!,
+        into.position[v * 3 + 2]!,
+      ];
+      const over = y - ground(x, z);
+      if (into.dither[v]) {
+        // Level on the ground, just over it, so it neither sinks into it nor flickers.
+        expect(over).toBeCloseTo(0.02 * 1.3, 5);
+        expect(into.normal[v * 3 + 1]).toBeCloseTo(1);
+        continue;
+      }
+      // Each wheel's ink touches the ground, a few centimetres into it: the rear and the front.
+      const ahead = (x - stand.x) * sh + (z - stand.z) * ch > 0 ? 1 : 0;
+      lowest[ahead] = Math.min(lowest[ahead]!, over);
+    }
+    for (const over of lowest) {
+      expect(over).toBeGreaterThan(-0.06);
+      expect(over).toBeLessThan(0);
+    }
+    expectFacing(into, at.indices);
   });
 });
