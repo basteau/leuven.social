@@ -261,6 +261,8 @@ export interface FrontStyle {
   stripe?: number;
   /** A canvas awning over the front (else only the board). */
   awning: boolean;
+  /** The sign's board, where the canvas would make it a dark block from across the street. */
+  board?: number;
   lit?: boolean;
   goods?: boolean;
 }
@@ -277,7 +279,8 @@ export const FRONTS: Record<ShopKind, FrontStyle> = {
   pharmacy: { canvas: 0x3e9a5a, awning: false, goods: true },
   bank: { canvas: 0x4a77a8, awning: false },
   books: { canvas: 0x2c4a6e, awning: true, goods: true },
-  fashion: { canvas: 0x3d4250, awning: true, goods: true },
+  // A boutique's charcoal canvas, and a rose board its cream shirt shows up on.
+  fashion: { canvas: 0x3d4250, board: 0xe58fa6, awning: true, goods: true },
   bicycle: { canvas: 0x4a77a8, awning: true, goods: true },
   service: { canvas: 0x6c707a, awning: false },
   shop: { canvas: 0xd2553f, awning: true, goods: true },

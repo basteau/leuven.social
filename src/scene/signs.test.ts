@@ -3,6 +3,7 @@ import { expect, test } from 'bun:test';
 import { PLACES, SHOP_KINDS } from '../data/shop-kinds.ts';
 import type { ShopKind } from '../data/shop-kinds.ts';
 import { MeshBuilder } from './mesh-builder.ts';
+import { FRONTS } from './palette.ts';
 import type { Frame } from './prop-shapes.ts';
 import {
   BOARD,
@@ -185,4 +186,28 @@ test('a public place’s sign: a pencil, a book, a red cross, a ball', () => {
   for (const kind of ['school', 'library', 'hospital', 'sports'] as const) {
     expect(built((m) => addSign(m, f, kind, 3.6)).length).toBeGreaterThan(60);
   }
+});
+
+/** The colours a kind's sign is drawn in, as 24-bit sRGB. */
+const colours = (kind: ShopKind) => {
+  const mesh = new MeshBuilder();
+  addSign(mesh, f, kind, 4);
+  const c = mesh.build().getAttribute('color');
+  return new Set(
+    Array.from(
+      { length: c.count },
+      (_, i) =>
+        (Math.round(c.getX(i) * 255) << 16) |
+        (Math.round(c.getY(i) * 255) << 8) |
+        Math.round(c.getZ(i) * 255),
+    ),
+  );
+};
+
+test('a board takes its kind’s own board colour where the canvas would read as a dark block', () => {
+  const fashion = colours('fashion');
+  expect(fashion.has(FRONTS.fashion.board!)).toBe(true);
+  expect(fashion.has(FRONTS.fashion.canvas)).toBe(false);
+  // Without one, the board is the canvas, as the awning is.
+  expect(colours('cafe').has(FRONTS.cafe.canvas)).toBe(true);
 });

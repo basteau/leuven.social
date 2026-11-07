@@ -143,8 +143,8 @@ export function addSign(mesh: MeshBuilder, f: Frame, kind: ShopKind, middle: num
   // Drawn at life size round a middle that the scale brings back to `middle`.
   const [g, y] = [{ ...f, scale: SIGN_SCALE }, middle / SIGN_SCALE];
   bracket(mesh, g, y + BOARD.half);
-  const { canvas, stripe = canvas } = FRONTS[kind];
-  if (BOARDED.has(kind)) board(mesh, g, y, canvas);
+  const { canvas, stripe = canvas, board: boardColor = canvas } = FRONTS[kind];
+  if (BOARDED.has(kind)) board(mesh, g, y, boardColor);
   symbol(mesh, g, y, canvas, stripe);
   return true;
 }
