@@ -40,6 +40,9 @@ const NGINX_SITE = `map $http_x_forwarded_for $leuven_client_ip {
     default $remote_addr;
 }
 
+# A few sockets an address (tabs, a phone and a laptop on one network), not a flood of them.
+limit_conn_zone $leuven_client_ip zone=leuven_ws:1m;
+
 server {
     listen ${PORT} default_server;
     listen [::]:${PORT} default_server;
@@ -74,6 +77,7 @@ server {
         add_header Cache-Control "no-store" always;
     }
     location = /ws {
+        limit_conn leuven_ws 16;
         proxy_pass http://127.0.0.1:${SERVER_PORT};
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
@@ -89,10 +93,12 @@ server {
 }
 `;
 
-// Restarts on any exit, as its own unprivileged user, able to write only its data directory.
+// Restarts on any exit, never giving up (a crash loop must not leave it failed for good), as its
+// own unprivileged user, able to write only its data directory.
 const SYSTEMD_UNIT = `[Unit]
 Description=leuven.social multiplayer server
 After=network.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -103,11 +109,17 @@ Environment=BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
 WorkingDirectory=${DATA}
 ExecStart=${BUN_DIR}/bin/bun ${ROOT}/current/server/main.js
 Restart=always
-RestartSec=2
+RestartSec=3
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=512M
 ReadWritePaths=${DATA}
 
 [Install]
@@ -165,24 +177,29 @@ async function upload(): Promise<string> {
   const tar = Bun.spawn(['tar', '-C', REPO, '-czf', '-', 'dist', 'dist-server/main.js'], {
     stdout: 'pipe',
   });
-  // Unpack beside the live build, then swap the symlink in one rename: no half-deployed state.
+  // Unpacked beside the live build; `goLive` swaps it in.
   await onVm(
     `set -e
      sudo install -d -o "$USER" ${ROOT} ${ROOT}/releases
      dir=${ROOT}/releases/${release}
      mkdir -p "$dir" && tar -xzf - -C "$dir"
      mv "$dir/dist" "$dir/site" && mv "$dir/dist-server" "$dir/server"
-     test -f "$dir/site/index.html" && test -f "$dir/server/main.js"
-     ln -sfn "$dir" ${ROOT}/current.next && mv -Tf ${ROOT}/current.next ${ROOT}/current
-     ls -1d ${ROOT}/releases/*/ | head -n -${KEEP_RELEASES} | xargs -r rm -rf`,
+     test -f "$dir/site/index.html" && test -f "$dir/server/main.js"`,
     tar.stdout,
   );
   if ((await tar.exited) !== 0) throw new Error('tar of dist/ and dist-server/ failed');
   return release;
 }
 
-async function configureServer(): Promise<void> {
-  // The env file is written once, with a fresh secret: rewriting it would sign everyone out.
+/**
+ * Puts a release live in one go on the VM: the service user, its env file (written once, with a
+ * fresh secret: rewriting it would sign everyone out), the unit and the nginx site, checked
+ * first; then the symlink swapped in one rename, nginx reloaded and the server restarted back to
+ * back, so the page and the server it talks to change together. If the server doesn't come up
+ * healthy, the previous release goes back live.
+ */
+async function goLive(release: string): Promise<void> {
+  // Both files go in as quoted heredocs: nothing in them is expanded by the shell.
   await onVm(
     `set -e
      id -u ${SERVICE_USER} >/dev/null 2>&1 ||
@@ -194,40 +211,47 @@ async function configureServer(): Promise<void> {
          BETTER_AUTH_URL=https://${HOST} "BETTER_AUTH_SECRET=$secret" |
          sudo sh -c 'umask 077 && cat > ${DATA}/server.env'
      fi
-     new=$(mktemp); cat > "$new"
-     if ! cmp -s "$new" /etc/systemd/system/${SERVICE}.service; then
-       sudo install -m 644 "$new" /etc/systemd/system/${SERVICE}.service
+     work=$(mktemp -d)
+     cat > "$work/unit" <<'LEUVEN_UNIT'
+${SYSTEMD_UNIT}LEUVEN_UNIT
+     cat > "$work/site" <<'LEUVEN_SITE'
+${NGINX_SITE}LEUVEN_SITE
+     if ! cmp -s "$work/unit" /etc/systemd/system/${SERVICE}.service; then
+       sudo install -m 644 "$work/unit" /etc/systemd/system/${SERVICE}.service
        sudo systemctl daemon-reload
        sudo systemctl enable -q ${SERVICE}
      fi
-     rm -f "$new"
+     site_changed=0
+     if ! cmp -s "$work/site" /etc/nginx/sites-available/leuven; then
+       sudo cp /etc/nginx/sites-available/leuven "$work/site.old" 2>/dev/null || true
+       sudo install -m 644 "$work/site" /etc/nginx/sites-available/leuven
+       sudo ln -sfn /etc/nginx/sites-available/leuven /etc/nginx/sites-enabled/leuven
+       sudo rm -f /etc/nginx/sites-enabled/default
+       site_changed=1
+     fi
+     sudo nginx -t -q
+     previous=$(readlink ${ROOT}/current || true)
+     ln -sfn ${ROOT}/releases/${release} ${ROOT}/current.next && mv -Tf ${ROOT}/current.next ${ROOT}/current
+     sudo systemctl enable -q nginx
+     if [ "$site_changed" = 1 ]; then sudo systemctl reload-or-restart nginx; fi
+     sudo systemctl is-active -q nginx || sudo systemctl start nginx
      sudo systemctl restart ${SERVICE}
      for i in $(seq 1 30); do
-       curl -fsS http://127.0.0.1:${SERVER_PORT}/api/health >/dev/null 2>&1 && exit 0
+       if curl -fsS http://127.0.0.1:${SERVER_PORT}/api/health >/dev/null 2>&1; then
+         ls -1d ${ROOT}/releases/*/ | head -n -${KEEP_RELEASES} | xargs -r rm -rf
+         rm -rf "$work"
+         exit 0
+       fi
        sleep 0.5
      done
      sudo journalctl -u ${SERVICE} -n 30 --no-pager >&2
-     exit 1`,
-    new Blob([SYSTEMD_UNIT]),
-  );
-}
-
-async function configureNginx(): Promise<void> {
-  // Rewrites the site file and reloads only when it changed, so reruns cost one round trip.
-  await onVm(
-    `set -e
-     new=$(mktemp); cat > "$new"
-     if ! cmp -s "$new" /etc/nginx/sites-available/leuven; then
-       sudo install -m 644 "$new" /etc/nginx/sites-available/leuven
-       sudo ln -sfn /etc/nginx/sites-available/leuven /etc/nginx/sites-enabled/leuven
-       sudo rm -f /etc/nginx/sites-enabled/default
-       sudo nginx -t -q
-       sudo systemctl enable -q nginx
-       sudo systemctl reload-or-restart nginx
+     # Back to what was live, server and site together, if there was anything.
+     if [ -n "$previous" ] && [ -d "$previous/site" ]; then
+       ln -sfn "$previous" ${ROOT}/current.next && mv -Tf ${ROOT}/current.next ${ROOT}/current
+       sudo systemctl restart ${SERVICE}
      fi
-     rm -f "$new"
-     sudo systemctl is-active -q nginx || sudo systemctl start nginx`,
-    new Blob([NGINX_SITE]),
+     echo "the server didn't come up healthy; kept the previous release" >&2
+     exit 1`,
   );
 }
 
@@ -263,10 +287,8 @@ try {
   await ensureBun();
   step('uploading dist/ and dist-server/');
   const release = await upload();
-  step(`restarting ${SERVICE}`);
-  await configureServer();
-  step(`configuring nginx on ${HOST}`);
-  await configureNginx();
+  step(`putting ${release} live: nginx, then ${SERVICE}`);
+  await goLive(release);
   step('making it public');
   await lobby('share', 'port', VM, String(PORT));
   await lobby('share', 'set-public', VM);

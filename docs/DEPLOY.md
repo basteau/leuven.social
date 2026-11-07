@@ -16,11 +16,14 @@ Each step is safe to repeat, so a rerun is also how you repair a VM.
 1. Runs `bun run build` (the site, `dist/`) and `bun run build:server` (the server in one file, `dist-server/main.js`).
 2. Creates the VM with `ssh exe.dev new` if it doesn't exist yet.
 3. Installs Bun into `/opt/bun` unless it is already the version in `package.json`'s `packageManager`, so the server runs on the Bun it was tested with.
-4. Streams both builds over SSH into `/srv/leuven/releases/<time>-<commit>/` (`site/` and `server/main.js`), then points the `/srv/leuven/current` symlink at it in one rename. The last three releases are kept.
-5. Sets up the server once: a system user `leuven`, the data directory `/srv/leuven/data` (the SQLite database, owned by that user) and `/srv/leuven/data/server.env` with a freshly generated `BETTER_AUTH_SECRET`. The env file is never rewritten: a new secret would sign everyone out. Then it writes the systemd unit `leuven-server.service` if it changed, restarts the service on every deploy and waits for `/api/health` on the VM.
-6. Writes the nginx site (preinstalled on exe.dev's default image) and reloads nginx only if the config changed. nginx is enabled as a systemd service, so it comes back after a reboot.
-7. Points exe.dev's HTTPS proxy at port 8000 and makes it public (`ssh exe.dev share port|set-public`).
-8. Fetches the live site and fails if the cache headers below are wrong or `/api/health` doesn't answer.
+4. Streams both builds over SSH into `/srv/leuven/releases/<time>-<commit>/` (`site/` and `server/main.js`), beside the live one.
+5. Puts it live in one script on the VM (`goLive`):
+   - Sets up the server once: a system user `leuven`, the data directory `/srv/leuven/data` (the SQLite database, owned by that user) and `/srv/leuven/data/server.env` with a freshly generated `BETTER_AUTH_SECRET`. The env file is never rewritten: a new secret would sign everyone out.
+   - Writes the systemd unit `leuven-server.service` and the nginx site (preinstalled on exe.dev's default image) if they changed, and checks nginx's config before anything goes live.
+   - Then, back to back: points the `/srv/leuven/current` symlink at the release in one rename, reloads nginx if its site changed, and restarts the server, so the page and the server it talks to change together.
+   - Waits for `/api/health` on the VM. If it doesn't come, the previous release goes back live (site and server) and the deploy fails. The last three releases are kept.
+6. Points exe.dev's HTTPS proxy at port 8000 and makes it public (`ssh exe.dev share port|set-public`).
+7. Fetches the live site and fails if the cache headers below are wrong or `/api/health` doesn't answer.
 
 ## On the VM
 
@@ -32,7 +35,7 @@ Each step is safe to repeat, so a rerun is also how you repair a VM.
 | `/srv/leuven/data/server.env`    | `NODE_ENV=production`, `PORT=8787`, `DATABASE_PATH`, `BETTER_AUTH_URL=https://<vm>.exe.xyz`, the secret |
 | nginx, port 8000                 | The site; `/api/` and `/ws` proxied to the server on 127.0.0.1:8787                                     |
 
-The server listens on 127.0.0.1 only. nginx passes the client's address as `X-Real-IP`, taken from the last entry of exe.dev's `X-Forwarded-For` (the one a client can't forge), which better-auth rate-limits sign-ins by. `/ws` keeps WebSocket upgrades and an hour of read timeout; the client's heartbeat keeps it far from that.
+The server listens on 127.0.0.1 only. nginx passes the client's address as `X-Real-IP`, taken from the last entry of exe.dev's `X-Forwarded-For` (the one a client can't forge), which better-auth rate-limits sign-ins by. `/ws` keeps WebSocket upgrades and an hour of read timeout (the client's heartbeat keeps it far from that), and at most 16 sockets an address. The unit restarts the server on any exit, never giving up (`StartLimitIntervalSec=0`), and runs it with no devices, no kernel tunables, only network sockets and at most 512 MB.
 
 To look at the server: `ssh leuven.exe.xyz 'sudo journalctl -u leuven-server -n 100'`. To change its environment, edit `server.env` with sudo and `sudo systemctl restart leuven-server`.
 
