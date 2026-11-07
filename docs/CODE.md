@@ -12,7 +12,9 @@ The code is split by what it is allowed to know about. Lint enforces the arrows,
 | `src/audio` | The few UI, walking and riding sounds, synthesised with Web Audio                   | Web APIs only. No three.js, React or other layers.                   |
 | `src/app`   | The React shell: the command menu, the few things on the map, loading, shortcuts    | `src/data`, `src/net`, `src/scene`, `src/audio`                      |
 | `scripts/`  | Build-time edges: fetching and baking data, icons, budgets, the smoke test, deploys | `src/data`, plus the `Bun` global for files and processes            |
-| `server/`   | The multiplayer server: accounts, the presence hub, SQLite                          | `src/net`, `src/data`, the `Bun` global, `bun:sqlite`, `process.env` |
+| `server/`   | The multiplayer server: accounts, the presence hub, SQLite ([MULTIPLAYER.md])       | `src/net`, `src/data`, the `Bun` global, `bun:sqlite`, `process.env` |
+
+[MULTIPLAYER.md]: MULTIPLAYER.md
 
 `src/scene` exposes one entry point, `createViewer()`. It returns a small imperative handle, so React never touches three.js objects:
 
