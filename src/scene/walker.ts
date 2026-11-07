@@ -44,6 +44,31 @@ const ARRIVE = 0.05;
 /** Half the body's width (m), kept clear of walls (collide.ts). */
 const BODY = 0.45;
 
+/**
+ * How a body moves: its paces walking and running (m/s), the half-lives of its speed easing up
+ * and down and of its heading turning standing and flat out (s), its radius (m), and, for a
+ * wheel rather than legs, the metres one turn of `phase` covers. On foot by default; a bike
+ * (bikes.ts) is the same body with momentum.
+ */
+export interface Pace {
+  walk: number;
+  run: number;
+  up: number;
+  down: number;
+  turn: readonly [standing: number, running: number];
+  body: number;
+  stride?: number;
+}
+
+export const ON_FOOT: Pace = {
+  walk: WALK_SPEED,
+  run: RUN_SPEED,
+  up: SPEED_UP,
+  down: SLOW_DOWN,
+  turn: [TURN_STANDING, TURN_RUNNING],
+  body: BODY,
+};
+
 export interface Walker {
   x: number;
   z: number;
@@ -123,8 +148,9 @@ export function stepWalker(
   steerZ: number,
   ground: Ground,
   run = false,
+  how: Pace = ON_FOOT,
 ): boolean {
-  const pace = run ? RUN_SPEED : WALK_SPEED;
+  const pace = run ? how.run : how.walk;
   let want = 0;
   let leg = Infinity;
   let facing = w.heading;
@@ -164,7 +190,7 @@ export function stepWalker(
 
   speedSpring.x = w.speed;
   speedSpring.v = w.accel;
-  springTo(speedSpring, want, want > w.speed ? SPEED_UP : SLOW_DOWN, dt);
+  springTo(speedSpring, want, want > w.speed ? how.up : how.down, dt);
   // A spring only ever nears its goal: close enough to standing, it stands.
   w.speed = want === 0 && speedSpring.x < STANDING ? 0 : Math.max(0, speedSpring.x);
   w.accel = w.speed > 0 ? speedSpring.v : 0;
@@ -175,7 +201,8 @@ export function stepWalker(
   headingSpring.x = w.heading;
   headingSpring.v = w.turning;
   const blend = runBlend(w.speed);
-  springToAngle(headingSpring, facing, TURN_STANDING + (TURN_RUNNING - TURN_STANDING) * blend, dt);
+  const [standing, running] = how.turn;
+  springToAngle(headingSpring, facing, standing + (running - standing) * blend, dt);
   w.heading = headingSpring.x;
   w.turning = headingSpring.v;
   // Off a route it goes where it faces, so a change of direction is a curve, not a skid.
@@ -193,10 +220,10 @@ export function stepWalker(
     // At the end it lets go of the route and coasts the last few centimetres to a stop.
     if (step === leg && w.next === last) w.route = null;
   } else if (w.speed > 0 || steer > 1e-3) {
-    moveBody(w, w.speed * dt, dt, ground, BODY);
+    moveBody(w, w.speed * dt, dt, ground, how.body);
   }
 
-  const stride = STRIDE_WALK + (STRIDE_RUN - STRIDE_WALK) * blend;
+  const stride = how.stride ?? STRIDE_WALK + (STRIDE_RUN - STRIDE_WALK) * blend;
   w.phase = (w.phase + (w.speed / stride) * Math.PI * 2 * dt) % (Math.PI * 2);
   w.still = w.speed > 0 ? 0 : w.still + dt;
   return (
