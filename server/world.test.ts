@@ -7,7 +7,7 @@ import {
   quantise,
 } from '../src/net/protocol.ts';
 import type { Outfit, PlayerState, ServerMessage } from '../src/net/protocol.ts';
-import { createWorld, sanitise } from './world.ts';
+import { CLOSE_SIGNED_OUT, createWorld, sanitise } from './world.ts';
 import type { WorldOptions } from './world.ts';
 
 const outfit: Outfit = { skin: 1, hair: 2, shirt: 3, shorts: 4 };
@@ -87,7 +87,9 @@ describe('sanitise', () => {
       area,
     );
     expect(s.heading).toBeCloseTo(Math.PI);
-    expect(s).toMatchObject({ speed: 25.5, floor: 20, place: '' });
+    // An odd room id is the street, whose one floor is 0.
+    expect(s).toMatchObject({ speed: 25.5, floor: 0, place: '' });
+    expect(sanitise({ ...here, floor: 99.4, place: 'kerk' }, area).floor).toBe(20);
     expect(sanitise({ ...here, floor: -9, place: 'sint-pieterskerk' }, area)).toMatchObject({
       floor: -4,
       place: 'sint-pieterskerk',
@@ -103,6 +105,19 @@ describe('sanitise', () => {
       area,
     );
     expect(odd).toMatchObject({ heading: 0, speed: 0, floor: 0, mode: 'foot' });
+  });
+
+  test('every room the map has is a place the server keeps', async () => {
+    const rooms = (await Bun.file(
+      new URL('../public/data/rooms.json', import.meta.url),
+    ).json()) as { id: string }[];
+    expect(rooms.length).toBeGreaterThan(0);
+    for (const { id } of rooms) expect(sanitise({ ...here, place: id }, area).place).toBe(id);
+  });
+
+  test('the street has one floor', () => {
+    expect(sanitise({ ...here, floor: 20 }, area).floor).toBe(0);
+    expect(sanitise({ ...here, floor: 2, place: 'kerk' }, area).floor).toBe(2);
   });
 
   test('uses the real map by default', () => {
@@ -276,6 +291,20 @@ describe('createWorld', () => {
     expect(world.stateOf('a')?.x).toBe(8);
     await move(first.id, { x: 9 });
     expect(world.stateOf('a')?.x).toBe(8);
+  });
+
+  test('a session that ended takes its player off the map, free to come back as a guest', async () => {
+    const { world, join, move } = setup();
+    const ana = join('ana');
+    const bo = join('bo');
+    await move(ana.id);
+    bo.connection.take();
+    world.drop('ana');
+    expect(ana.connection.closed).toEqual({ code: CLOSE_SIGNED_OUT, reason: 'Signed out' });
+    expect(bo.connection.take()).toEqual([{ type: 'leave', id: ana.id }]);
+    expect(world.stateOf('ana')).toBeNull();
+    // Nobody online by that name: nothing to do.
+    world.drop('nobody');
   });
 
   test('a new outfit reaches everyone', async () => {

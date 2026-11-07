@@ -39,20 +39,22 @@ better-auth (`server/auth.ts`) does the security work: password hashing (scrypt)
 - Signing up goes through `POST /api/account`, which calls `auth.api.signUpEmail` with the synthetic address and returns better-auth's answer, `Set-Cookie` and all: the player is signed in at once.
 - Only a few of better-auth's routes are reachable from outside (`PUBLIC_AUTH_PATHS`): sign in by username, sign out, get the session, change the password, check a name. Signing up by email, changing the name or the address and the rest stay closed.
 - A POST from another origin is refused (403), and so is a socket opened from one.
+- Limits: 30 accounts made an hour from one address (an IPv6 one by its /64), counting only those made, since a campus shares a few addresses and a taken name is no abuse; better-auth's own per-address limits on signing in; and 10 wrong passwords a quarter of an hour for one name, from anywhere, always on.
+- Signing out (or a new password) takes that player's socket off the map (code 4002, `CLOSE_SIGNED_OUT`); the client reconnects as whoever it now is.
 - `src/net/account.ts` turns better-auth's error codes into sentences for people: "That name is taken.", "Wrong name or password.", "Use at least 8 characters.", and the like. A sign-in never says which half was wrong.
 
 ### Routes
 
-| Route                             | What                                                                                                    |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `POST /api/account`               | `{ username, password }`: creates the account and signs in. 400 with better-auth's `{ code, message }`. |
-| `POST /api/auth/sign-in/username` | `{ username, password }`: better-auth's sign-in, sets the cookie                                        |
-| `POST /api/auth/sign-out`         | Ends the session                                                                                        |
-| `GET /api/auth/get-session`       | better-auth's session, or null                                                                          |
-| `GET /api/me`                     | `{ name, outfit, at }` (401 without a session). `at` is the live position while online, else the saved  |
-| `PUT /api/me`                     | `{ outfit }`: four 24-bit colours. Saved, and sent to everyone online as `outfit`                       |
-| `GET /api/health`                 | `{ ok: true, online }`: the number of open sockets                                                      |
-| `/ws`                             | Presence, below. The session cookie makes it a player; without one it is a guest                        |
+| Route                             | What                                                                                                                                           |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/account`               | `{ username, password }`: creates the account and signs in. 400 with better-auth's `{ code, message }`.                                        |
+| `POST /api/auth/sign-in/username` | `{ username, password }`: better-auth's sign-in, sets the cookie                                                                               |
+| `POST /api/auth/sign-out`         | Ends the session                                                                                                                               |
+| `GET /api/auth/get-session`       | better-auth's session, or null                                                                                                                 |
+| `GET /api/me`                     | `{ name, outfit, at }`, or `null` for a guest (a 401 would be logged in their console). `at` is the live position while online, else the saved |
+| `PUT /api/me`                     | `{ outfit }`: four 24-bit colours. Saved, and sent to everyone online as `outfit`                                                              |
+| `GET /api/health`                 | `{ ok: true, online }`: the number of open sockets                                                                                             |
+| `/ws`                             | Presence, below. The session cookie makes it a player; without one it is a guest                                                               |
 
 Every `/api` answer is `Cache-Control: no-store`.
 
@@ -74,7 +76,8 @@ A state is `x`, `z` (f32 metres east and south of the city's middle, as `City` h
 ### The server (`server/world.ts`)
 
 - A player is announced with their first state, so nobody appears at a made-up spot.
-- Every state is checked: positions are pulled onto the map (`AREA` in `src/data/area.ts`), headings wrapped, speed and floor clamped, an odd room id dropped to the street.
+- Every state is checked: positions are pulled onto the map (`AREA` in `src/data/area.ts`), headings wrapped, speed and floor clamped, an odd room id (`isPlace` in `src/net/rules.ts`, which every id in rooms.json passes) dropped to the street, whose one floor is 0.
+- A socket too slow to keep up is closed at its backpressure limit rather than skipped, so it never misses a join or a leave: its client reconnects to everyone as they are.
 - Each connection may send 20 messages a second on average, in bursts up to 40 (`@portable/rate-limit`); the rest are dropped. Frames over 1 kB close the socket. Guests' messages are ignored.
 - One live connection per account: signing in again elsewhere closes the old socket with code 4001 (`CLOSE_REPLACED`), which the client treats as final instead of fighting back.
 - A player's position is saved every 15 s while they move, when they leave, and on shutdown. It comes back as `at` from `/api/me`, standing on foot.
@@ -94,4 +97,4 @@ presence.close();
 
 ### Smoothing (`src/net/interpolate.ts`)
 
-`createSnapshots()` per remote player: `push(performance.now(), state)` on each update, `sample(performance.now())` each frame. It draws 120 ms in the past between the two updates around that moment (position linearly, heading the short way round), runs on for at most 200 ms past the last update if the figure was moving, and jumps instead of gliding when two updates are more than 15 m apart or change room or floor (a door).
+`createSnapshots()` per remote player: `push(performance.now(), state)` on each update, `sample(performance.now())` each frame. It draws 120 ms in the past between the two updates around that moment (position linearly, heading the short way round), runs on for at most 200 ms past the last update if the figure was moving (the way it faces, at the pace it said: two updates a millisecond apart would otherwise stretch into a leap), and jumps instead of gliding when two updates are more than 15 m apart or change room or floor (a door).

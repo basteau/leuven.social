@@ -20,6 +20,7 @@ import {
   encodeServerMessage,
 } from '../src/net/protocol.ts';
 import type { Outfit, PlayerState, PlayerUpdate, ServerMessage } from '../src/net/protocol.ts';
+import { isPlace } from '../src/net/rules.ts';
 
 export interface Connection {
   send(frame: Uint8Array): void;
@@ -50,6 +51,8 @@ export interface World {
   /** A message from a connection; resolves once it has been applied or dropped. */
   receive(id: number, data: string | Uint8Array): Promise<void>;
   disconnect(id: number): void;
+  /** A player's session ended (signed out, a new password): off the map, to reconnect if they may. */
+  drop(userId: string): void;
   /** A player changed colours; everyone hears it if they are online. */
   setOutfit(userId: string, outfit: Outfit): void;
   /** Where an online player is now, or null when they aren't or haven't moved yet. */
@@ -74,8 +77,9 @@ interface Client {
   savedAt: number;
 }
 
+/** A socket closed because its session ended: the client may reconnect, as whoever it now is. */
+export const CLOSE_SIGNED_OUT = 4002;
 const TURN = Math.PI * 2;
-const PLACE = /^[a-z0-9-]{1,40}$/;
 const MIN_FLOOR = -4;
 const MAX_FLOOR = 20;
 const MAX_ID = 0xffff_ffff;
@@ -93,6 +97,7 @@ export function sanitise(state: PlayerState, area: readonly Bounds[] = AREA): Pl
     const d = Math.hypot(cx - state.x, cz - state.z);
     if (d < best) [best, x, z] = [d, cx, cz];
   }
+  const place = isPlace(state.place) ? state.place : '';
   const h = state.heading;
   // Left exactly as sent when already in range: a rewrapped float would never compare equal.
   const heading = h >= 0 && h < TURN ? h : Number.isFinite(h) ? ((h % TURN) + TURN) % TURN : 0;
@@ -102,8 +107,12 @@ export function sanitise(state: PlayerState, area: readonly Bounds[] = AREA): Pl
     heading,
     speed: Number.isFinite(state.speed) ? clamp(state.speed, 0, MAX_SPEED) : 0,
     mode: state.mode === 'bike' ? 'bike' : 'foot',
-    place: PLACE.test(state.place) ? state.place : '',
-    floor: Number.isFinite(state.floor) ? clamp(Math.round(state.floor), MIN_FLOOR, MAX_FLOOR) : 0,
+    place,
+    // The street has one floor.
+    floor:
+      place && Number.isFinite(state.floor)
+        ? clamp(Math.round(state.floor), MIN_FLOOR, MAX_FLOOR)
+        : 0,
   };
 }
 
@@ -218,6 +227,13 @@ export function createWorld(options: WorldOptions = {}): World {
     disconnect(id) {
       const client = clients.get(id);
       if (client) remove(client);
+    },
+
+    drop(userId) {
+      const client = byUser.get(userId);
+      if (!client) return;
+      remove(client);
+      client.connection.close(CLOSE_SIGNED_OUT, 'Signed out');
     },
 
     setOutfit(userId, outfit) {

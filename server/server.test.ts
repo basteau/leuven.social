@@ -9,7 +9,8 @@ import {
   quantise,
 } from '../src/net/protocol.ts';
 import type { PlayerState, ServerMessage } from '../src/net/protocol.ts';
-import { originMatches, startServer } from './server.ts';
+import { clientKey, originMatches, startServer } from './server.ts';
+import { CLOSE_SIGNED_OUT } from './world.ts';
 import type { RunningServer } from './server.ts';
 
 const ORIGIN = 'http://localhost:5173';
@@ -234,11 +235,14 @@ describe('accounts', () => {
     });
   });
 
-  test('signing out ends the session', async () => {
+  test('signing out ends the session, and takes the player off the map', async () => {
     const jar = new Jar();
     await as(jar, () => account.signUp('leaver', 'password1'));
+    const socket = new Client(jar);
+    await socket.opened;
     await as(jar, () => account.signOut());
     expect(await as(jar, () => account.me())).toBeNull();
+    expect((await socket.closed).code).toBe(CLOSE_SIGNED_OUT);
   });
 });
 
@@ -358,6 +362,36 @@ test('an origin pattern may leave the port open, and nothing else', () => {
   expect(originMatches('http://localhost.evil.example:80', 'http://localhost:*')).toBe(false);
 });
 
+test('an address is its own key, an IPv6 one by its /64', () => {
+  expect(clientKey(null)).toBe('local');
+  expect(clientKey('192.0.2.7')).toBe('192.0.2.7');
+  expect(clientKey('2001:db8:aa:bb:1:2:3:4')).toBe('2001:db8:aa:bb');
+  expect(clientKey('2001:DB8::1')).toBe('2001:db8:0:0');
+  expect(clientKey('2001:0db8:0000:0000::9')).toBe(clientKey('2001:db8::5'));
+  expect(clientKey('::1')).toBe('0:0:0:0');
+});
+
+test('wrong passwords for one name are capped, whoever guesses', async () => {
+  await as(new Jar(), () => account.signUp('guessed', 'password1'));
+  let last = new Response();
+  for (let i = 0; i < 11; i++) {
+    // One after another: each wrong guess has to land before the next is weighed.
+    // oxlint-disable-next-line no-await-in-loop
+    last = await postJson(new Jar(), '/api/auth/sign-in/username', {
+      username: 'Guessed',
+      password: 'nope-nope',
+    });
+  }
+  expect(last.status).toBe(429);
+  expect(((await last.json()) as { message: string }).message).toContain('Too many tries');
+  // Another name isn't touched.
+  const other = await postJson(new Jar(), '/api/auth/sign-in/username', {
+    username: 'someone-else',
+    password: 'nope-nope',
+  });
+  expect(other.status).toBe(401);
+});
+
 describe('limits', () => {
   test('sign-ups from one address are limited, and so are sign-ins', async () => {
     const limited = await startServer({
@@ -378,10 +412,9 @@ describe('limits', () => {
         (await Promise.all(Array.from({ length: 11 }, () => post(path, body))))
           .map((r) => r.status)
           .toSorted();
-      expect(await statuses('/api/account', { username: '!' })).toEqual([
-        ...Array(10).fill(400),
-        429,
-      ]);
+      // Failed sign-ups (a taken name, a bad one) don't count against the address.
+      expect(await statuses('/api/account', { username: '!' })).toEqual(Array(11).fill(400));
+
       const body = { username: 'nobody', password: 'whatever1' };
       expect(await statuses('/api/auth/sign-in/username', body)).toContain(429);
     } finally {

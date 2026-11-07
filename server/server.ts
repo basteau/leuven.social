@@ -25,6 +25,23 @@ import { createStore } from './store.ts';
 import { createWorld } from './world.ts';
 import type { Account, World } from './world.ts';
 
+/** A rate limit's key for an address: an IPv6 one by its /64, which one machine can roam. */
+export function clientKey(ip: string | null): string {
+  if (!ip) return 'local';
+  if (!ip.includes(':')) return ip;
+  // Expand '::' to its zero groups first, so 2001:db8::1 and 2001:db8:0:0:… share a key.
+  const [head = '', tail] = ip.split('::');
+  const groups = head ? head.split(':') : [];
+  if (tail !== undefined) {
+    const rest = tail ? tail.split(':') : [];
+    groups.push(...Array.from({ length: 8 - groups.length - rest.length }, () => '0'), ...rest);
+  }
+  return groups
+    .slice(0, 4)
+    .map((g) => g.replace(/^0+(?=.)/, '').toLowerCase())
+    .join(':');
+}
+
 const log = Log.create('leuven:server');
 
 export interface ServerConfig {
@@ -111,8 +128,12 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
     save: (userId, state) => store.savePosition(userId, state),
     saveEvery: config.saveEvery,
   });
-  // better-auth limits its own routes; sign-up goes through auth.api, which it doesn't limit.
-  const signUps = RateLimit.create({ limit: 10, period: 60 * 60 * 1000 });
+  // (A `take` of cost 0 reads what's left: it is always "allowed", so `remaining` is the test.)
+  // better-auth limits its own routes by address; sign-up goes through auth.api, which it doesn't
+  // limit. Only accounts made count: a campus shares a handful of addresses, and a name taken is
+  // no abuse. Failed sign-ins count per name too, so many addresses can't guess one password.
+  const signUps = RateLimit.create({ limit: 30, period: 60 * 60 * 1000 });
+  const wrongPasswords = RateLimit.create({ limit: 10, period: 15 * 60 * 1000 });
   const origins = [new URL(config.baseURL).origin, ...(config.trustedOrigins ?? [])];
 
   /** A browser always says where a request came from; one from another site is refused. */
@@ -124,11 +145,9 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
   const session = (request: Request) => auth.api.getSession({ headers: request.headers });
 
   async function signUp(request: Request): Promise<Response> {
-    if (config.rateLimit !== false) {
-      const ip = request.headers.get('x-real-ip') ?? 'local';
-      if (!(await signUps.take(ip)).allowed) {
-        return problem(429, 'TOO_MANY_REQUESTS', 'Too many accounts from here; try again later.');
-      }
+    const ip = clientKey(request.headers.get('x-real-ip'));
+    if (config.rateLimit !== false && (await signUps.take(ip, { cost: 0 })).remaining < 1) {
+      return problem(429, 'TOO_MANY_REQUESTS', 'Too many accounts from here; try again later.');
     }
     const body = await readJson(request);
     const username = body?.username;
@@ -144,13 +163,40 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
         asResponse: true,
       });
       response.headers.set('cache-control', 'no-store');
-      if (response.ok) log.info('new player %s', username);
+      if (response.ok) {
+        log.info('new player %s', username);
+        if (config.rateLimit !== false) await signUps.take(ip);
+      }
       return response;
     } catch (error) {
       // The username plugin's checks throw even with asResponse.
       if (error instanceof APIError) return json(error.body, error.statusCode);
       throw error;
     }
+  }
+
+  /**
+   * better-auth's own routes, with two things it doesn't do: a cap on wrong passwords per name,
+   * and a player whose session ends (signing out, a new password) taken off the map, so no socket
+   * walks on as them. Their other devices reconnect with their own sessions.
+   */
+  async function authRoute(path: string, request: Request): Promise<Response> {
+    let name = '';
+    // Always on, unlike the limits by address: it guards an account, and is never noise.
+    if (path === '/sign-in/username') {
+      const body = (await readJson(request.clone())) as { username?: unknown } | null;
+      name = typeof body?.username === 'string' ? body.username.toLowerCase() : '';
+      if (name && (await wrongPasswords.take(name, { cost: 0 })).remaining < 1) {
+        return problem(429, 'TOO_MANY_REQUESTS', 'Too many tries. Wait a while, then try again.');
+      }
+    }
+    const ending = path === '/sign-out' || path === '/change-password';
+    const before = ending ? await session(request) : null;
+    const response = await auth.handler(request);
+    response.headers.set('cache-control', 'no-store');
+    if (name && response.status === 401) await wrongPasswords.take(name);
+    if (before && response.ok) world.drop(before.user.id);
+    return response;
   }
 
   async function me(request: Request): Promise<Response> {
@@ -209,9 +255,7 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
       if (!PUBLIC_AUTH_PATHS.has(pathname.slice('/api/auth'.length))) {
         return problem(404, 'NOT_FOUND', 'Not found');
       }
-      const response = await auth.handler(request);
-      response.headers.set('cache-control', 'no-store');
-      return response;
+      return authRoute(pathname.slice('/api/auth'.length), request);
     }
     if (pathname === '/api/health' && method === 'GET')
       return json({ ok: true, online: world.size });
@@ -236,6 +280,9 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
       maxPayloadLength: 1024,
       // The client says something at least every few seconds (throttle.ts's heartbeat).
       idleTimeout: 60,
+      // A reader too slow to keep up is closed rather than skipped: skipped, it would miss joins
+      // and leaves for good; closed, its client reconnects to everyone as they are.
+      closeOnBackpressureLimit: true,
       open(ws) {
         ws.data.id = world.connect(
           {

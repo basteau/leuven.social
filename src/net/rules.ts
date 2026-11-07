@@ -1,6 +1,6 @@
 /**
- * What a name and a password must be, checked the same way in the browser (to say so before a
- * round trip) and on the server (which decides).
+ * What a name, a password and a room's id must be, checked the same way in the browser (to say
+ * so before a round trip) and on the server (which decides).
  */
 
 export const MIN_NAME = 3;
@@ -17,3 +17,8 @@ const NAME = /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/;
 export function isUsername(name: string): boolean {
   return name.length >= MIN_NAME && name.length <= MAX_NAME && NAME.test(name);
 }
+
+/** A room's id as a state carries it (rooms.json's ids): lower-case letters, digits and dashes. */
+const PLACE = /^[a-z0-9-]{1,40}$/;
+
+export const isPlace = (id: string) => PLACE.test(id);
