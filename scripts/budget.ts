@@ -45,7 +45,8 @@ const BUDGETS: {
     // 172: the traffic's hooks (1.2 KB): loading its chunk, the live loop that steps it and
     // the day, keeping it round the view, and counting it in the frame budget.
     // 172.5: the kerbstones along the carriageways (0.3 KB), asked for so the pavements read.
-    limit: 172.5 * KB,
+    // 171.5: the traffic went (171.1 KB), so only real players walk the streets.
+    limit: 171.5 * KB,
     gzip: true,
   },
   // 3.5: just above 3.1 KB.
@@ -72,11 +73,12 @@ const BUDGETS: {
   // here: a chunk loaded from this one would split three.js off the engine. 19.5: lining a
   // room's walls, going straight to a floor, and the review's fixes (rooms retried after a
   // failure, a late answer dropped, in and out with a step past the edge) took it to 19.3 KB,
-  // still under walk mode's 20.5.
+  // still under walk mode's 20.5. 22: the walker's figure (2.7 KB), a chunk of its own while
+  // the traffic shared it, rides here now the traffic is gone: 21.5 KB.
   {
     label: 'Avatar JS (after first frame)',
     pattern: 'assets/avatar-layer-*.js',
-    limit: 19.5 * KB,
+    limit: 22 * KB,
     gzip: true,
   },
   // The street-name lookup for the sign, a chunk beside the avatar's that loads with it.
@@ -89,40 +91,13 @@ const BUDGETS: {
   // Bikes load near a rack (or on F): taking and leaving one, the bell, the bikes left standing.
   // Riding was 12 KB with its kinematic bicycle, rider IK and scripted mounts; a bike is now the
   // avatar at a bike's paces, drawn as the traffic's own cyclist, at about 2.8 KB. 3.5: the
-  // rider's x-ray silhouette behind houses, as the walker has (0.3 KB).
+  // rider's x-ray silhouette behind houses, as the walker has (0.3 KB). 9: the bike's rig and
+  // the rider (rider.ts), which rode in the traffic's chunk, came back here when it went: 8.5 KB,
+  // where the traffic, the figure and the bikes were 23 KB together.
   {
     label: 'Bikes JS (near a rack)',
     pattern: 'assets/bikes-*.js',
-    limit: 3.5 * KB,
-    gzip: true,
-  },
-  // The traffic loads once the first frame is drawn: the road graph and its router, the
-  // vehicles' driving (routes, lanes, corners, junctions), their shapes and the instanced layer
-  // that draws them. 9: routes, corners, junctions, people, the richer models and their lights
-  // and limbs took it from 4.7 to 8.2 KB.
-  // 12: lanes from the kerbs, cars queuing behind bikes, routes by class, and the people and
-  // cyclists near the view drawn as the walker's figure on the rideable bike (the figure's
-  // shader, the near meshes and their tints) took it to 11.6 KB; the figure and the bike
-  // themselves are chunks shared with the avatar, counted below.
-  // 12.5: the lamps' halos, beams in three strips that soften at the edges, and the bikes'
-  // lamps and pools (0.3 KB), asked for. 13: standing on the slope and on the squares (the
-  // squares found by their boxes), and no gridlock, at 12.6 KB. 14: corners and bends built
-  // in lane space, spawning out of the view's corners and turning round at a cul-de-sac in
-  // view (0.7 KB), at 13.3 KB. 17: the bike's rig (2.8 KB), its own chunk while riding shared
-  // it, now rides here, as the avatar's bike draws the traffic's cyclist; the figure's chunk
-  // below went from 6 KB to 3, so the two together are 20 KB as before.
-  {
-    label: 'Traffic JS (after first frame)',
-    pattern: 'assets/vehicles-*.js',
-    limit: 17 * KB,
-    gzip: true,
-  },
-  // The walker's figure, shared by the traffic (which loads first) with the avatar, so the one
-  // figure is drawn in every role.
-  {
-    label: 'Figure JS (with the traffic)',
-    pattern: 'assets/figure-*.js',
-    limit: 3 * KB,
+    limit: 9 * KB,
     gzip: true,
   },
   // The plates on the facades load once the view comes down to the street, in a chunk and a
@@ -168,10 +143,11 @@ const BUDGETS: {
   // 253.5: each house its own style, and roofs with chimneys and dormers (1.8 KB).
   // 256: a day and a night over the city (1.6 KB): the light's keyframes, the lamps' glow
   // and the sun that moves the shadows. 257.5: the traffic's hooks in the engine (1.2 KB).
+  // 256.5: the traffic went (256.2 KB).
   {
     label: 'First-load JS',
     pattern: 'assets/{index,viewer}-*.js',
-    limit: 257.5 * KB,
+    limit: 256.5 * KB,
     gzip: true,
     closure: true,
   },

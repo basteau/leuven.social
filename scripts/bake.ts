@@ -76,8 +76,6 @@ import { placeBoards } from '../src/data/boards.ts';
 import { fitTerraces, markShopFronts, placeFronts } from '../src/data/shops.ts';
 import { bridgeParapets, tankOutline } from '../src/data/structures.ts';
 import { joinLines, nameTable, streetName } from '../src/data/streets.ts';
-import { sidesOf, sidesWithTags, splitAtJunctions, wayFromOsm } from '../src/data/traffic.ts';
-import type { Way } from '../src/data/city.ts';
 import { clearCrowns, mergeTrees, trunkRadius } from '../src/data/trees.ts';
 import { DATA } from './data-files.ts';
 
@@ -415,7 +413,7 @@ const markings: Marking[] = [
   }),
 ];
 
-// Footprints and carriageways, for keeping trees and traffic out of houses and off the road.
+// Footprints and carriageways, for keeping trees out of houses and props off the road.
 const footprints = new RingIndex();
 for (const b of buildings) footprints.add(b.ring);
 const carriagewayGround = new RingIndex();
@@ -666,58 +664,7 @@ const city: City = {
   plazaNames,
   terrain: terrainOver(landform, VIEW_AREA),
   fronts: shops.fronts,
-  ways: [],
 };
-
-// The ways traffic moves along (src/data/traffic.ts): the driveable roads, cycle tracks,
-// pedestrian streets and paths, turned to run the way their traffic does, split where they
-// meet (on OSM's own shared nodes, before anything moves them), clipped to the area,
-// simplified to 1 m, and cut wherever they would run through a building (an archway the GRB
-// draws solid, a misdrawn way), so nothing drives through a house. Each piece measures both
-// its sides: how far the carriageway reaches from its line before the GRB's kerb, and how
-// far the open ground goes on to a facade, so cars keep to the carriageway and people to the
-// pavement between, however narrow the street. A path's sides are a metre of its own.
-const WAY_SIMPLIFY = 1;
-/** Whether a spot is open ground: the road surface or a square, and not inside a house. */
-const openGround = (x: number, z: number) =>
-  publicGround.contains(x, z) && !footprints.contains(x, z);
-const onCarriageway = (x: number, z: number) => carriagewayGround.contains(x, z);
-const PATH_SIDE = { kerb: 0, edge: 1 } as const;
-const drivable = osmRoads.features.flatMap((f) => {
-  const style = wayFromOsm(f.properties);
-  if (!style || f.geometry.type !== 'LineString') return [];
-  const line = lineOf(f);
-  if (style.reverse) {
-    const back: number[] = [];
-    for (let i = line.length - 2; i >= 0; i -= 2) back.push(line[i]!, line[i + 1]!);
-    return [{ ...style, line: back }];
-  }
-  return [{ ...style, line }];
-});
-const ways: Way[] = splitAtJunctions(drivable)
-  .flatMap(({ kind, oneway, bikesBoth, surface, sidewalks, through, minor, line }) =>
-    AREA.flatMap((rect) => clipLine(line, rect))
-      .flatMap((piece) => uncoveredPieces(piece, (x, z) => footprints.contains(x, z), 1))
-      .map((piece) => {
-        const simplified = simplifyLine(piece, WAY_SIMPLIFY);
-        const [right, left] =
-          kind === 'path'
-            ? [{ ...PATH_SIDE }, { ...PATH_SIDE }]
-            : sidesWithTags(
-                sidesOf(simplified, openGround, onCarriageway),
-                sidewalks,
-                (kind === 'street' || kind === 'main') && !minor,
-              );
-        return { kind, oneway, bikesBoth, surface, right, left, through, minor, line: simplified };
-      }),
-  )
-  .filter((w) => w.line.length >= 4)
-  .toSorted(
-    (a, b) =>
-      Math.floor(a.line[1]! / STRIP) - Math.floor(b.line[1]! / STRIP) || a.line[0]! - b.line[0]!,
-  )
-  .map((w) => Object.assign(w, { line: new Float32Array(w.line) }) as unknown as Way);
-city.ways = ways;
 
 const bytes = await packCity(city);
 await Bun.write(OUT, bytes);
@@ -797,7 +744,6 @@ const tiers = Object.groupBy(buildings, (b) => b.tier);
 console.log(
   [
     `buildings ${buildings.length} (hero ${tiers.hero?.length ?? 0}, core ${tiers.core?.length ?? 0})`,
-    `ways for traffic ${ways.length} (${ways.filter((w) => w.oneway).length} one-way, ${ways.reduce((n, w) => n + w.line.length / 2, 0)} points)`,
     `roads ${city.roads.length}, carriageways ${carriageways.length} (${Object.entries(
       Object.groupBy(carriageways, (r) => r.kind),
     )

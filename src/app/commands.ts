@@ -24,7 +24,6 @@ export type ActionId =
   | 'sound'
   | 'time'
   | 'pass-time'
-  | 'traffic'
   | 'help'
   | 'about';
 
@@ -56,7 +55,6 @@ export type IconName =
   | 'sun'
   | 'moon'
   | 'clock'
-  | 'car'
   | 'keys'
   | 'info'
   | 'place';
@@ -92,7 +90,6 @@ export interface CommandState {
   time: PresetId;
   passing: boolean;
   /** Cars, buses and bikes on the streets. */
-  traffic: boolean;
   keys: Keycaps;
   /** The menu's chord on this platform: ⌘ or Ctrl. */
   mod: string;
@@ -245,17 +242,6 @@ const general = (s: CommandState): Command[] => [
     action: 'pass-time',
   },
   {
-    id: 'traffic',
-    group: 'general',
-    label: 'Traffic',
-    detail: s.traffic ? 'Cars, buses and bikes on the streets' : 'The streets are empty',
-    keywords: 'traffic cars buses bikes cyclists vehicles streets moving alive quiet',
-    keys: [['C']],
-    icon: 'car',
-    on: s.traffic,
-    action: 'traffic',
-  },
-  {
     id: 'sound',
     group: 'general',
     label: s.soundOn ? 'Mute' : 'Unmute',
@@ -352,7 +338,6 @@ export function keySheet(k: Keycaps, mod: string): KeySection[] {
         { what: 'Mute or unmute', keys: [['M']] },
         { what: 'Next time of day', keys: [['T']] },
         { what: 'Let the day pass, or hold it', keys: [['P']] },
-        { what: 'Traffic on or off', keys: [['C']] },
       ],
     },
   ];

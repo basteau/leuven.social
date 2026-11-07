@@ -67,7 +67,7 @@ export interface BikeArrays {
   bone: Uint8Array;
   /** 1 for the blob shadow, which the figure's material draws as a checkerboard. */
   dither: Uint8Array;
-  /** 1 for the ink hulls, so another drawing (the traffic's cyclists) can keep them apart. */
+  /** 1 for the ink hulls, so another drawing (the riders') can keep them apart. */
   hull: Uint8Array;
   index: Uint16Array;
 }

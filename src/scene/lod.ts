@@ -24,7 +24,7 @@ export const spanOf = (zoom: number) => VIEW_HEIGHT / zoom;
  * | span (m) | drawn                                                                    |
  * | -------- | ------------------------------------------------------------------------ |
  * | > 400    | the cells in view: the city only                                         |
- * | 120–400  | + the avatar as a marker, traffic in its near shapes round the view       |
+ * | 120–400  | + the avatar as a marker                                                 |
  * | 60–280   | + street furniture, parked bikes, awnings (from 280)                      |
  * | 60–120   | + the avatar's figure                                                     |
  * | 20–60    | + plates and house numbers, trunks and furniture cast, rooms prewarmed    |

@@ -11,7 +11,6 @@ const state = (over: Partial<CommandState> = {}): CommandState => ({
   soundOn: true,
   time: 'golden',
   passing: false,
-  traffic: true,
   keys: KEYCAPS,
   mod: '⌘',
   ...over,
@@ -31,7 +30,6 @@ describe('commandsFor', () => {
       'reset',
       'time',
       'pass-time',
-      'traffic',
       'sound',
       'help',
       'about',
@@ -78,8 +76,6 @@ describe('commandsFor', () => {
     });
     expect(byId(state(), 'pass-time')).toMatchObject({ on: false, keys: [['P']] });
     expect(byId(state({ passing: true }), 'pass-time')?.on).toBe(true);
-    expect(byId(state(), 'traffic')).toMatchObject({ on: true, keys: [['C']], icon: 'car' });
-    expect(byId(state({ traffic: false }), 'traffic')?.detail).toBe('The streets are empty');
   });
 
   test('sound says what pressing it will do', () => {

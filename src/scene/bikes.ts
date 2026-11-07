@@ -1,43 +1,23 @@
-import type {
-  BackSide,
-  BufferAttribute,
-  BufferGeometry,
-  InstancedBufferAttribute,
-  InstancedMesh,
-  Material,
-  Matrix4,
-  Mesh,
-  MeshBasicMaterial,
-  MeshBasicMaterialParameters,
-  MeshToonMaterial,
-  Scene,
-  Texture,
-} from 'three';
+import type { BufferAttribute, BufferGeometry, Material, Mesh, Scene } from 'three';
 
 import { createRideSounds } from '../audio/riding.ts';
 import type { Avatar } from './avatar.ts';
 import { BIKES, BIKE_MOST, LOOK, WHEEL, bakeBike } from './bike-rig.ts';
 import type { BikeArrays, Stand } from './bike-rig.ts';
 import { loose } from './collide.ts';
-import type { MeshBuilder } from './mesh-builder.ts';
 import { WALKER } from './palette.ts';
 import { PARKED, nearestParked, parkedHeading } from './parked.ts';
 import type { Furniture } from './parked.ts';
-import {
-  FIGURE,
-  NEAR_SHAPES,
-  RIDE_HEIGHT,
-  vehicleMaterials,
-  vehicleVertexShader,
-} from './vehicles.ts';
+import { createRiders } from './rider.ts';
+import type { RiderKit, RiderLook } from './rider.ts';
 
 /**
  * Bikes for the avatar: take a parked one (F, or the Ride pill) and ride it as a faster walk with
  * momentum (`ON_BIKE` in avatar.ts), ring its bell (B), and leave it standing anywhere. A chunk of
  * its own, loaded near a rack or on F.
  *
- * The rider is the traffic's own cyclist (vehicles.ts): the walker's figure on the ridden bike,
- * pedalling in the vertex shader, one instance of its near shape and ink hull, two draw calls.
+ * The rider is one of the riders of rider.ts: the walker's figure on the ridden bike, in the
+ * avatar's clothes, pedalling in the vertex shader.
  * Taking a bike from a rack draws its rack copy as nothing (its triangles zeroed in the cell's
  * furniture, only that range uploaded, what was there kept to put back). Bikes left standing are
  * baked as parked bikes are (`bakeBike`), into one mesh; past a few, the oldest goes back to its
@@ -48,26 +28,12 @@ export type RideState = '' | 'near' | 'riding';
 export type RideAction = 'toggle' | 'bell';
 
 /** What the chunk takes from the engine, so it imports none of three itself. */
-export interface BikesKit {
-  three: {
-    BackSide: typeof BackSide;
+export interface BikesKit extends RiderKit {
+  three: RiderKit['three'] & {
     BufferAttribute: typeof BufferAttribute;
     BufferGeometry: typeof BufferGeometry;
-    InstancedBufferAttribute: typeof InstancedBufferAttribute;
-    InstancedMesh: typeof InstancedMesh;
-    Matrix4: typeof Matrix4;
     Mesh: typeof Mesh;
-    MeshBasicMaterial: typeof MeshBasicMaterial;
-    MeshToonMaterial: typeof MeshToonMaterial;
   };
-  MeshBuilder: typeof MeshBuilder;
-  linearVertexColors: (vertexShader: string) => string;
-  bayer: string;
-  gradientMap: Texture;
-  night: { value: number };
-  ink: number;
-  /** The figure's silhouette where a house hides it (`XRAY_LOOK`): the rider gets the same. */
-  xray: MeshBasicMaterialParameters;
   scene: Scene;
   canvas: HTMLElement;
   /** The figure's material: bikes left standing take it, blob shadow and all. */
@@ -119,7 +85,7 @@ const KICKSTAND = (6 * Math.PI) / 180;
 const MOST_DROPPED = 4;
 /** A bike left standing is met as a circle this round (m). */
 const DROPPED_RADIUS = 0.55;
-/** The bike and its rider, drawn 1.3× life size as the figure is. */
+/** A bike left standing, drawn 1.3× life size as the figure is. */
 const SCALE = 1.3;
 /** A ridden bike leans this share of what a real one would in a turn, at most MAX_LEAN. */
 const LEAN_SHARE = 0.45;
@@ -128,11 +94,6 @@ const MAX_LEAN = (16 * Math.PI) / 180;
 const BRAKING = 2;
 const G = 9.8;
 
-const srgb = (hex: number) => [
-  ((hex >> 16) & 255) / 255,
-  ((hex >> 8) & 255) / 255,
-  (hex & 255) / 255,
-];
 const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const key = (x: number, z: number) => `${x.toFixed(2)} ${z.toFixed(2)}`;
 
@@ -154,59 +115,10 @@ export function createBikes(kit: BikesKit): Bikes {
   const { three, scene, canvas } = kit;
   const sounds = createRideSounds();
 
-  // The rider: the traffic's cyclist, one instance of its near shape and its ink hull.
-  const { material, inkMaterial } = vehicleMaterials(kit);
-  const body = new kit.MeshBuilder();
-  NEAR_SHAPES.bike(body, false);
-  const hull = new kit.MeshBuilder();
-  NEAR_SHAPES.bike(hull, true);
-  const [bodyGeometry, hullGeometry] = [body, hull].map((b) =>
-    b.build({ facade: true, keep: true }),
-  ) as [BufferGeometry, BufferGeometry];
-  const state = new three.InstancedBufferAttribute(new Float32Array(4), 4);
-  bodyGeometry.setAttribute('state', state);
-  hullGeometry.setAttribute('state', state);
-  const tints = {
-    paint: srgb(WALKER.shirt),
-    trim: srgb(BIKES[0]!),
-    skin: srgb(WALKER.skin),
-    hair: srgb(WALKER.hair),
-  };
-  const trim = new three.InstancedBufferAttribute(new Float32Array(tints.trim), 3);
-  for (const [name, tint] of Object.entries(tints)) {
-    bodyGeometry.setAttribute(
-      name,
-      name === 'trim' ? trim : new three.InstancedBufferAttribute(new Float32Array(tint), 3),
-    );
-  }
-  const rider = new three.InstancedMesh(bodyGeometry, material, 1);
-  rider.receiveShadow = true;
-  const riderInk = new three.InstancedMesh(hullGeometry, inkMaterial, 1);
-  riderInk.instanceMatrix = rider.instanceMatrix;
-  // Its silhouette where a house hides it, as the walker's (`XRAY_LOOK`), the lamps' glow left
-  // out. Drawn before the rider (its render order), in the opaque pass.
-  const xray = new three.MeshBasicMaterial(kit.xray);
-  xray.onBeforeCompile = (shader) => {
-    shader.vertexShader = vehicleVertexShader(shader.vertexShader);
-    shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying float vPart;')
-      .replace(
-        '#include <clipping_planes_fragment>',
-        `#include <clipping_planes_fragment>
-        if (vPart < ${FIGURE}.0) discard;`,
-      );
-  };
-  xray.customProgramCacheKey = () => 'rider-xray-v2';
-  const riderXray = new three.InstancedMesh(bodyGeometry, xray, 1);
-  riderXray.instanceMatrix = rider.instanceMatrix;
-  [riderXray.renderOrder, rider.renderOrder, riderInk.renderOrder] = [1, 2, 2];
-  for (const mesh of [rider, riderInk, riderXray]) {
-    mesh.frustumCulled = false;
-    mesh.visible = false;
-    scene.add(mesh);
-  }
-  const matrix = new three.Matrix4();
-  const lean = new three.Matrix4();
+  // The rider: one instance of the riders (rider.ts), in the avatar's clothes.
+  const riders = createRiders(kit, scene, 1);
+  let look: RiderLook = { ...WALKER, frame: BIKES[0]! };
+  riders.dress(0, look);
 
   // Bikes left standing: one baked mesh in the figure's material.
   const standing = new three.Mesh(new three.BufferGeometry(), kit.body);
@@ -363,8 +275,8 @@ export function createBikes(kit: BikesKit): Bikes {
       hide(found.mesh!, found.at!);
       current = { ...stand, rackX: stand.x, rackZ: stand.z };
     }
-    trim.array.set(srgb(BIKES[Math.floor(stand.look / LOOK.colour) % BIKES.length]!));
-    trim.needsUpdate = true;
+    look = { ...look, frame: BIKES[Math.floor(stand.look / LOOK.colour) % BIKES.length]! };
+    riders.dress(0, look);
     w.route = null;
     glide = { from: [w.x, w.z, w.heading], to: [stand.x, stand.z, stand.heading], t: 0, on: true };
     sounds.kickstand(false);
@@ -414,15 +326,15 @@ export function createBikes(kit: BikesKit): Bikes {
       Math.min(MAX_LEAN, -Math.atan((w.speed * w.turning) / G) * LEAN_SHARE),
     );
     leaning += (want - leaning) * (1 - Math.exp(-dt / 0.09));
-    const yaw = Math.atan2(-Math.cos(w.heading), Math.sin(w.heading));
-    matrix.makeRotationY(yaw).multiply(lean.makeRotationX(leaning));
-    matrix.setPosition(w.x, kit.floor(w.x, w.z) + a.rise + RIDE_HEIGHT, w.z);
-    rider.setMatrixAt(0, matrix);
-    rider.instanceMatrix.needsUpdate = true;
-    const s = state.array as Float32Array;
-    s[0] = w.phase;
-    s[1] = w.accel < -BRAKING ? 1 : 0;
-    state.needsUpdate = true;
+    riders.pose(0, {
+      x: w.x,
+      y: kit.floor(w.x, w.z) + a.rise,
+      z: w.z,
+      heading: w.heading,
+      lean: leaning,
+      pedal: w.phase,
+      braking: w.accel < -BRAKING,
+    });
   }
 
   return {
@@ -478,7 +390,7 @@ export function createBikes(kit: BikesKit): Bikes {
         wheel += (w.speed * dt) / (WHEEL * SCALE);
         if (wheel !== was) sounds.freewheel(wheel, w.speed, w.accel <= 0);
       }
-      rider.visible = riderInk.visible = riderXray.visible = riding && shown;
+      riders.count = riding && shown ? 1 : 0;
       const near = !riding && !a.place && nearest(w.x, w.z, NEAR) !== null;
       publish(a.mode === 'bike' ? 'riding' : near ? 'near' : '');
       return busy;
@@ -488,13 +400,9 @@ export function createBikes(kit: BikesKit): Bikes {
       standing.visible = near && dropped.length > 0;
     },
     dispose() {
-      for (const mesh of [rider, riderInk, riderXray, standing]) scene.remove(mesh);
-      xray.dispose();
-      bodyGeometry.dispose();
-      hullGeometry.dispose();
+      riders.dispose();
+      scene.remove(standing);
       standing.geometry.dispose();
-      material.dispose();
-      inkMaterial.dispose();
       loose.length = 0;
     },
   };

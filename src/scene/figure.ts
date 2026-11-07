@@ -7,8 +7,8 @@ import { OUTLINE, PLATE, PROPS, WALKER } from './palette.ts';
  * fourteen-bone skeleton (knees, elbows and ankles, so they can run and keep their soles
  * flat), as parts lofted through cross-sections, each on a bone, with the flat details on
  * them and the ink hull round each. Pure data and geometry, no three.js: the walker builds
- * its skinned mesh from it (character.ts) and the traffic its instanced people and cyclists
- * (vehicles.ts), so the one figure walks the streets in every role.
+ * its skinned mesh from it (character.ts) and the bikes their instanced riders (rider.ts), so
+ * the one figure is everyone on the streets, on foot and on a bike.
  */
 
 /** How much larger than life the figure is drawn: the same as the street furniture. */

@@ -18,7 +18,6 @@ import { menuKey } from './input.ts';
 import {
   BackIcon,
   BellIcon,
-  CarIcon,
   ClockIcon,
   CloseIcon,
   CompassIcon,
@@ -83,7 +82,6 @@ const ICONS: Record<IconName, () => ReactNode> = {
   sun: SunIcon,
   moon: MoonIcon,
   clock: ClockIcon,
-  car: CarIcon,
   keys: KeysIcon,
   info: InfoIcon,
   place: PlaceIcon,

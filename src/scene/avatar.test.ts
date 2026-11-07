@@ -6,7 +6,7 @@ import { RoomGrid } from '../data/room-grid.ts';
 import { HALL } from '../data/rooms.fixture.ts';
 import { parseRooms, standing } from '../data/rooms.ts';
 import { Router } from '../data/route.ts';
-import { STRIDE } from './traffic.ts';
+import { BIKE_STRIDE as PEDAL_STRIDE } from './rider.ts';
 import { ON_FOOT, RUN_SPEED, STEP, WALK_SPEED } from './walker.ts';
 
 const open: Ground = { wallOverlap: () => 0, closed: () => 0 };
@@ -81,8 +81,8 @@ describe('the avatar', () => {
     expect(t).toBeLessThan(40 / WALK_SPEED);
   });
 
-  test('pedals at the traffic’s cyclists’ stride', () => {
-    expect(BIKE_STRIDE).toBe(STRIDE.bike);
+  test('pedals at the drawn bike’s stride, which turns its wheels', () => {
+    expect(BIKE_STRIDE).toBe(PEDAL_STRIDE);
     const bike = createAvatar(0, 0);
     bike.mode = 'bike';
     let travelled = 0;

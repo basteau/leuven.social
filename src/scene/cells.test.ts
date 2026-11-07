@@ -89,7 +89,6 @@ const city: City = {
   plazaNames: [],
   terrain: FLAT_GRID,
   fronts: [],
-  ways: [],
 };
 
 test('the area is cut into cells, and each thing goes to one', () => {

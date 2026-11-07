@@ -145,45 +145,6 @@ export interface Marking {
   line: Float32Array;
 }
 
-/**
- * A way traffic moves along (src/data/traffic.ts): ring and main roads, where buses run too,
- * the other streets, cycle tracks (bikes, and people beside them), pedestrian streets (people
- * across them, bikes among them) and paths of their own (people alone). One piece between two
- * junctions, so the traffic's graph joins them at their ends, cut where it would run through
- * a building.
- */
-export const WAY_KINDS = ['main', 'street', 'cycle', 'pedestrian', 'path'] as const;
-export type WayKind = (typeof WAY_KINDS)[number];
-
-/**
- * One side of a way, measured out from its line (m): how far the carriageway reaches before
- * its kerb (the GRB's kerb lines; 0 where it cut none along the way, a street without kerbs or
- * a path), and how far the open ground reaches before a facade. The pavement lies between.
- */
-export interface Side {
-  kerb: number;
-  edge: number;
-}
-
-export interface Way {
-  kind: WayKind;
-  /** Traffic runs only the way the line runs. */
-  oneway: boolean;
-  /** A one-way street bikes may ride both ways. */
-  bikesBoth: boolean;
-  /** What it is made of: cars slow down off the asphalt. */
-  surface: Surface;
-  /** Either side of the line, right and left of the way it runs. */
-  right: Side;
-  left: Side;
-  /** Open to through traffic: not `motor_vehicle=destination`, where only those who live there drive. */
-  through: boolean;
-  /** A living street (a woonerf): walking pace, and no way to cut through. */
-  minor: boolean;
-  /** Centre line as flat [x0, z0, x1, z1, …]. */
-  line: Float32Array;
-}
-
 /** A named road, path or stretch of one, for the street sign: its name and its centre line. */
 export interface Street {
   /** Where its name is in `City.streetNames`. */
@@ -332,8 +293,6 @@ export interface City {
   terrain: TerrainGrid;
   /** Shop fronts, by building, each building's main one first. */
   fronts: ShopFront[];
-  /** The streets traffic drives, split at their junctions (src/data/traffic.ts). */
-  ways: Way[];
 }
 
 const KIND_BY_OSM: Record<string, Kind> = {

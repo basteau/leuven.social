@@ -24,14 +24,11 @@ const BIN = Bun.fileURLToPath(new URL('../node_modules/.bin/', import.meta.url))
  * outlines); a frame that redraws the shadow map adds one per casting cell, or draws the shadow
  * map alone when both wouldn't fit (`FRAME_CALLS` and `FRAME_TRIANGLES` in viewer.ts).
  */
-// 160 calls, 950k triangles: the traffic adds eight calls (a body and its ink hull for cars,
-// buses, bikes and people) and up to 170k triangles to a frame (the whole fleet, zoomed out),
-// on top of the roofs' chimneys and dormers, which took the zoomed-out view from 582k to 637k;
-// at night every lit cell in view adds a glow call, 150 in all zoomed out. Calls are cheap here
-// (one program for the city, one for the glow), so the triangles are what the cap watches.
-// 1.15M: people and cyclists at every distance as the walker's figure (asked for), coarse far
-// off, which takes the whole fleet zoomed out from about 100k triangles to 260k; the near
-// shapes add about 150k close in, where the city itself draws less.
+// 160 calls: at night every lit cell in view adds a glow call, 150 in all zoomed out. Calls are
+// cheap here (one program for the city, one for the glow), so the triangles are what the cap
+// watches. The roofs' chimneys and dormers took the zoomed-out view from 582k to 637k.
+// 1.15M was the traffic's room, zoomed out (about 923k without it); the other players' figures
+// (two calls and about 1,300 triangles each) take what it left.
 const MAX_DRAW_CALLS = 160;
 const MAX_TRIANGLES = 1_150_000;
 /**
@@ -306,22 +303,6 @@ async function expectNight(): Promise<void> {
   console.log(
     'ok  night: lit windows and lamps, the day passed and stood still, golden hour again',
   );
-}
-
-/**
- * Traffic: cars, buses and bikes on the streets once the first frame is drawn, moving every
- * frame within the budget; C empties the streets and fills them again.
- */
-async function expectTraffic(): Promise<void> {
-  await browser('wait', '--fn', `Number(${canvasData('traffic')}) > 0`);
-  const drawn = await canvasNumber('traffic');
-  await browser('wait', '1000');
-  await expectHealthyPage('desktop with traffic');
-  await browser('press', 'c');
-  await browser('wait', '--fn', `${canvasData('traffic')} === '0'`);
-  await browser('press', 'c');
-  await browser('wait', '--fn', `Number(${canvasData('traffic')}) > 0`);
-  console.log(`ok  traffic: ${drawn} vehicles on the streets, off and on again with C`);
 }
 
 /** Where the keys the smoke test holds sit on the keyboard: walking reads `code`, not `key`. */
@@ -648,7 +629,6 @@ try {
   await browser('wait', '200');
   await expectHealthyPage('desktop zoomed in');
   await browser('screenshot', `${ARTIFACTS}smoke-detail.png`);
-  await expectTraffic();
   await expectNight();
   // All the way out is the most city on screen at once: the heaviest steady frame.
   for (let i = 0; i < 12; i++) await browser('press', '-');

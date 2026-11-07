@@ -109,7 +109,6 @@ const city: City = {
   plazaNames: [0, -1],
   terrain: FLAT_GRID,
   fronts: [],
-  ways: [],
 };
 
 /** Fifty small rings in a row, starting at x. */
@@ -257,9 +256,9 @@ describe('city format', () => {
     expect(() => decodeCity(encodeCity({ ...city, plazaNames: [0, 2] }))).toThrow('Bad square');
     // A tower on a building past the end of the list. Its eight bytes are the building's place,
     // the centre and radius (a byte each here), then top and tip (two each), before the level
-    // terrain's nine, the shop fronts' count and the ways' count.
+    // terrain's nine and the shop fronts' count.
     const towered = encodeCity({ ...city, buildings: [city.buildings[0]!] });
-    const place = towered.length - 1 - 1 - 9 - 8;
+    const place = towered.length - 1 - 9 - 8;
     expect(towered[place]).toBe(0);
     towered[place] = 5;
     expect(() => decodeCity(towered)).toThrow('Bad tower building');
@@ -286,56 +285,13 @@ describe('terrain', () => {
 
   test('rejects a grid larger than the file', () => {
     // Gentle enough that each height takes a byte: columns and rows are the two bytes before
-    // them, and the fronts' and the ways' counts follow them.
+    // them, and the fronts' count follows them.
     const gentle = { ...hill, heights: Float32Array.of(-0.5, 0, 1.35, 2.05, 2.4, 3) };
     const bytes = encodeCity({ ...city, terrain: gentle });
-    const cols = bytes.length - 1 - 1 - 6 - 2;
+    const cols = bytes.length - 1 - 6 - 2;
     expect(bytes[cols]).toBe(3);
     bytes[cols] = 100;
     expect(() => decodeCity(bytes)).toThrow('Bad terrain grid');
-  });
-});
-
-const wayFields = (w: City['ways'][number]) => [
-  w.kind,
-  w.oneway,
-  w.bikesBoth,
-  w.surface,
-  w.right,
-  w.left,
-  w.through,
-  w.minor,
-  [...w.line],
-];
-
-describe('ways', () => {
-  test('round-trip with their kind, direction and cycle-street flag, to the decimetre', () => {
-    const ways: City['ways'] = [
-      {
-        kind: 'main',
-        oneway: true,
-        bikesBoth: true,
-        surface: 'asphalt',
-        right: { kerb: 3.5, edge: 6 },
-        left: { kerb: 3, edge: 4.5 },
-        through: true,
-        minor: false,
-        line: new Float32Array([0, 0, 120.5, -30]),
-      },
-      {
-        kind: 'pedestrian',
-        oneway: false,
-        bikesBoth: false,
-        surface: 'grass',
-        right: { kerb: 0, edge: 1.2 },
-        left: { kerb: 0, edge: 0 },
-        through: false,
-        minor: true,
-        line: new Float32Array([5, 5, 6, 7, 9, 9]),
-      },
-    ];
-    const decoded = decodeCity(encodeCity({ ...city, ways }));
-    expect(decoded.ways.map(wayFields)).toEqual(ways.map(wayFields));
   });
 });
 
@@ -360,7 +316,7 @@ describe('shop fronts', () => {
     expect(bad({ building: 3 })).toThrow('Bad shop front');
     expect(bad({ edge: 4 })).toThrow('Bad shop front');
     const kinds = encodeCity({ ...city, fronts: [fronts[0]!] });
-    kinds[kinds.length - 2] = 0x7f; // the kind byte, before the ways' count
+    kinds[kinds.length - 1] = 0x7f; // the kind byte, the file's last
     expect(() => decodeCity(kinds)).toThrow('Bad shop front');
   });
 });

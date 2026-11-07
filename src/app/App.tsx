@@ -183,7 +183,6 @@ export function App() {
   const [time, setTime] = useState<PresetId>('golden');
   const [passing, setPassing] = useState(false);
   const passingRef = useRef(false);
-  const [traffic, setTraffic] = useState(() => !reducedMotion());
   const [said, setSaid] = useState<{ text: string; at: number } | null>(null);
   const say = useCallback((text: string) => setSaid({ text, at: performance.now() }), []);
   useEffect(() => {
@@ -426,7 +425,6 @@ export function App() {
     toggleSound: () => toggleSoundRef.current(),
     nextTime: () => nextTimeRef.current(),
     togglePassing: () => togglePassingRef.current(),
-    toggleTraffic: () => toggleTrafficRef.current(),
     turnHold,
     openMenu,
     menuOpen: menuOpenRef,
@@ -444,15 +442,6 @@ export function App() {
     setPassing(passingRef.current);
     viewerRef.current?.passTime(passingRef.current);
     say(passingRef.current ? 'The day passes' : 'The day stands still');
-  });
-
-  const toggleTrafficRef = useRef(() => {
-    const viewer = viewerRef.current;
-    if (!viewer) return;
-    const on = !viewer.trafficOn();
-    viewer.traffic(on);
-    setTraffic(on);
-    say(on ? 'Traffic on' : 'Traffic off');
   });
 
   const toggleRunRef = useRef(() => {
@@ -492,7 +481,6 @@ export function App() {
     sound: () => toggleSoundRef.current(),
     time: () => nextTimeRef.current(),
     'pass-time': () => togglePassingRef.current(),
-    traffic: () => toggleTrafficRef.current(),
   }));
   /** A command from the menu: the menu closes first, and focus goes to the map for its keys. */
   const run = useCallback(
@@ -526,8 +514,8 @@ export function App() {
     [rooms, closeMenu],
   );
   const commandState: CommandState = useMemo(
-    () => ({ ride, door, running, soundOn, time, passing, traffic, keys, mod }),
-    [ride, door, running, soundOn, time, passing, traffic, keys, mod],
+    () => ({ ride, door, running, soundOn, time, passing, keys, mod }),
+    [ride, door, running, soundOn, time, passing, keys, mod],
   );
   // Places by name: choosing one takes the view there, down to the street; you walk there.
   const places = useMemo(

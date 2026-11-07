@@ -102,20 +102,8 @@ export const STRUCTURES = {
   /** The parapet's capstone, a paler, newer-looking stone. */
   coping: 0xddd0b4,
 } as const;
-/**
- * Traffic: cars in the colours a Belgian street parks (greys, white, black, a blue, a red, a
- * green), and a city bus in cream with a mustard band, with warm headlamps and red tail lamps.
- */
-export const CARS = [
-  0xd9d6cf, 0xf2efe8, 0x6c707a, 0x3d4250, 0x2b2d33, 0x4a77a8, 0xb5402f, 0x2f6b4f, 0xc9b48e,
-  0x9aa4ad,
-] as const;
-export const BUS = {
-  body: 0xf1ebdc,
-  band: 0xe8b94a,
-  headlamp: 0xfff4d0,
-  taillamp: 0xd23a2a,
-} as const;
+/** A bike's lamp on the fork and its red reflector, which glow at night. */
+export const BIKE_LAMPS = { lamp: 0xfff4d0, reflector: 0xd23a2a } as const;
 export const BIKES = [
   0x2f3a4a, 0x2b2420, 0xd2553f, 0xf6eedc, 0x8db36f, 0x5b6170, 0xe8b94a,
 ] as const;

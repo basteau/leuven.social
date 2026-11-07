@@ -38,8 +38,8 @@ export interface Avatar {
 }
 
 /**
- * Metres a turn of the crank carries a bike (`STRIDE.bike` in traffic.ts, which the traffic's
- * cyclists pedal at too; the avatar's chunk doesn't import the simulation for one number).
+ * Metres a turn of the crank carries a bike (`BIKE_STRIDE` in rider.ts, which turns the drawn
+ * wheels at it too; the avatar's chunk doesn't import the bikes' for one number).
  */
 export const BIKE_STRIDE = 5;
 

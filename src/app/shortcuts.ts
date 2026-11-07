@@ -31,8 +31,6 @@ export interface ShortcutTarget {
   /** T steps to the next time of day; P lets the day pass, or holds it. */
   nextTime: () => void;
   togglePassing: () => void;
-  /** C: traffic on or off. */
-  toggleTraffic: () => void;
   /** Q and E: a tap turns the map a quarter; held, they keep turning. */
   turnHold: TurnHold;
   /** ⌘K, Ctrl+K, ⌘P, Ctrl+P and `/` open the menu at its list; `?` at the controls. */
@@ -48,8 +46,8 @@ export interface ShortcutTarget {
 /**
  * The keyboard, one map of keys with no modes: + and - zoom, Q and E turn the map,
  * held W A S D walk the avatar (Shift runs), F takes or leaves a bike and B rings its bell, Space
- * (or Esc) brings the view back to the avatar, R turns north up and back to you, M mutes, T and P set the time of day and
- * C the traffic. ⌘K and its kin open the menu. Shortcuts act while focus is anywhere in the app
+ * (or Esc) brings the view back to the avatar, R turns north up and back to you, M mutes, and T and
+ * P set the time of day. ⌘K and its kin open the menu. Shortcuts act while focus is anywhere in the app
  * except the menu, not in the rest of the page.
  */
 export function useShortcuts(target: ShortcutTarget): void {
@@ -139,7 +137,6 @@ export function useShortcuts(target: ShortcutTarget): void {
         m: target.toggleSound,
         t: target.nextTime,
         p: target.togglePassing,
-        c: target.toggleTraffic,
         r: () => viewer.resetView(),
         // Space brings the view back to you, as in games with a free camera; Escape too. Enter
         // goes into the building beside you, or out of it.
