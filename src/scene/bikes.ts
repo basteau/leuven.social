@@ -253,7 +253,7 @@ export function createBikes(kit: BikesKit): Bikes {
   // The rack copies of bikes taken: zeroed in their furniture, with what was there kept.
   const hidden = new Map<
     string,
-    { mesh: Furniture & Mesh; from: number; kept: ArrayLike<number> }
+    { mesh: Furniture & Mesh; from: number; kept: ArrayLike<number>; x: number; z: number }
   >();
   function upload(mesh: Mesh, from: number, to: number): void {
     const index = mesh.geometry.index!;
@@ -269,7 +269,8 @@ export function createBikes(kit: BikesKit): Bikes {
     // The viewer keeps the index of furniture that has bikes; without it, leave the rack be.
     if (!array || hidden.has(k)) return;
     const [from, to] = [bikes[at + PARKED.from]!, bikes[at + PARKED.to]!];
-    hidden.set(k, { mesh, from, kept: array.slice(from, to) });
+    const [x, z] = [bikes[at + PARKED.x]!, bikes[at + PARKED.z]!];
+    hidden.set(k, { mesh, from, kept: array.slice(from, to), x, z });
     array.fill(0, from, to);
     upload(mesh, from, to);
   }
@@ -284,6 +285,19 @@ export function createBikes(kit: BikesKit): Bikes {
   }
   const taken = (bikes: Float32Array, at: number) =>
     hidden.has(key(bikes[at + PARKED.x]!, bikes[at + PARKED.z]!));
+  /**
+   * A lost GPU context builds the furniture again, every rack full: the bikes taken are drawn as
+   * nothing in the new meshes too, once they're built, or each would stand at its rack as well.
+   */
+  function hideAgain(): void {
+    for (const [k, was] of hidden) {
+      if (was.mesh.parent) continue;
+      const found = nearestParked(scene.children, was.x, was.z, 0.01);
+      if (!found) continue;
+      hidden.delete(k);
+      hide(found.mesh as Furniture & Mesh, found.at);
+    }
+  }
 
   /** The bike nearest (x, z) within `reach`: one left standing, or a parked one. */
   function nearest(x: number, z: number, reach: number) {
@@ -444,6 +458,7 @@ export function createBikes(kit: BikesKit): Bikes {
     frame(a, dt) {
       const w = a.walker;
       let busy = false;
+      hideAgain();
       // Walked to a bike to take it: taken on arrival.
       if (fetching && !w.route) take(a, true);
       if (glide) {
