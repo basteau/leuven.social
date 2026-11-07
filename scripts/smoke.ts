@@ -8,11 +8,16 @@
 
 import { unpackCity } from '../src/data/format.ts';
 import { bikesIn } from '../src/data/props.ts';
+import { startBot } from './smoke-bot.ts';
 
 // A free port and a browser session of our own, so parallel runs (worktrees, agents) never meet.
 const probe = Bun.serve({ port: 0, fetch: () => new Response() });
 const PORT = probe.port;
 await probe.stop(true);
+// The multiplayer server, on a free port of its own, with a database in memory.
+const apiProbe = Bun.serve({ port: 0, fetch: () => new Response() });
+const API = `http://127.0.0.1:${apiProbe.port}`;
+await apiProbe.stop(true);
 const SESSION = `leuven-smoke-${PORT}`;
 const BASE = `http://localhost:${PORT}/`;
 const ARTIFACTS = Bun.fileURLToPath(new URL('../.artifacts/', import.meta.url));
@@ -191,8 +196,10 @@ async function expectBareMap(): Promise<void> {
   const buttons = await evalJson<string[]>(
     `JSON.stringify([...document.querySelectorAll('main button:not(.avatar-arrow)')].filter((b) => b.checkVisibility() && !b.closest('dialog')).map((b) => b.getAttribute('aria-label') ?? b.textContent))`,
   );
-  if (buttons.join() !== 'Menu') {
-    throw new Error(`the map should show only the menu button, not ${buttons.join(', ')}`);
+  // Who you are (Join, as a guest), the minimap and the menu: nothing else.
+  const expected = ['Join', 'Minimap: show more of the city', 'Menu'];
+  if (buttons.join() !== expected.join()) {
+    throw new Error(`the map should show only ${expected.join(', ')}, not ${buttons.join(', ')}`);
   }
   // And the arrow over the avatar, far out at the default view: a marker, not a control.
   const arrow = await evalJson<string>(
@@ -200,13 +207,13 @@ async function expectBareMap(): Promise<void> {
   );
   if (arrow !== 'false') throw new Error(`the arrow over the avatar isn't showing (${arrow})`);
   console.log(
-    'ok  loading screen in the HTML, then a bare map: the menu button and the arrow over you',
+    'ok  loading screen in the HTML, then a bare map: Join, the minimap, the menu button and the arrow over you',
   );
 }
 
 const menu = {
-  open: `!!document.querySelector('dialog.menu')?.open`,
-  closed: `!document.querySelector('dialog.menu')?.open && document.activeElement === document.querySelector('.map')`,
+  open: `!!document.querySelector('dialog.menu:not(.account)')?.open`,
+  closed: `!document.querySelector('dialog.menu:not(.account)')?.open && document.activeElement === document.querySelector('.map')`,
   first: `document.querySelector('[role=option][aria-selected=true] .menu-option-label')?.textContent`,
 };
 
@@ -303,6 +310,86 @@ async function expectNight(): Promise<void> {
   console.log(
     'ok  night: lit windows and lamps, the day passed and stood still, golden hour again',
   );
+}
+
+/** Waits until `check` holds, for up to `ms`, or fails saying what didn't happen. */
+async function until(check: () => boolean, what: string, ms = 10_000): Promise<void> {
+  const end = performance.now() + ms;
+  while (!check()) {
+    if (performance.now() > end) throw new Error(`${what} didn't happen within ${ms / 1000} s`);
+    await Bun.sleep(100);
+  }
+}
+
+const html = (name: string) => `document.documentElement.dataset.${name}`;
+
+/**
+ * Other people: a guest sees another player walk by, named over their head; joins from the
+ * corner and is seen joining; changes shirt and is seen in it; comes back signed in where they
+ * left after a reload; signs out. The other player is a bot speaking the protocol (smoke-bot.ts).
+ */
+async function expectPlayers(): Promise<void> {
+  await browser('wait', '--fn', `${html('online')} === '0'`);
+  const [x, z] = (await walker()).split(' ').map(Number) as [number, number];
+  const bot = await startBot(API, BASE.slice(0, -1), 'smoke-bot', [x + 4, z + 4]);
+  try {
+    await browser('wait', '--fn', `${html('online')} === '1'`);
+    for (let i = 0; i < 8; i++) await browser('press', '+');
+    await browser('wait', '--fn', `Number(${canvasData('players')}) >= 1`);
+    await browser(
+      'wait',
+      '--fn',
+      `[...document.querySelectorAll('.player-tag')].some((t) => !t.hidden && t.textContent === 'smoke-bot')`,
+    );
+    await browser('wait', '600');
+    await expectHealthyPage('desktop with another player');
+    await browser('screenshot', `${ARTIFACTS}smoke-players.png`);
+    console.log('ok  a guest sees another player walk by, their name over their head');
+
+    // Joining, from the corner.
+    await browser('click', 'button.you');
+    await browser('wait', '--fn', `!!document.querySelector('dialog.account')?.open`);
+    await browser('fill', 'dialog.account input[name=name]', 'smoke-anna');
+    await browser('fill', 'dialog.account input[name=password]', 'smoke-password');
+    await browser('press', 'Enter');
+    await browser('wait', '--fn', `${html('account')} === 'smoke-anna'`);
+    await until(() => bot.joined().includes('smoke-anna'), 'the bot seeing smoke-anna join');
+    // A new look, worn at once and seen by the others.
+    const blue = 0x4a77a8;
+    await browser('click', `dialog.account input[value="${blue}"]`);
+    await until(() => bot.outfitOf('smoke-anna')?.shirt === blue, 'the bot seeing the new shirt');
+    await browser('wait', '400');
+    await browser('screenshot', `${ARTIFACTS}smoke-account.png`);
+    await browser('press', 'Escape');
+    await browser('wait', '--fn', `!document.querySelector('dialog.account')?.open`);
+    console.log('ok  joined from the corner, seen joining; a new shirt, seen at once');
+
+    // Back where you left, still signed in, after a reload.
+    await tapAt(760, 300);
+    await browser('wait', '1500');
+    const left = await walker();
+    await browser('wait', '1200'); // the socket sends at most ten times a second
+    await openFresh(BASE);
+    await browser('wait', '--fn', `${html('account')} === 'smoke-anna'`);
+    await browser('wait', '--fn', `${html('online')} === '2'`);
+    const [a, b] = [left, await walker()].map((p) => p.split(' ').map(Number));
+    if (!(Math.hypot(a![0]! - b![0]!, a![1]! - b![1]!) < 3)) {
+      throw new Error(`a reload didn't bring smoke-anna back where she left (${left} vs ${b})`);
+    }
+    await expectHealthyPage('desktop signed in, after a reload');
+    console.log(`ok  a reload: still signed in, back where she left (${left})`);
+
+    // Signing out: a guest again, gone for the others.
+    await browser('click', 'button.you');
+    await browser('wait', '--fn', `!!document.querySelector('dialog.account')?.open`);
+    await browser('find', 'role', 'button', 'click', '--name', 'Sign out');
+    await browser('wait', '--fn', `${html('account')} === ''`);
+    await until(() => bot.heard.some((m) => m.type === 'leave'), 'the bot seeing smoke-anna leave');
+    await browser('press', 'Escape');
+    console.log('ok  signed out: a guest again, and gone for the others');
+  } finally {
+    bot.close();
+  }
 }
 
 /** Where the keys the smoke test holds sit on the keyboard: walking reads `code`, not `key`. */
@@ -602,13 +689,35 @@ async function waitForServer(): Promise<void> {
   throw new Error(`vite preview did not start on ${BASE}`);
 }
 
+const multiplayer = Bun.spawn(['bun', 'server/main.ts'], {
+  env: {
+    ...process.env,
+    PORT: new URL(API).port,
+    DATABASE_PATH: ':memory:',
+    BETTER_AUTH_URL: BASE.slice(0, -1),
+    DEBUG: 'leuven:*=warn',
+  },
+  stdout: 'ignore',
+  stderr: 'inherit',
+});
 const server = Bun.spawn([`${BIN}vite`, 'preview', '--port', String(PORT), '--strictPort'], {
+  env: { ...process.env, LEUVEN_SERVER: API },
   stdout: 'ignore',
   stderr: 'inherit',
 });
 
 try {
   await waitForServer();
+  for (let i = 0; ; i++) {
+    const up = await fetch(`${API}/api/health`).then(
+      (r) => r.ok,
+      () => false,
+    );
+    if (up) break;
+    if (i > 100 || multiplayer.exitCode !== null)
+      throw new Error('the multiplayer server did not start');
+    await Bun.sleep(100);
+  }
   await Bun.write(`${ARTIFACTS}.keep`, ''); // agent-browser won't create the folder
   await browser('open', 'about:blank');
 
@@ -662,6 +771,7 @@ try {
   await expectWalking();
   await expectRiding();
   await expectRoom();
+  await expectPlayers();
 
   await browser('set', 'viewport', '390', '844');
   await openFresh(BASE);
@@ -673,7 +783,7 @@ try {
   await browser('wait', '--fn', menu.open);
   await browser('wait', '500');
   await browser('screenshot', `${ARTIFACTS}smoke-phone-menu.png`);
-  await browser('click', 'button.menu-close');
+  await browser('click', 'dialog.menu:not(.account) button.menu-close');
   await browser('wait', '--fn', menu.closed);
   console.log('ok  phone: the menu button opens the menu; its close button shuts it, to the map');
   console.log(`screenshots in .artifacts/`);
@@ -683,4 +793,5 @@ try {
 } finally {
   await browser('close').catch(() => {});
   server.kill();
+  multiplayer.kill();
 }

@@ -267,7 +267,8 @@
     {
       "files": ["vite.config.ts"],
       "rules": {
-        "import/no-default-export": "off"
+        "import/no-default-export": "off",
+        "no-restricted-globals": "off"
       }
     }
   ],

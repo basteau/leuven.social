@@ -3,7 +3,8 @@ import { defineConfig } from 'vite';
 
 // The multiplayer server (server/main.ts, `bun run dev:server`) answers /api and /ws on the
 // page's own origin, as nginx makes it in production, so cookies and the socket need no CORS.
-const MULTIPLAYER = 'http://127.0.0.1:8787';
+// The smoke test runs one of its own on a free port, and says where.
+const MULTIPLAYER = process.env.LEUVEN_SERVER ?? 'http://127.0.0.1:8787';
 const proxy = {
   '/api': MULTIPLAYER,
   '/ws': { target: MULTIPLAYER, ws: true },
