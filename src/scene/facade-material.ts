@@ -1,5 +1,5 @@
-import { Color, MeshBasicMaterial, MeshToonMaterial, Vector3, Vector4 } from 'three';
-import type { Material, Texture } from 'three';
+import { Color, MeshBasicMaterial, MeshToonMaterial, Vector4 } from 'three';
+import type { Texture } from 'three';
 
 import { SHOP_KINDS } from '../data/shop-kinds.ts';
 import { AWNING, LANCETS, ORNATE, SHOP_FRONT } from './facade-codes.ts';
@@ -14,7 +14,6 @@ import {
   STRIPE_LOD,
   SURFACE,
 } from './paint.ts';
-import { DITHER_GLSL } from './occlusion.ts';
 import { FRONTS, WINDOW } from './palette.ts';
 import { SLEEPER_CODE } from './rails.ts';
 
@@ -22,45 +21,6 @@ const f = (v: number) => v.toFixed(4);
 /** A 4×4 ordered dither: a threshold from 0 to 15/16 for each pixel of a block. */
 export const BAYER = `float bayer2(vec2 a) { a = mod(floor(a), 2.0); return fract(a.x / 2.0 + a.y * a.y * 0.75); }
 float bayer4(vec2 a) { return bayer2(0.5 * a) * 0.25 + bayer2(a); }`;
-
-/**
- * Where the avatar's feet are and how wide the opening in front of it is (w, 0 for none), and
- * which way the camera looks: what stands between the two dithers away (occlusion.ts). Shared by
- * the city's materials, set by the viewer each frame.
- */
-export const avatarDither = { value: new Vector4(0, 0, 0, 0) };
-export const viewDirection = { value: new Vector3(0, -1, 0) };
-
-/** The discard, for a fragment shader that has `bayer4` and `DITHER_GLSL`. */
-const DITHER_DISCARD = (world: string) =>
-  `if (bayer4(gl_FragCoord.xy) < avatarDither(${world})) discard;`;
-
-/**
- * A plain three.js material (the ink lines, the plates) dithers away in front of the avatar
- * like the walls it belongs to.
- */
-export function ditherInFront(material: Material, key: string): void {
-  material.onBeforeCompile = (shader) => {
-    shader.uniforms.uAvatar = avatarDither;
-    shader.uniforms.uView = viewDirection;
-    shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vDitherWorld;')
-      .replace(
-        '#include <project_vertex>',
-        '#include <project_vertex>\nvDitherWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;',
-      );
-    shader.fragmentShader = shader.fragmentShader
-      .replace(
-        '#include <common>',
-        `#include <common>\nvarying vec3 vDitherWorld;\n${BAYER}\n${DITHER_GLSL}`,
-      )
-      .replace(
-        '#include <clipping_planes_fragment>',
-        `#include <clipping_planes_fragment>\n${DITHER_DISCARD('vDitherWorld')}`,
-      );
-  };
-  material.customProgramCacheKey = () => key;
-}
 
 /**
  * The one material every cell draws with: toon shading plus detail from world position.
@@ -76,7 +36,6 @@ export function ditherInFront(material: Material, key: string): void {
  * - Railway sleepers (codes from `SLEEPER_CODE`, rails.ts): a band of them along each track, from
  *   the distance along it, fading to their average tint when they get finer than a pixel.
  * - Shade everywhere keeps a richer version of its surface's own hue (lighting.ts).
- * - Whatever stands between the camera and the avatar dithers away (`avatarDither`).
  * None of it costs a triangle.
  */
 export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
@@ -108,8 +67,6 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
     shader.uniforms.uFront = { value: fronts };
     shader.uniforms.uPixel = pixel;
     shader.uniforms.uNight = night;
-    shader.uniforms.uAvatar = avatarDither;
-    shader.uniforms.uView = viewDirection;
     shader.vertexShader = linearVertexColors(shader.vertexShader)
       .replace(
         '#include <common>',
@@ -175,7 +132,6 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
         varying vec2 vWallNormal;
         varying float vUp;
         ${BAYER}
-        ${DITHER_GLSL}
         // Sleepers: one per metre, wider apart than the real 0.6 m so a standard screen still
         // resolves them at the closest zoom.
         const float SLEEPER_PITCH = 1.0;
@@ -187,11 +143,6 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
           return mix(mix(hash2(i), hash2(i + vec2(1.0, 0.0)), u.x),
                      mix(hash2(i + vec2(0.0, 1.0)), hash2(i + vec2(1.0, 1.0)), u.x), u.y);
         }`,
-      )
-      .replace(
-        '#include <clipping_planes_fragment>',
-        `#include <clipping_planes_fragment>
-        ${DITHER_DISCARD('vWorld')}`,
       )
       .replace(
         '#include <color_fragment>',
@@ -436,7 +387,7 @@ export function createFacadeMaterial(gradientMap: Texture): MeshToonMaterial {
         #include <opaque_fragment>`,
       );
   };
-  material.customProgramCacheKey = () => 'facade-v9';
+  material.customProgramCacheKey = () => 'facade-v10';
   return material;
 }
 

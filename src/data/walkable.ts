@@ -76,13 +76,6 @@ const heightCode = (height: number) => Math.min(255 - SOLID, Math.ceil(height)) 
 /** A trunk against a facade keeps the building's height in its cells. */
 const keep = (value: number) => (old: number) => value === SOLID && old > SOLID;
 
-/** A doorway into a building with a room (rooms.ts): bodies pass its wall within `half` of it. */
-interface Door {
-  x: number;
-  z: number;
-  half: number;
-}
-
 export class WalkGrid {
   readonly #grid: CellGrid;
   readonly #area: readonly Bounds[];
@@ -90,10 +83,8 @@ export class WalkGrid {
   readonly #shapes: Shape[][];
   readonly #ribbons: Ribbon[][];
   readonly #walls: Wall[][];
-  readonly #doors: Door[] = [];
   /** Scratch for `wallOverlap`, which a step calls several times: nothing allocated. */
   readonly #sum: [number, number, number] = [0, 0, 0];
-  readonly #skip = (px: number, pz: number) => this.#inDoor(px, pz);
   #query = 0;
 
   constructor(city: WalkLayers, solids: Solids = { posts: [], rings: [] }) {
@@ -206,22 +197,6 @@ export class WalkGrid {
   }
 
   /**
-   * Opens a doorway in a building's wall at (x, z), `half` metres either side: its cells are
-   * street, and bodies pass its wall there, so the avatar can step in to the room behind it
-   * (rooms.ts), whose own grid opens the same doorway from the inside.
-   */
-  openDoor(x: number, z: number, half: number): void {
-    if (this.#doors.some((d) => d.x === x && d.z === z)) return;
-    this.#doors.push({ x, z, half });
-    this.#grid.refill({ minX: x - half, minZ: z - half, maxX: x + half, maxZ: z + half });
-  }
-
-  /** Whether (x, z) is within a doorway. */
-  #inDoor(x: number, z: number): boolean {
-    return this.#doors.some((d) => Math.hypot(x - d.x, z - d.z) <= d.half);
-  }
-
-  /**
    * How closed the ground is at (x, z), from 0 to 1: whether the cells round it are water,
    * railway or off the map, blended bilinearly between their centres. The edge runs where it
    * crosses a half, as a nearly straight line even along a staircase of cells. Walls are not
@@ -237,18 +212,17 @@ export class WalkGrid {
    * angle is a straight line and a corner a point to slide round. Writes the way out into
    * `out`, summed over every face it touches, so in a corner it points out of the corner and in
    * a lane between two walls it balances. A centre inside a footprint is pushed out through
-   * the nearest face, but in a doorway.
+   * the nearest face.
    */
   wallOverlap(x: number, z: number, radius: number, out: [number, number]): number {
     const sum = this.#sum;
     [sum[0], sum[1], sum[2]] = [0, 0, 0];
     const query = ++this.#query;
-    const skip = this.#doors.length ? this.#skip : undefined;
     const [c0, r0] = this.#grid.tileOf(x - radius, z - radius);
     const [c1, r1] = this.#grid.tileOf(x + radius, z + radius);
     for (let r = r0; r <= r1; r++) {
       for (let c = c0; c <= c1; c++) {
-        wallPush(this.#walls[r * this.#grid.tilesX + c]!, x, z, radius, query, sum, skip);
+        wallPush(this.#walls[r * this.#grid.tilesX + c]!, x, z, radius, query, sum);
       }
     }
     const length = Math.hypot(sum[0], sum[1]);
@@ -287,10 +261,6 @@ export class WalkGrid {
     for (const s of shapes) if (s.value >= SOLID) grid.fillRing(tile, s.ring, s.value, x0, z0);
     for (const r of ribbons) {
       if (r.value >= SOLID) grid.fillRibbon(tile, r.line, r.half, r.value, x0, z0, keep(r.value));
-    }
-    // Doorways stand open through their wall.
-    for (const d of this.#doors) {
-      grid.fillRibbon(tile, [d.x, d.z, d.x, d.z], d.half, STREET, x0, z0);
     }
     // Paths can spill a little past the map's edge: nothing off the slab is walkable.
     for (let r = 0; r < TILE; r++) {

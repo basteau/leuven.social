@@ -208,6 +208,18 @@ export function inRing(ring: ArrayLike<number>, x: number, z: number): boolean {
   return inside;
 }
 
+/** How far (x, z) is from a ring's outline (m), inside or out. */
+export function ringDistance(ring: ArrayLike<number>, x: number, z: number): number {
+  let nearest = Infinity;
+  for (let i = 0, n = ring.length / 2, j = n - 1; i < n; j = i++) {
+    const [ax, az] = [ring[j * 2]!, ring[j * 2 + 1]!];
+    const [dx, dz] = [ring[i * 2]! - ax, ring[i * 2 + 1]! - az];
+    const s = Math.min(1, Math.max(0, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz || 1)));
+    nearest = Math.min(nearest, Math.hypot(x - ax - s * dx, z - az - s * dz));
+  }
+  return nearest;
+}
+
 /** The box round a ring or line, grown by `pad`. */
 export function ringBox(ring: ArrayLike<number>, pad = 0): Bounds {
   let [minX, minZ, maxX, maxZ] = [Infinity, Infinity, -Infinity, -Infinity];
@@ -233,8 +245,8 @@ export interface Wall {
 /**
  * How far a circle of `radius` at (x, z) reaches into `walls` (m), 0 where it's clear, with the
  * way out summed into `out[0..1]` scaled by depth (the caller normalises), and the deepest reach
- * returned. A centre inside a ring is pushed out through its nearest face. `skip` passes over a
- * point of contact (a doorway). `query` marks walls met already.
+ * returned. A centre inside a ring is pushed out through its nearest face. `query` marks walls
+ * met already.
  */
 export function wallPush(
   walls: readonly Wall[],
@@ -243,14 +255,13 @@ export function wallPush(
   radius: number,
   query: number,
   sum: [number, number, number],
-  skip?: (px: number, pz: number) => boolean,
 ): void {
   for (const wall of walls) {
     const { line, half, box } = wall;
     if (wall.seen === query || x + radius < box.minX || x - radius > box.maxX) continue;
     if (z + radius < box.minZ || z - radius > box.maxZ) continue;
     wall.seen = query;
-    const inside = wall.ring && inRing(line, x, z) && !skip?.(x, z);
+    const inside = wall.ring && inRing(line, x, z);
     const n = line.length / 2;
     let [nearest, nx, nz] = [Infinity, 0, 0];
     for (let i = wall.ring ? 0 : 1, j = wall.ring ? n - 1 : 0; i < n; j = i++) {
@@ -268,7 +279,7 @@ export function wallPush(
         continue;
       }
       const into = radius + half - d;
-      if (into <= 0 || skip?.(ax + s * dx, az + s * dz)) continue;
+      if (into <= 0) continue;
       sum[0] += (px / d) * into;
       sum[1] += (pz / d) * into;
       sum[2] = Math.max(sum[2], into);

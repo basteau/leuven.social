@@ -1,5 +1,5 @@
 import type * as Three from 'three';
-import type { BufferAttribute, Material, Object3D, Scene, Texture } from 'three';
+import type { BufferAttribute, Object3D, Scene, Texture } from 'three';
 
 import type { City } from '../data/city.ts';
 import {
@@ -293,8 +293,6 @@ export interface PlatesHost {
   compile(object: Object3D): Promise<unknown>;
   /** Asks for a frame: the plates are ready to show. */
   changed(): void;
-  /** Lets a plate dither away with the wall it's on, where that stands in front of the avatar. */
-  dither?(material: Material): void;
 }
 
 export interface Plates {
@@ -330,11 +328,8 @@ export function createPlates(host: PlatesHost, data: WalkData): Plates {
     gradientMap: host.gradientMap,
     vertexColors: true,
   });
-  host.dither?.(material);
   // Where the atlas is clear (a board's), its paint: the vertex colour, under paper letters.
-  const dither = material.onBeforeCompile;
-  material.onBeforeCompile = (shader, renderer) => {
-    dither.call(material, shader, renderer);
+  material.onBeforeCompile = (shader) => {
     shader.fragmentShader = shader.fragmentShader.replace(
       '#include <color_fragment>',
       'diffuseColor = vec4(mix(vColor.rgb, diffuseColor.rgb, diffuseColor.a), 1.0);',

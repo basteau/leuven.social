@@ -107,23 +107,6 @@ describe('WalkGrid', () => {
     expect(grid.buildingHeight(50, 47)).toBe(0);
   });
 
-  test('a doorway opens a building’s wall: its cells, and bodies pass its face', () => {
-    const doors = new WalkGrid(town);
-    const out: [number, number] = [0, 0];
-    // The house's south face is z 45; before the door, the wall stops a body there.
-    expect(doors.walkable(50, 44.6)).toBe(false);
-    expect(doors.wallOverlap(50, 45.3, 0.45, out)).toBeGreaterThan(0);
-    expect(doors.wallOverlap(50, 44, 0.45, out)).toBeGreaterThan(0);
-    doors.openDoor(50, 45, 1.2);
-    doors.openDoor(50, 45, 1.2); // once is enough
-    expect(doors.walkable(50, 44.6)).toBe(true);
-    expect(doors.street(doors.cellAt(50, 45.5))).toBe(true);
-    expect(doors.wallOverlap(50, 45.3, 0.45, out)).toBe(0);
-    expect(doors.wallOverlap(50, 44.5, 0.45, out)).toBe(0);
-    // Away from the doorway, the wall is a wall.
-    expect(doors.wallOverlap(44, 45.3, 0.45, out)).toBeGreaterThan(0);
-  });
-
   test('a tank closes the square under it like a building', () => {
     expect(grid.walkable(65, 74)).toBe(false);
     expect(grid.buildingHeight(65, 74)).toBe(8);

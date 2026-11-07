@@ -26,10 +26,14 @@ function setup() {
       this.captured.push(id);
     },
   }) satisfies Surface;
-  const keys = new EventTarget();
-  let changes = 0;
-  const controls = new MapControls(camera, surface, keys, () => changes++);
-  return { camera, surface, keys, controls, changes: () => changes };
+  let [changes, pans] = [0, 0];
+  const controls = new MapControls(
+    camera,
+    surface,
+    () => changes++,
+    () => pans++,
+  );
+  return { camera, surface, controls, changes: () => changes, pans: () => pans };
 }
 
 const pointer = (type: string, id: number, x: number, y: number, more: object = {}) =>
@@ -54,16 +58,22 @@ describe('MapControls', () => {
     expect(at.z).toBeCloseTo(0, 6);
   });
 
-  test('a drag keeps the ground under the finger', () => {
-    const { controls, surface, changes } = setup();
+  test('a drag keeps the ground under the finger, and lets go of the avatar', () => {
+    const { controls, surface, changes, pans } = setup();
+    controls.pinned = true;
     const grabbed = ground(controls, 300, 200);
     surface.dispatchEvent(pointer('pointerdown', 1, 300, 200));
     expect(surface.style.cursor).toBe('grabbing');
     expect(surface.captured).toEqual([1]);
+    // A tap's wobble moves nothing.
+    surface.dispatchEvent(pointer('pointermove', 1, 303, 202));
+    expect([changes(), pans()]).toEqual([0, 0]);
+    expect(controls.pinned).toBe(true);
     surface.dispatchEvent(pointer('pointermove', 1, 420, 330));
     const under = ground(controls, 420, 330);
     expect(under.distanceTo(grabbed)).toBeLessThan(1e-6);
-    expect(changes()).toBe(1);
+    expect([changes(), pans()]).toEqual([1, 1]);
+    expect(controls.pinned).toBe(false);
     surface.dispatchEvent(pointer('pointerup', 1, 420, 330));
     expect(surface.style.cursor).toBe('grab');
     // Moves after the finger lifts do nothing.
@@ -82,6 +92,30 @@ describe('MapControls', () => {
     expect(ground(controls, 500, 300).distanceTo(middle)).toBeLessThan(1e-6);
     surface.dispatchEvent(pointer('pointercancel', 1, 0, 0));
     surface.dispatchEvent(pointer('pointercancel', 2, 0, 0));
+  });
+
+  test('pinned to the avatar, a pinch or the wheel zooms about the target and keeps it', () => {
+    const { camera, controls, surface, pans } = setup();
+    controls.pinned = true;
+    surface.dispatchEvent(pointer('pointerdown', 1, 300, 300));
+    surface.dispatchEvent(pointer('pointerdown', 2, 500, 300));
+    surface.dispatchEvent(pointer('pointermove', 2, 700, 300));
+    expect(camera.zoom).toBeCloseTo(2, 6);
+    expect(controls.target.length()).toBe(0);
+    surface.dispatchEvent(pointer('pointerup', 1, 0, 0));
+    surface.dispatchEvent(pointer('pointerup', 2, 0, 0));
+    surface.dispatchEvent(
+      Object.assign(new Event('wheel', { cancelable: true }), {
+        deltaY: -100,
+        deltaMode: 0,
+        clientX: 100,
+        clientY: 100,
+        ctrlKey: false,
+      }),
+    );
+    expect(camera.zoom).toBeGreaterThan(2);
+    expect(controls.target.length()).toBe(0);
+    expect([pans(), controls.pinned]).toEqual([0, true]);
   });
 
   test('the wheel zooms about the cursor, within the limits', () => {
@@ -114,43 +148,11 @@ describe('MapControls', () => {
     expect(camera.zoom).toBe(4);
   });
 
-  test('the arrow keys pan by a short drag, and only them', () => {
-    const { controls, keys, changes } = setup();
-    const key = (code: string, more: object = {}) => {
-      const event = Object.assign(new Event('keydown', { cancelable: true }), { code, ...more });
-      keys.dispatchEvent(event);
-      return event;
-    };
-    expect(key('ArrowUp').defaultPrevented).toBe(true);
-    // Up shows what lies further up the screen: away from the camera, to the north-west.
-    expect(controls.target.x).toBeLessThan(0);
-    expect(controls.target.z).toBeLessThan(0);
-    key('ArrowDown');
-    expect(controls.target.length()).toBeLessThan(1e-9);
-    key('ArrowLeft');
-    key('ArrowRight');
-    expect(changes()).toBe(4);
-    expect(key('KeyW').defaultPrevented).toBe(false);
-    expect(key('ArrowUp', { shiftKey: true }).defaultPrevented).toBe(false);
-    expect(changes()).toBe(4);
-  });
-
-  test('disabled, or with another mouse button, nothing moves', () => {
-    const { controls, surface, keys, changes } = setup();
+  test('another mouse button moves nothing', () => {
+    const { surface, changes } = setup();
     surface.dispatchEvent(pointer('pointerdown', 1, 10, 10, { pointerType: 'mouse', button: 2 }));
     surface.dispatchEvent(pointer('pointermove', 1, 50, 50));
-    surface.dispatchEvent(pointer('pointerdown', 2, 10, 10));
-    controls.enabled = false;
-    surface.dispatchEvent(pointer('pointermove', 2, 50, 50));
-    surface.dispatchEvent(pointer('pointermove', 2, 60, 60));
-    surface.dispatchEvent(pointer('pointerdown', 3, 10, 10));
-    surface.dispatchEvent(
-      Object.assign(new Event('wheel', { cancelable: true }), { deltaY: 100, deltaMode: 0 }),
-    );
-    keys.dispatchEvent(Object.assign(new Event('keydown'), { code: 'ArrowUp' }));
     expect(changes()).toBe(0);
-    controls.update();
-    expect(changes()).toBe(1);
   });
 
   test('a grab cursor that grabs while dragging, and dispose lets the page scroll again', () => {

@@ -44,16 +44,14 @@ export interface Avatar {
 export const BIKE_STRIDE = 5;
 
 /**
- * A bike: a cruise and a sprint well above a run, a push that takes a few seconds to get going and
- * a coast that takes a few to stop (momentum), turns that widen with speed, and a body about the
- * walker's. Riding is faster walking, with a bell.
+ * A bike: the walker's handling at a bike's paces, a cruise and a sprint well above a run, and a
+ * body a little wider. Riding is walking faster, with a bell: the same keys and taps, the same
+ * starts, stops and turns, only its look, its speed and its pedalling differ.
  */
 export const ON_BIKE: Pace = {
+  ...ON_FOOT,
   walk: 11.5,
   run: 17.5,
-  up: 0.9,
-  down: 0.45,
-  turn: [0.1, 0.32],
   body: 0.5,
   stride: BIKE_STRIDE,
 };
@@ -81,14 +79,6 @@ export function stepAvatar(
   run = false,
 ): boolean {
   return stepWalker(a.walker, dt, steerX, steerZ, ground, run, paceOf(a.mode));
-}
-
-/** Puts the avatar somewhere else at once (a tap far off, a place from the menu), standing. */
-export function jump(a: Avatar, x: number, z: number): void {
-  const w = a.walker;
-  [w.x, w.z, w.speed, w.accel, w.surge, w.turning] = [x, z, 0, 0, 0, 0];
-  w.route = null;
-  w.still = 0;
 }
 
 /** What the avatar is now, as plain data. */

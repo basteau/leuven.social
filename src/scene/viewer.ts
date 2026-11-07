@@ -43,10 +43,7 @@ import type { buildFurniture, drawnGround } from './furniture.ts';
 import {
   BAYER,
   createFacadeMaterial,
-  avatarDither,
   createGlowMaterial,
-  viewDirection,
-  ditherInFront,
   setNight,
   setPixelSize,
 } from './facade-material.ts';
@@ -91,7 +88,7 @@ import type { Spin } from './spin.ts';
 import { terraceParasols } from './terraces.ts';
 import type { Plates } from './plates.ts';
 import type { TrafficLayer } from './vehicles.ts';
-import type { AvatarLayer, RoomPlace } from './avatar-layer.ts';
+import type { AvatarLayer, Refusal, RoomPlace } from './avatar-layer.ts';
 import type { RideAction, RideState } from './bikes.ts';
 import {
   CAMERA_DISTANCE,
@@ -105,23 +102,23 @@ import {
   spanOf,
 } from './lod.ts';
 import type { Detail } from './lod.ts';
-import { ditherRadius } from './occlusion.ts';
 
 export type { RideAction, RideState } from './bikes.ts';
-export type { RoomPlace } from './avatar-layer.ts';
+export type { Refusal, RoomPlace } from './avatar-layer.ts';
 
 export interface ViewerOptions {
   canvas: HTMLCanvasElement;
-  /** Focusable element whose arrow keys pan the map. */
-  keyTarget: HTMLElement;
   city: City;
   reducedMotion: boolean;
-  /** A tap on ground nobody can walk to: a greyed marker there shakes its head too. */
-  onBlocked?: () => void;
+  /** A tap the avatar can't go to (no ground there, or too far): a greyed marker shakes too. */
+  onBlocked?: (why: Refusal) => void;
   /** The avatar's code couldn't be downloaded (it loads once the first frame is drawn). */
   onAvatarUnavailable?: () => void;
-  /** The view came close enough to show the avatar's figure, or went too far for it. */
-  onAvatarShown?: (shown: boolean) => void;
+  /**
+   * Where the avatar is on the canvas (CSS px from its top left, possibly off it), and whether
+   * its figure is drawn there; called whenever either changes, for its arrow.
+   */
+  onAvatarAt?: (x: number, y: number, figure: boolean) => void;
   /** The street or square under the avatar changed (null: none, or the view too far out). */
   onStreetChange?: (name: string | null) => void;
   /** A bike is near enough to ride, or being ridden, or neither any more. */
@@ -130,6 +127,8 @@ export interface ViewerOptions {
   onPlaceChange?: (place: { room: string; floor: string } | null) => void;
   /** The rooms couldn't load: a sentence for a person. Their doors stay shut. */
   onRoomsUnavailable?: (message: string) => void;
+  /** A building you can go into is beside the avatar (`inside` false), it's in one, or neither. */
+  onDoor?: (door: { room: string; inside: boolean } | null) => void;
   /** Which way the view looks, clockwise from north (radians), whenever it turns. */
   onHeading?: (heading: number) => void;
   /** The light changed: a new time of day, or the day passing. The app paints the sky from it. */
@@ -155,19 +154,19 @@ export interface Viewer {
   steer(right: number, up: number): void;
   /** Runs (or sprints on a bike) instead of walking, while on. */
   run(on: boolean): void;
-  /** Brings the camera back to the avatar. */
+  /** Pins the camera to the avatar again. */
   recentre(): void;
   /**
-   * Puts the avatar on the street nearest a spot on the ground (metres east and south of the
-   * middle, as `City` has them) and brings the camera there.
+   * Takes the camera to a spot on the ground (metres east and south of the middle, as `City` has
+   * them), down to the street; the avatar stays where it is.
    */
-  goTo(x: number, z: number): void;
+  lookAt(x: number, z: number): void;
   /** Gets on or off the nearest bike, or rings its bell. */
   ride(action: RideAction): void;
+  /** Goes into the building beside the avatar (Enter), or back out of the one it's in. */
+  door(): void;
   /** The rooms there are inside the landmarks, for the menu (their data loads now if need be). */
   rooms(): Promise<RoomPlace[]>;
-  /** Puts the avatar inside a room, just in from its door, or on floor `level`. */
-  goInside(id: string, level?: number): void;
   /** The time of day: the preset nearest the hour, and whether the day is passing. */
   timeOfDay(): { preset: PresetId; passing: boolean };
   /** Steps to the next time of day (morning, midday, golden hour, dusk, night) and names it. */
@@ -296,7 +295,7 @@ function toonGradient(): DataTexture {
 }
 
 export function createViewer(options: ViewerOptions): Viewer {
-  const { canvas, keyTarget, city, reducedMotion } = options;
+  const { canvas, city, reducedMotion } = options;
   // Dense screens are smooth already; only standard-density ones pay for multisampling.
   const density = Math.min(globalThis.devicePixelRatio || 1, 2);
   const renderer = new WebGLRenderer({ canvas, alpha: true, antialias: density < 1.5 });
@@ -320,7 +319,6 @@ export function createViewer(options: ViewerOptions): Viewer {
   // A mesh without a `facade` attribute (street furniture) reads 0: a plain surface.
   Object.assign(material, { defaultAttributeValues: { facade: [0], lift: [0] } });
   const ink = new LineBasicMaterial({ color: OUTLINE });
-  ditherInFront(ink, 'ink-v3');
   // The lamps' light at night: the same night uniform as the windows.
   const lamps = { value: 0 };
   const glowMaterial = createGlowMaterial(lamps);
@@ -583,7 +581,13 @@ export function createViewer(options: ViewerOptions): Viewer {
   // The one camera, from the whole city down to a street (lod.ts).
   const camera = new OrthographicCamera(-1, 1, 1, -1, 1, CAMERA_DISTANCE * 2);
   // Arrow keys pan while the map has focus.
-  const controls = new MapControls(camera, canvas, keyTarget, () => onChange());
+  // A drag lets go of the avatar; zooming keeps it in the middle (map-controls.ts).
+  const controls = new MapControls(
+    camera,
+    canvas,
+    () => onChange(),
+    () => avatar?.letGo(),
+  );
   [controls.minZoom, controls.maxZoom] = [MIN_ZOOM, MAX_ZOOM];
 
   /** Height of the view (m) where it looks: what decides how much detail is worth drawing. */
@@ -863,11 +867,17 @@ export function createViewer(options: ViewerOptions): Viewer {
     plates?.update(t.x, t.z, detail.plates);
     avatar?.detail(detail, span);
     const shown = detail.avatar === 'figure';
-    // What stands between the camera and the avatar dithers away, while its figure shows.
-    const [fx, fy, fz] = avatar?.feet ?? [0, 0, 0];
-    avatarDither.value.set(fx, fy, fz, shown && avatar ? ditherRadius(span) : 0);
-    camera.getWorldDirection(viewDirection.value);
-    if (shown !== avatarShown) options.onAvatarShown?.((avatarShown = shown));
+    if (avatar) {
+      // Where the avatar is on screen, for its arrow: only when that changes by a pixel.
+      at.set(...avatar.feet).project(camera);
+      const [ax, ay] = [((at.x + 1) / 2) * width, ((1 - at.y) / 2) * height];
+      // Written as "not within a pixel", so the first frame (NaN) says where it is too.
+      const still = Math.abs(ax - avatarAt[0]) < 1 && Math.abs(ay - avatarAt[1]) < 1;
+      if (shown !== avatarShown || !still) {
+        [avatarAt[0], avatarAt[1], avatarShown] = [ax, ay, shown];
+        options.onAvatarAt?.(ax, ay, shown);
+      }
+    }
     // Fine road paint is drawn last in each cell, so a view too far out to see it can stop short.
     for (const { objects, fineVertices } of cells) {
       (objects[0] as Mesh | undefined)?.geometry.setDrawRange(
@@ -919,6 +929,8 @@ export function createViewer(options: ViewerOptions): Viewer {
   let signed: string | null = null;
   const signedAt = { x: Number.NaN, z: Number.NaN };
   let avatarShown = false;
+  const avatarAt: [number, number] = [Number.NaN, Number.NaN];
+  const at = new Vector3();
   function signStreet(): void {
     if (!options.onStreetChange) return;
     let name: string | null = null;
@@ -978,6 +990,7 @@ export function createViewer(options: ViewerOptions): Viewer {
           openWalls,
           ...(options.onPlaceChange && { onPlace: options.onPlaceChange }),
           ...(options.onRoomsUnavailable && { onRoomsUnavailable: options.onRoomsUnavailable }),
+          ...(options.onDoor && { onDoor: options.onDoor }),
           ...(options.onBlocked && { onBlocked: options.onBlocked }),
           ...(options.onRideChange && { onRide: options.onRideChange }),
         });
@@ -1020,7 +1033,6 @@ export function createViewer(options: ViewerOptions): Viewer {
           anisotropy: Math.min(8, renderer.capabilities.getMaxAnisotropy()),
           compile: (object) => renderer.compileAsync(object, camera, scene),
           changed: invalidate,
-          dither: (plate) => ditherInFront(plate, 'plates-v2'),
         }),
       )
       .then(
@@ -1070,10 +1082,9 @@ export function createViewer(options: ViewerOptions): Viewer {
       t.set(cx, cy, cz);
     }
   }
-  /** The view moved by hand: a pan, a pinch, a wheel. Following the avatar waits a while. */
+  /** The view moved by hand: a pan, a pinch, a wheel. */
   function onChange(): void {
     clampTarget();
-    avatar?.moved();
     invalidate();
   }
 
@@ -1137,15 +1148,12 @@ export function createViewer(options: ViewerOptions): Viewer {
     invalidate();
   }
 
+  /** North at the top again, and the camera back on the avatar (over Grote Markt before it loads). */
   function resetView(): void {
     stopTurning();
-    avatar?.moved();
     yaw = Math.PI / 4;
-    // Inside a room the zoom keeps to the room's limits.
-    camera.zoom = Math.min(controls.maxZoom, Math.max(controls.minZoom, 1));
-    camera.updateProjectionMatrix();
-    controls.target.set(0, 0, 0);
     placeCamera();
+    avatar?.recentre();
   }
 
   // A tap on the map (not a pan, not a pinch) sends the avatar there: the one pointer handler
@@ -1420,10 +1428,10 @@ export function createViewer(options: ViewerOptions): Viewer {
     steer: (x, y) => avatar?.steer(x, y),
     run: (on) => avatar?.run(on),
     recentre: () => avatar?.recentre(),
-    goTo: (x, z) => withAvatar((loaded) => loaded.goTo(x, z)),
+    lookAt: (x, z) => withAvatar((loaded) => loaded.lookAt(x, z)),
+    door: () => avatar?.door(),
     ride: (action) => withAvatar((loaded) => loaded.ride(action)),
     rooms: () => loadAvatar().then((loaded) => loaded.rooms()),
-    goInside: (id, level) => withAvatar((loaded) => loaded.goInside(id, level)),
     spin: spinMap,
     timeOfDay: () => ({ preset: presetAt(hour), passing }),
     nextTimeOfDay,

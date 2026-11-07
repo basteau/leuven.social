@@ -6,6 +6,7 @@ import { KEYCAPS } from './input.ts';
 
 const state = (over: Partial<CommandState> = {}): CommandState => ({
   ride: '',
+  door: null,
   running: false,
   soundOn: true,
   time: 'golden',
@@ -37,9 +38,22 @@ describe('commandsFor', () => {
     ]);
   });
 
-  test('Back to you brings the view back, as Esc does', () => {
-    expect(byId(state(), 'recentre')).toMatchObject({ action: 'recentre', keys: [['Esc']] });
+  test('Back to you brings the view back, as Space does', () => {
+    expect(byId(state(), 'recentre')).toMatchObject({ action: 'recentre', keys: [['Space']] });
     expect(byId(state(), 'turn-left')?.detail).toContain('quarter');
+  });
+
+  test('beside a building you can go into, Enter goes in; inside, it goes out', () => {
+    expect(
+      byId(state({ door: { room: 'Sint-Pieterskerk', inside: false } }), 'door'),
+    ).toMatchObject({
+      label: 'Go into Sint-Pieterskerk',
+      keys: [['↵']],
+    });
+    expect(byId(state({ door: { room: 'Sint-Pieterskerk', inside: true } }), 'door')?.label).toBe(
+      'Leave Sint-Pieterskerk',
+    );
+    expect(byId(state(), 'door')).toBeUndefined();
   });
 
   test('a bike nearby offers a ride; riding offers getting off, sprint and the bell', () => {

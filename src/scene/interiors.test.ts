@@ -33,8 +33,9 @@ describe('the rooms in the scene', () => {
     expect(rooms.byId('nope')).toBeUndefined();
     expect(rooms.roomAt(5, 5)).toBe(HALL);
     expect(rooms.roomAt(25, 5)).toBeUndefined();
-    expect(rooms.near(10, 14, 3)).toBe(HALL);
-    expect(rooms.near(10, 30, 3)).toBeUndefined();
+    expect(rooms.beside(10, 14, 3)).toBe(HALL);
+    expect(rooms.beside(5, 5, 3)).toBe(HALL);
+    expect(rooms.beside(10, 30, 3)).toBeUndefined();
     expect(Array.from(rooms.footprint(HALL))).toEqual([0, 0, 20, 0, 20, 12, 0, 12]);
   });
 

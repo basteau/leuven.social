@@ -57,19 +57,23 @@ export function createCharacterMaterial(gradientMap: Texture, fade: Fade): MeshT
 }
 
 /**
- * The walker's silhouette where the city hides it: a checkerboard of the HUD's accent blue, readable on
- * slate roofs and pale walls alike. It draws only where something nearer already filled the
- * depth buffer, and never for the shadow.
+ * The avatar's silhouette where a house hides it, as Diablo IV draws its hero: a flat fill in
+ * its shirt's coral, half see-through, drawn only where something nearer already filled the depth
+ * buffer, so it shows nothing in an open street and the houses themselves never change. One
+ * small mesh, so its blending costs nothing to speak of.
  */
 export function createXrayMaterial(fade: Fade): MeshBasicMaterial {
   const material = new MeshBasicMaterial({
-    color: WALKER.xray,
+    color: WALKER.shirt,
     depthFunc: GreaterDepth,
     depthWrite: false,
+    transparent: true,
+    opacity: 0.45,
   });
-  // Not the soles either: mid-stride their corners dip into the street, which isn't hiding them.
+  // Not the blob shadow or the soles: mid-stride their corners dip into the street, which isn't
+  // hiding them.
   material.onBeforeCompile = (shader) =>
-    withDither(shader, fade, `if (vDither > 0.5 || vHeight < 0.25 || !(${CHECKER})) discard;`);
-  material.customProgramCacheKey = () => 'walker-xray-v2';
+    withDither(shader, fade, 'if (vDither > 0.5 || vHeight < 0.25) discard;');
+  material.customProgramCacheKey = () => 'walker-xray-v3';
   return material;
 }

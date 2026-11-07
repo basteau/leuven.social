@@ -24,9 +24,32 @@ export const BikeIcon = () => (
   </svg>
 );
 
+/** A door in its arch, ajar: going into a building, or out of it. */
+export const DoorIcon = () => (
+  <svg {...iconBase}>
+    <path d="M5 21V10a7 7 0 0 1 14 0v11M3 21h18M12 21V8l5 2v11" />
+  </svg>
+);
+
 /** The menu: three lines, the shape people look for to find everything else. */
 export const MenuIcon = () => (
   <svg {...iconBase}>
     <path d="M4 7h16M4 12h16M4 17h10" />
+  </svg>
+);
+
+/**
+ * The avatar's arrow: a coral arrowhead in ink, pointing down at it (rotated for the edge of
+ * the screen), in the avatar's own shirt colour so it reads as "you".
+ */
+export const ArrowIcon = () => (
+  <svg width="26" height="30" viewBox="0 0 26 30" aria-hidden="true">
+    <path
+      d="M13 28 L3 14 H9 V3 H17 V14 H23 Z"
+      fill="var(--you, #fa8064)"
+      stroke="var(--ink)"
+      strokeWidth="2.5"
+      strokeLinejoin="round"
+    />
   </svg>
 );

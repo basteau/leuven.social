@@ -2,7 +2,7 @@ import { LineSegments, Mesh } from 'three';
 import type { Material, Scene } from 'three';
 
 import type { City } from '../data/city.ts';
-import { inRing, ringBox } from '../data/cell-grid.ts';
+import { inRing, ringBox, ringDistance } from '../data/cell-grid.ts';
 import { RoomGrid } from '../data/room-grid.ts';
 import { Router } from '../data/route.ts';
 import { ROOMS_FILE, RoomLoadError, ceiling, parseRooms, standing } from '../data/rooms.ts';
@@ -46,8 +46,8 @@ export interface Interiors {
   footprint(room: Room): ArrayLike<number>;
   /** The room whose footprint holds (x, z), if any. */
   roomAt(x: number, z: number): Room | undefined;
-  /** The room with a door within `reach` of (x, z), if any. */
-  near(x: number, z: number, reach: number): Room | undefined;
+  /** The room whose building stands within `reach` of (x, z), or round it, if any. */
+  beside(x: number, z: number, reach: number): Room | undefined;
   /** A floor's walk grid and its router, built the first time they are asked for. */
   grid(room: Room, level: number): RoomGrid;
   router(room: Room, level: number): Router;
@@ -185,7 +185,11 @@ export function createInteriors(kit: InteriorsKit, rooms: Room[]): Interiors {
     byId: (id) => rooms.find((r) => r.id === id),
     footprint: (room) => rings.get(room) ?? [],
     roomAt: (x, z) => rooms.find((r) => inRing(rings.get(r) ?? [], x, z)),
-    near: (x, z, reach) => rooms.find((r) => Math.hypot(r.door.x - x, r.door.z - z) <= reach),
+    beside: (x, z, reach) =>
+      rooms.find((r) => {
+        const ring = rings.get(r) ?? [];
+        return ring.length > 0 && (inRing(ring, x, z) || ringDistance(ring, x, z) <= reach);
+      }),
     grid,
     router(room, level) {
       const k = `${room.id} ${level}`;

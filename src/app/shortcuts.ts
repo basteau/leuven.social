@@ -8,8 +8,8 @@ import type { TurnHold } from './input.ts';
 /**
  * Keys held to walk, by where they sit rather than what they type, so W A S D and Q E keep their
  * shape on AZERTY (Belgium's own layout) as on QWERTY. Walking keys are screen directions (right,
- * up); turning keys turn the map (left -1, right 1); Shift runs. The arrows pan the map (the map
- * controls take them), so every key has one meaning.
+ * up); turning keys turn the map (left -1, right 1); Shift runs. The arrows do nothing: the map
+ * pans by dragging, and one way to walk is easier to remember than two.
  */
 const WALK_KEYS: Record<string, readonly [number, number]> = {
   KeyW: [0, 1],
@@ -46,9 +46,9 @@ export interface ShortcutTarget {
 }
 
 /**
- * The keyboard, one map of keys with no modes: arrows pan, + and - zoom, Q and E turn the map,
- * held W A S D walk the avatar (Shift runs), F takes or leaves a bike and B rings its bell, Esc
- * brings the view back to the avatar, R resets the view, M mutes, T and P set the time of day and
+ * The keyboard, one map of keys with no modes: + and - zoom, Q and E turn the map,
+ * held W A S D walk the avatar (Shift runs), F takes or leaves a bike and B rings its bell, Space
+ * (or Esc) brings the view back to the avatar, R turns north up and back to you, M mutes, T and P set the time of day and
  * C the traffic. ⌘K and its kin open the menu. Shortcuts act while focus is anywhere in the app
  * except the menu, not in the rest of the page.
  */
@@ -130,6 +130,8 @@ export function useShortcuts(target: ShortcutTarget): void {
         KeyF: () => viewer.ride('toggle'),
         KeyB: () => viewer.ride('bell'),
       };
+      // Space on a focused button or link presses that instead.
+      const onControl = event.target instanceof Element && !!event.target.closest('button, a');
       const byKey: Record<string, () => void> = {
         '+': () => viewer.zoomBy(1.25),
         '=': () => viewer.zoomBy(1.25),
@@ -139,6 +141,9 @@ export function useShortcuts(target: ShortcutTarget): void {
         p: target.togglePassing,
         c: target.toggleTraffic,
         r: () => viewer.resetView(),
+        // Space brings the view back to you, as in games with a free camera; Escape too. Enter
+        // goes into the building beside you, or out of it.
+        ...(!onControl && { ' ': () => viewer.recentre(), enter: () => viewer.door() }),
         escape: () => viewer.recentre(),
       };
       (byCode[code] ?? byKey[key])?.();

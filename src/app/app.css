@@ -96,6 +96,68 @@ kbd {
   content: '';
 }
 
+/*
+ * The arrow that marks the avatar. Over its head (its tip on the avatar, a slow bob) while the
+ * view is too far out to see it; at the edge of the screen, on an inked paper disc pointing its
+ * way, when it's off screen, where it's the way back. Placed by translate from the viewer's
+ * frames, so a pan moves it without a layout.
+ */
+.avatar-arrow {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  pointer-events: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.avatar-arrow svg {
+  display: block;
+  translate: -50% calc(-100% - 6px);
+  filter: drop-shadow(0 2px 0 color-mix(in oklch, var(--ink) 35%, transparent));
+}
+
+.avatar-arrow[data-edge='true'] {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+/* At the edge: a disc, and the arrow in it turned toward the avatar. */
+.avatar-arrow[data-edge='true']::before {
+  position: absolute;
+  inset-block-start: -22px;
+  inset-inline-start: -22px;
+  inline-size: 44px;
+  block-size: 44px;
+  border: var(--border) solid var(--ink);
+  border-radius: 50%;
+  background: var(--paper);
+  box-shadow: var(--shadow-hard);
+  content: '';
+}
+
+.avatar-arrow[data-edge='true'] svg {
+  position: relative;
+  translate: -50% -50%;
+  rotate: var(--turn);
+  scale: 0.7;
+  filter: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .avatar-arrow[data-edge='false'] svg {
+    animation: arrow-bob 1.4s ease-in-out infinite alternate;
+  }
+}
+
+@keyframes arrow-bob {
+  to {
+    translate: -50% calc(-100% - 12px);
+  }
+}
+
 .city {
   position: absolute;
   inset: 0;

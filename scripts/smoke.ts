@@ -154,6 +154,10 @@ async function expectShortTasks(viewport: string): Promise<void> {
   console.log(`ok  ${viewport}: longest task ${longest} ms`);
 }
 
+/** A tap at (x, y): down and up in one go, as quick as a person's (a slow press is no tap). */
+const tapAt = (x: number, y: number) =>
+  browser('batch', `mouse move ${x} ${y}`, 'mouse down', 'mouse up');
+
 /** Drags the map with the mouse, as a person panning would, in a few steps. */
 async function drag(dx: number, dy: number): Promise<void> {
   const [x, y] = [640, 400];
@@ -188,12 +192,19 @@ async function expectBareMap(): Promise<void> {
   }
   await browser('wait', '--fn', `!document.getElementById('intro')`);
   const buttons = await evalJson<string[]>(
-    `JSON.stringify([...document.querySelectorAll('main button')].filter((b) => b.checkVisibility() && !b.closest('dialog')).map((b) => b.getAttribute('aria-label') ?? b.textContent))`,
+    `JSON.stringify([...document.querySelectorAll('main button:not(.avatar-arrow)')].filter((b) => b.checkVisibility() && !b.closest('dialog')).map((b) => b.getAttribute('aria-label') ?? b.textContent))`,
   );
   if (buttons.join() !== 'Menu') {
     throw new Error(`the map should show only the menu button, not ${buttons.join(', ')}`);
   }
-  console.log('ok  loading screen in the HTML, then a bare map with the menu button');
+  // And the arrow over the avatar, far out at the default view: a marker, not a control.
+  const arrow = await evalJson<string>(
+    `JSON.stringify(document.querySelector('.avatar-arrow')?.hidden === false && document.querySelector('.avatar-arrow').dataset.edge)`,
+  );
+  if (arrow !== 'false') throw new Error(`the arrow over the avatar isn't showing (${arrow})`);
+  console.log(
+    'ok  loading screen in the HTML, then a bare map: the menu button and the arrow over you',
+  );
 }
 
 const menu = {
@@ -223,7 +234,7 @@ async function expectMenu(): Promise<void> {
   const rows = await evalJson<{ label: string; keys: string }[]>(
     `JSON.stringify([...document.querySelectorAll('[role=option]')].map((o) => ({ label: o.querySelector('.menu-option-label').textContent, keys: o.querySelector('.keycaps').textContent })))`,
   );
-  for (const name of ['Back to you', 'Zoom in', 'Turn left', 'Reset view', 'Mute']) {
+  for (const name of ['Back to you', 'Zoom in', 'Turn left', 'North up', 'Mute']) {
     const row = rows.find((r) => r.label === name);
     if (!row?.keys) throw new Error(`the menu has no "${name}" with its keys`);
   }
@@ -340,7 +351,11 @@ const walker = () => evalJson<string>(`JSON.stringify(${canvasData('walker')} ??
 /** Pans and the like are no taps: the avatar must still be where it was. */
 async function expectStill(after: string, before: string): Promise<void> {
   const now = await walker();
-  if (now !== before) throw new Error(`${after} moved the avatar (${before} to ${now})`);
+  // It publishes where it is each metre, and the last few centimetres of a stop once at rest.
+  const [a, b] = [before, now].map((p) => p.split(' ').map(Number));
+  if (!(Math.hypot(a![0]! - b![0]!, a![1]! - b![1]!) < 1.5)) {
+    throw new Error(`${after} moved the avatar (${before} to ${now})`);
+  }
   console.log(`ok  ${after} didn't move the avatar`);
 }
 
@@ -379,9 +394,7 @@ async function expectWalking(): Promise<void> {
   console.log(`ok  plates on the facades close to the street: ${plates}`);
   // A tap a little way off walks it there.
   const before = await walker();
-  await browser('mouse', 'move', '700', '360');
-  await browser('mouse', 'down');
-  await browser('mouse', 'up');
+  await tapAt(700, 360);
   await browser(
     'wait',
     '--timeout',
@@ -422,17 +435,22 @@ const canvasNumber = async (name: string) =>
  */
 async function expectRiding(): Promise<void> {
   const [x, z] = await nearestRack();
+  // North up and the view back on the avatar, at a zoom that shows a few streets.
   await browser('press', 'r');
-  await browser('wait', '400');
-  // The map turned a quarter from north, at zoom 1: 800 px show 560 m. A drag keeps the ground
-  // under the pointer: across by its screen width, along foreshortened by the isometric pitch.
-  const k = 800 / 560;
-  const s = Math.SQRT1_2;
-  const [dx, dy] = [-(x * s - z * s) * k, (-x * s - z * s) * k * Math.sqrt(1 / 3)];
+  for (let i = 0; i < 4; i++) await browser('press', '+');
   // Standing still, so whatever moves it from here is the drag's doing.
   await browser('wait', '--fn', `${canvasData('speed')} === '0.0'`);
-  await browser('wait', '500');
+  await browser('wait', '1500');
   const before = await walker();
+  const [ax, az] = before.split(' ').map(Number);
+  const zoom = await canvasNumber('zoom');
+  // The map turned a quarter from north: 800 px show 560 m at zoom 1, and the view is on the
+  // avatar. A drag keeps the ground under the pointer: across by its screen width, along
+  // foreshortened by the isometric pitch.
+  const k = (800 * zoom) / 560;
+  const s = Math.SQRT1_2;
+  const [rx, rz] = [x - ax!, z - az!];
+  const [dx, dy] = [-(rx * s - rz * s) * k, (-rx * s - rz * s) * k * Math.sqrt(1 / 3)];
   await browser('mouse', 'move', '640', '400');
   await browser('mouse', 'down');
   for (let i = 1; i <= 4; i++) {
@@ -446,10 +464,8 @@ async function expectRiding(): Promise<void> {
   await browser('mouse', 'up');
   await browser('wait', '400');
   await expectStill('dragging the map', before);
-  // A tap in the middle of the view, where the drag brought the rack, sends the avatar there.
-  await browser('mouse', 'move', '640', '400');
-  await browser('mouse', 'down');
-  await browser('mouse', 'up');
+  // A tap in the middle of the view, where the drag brought the rack, walks the avatar there.
+  await tapAt(640, 400);
   await browser(
     'wait',
     '--timeout',
@@ -461,9 +477,9 @@ async function expectRiding(): Promise<void> {
   await browser(
     'wait',
     '--timeout',
-    '20000',
+    '30000',
     '--fn',
-    `(() => { const [a, b] = ${canvasData('walker')}.split(' ').map(Number); return Math.hypot(a - ${x}, b - ${z}) < 40; })()`,
+    `(() => { const [a, b] = ${canvasData('walker')}.split(' ').map(Number); return Math.hypot(a - ${x}, b - ${z}) < 20; })()`,
   );
   await browser('eval', key('keydown', 'KeyF'));
   await browser('eval', key('keyup', 'KeyF'));
@@ -508,50 +524,56 @@ const tasksSince = (since: number) =>
     })`,
   );
 
+/** Presses a key on the map as a person would (agent-browser's Escape hides the page). */
+const press = (name: string, code = name) =>
+  browser(
+    'eval',
+    ['keydown', 'keyup']
+      .map(
+        (type) =>
+          `document.querySelector('.map').dispatchEvent(new KeyboardEvent('${type}', { key: '${name}', code: '${code}', bubbles: true }))`,
+      )
+      .join(';'),
+  );
+
 /**
- * A room: the menu takes the avatar inside Sint-Pieterskerk, through its door, the roof lifted
- * and its floors drawn, and up to its organ gallery, without a long task; a place outside takes
- * it back to the street.
+ * A room: the menu takes the view to Sint-Pieterskerk, a tap on the church walks the avatar to
+ * the street beside it, where Enter (shown on its pill) takes it in: the roof lifted, its floors
+ * drawn. Enter again takes it back out, with no long task either way.
  */
 async function expectRoom(): Promise<void> {
   const before = await evalJson<number>('JSON.stringify(performance.now())');
-  await runFromMenu('inside', 'Inside Sint-Pieterskerk');
+  await runFromMenu('pieters', 'Sint-Pieterskerk');
+  await browser('wait', '2000'); // the view has come down to its door
+  await tapAt(640, 400);
   await browser(
     'wait',
     '--timeout',
-    '15000',
+    '45000',
     '--fn',
-    `${canvasData('place')} === 'sint-pieterskerk'`,
+    `${canvasData('door')} === 'sint-pieterskerk'`,
   );
-  await browser('wait', '1500');
-  const sign = await evalJson<string>(
-    `JSON.stringify(document.querySelector('.sign-name')?.textContent)`,
-  );
-  if (sign !== 'Sint-Pieterskerk · Nave') throw new Error(`inside, the sign says ${sign}`);
-  await browser('screenshot', `${ARTIFACTS}smoke-room.png`);
-  await expectHealthyPage('desktop inside Sint-Pieterskerk');
-  // Walking about inside, against its walls and pews.
-  await holdKeys(['d'], 600);
-  await holdKeys(['w'], 600);
-  // Upstairs: the organ gallery, the nave drawn below it through the stairwell.
-  await runFromMenu('gallery', 'Sint-Pieterskerk, organ gallery');
-  await browser('wait', '--fn', `${canvasData('floor')} === '1'`);
   await browser(
     'wait',
     '--fn',
-    `document.querySelector('.sign-name')?.textContent === 'Sint-Pieterskerk · Organ gallery'`,
+    `[...document.querySelectorAll('.action')].some((b) => b.textContent.includes('Go in'))`,
+  );
+  await press('Enter');
+  await browser('wait', '--fn', `${canvasData('place')} === 'sint-pieterskerk'`);
+  await browser(
+    'wait',
+    '--fn',
+    `document.querySelector('.sign-name')?.textContent === 'Sint-Pieterskerk · Nave'`,
   );
   await browser('wait', '1500');
-  await browser('screenshot', `${ARTIFACTS}smoke-gallery.png`);
-  await expectHealthyPage('desktop on the organ gallery');
-  await runFromMenu('grote markt', 'Grote Markt');
+  await browser('screenshot', `${ARTIFACTS}smoke-room.png`);
+  await expectHealthyPage('desktop inside Sint-Pieterskerk');
+  await press('Enter');
   await browser('wait', '--fn', `${canvasData('place')} === ''`);
   const hitches = (await tasksSince(before)).filter((ms) => ms > 50);
   if (hitches.length)
     throw new Error(`going in and out of a room took ${hitches.join(', ')} ms tasks`);
-  console.log(
-    'ok  in and out of Sint-Pieterskerk, up to its gallery, its sign, and no long task on the way',
-  );
+  console.log('ok  beside Sint-Pieterskerk, Enter took the avatar in and out, no long task');
   await expectHealthyPage('desktop back out of the room');
 }
 

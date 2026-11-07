@@ -53,7 +53,7 @@ export interface MenuProps {
   /** Places by name, when the viewer can put the avatar at a spot. */
   places?: { city: PlaceData; go: (place: Place) => void };
   /** The rooms inside the landmarks, once their data has come, and going inside one. */
-  rooms?: { list: readonly RoomPlace[]; go: (id: string, level: number) => void };
+  rooms?: { list: readonly RoomPlace[]; go: (room: RoomPlace) => void };
 }
 
 type PlaceData = Parameters<typeof placesOf>[0];
@@ -142,26 +142,24 @@ export function CommandMenu(props: MenuProps) {
     const commands = [...commandsFor(state), ...keyCommands(sheet)].map((c): Row =>
       Object.assign(c, { choose: choose(c.action) }),
     );
-    // The few rooms are always listed: going inside is something to find without knowing a name.
-    const rooms = (props.rooms?.list ?? []).flatMap((room) =>
-      room.floors.map(({ level, name }): Row => ({
-        id: `room-${room.id}-${level}`,
-        group: 'places',
-        label: level ? `${room.name}, ${name.toLowerCase()}` : `Inside ${room.name}`,
-        detail: level ? 'Up the stair inside' : 'Go in through its door',
-        keywords: `inside room interior enter go in church building floor upstairs ${name}`,
-        keys: [],
-        icon: 'place',
-        choose: () => props.rooms?.go(room.id, level),
-      })),
-    );
+    // The few buildings you can go into are always listed: something to find without a name.
+    const rooms = (props.rooms?.list ?? []).map((room): Row => ({
+      id: `room-${room.id}`,
+      group: 'places',
+      label: room.name,
+      detail: 'Its door is open: walk in',
+      keywords: 'inside room interior enter go in church building door',
+      keys: [],
+      icon: 'place',
+      choose: () => props.rooms?.go(room),
+    }));
     if (!props.places || query.trim().length < PLACE_QUERY) return [...commands, ...rooms];
     const { go, city } = props.places;
     const places = placesIn(city).map((place): Row => ({
       id: `place-${place.name}`,
       group: 'places',
       label: place.name,
-      detail: place.kind === 'square' ? 'Square · go there' : 'Street · go there',
+      detail: place.kind === 'square' ? 'Square · look there' : 'Street · look there',
       keywords: place.kind,
       keys: [],
       icon: 'place',

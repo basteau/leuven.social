@@ -17,17 +17,18 @@ import { CITY_URL, loadCity } from '../data/load.ts';
 import type { Place } from '../data/places.ts';
 import { presetAt } from '../scene/daylight.ts';
 import type { Daylight, PresetId } from '../scene/daylight.ts';
-import type { RideState, RoomPlace, Viewer } from '../scene/viewer.ts';
+import type { Refusal, RideState, RoomPlace, Viewer } from '../scene/viewer.ts';
 import type { ActionId, CommandState } from './commands.ts';
 import type { MenuPage } from './command-menu.tsx';
 import { ActionButton } from './controls.tsx';
 import { Credits } from './credits.tsx';
-import { BikeIcon, MenuIcon } from './icons.tsx';
+import { ArrowIcon, BikeIcon, DoorIcon, MenuIcon } from './icons.tsx';
 import { createTurnHold, KEYCAPS, layoutKeycaps, modKey } from './input.ts';
 import type { KeyboardLayout, Keycaps } from './input.ts';
 import { introErrorSlot, removeIntro, showKeys, showStep } from './intro.ts';
 import { loadStep, stallWatch, unlessAborted } from './loading.ts';
 import type { LoadState } from './loading.ts';
+import { pointerFor } from './pointer.ts';
 import { useShortcuts } from './shortcuts.ts';
 import { StreetSign } from './street-sign.tsx';
 
@@ -64,10 +65,10 @@ class MenuGuard extends Component<{ onError: () => void; children: ReactNode }> 
 
 /** The map's description, naming the keys as this keyboard types them. */
 const mapLabel = (k: Keycaps, mod: string) =>
-  `Map of Leuven’s centre around Grote Markt, Oude Markt and Ladeuzeplein, with you on it. Drag or use the arrow keys to pan; scroll, pinch or press plus and minus to zoom, down to the street; ${k.KeyQ} and ${k.KeyE} turn the map. ${k.KeyW}, ${k.KeyA}, ${k.KeyS} and ${k.KeyD} walk, and hold Shift to run; click or tap a street to walk there; F rides the nearest bike; Escape brings the view back to you. ${mod} K or slash opens the menu, with every command and key.`;
+  `Map of Leuven’s centre around Grote Markt, Oude Markt and Ladeuzeplein, with you on it. Drag to look around; scroll, pinch or press plus and minus to zoom, down to the street; ${k.KeyQ} and ${k.KeyE} turn the map. ${k.KeyW}, ${k.KeyA}, ${k.KeyS} and ${k.KeyD} walk, and hold Shift to run; click or tap a street nearby to walk there; F rides the nearest bike; Enter goes into a building beside you, or out; Space brings the view back to you. ${mod} K or slash opens the menu, with every command and key.`;
 /** Riding, the map says how. */
 const rideLabel = (k: Keycaps, mod: string) =>
-  `Riding a bike in Leuven. ${k.KeyW}, ${k.KeyA}, ${k.KeyS} and ${k.KeyD} ride, Shift sprints, B rings the bell and F gets off; click or tap a street to ride there. Escape brings the view back to you. ${mod} K or slash opens the menu.`;
+  `Riding a bike in Leuven. ${k.KeyW}, ${k.KeyA}, ${k.KeyS} and ${k.KeyD} ride, Shift sprints, B rings the bell and F gets off; click or tap a street nearby to ride there. Space brings the view back to you. ${mod} K or slash opens the menu.`;
 
 /**
  * How to walk is shown the first time the view comes close enough to show the avatar, until a
@@ -151,7 +152,10 @@ export function App() {
   const [status, setStatus] = useState<Status>({ state: 'loading' });
   const [attempt, setAttempt] = useState(0);
   const retryRef = useRef<HTMLButtonElement>(null);
-  const [blocked, setBlocked] = useState(0);
+  /** A tap the avatar couldn't go to, and why, until the next try. */
+  const [blocked, setBlocked] = useState<Refusal | null>(null);
+  /** The arrow that marks the avatar, placed by hand: it moves with every frame that pans. */
+  const arrowRef = useRef<HTMLButtonElement>(null);
   const [running, setRunning] = useState(false);
   const runningRef = useRef(running);
   /** Whether the avatar's code failed to download, and whether the view is close enough to show it. */
@@ -160,6 +164,8 @@ export function App() {
   const [street, setStreet] = useState<string | null>(null);
   /** The room the avatar is in, and its floor, or null in the street. */
   const [inside, setInside] = useState<{ room: string; floor: string } | null>(null);
+  /** A building you can go into beside you, or the one you're in: its pill and Enter. */
+  const [door, setDoor] = useState<{ room: string; inside: boolean } | null>(null);
   /** What the menu can take you inside, once the rooms have loaded; why they couldn't. */
   const [rooms, setRooms] = useState<readonly RoomPlace[]>([]);
   const [roomsFailed, setRoomsFailed] = useState<string | null>(null);
@@ -269,7 +275,7 @@ export function App() {
 
   /** Someone took a first step: the coach has done its job, and goes after a moment. */
   const steppedRef = useRef(() => {
-    setBlocked(0);
+    setBlocked(null);
     if (coachTimer.current !== undefined) return;
     coachTimer.current = setTimeout(() => {
       setCoach(false);
@@ -326,14 +332,25 @@ export function App() {
         if (abort.signal.aborted) return;
         const viewer = createViewer({
           canvas,
-          keyTarget: map,
           city: loaded,
           reducedMotion: reducedMotion() ?? false,
-          onBlocked: () => setBlocked(performance.now()),
+          onBlocked: setBlocked,
           onAvatarUnavailable: () => setAvatarFailed(true),
-          onAvatarShown: setAvatarShown,
+          onAvatarAt: (x, y, figure) => {
+            setAvatarShown(figure);
+            const arrow = arrowRef.current;
+            const p = arrow && pointerFor(x, y, map.clientWidth, map.clientHeight, figure);
+            if (!arrow) return;
+            arrow.hidden = !p;
+            if (!p) return;
+            arrow.dataset.edge = p.edge ? 'true' : 'false';
+            arrow.tabIndex = p.edge ? 0 : -1;
+            arrow.style.translate = `${p.x}px ${p.y}px`;
+            arrow.style.setProperty('--turn', `${p.angle}rad`);
+          },
           onStreetChange: setStreet,
           onPlaceChange: setInside,
+          onDoor: setDoor,
           onRoomsUnavailable: setRoomsFailed,
           // The sky behind the canvas and the page's tokens follow the light; the menu's
           // state only when the hour reaches another preset (not every frame of a passing day).
@@ -452,7 +469,7 @@ export function App() {
     const map = mapRef.current;
     if (!map || (!blocked && !(avatarShown && coach))) return;
     const clear = () => {
-      setBlocked(0);
+      setBlocked(null);
       if (avatarShown) steppedRef.current();
     };
     map.addEventListener('pointerdown', clear, { once: true, passive: true });
@@ -463,6 +480,7 @@ export function App() {
   /** What each of the menu's commands does: thin calls into the viewer and the shell's state. */
   const [actions] = useState((): Record<Exclude<ActionId, 'help' | 'about'>, () => void> => ({
     recentre: () => viewerRef.current?.recentre(),
+    door: () => viewerRef.current?.door(),
     'zoom-in': () => viewerRef.current?.zoomBy(1.25),
     'zoom-out': () => viewerRef.current?.zoomBy(0.8),
     'turn-left': () => viewerRef.current?.rotate(-1),
@@ -499,19 +517,19 @@ export function App() {
   const roomPlaces = useMemo(
     () => ({
       list: rooms,
-      go: (id: string, level: number) => {
+      go: (room: RoomPlace) => {
         closeMenu();
         sound.tap();
-        viewerRef.current?.goInside(id, level);
+        viewerRef.current?.lookAt(room.x, room.z);
       },
     }),
     [rooms, closeMenu],
   );
   const commandState: CommandState = useMemo(
-    () => ({ ride, running, soundOn, time, passing, traffic, keys, mod }),
-    [ride, running, soundOn, time, passing, traffic, keys, mod],
+    () => ({ ride, door, running, soundOn, time, passing, traffic, keys, mod }),
+    [ride, door, running, soundOn, time, passing, traffic, keys, mod],
   );
-  // Places by name: choosing one puts you there, and brings the view down to the street.
+  // Places by name: choosing one takes the view there, down to the street; you walk there.
   const places = useMemo(
     () =>
       placeCity
@@ -520,16 +538,16 @@ export function App() {
             go: (place: Place) => {
               closeMenu();
               sound.tap();
-              viewerRef.current?.goTo(place.x, place.z);
+              viewerRef.current?.lookAt(place.x, place.z);
             },
           }
         : undefined,
     [placeCity, closeMenu],
   );
 
-  // The Ride pill goes once no bike is near. Pressed, it had focus, which would fall to the page
-  // and take the keys with it: back to the map.
-  const pill = ready && !!ride;
+  // The pills go once no bike or building is near. Pressed, one had focus, which would fall to the
+  // page and take the keys with it: back to the map.
+  const pill = ready && (!!ride || !!door);
   const hadPill = useRef(false);
   useEffect(() => {
     if (hadPill.current && !pill && document.activeElement === document.body) {
@@ -565,6 +583,21 @@ export function App() {
         aria-label={riding ? rideLabel(keys, mod) : mapLabel(keys, mod)}
       >
         <canvas ref={canvasRef} className="city" />
+        {/*
+          Where you are: an arrow over your head while the view is too far out to see you, and at
+          the edge of the screen, pointing your way, when you're off it; that one takes you back.
+        */}
+        <button
+          ref={arrowRef}
+          type="button"
+          className="avatar-arrow"
+          aria-label="Back to you"
+          hidden
+          tabIndex={-1}
+          onClick={() => viewerRef.current?.recentre()}
+        >
+          <ArrowIcon />
+        </button>
       </div>
 
       <header className="hud hud-top">
@@ -576,7 +609,9 @@ export function App() {
           changes are announced.
         */}
         <output className="hint">
-          {blocked ? (
+          {blocked === 'far' ? (
+            'Too far to walk. Get closer first.'
+          ) : blocked ? (
             'Can’t go there. Pick a street or square.'
           ) : roomsFailed ? (
             roomsFailed
@@ -602,7 +637,7 @@ export function App() {
               <span className="hint-keys">
                 <kbd>{keys.KeyW}</kbd> <kbd>{keys.KeyA}</kbd> <kbd>{keys.KeyS}</kbd>{' '}
                 <kbd>{keys.KeyD}</kbd> walk, hold <kbd>Shift</kbd> to run, click to go somewhere.{' '}
-                <kbd>Esc</kbd> brings the view back to you.
+                <kbd>Space</kbd> brings the view back to you.
               </span>
               <span className="hint-touch">
                 Tap a street to walk there. Pinch to zoom; the menu holds the rest.
@@ -613,9 +648,22 @@ export function App() {
       </header>
 
       <footer className="hud hud-bottom">
-        {/* By a bike, or on one: the one thing the moment offers, where a thumb finds it. */}
+        {/*
+          By a bike or a building you can go into: what the moment offers, where a thumb finds it.
+        */}
         <div className="bar">
-          {pill && (
+          {ready && door && (
+            <ActionButton
+              label={door.inside ? 'Go out' : 'Go in'}
+              shortcut="↵"
+              keys="Enter"
+              primary={!door.inside}
+              onPress={() => viewer()?.door()}
+            >
+              <DoorIcon />
+            </ActionButton>
+          )}
+          {ready && ride && (
             <ActionButton
               label={riding ? 'Get off' : 'Ride'}
               shortcut="F"

@@ -12,6 +12,7 @@ import type { Keycaps } from './input.ts';
 /** What the app does when a command runs; the shell maps each to the viewer or its own state. */
 export type ActionId =
   | 'recentre'
+  | 'door'
   | 'zoom-in'
   | 'zoom-out'
   | 'turn-left'
@@ -83,6 +84,8 @@ export interface Command {
 
 export interface CommandState {
   ride: RideState;
+  /** A building you can go into beside you, or the one you're in. */
+  door: { room: string; inside: boolean } | null;
   running: boolean;
   soundOn: boolean;
   /** The time of day on the map, and whether the day is passing by itself. */
@@ -139,9 +142,9 @@ const view = (s: CommandState): Command[] => [
   {
     id: 'reset',
     group: 'view',
-    label: 'Reset view',
-    detail: 'Back over Grote Markt, north at the top',
-    keywords: 'north up compass home centre center default',
+    label: 'North up',
+    detail: 'North at the top, back to you',
+    keywords: 'north up compass reset home centre center default',
     keys: [['R']],
     icon: 'compass',
     action: 'reset',
@@ -155,12 +158,26 @@ const yours = (s: CommandState): Command[] => {
       id: 'recentre',
       group: 'walk',
       label: 'Back to you',
-      detail: 'The view comes back to where you are',
+      detail: 'The view follows you again',
       keywords: 'me you find centre center recentre follow where am i back home avatar',
-      keys: [['Esc']],
+      keys: [['Space']],
       icon: 'pin',
       action: 'recentre',
     },
+    ...(s.door
+      ? [
+          {
+            id: 'door',
+            group: 'walk',
+            label: s.door.inside ? `Leave ${s.door.room}` : `Go into ${s.door.room}`,
+            detail: s.door.inside ? 'Back out to its door' : 'In through its door',
+            keywords: 'enter go in inside out leave exit door building room church',
+            keys: [['↵']],
+            icon: 'place',
+            action: 'door',
+          } satisfies Command,
+        ]
+      : []),
     ...(s.ride
       ? [
           {
@@ -295,14 +312,14 @@ export function keySheet(k: Keycaps, mod: string): KeySection[] {
       id: 'map',
       title: 'The map',
       rows: [
-        { what: 'Pan', keys: [['←', '↑', '↓', '→']], touch: 'Drag' },
+        { what: 'Look around', keys: [['Drag']], touch: 'Drag' },
         {
           what: 'Zoom, down to the street',
           keys: [['+', '−']],
           touch: 'Pinch, or scroll with a mouse',
         },
         { what: 'Turn the map', keys: [[k.KeyQ, k.KeyE]], touch: 'From this menu' },
-        { what: 'Reset the view', keys: [['R']] },
+        { what: 'North up, back to you', keys: [['R']] },
       ],
     },
     {
@@ -311,8 +328,9 @@ export function keySheet(k: Keycaps, mod: string): KeySection[] {
       rows: [
         { what: 'Walk', keys: [[k.KeyW, k.KeyA, k.KeyS, k.KeyD]], touch: 'Tap where to go' },
         { what: 'Run', keys: [['Shift']], touch: 'From this menu' },
-        { what: 'Walk to a spot, or go there', keys: [['Click']], touch: 'Tap it' },
-        { what: 'Back to you', keys: [['Esc']], touch: 'From this menu' },
+        { what: 'Walk to a spot nearby', keys: [['Click']], touch: 'Tap it' },
+        { what: 'Go into a building beside you, or out', keys: [['↵']], touch: 'Go in' },
+        { what: 'Back to you', keys: [['Space']], touch: 'The arrow at the edge' },
       ],
     },
     {

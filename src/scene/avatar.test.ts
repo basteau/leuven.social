@@ -1,14 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import {
-  BIKE_STRIDE,
-  ON_BIKE,
-  avatarState,
-  createAvatar,
-  jump,
-  paceOf,
-  stepAvatar,
-} from './avatar.ts';
+import { BIKE_STRIDE, ON_BIKE, avatarState, createAvatar, paceOf, stepAvatar } from './avatar.ts';
 import type { Ground } from './collide.ts';
 import { RoomGrid } from '../data/room-grid.ts';
 import { HALL } from '../data/rooms.fixture.ts';
@@ -51,25 +43,42 @@ describe('the avatar', () => {
     expect(a.walker.speed).toBeCloseTo(RUN_SPEED);
   });
 
-  test('on a bike, faster, and with momentum both ways', () => {
+  test('on a bike, the same handling, faster', () => {
     const [foot, bike] = [createAvatar(0, 0), createAvatar(0, 0)];
     bike.mode = 'bike';
     expect(paceOf('bike')).toBe(ON_BIKE);
     expect(paceOf('foot')).toBe(ON_FOOT);
-    for (let i = 0; i < steps(0.5); i++) {
+    expect([ON_BIKE.up, ON_BIKE.down, ON_BIKE.turn]).toEqual([
+      ON_FOOT.up,
+      ON_FOOT.down,
+      ON_FOOT.turn,
+    ]);
+    for (let i = 0; i < steps(2); i++) {
       stepAvatar(foot, STEP, 0, 1, open);
       stepAvatar(bike, STEP, 0, 1, open);
     }
-    // Slower off the mark than on foot...
-    expect(bike.walker.speed).toBeLessThan(WALK_SPEED);
-    for (let i = 0; i < steps(5); i++) stepAvatar(bike, STEP, 0, 1, open);
-    // ...but cruising well past a run, and sprinting faster still.
+    expect(bike.walker.speed).toBeCloseTo(ON_BIKE.walk);
     expect(bike.walker.speed).toBeGreaterThan(RUN_SPEED);
-    for (let i = 0; i < steps(6); i++) stepAvatar(bike, STEP, 0, 1, open, true);
-    expect(bike.walker.speed).toBeGreaterThan(ON_BIKE.walk + 4);
-    // Let go, it coasts on rather than stopping in a stride.
-    for (let i = 0; i < steps(0.3); i++) stepAvatar(bike, STEP, 0, 0, open);
-    expect(bike.walker.speed).toBeGreaterThan(5);
+    for (let i = 0; i < steps(2); i++) stepAvatar(bike, STEP, 0, 1, open, true);
+    expect(bike.walker.speed).toBeCloseTo(ON_BIKE.run);
+    // Let go, it stops as a walker does: within a moment.
+    for (let i = 0; i < steps(1); i++) stepAvatar(bike, STEP, 0, 0, open);
+    expect(bike.walker.speed).toBe(0);
+  });
+
+  test('on a bike, it follows a route as a walker does, only faster', () => {
+    const bike = createAvatar(0, 0);
+    bike.mode = 'bike';
+    bike.walker.route = new Float32Array([0, 0, 0, 40]);
+    bike.walker.next = 1;
+    let t = 0;
+    while (bike.walker.route && t < 10) {
+      stepAvatar(bike, STEP, 0, 0, open);
+      t += STEP;
+    }
+    expect(bike.walker.z).toBeCloseTo(40, 1);
+    // A walker takes about 40 / 5.4 s; a bike far less.
+    expect(t).toBeLessThan(40 / WALK_SPEED);
   });
 
   test('pedals at the traffic’s cyclists’ stride', () => {
@@ -87,15 +96,6 @@ describe('the avatar', () => {
       last = bike.walker.phase;
     }
     expect((turned / (Math.PI * 2)) * BIKE_STRIDE).toBeCloseTo(travelled, 1);
-  });
-
-  test('jumps somewhere else standing, its route let go', () => {
-    const a = createAvatar(0, 0);
-    for (let i = 0; i < steps(1); i++) stepAvatar(a, STEP, 1, 0, open);
-    a.walker.route = new Float32Array([0, 0, 10, 0]);
-    jump(a, 40, 50);
-    expect(avatarState(a)).toMatchObject({ x: 40, z: 50, speed: 0 });
-    expect(a.walker.route).toBeNull();
   });
 });
 

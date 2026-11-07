@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { CellGrid, TILE, inRing, ringBox, wallPush } from './cell-grid.ts';
+import { CellGrid, TILE, inRing, ringBox, ringDistance, wallPush } from './cell-grid.ts';
 import type { Wall } from './cell-grid.ts';
 
 describe('a grid of cells', () => {
@@ -52,9 +52,12 @@ test('rings: inside, and the box round them', () => {
   expect(inRing(ring, 2, 2)).toBe(true);
   expect(inRing(ring, 5, 2)).toBe(false);
   expect(ringBox(ring, 1)).toEqual({ minX: -1, minZ: -1, maxX: 5, maxZ: 5 });
+  expect(ringDistance(ring, 2, 2)).toBe(2);
+  expect(ringDistance(ring, 7, 2)).toBe(3);
+  expect(ringDistance(ring, 7, 8)).toBe(5);
 });
 
-test('walls push a body out, by the deepest reach, and skip what a doorway lets through', () => {
+test('walls push a body out, by the deepest reach', () => {
   const walls: Wall[] = [
     { line: [0, 0, 4, 0, 4, 4, 0, 4], ring: true, half: 0, box: ringBox([0, 0, 4, 4]), seen: 0 },
     { line: [10, 0, 10, 4], ring: false, half: 0.2, box: ringBox([10, 0, 10, 4], 0.2), seen: 0 },
@@ -67,10 +70,6 @@ test('walls push a body out, by the deepest reach, and skip what a doorway lets 
   const inside: [number, number, number] = [0, 0, 0];
   wallPush(walls, 3.8, 2, 0.5, 2, inside);
   expect(inside[0]).toBeGreaterThan(0);
-  // A doorway in that face.
-  const door: [number, number, number] = [0, 0, 0];
-  wallPush(walls, 3.8, 2, 0.5, 3, door, (x, z) => Math.hypot(x - 4, z - 2) < 1.2);
-  expect(door).toEqual([0, 0, 0]);
   // The same query meets a wall once.
   const twice: [number, number, number] = [0, 0, 0];
   wallPush(walls, 9.6, 2, 0.5, 3, twice);
