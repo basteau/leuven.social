@@ -461,7 +461,7 @@ async function expectWalking(): Promise<void> {
   // The street sign names where the avatar stands, from OSM's names in city.bin.
   await browser('wait', '--fn', `!!document.querySelector('.sign-name')?.textContent`);
   const street = await evalJson<string>(
-    `JSON.stringify(document.querySelector('.sign-name').textContent)`,
+    `JSON.stringify(document.querySelector('.sign-name').textContent.replaceAll('\\u2011', '-'))`,
   );
   console.log(`ok  street sign close to the street: ${street}`);
   // A tap a little way off walks it there.
@@ -652,7 +652,8 @@ async function expectRoom(): Promise<void> {
   await browser(
     'wait',
     '--fn',
-    `document.querySelector('.sign-name')?.textContent === 'Sint-Pieterskerk · Nave'`,
+    // The plate draws its hyphens unbreakable (U+2011); read as a person would.
+    `document.querySelector('.sign-name')?.textContent.replaceAll('\\u2011', '-') === 'Sint-Pieterskerk · Nave'`,
   );
   await browser('wait', '1500');
   await browser('screenshot', `${ARTIFACTS}smoke-room.png`);
