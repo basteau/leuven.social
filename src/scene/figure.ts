@@ -84,11 +84,12 @@ export interface Solid {
   open?: readonly [boolean, boolean];
 }
 
-/** The walker's clothes and hair. */
+/** The walker's clothes, skin and hair: each player picks their own. */
 export interface Outfit {
   shirt: number;
   shorts: number;
   hair: number;
+  skin: number;
 }
 
 /**
@@ -349,7 +350,7 @@ export function details(outfit: Outfit): Flat[] {
     ] as V3[][]
   ).map(([a, b, c, normal]): Flat => ({
     bone: 'head',
-    color: WALKER.skin,
+    color: outfit.skin,
     points: [a!, b!, c!],
     normal: normal!,
   }));
@@ -383,7 +384,7 @@ export function details(outfit: Outfit): Flat[] {
     // The open collar: a V of skin down the front of the shirt, to the top button.
     {
       bone: 'torso',
-      color: WALKER.skin,
+      color: outfit.skin,
       points: [
         [-0.07, 1.43, 0.144],
         [0, 1.27, 0.15],
@@ -407,7 +408,7 @@ export function details(outfit: Outfit): Flat[] {
       front('head', outfit.hair, [x - 0.008, x + 0.063, 1.692, 1.712], 0.196),
     ]),
     ...nose,
-    front('head', shade(WALKER.skin, 0.62), [-0.032, 0.032, 1.545, 1.558], 0.172),
+    front('head', shade(outfit.skin, 0.62), [-0.032, 0.032, 1.545, 1.558], 0.172),
     // A fringe of three locks over the forehead, from the front of the hair.
     ...[-0.1, -0.02, 0.06].map((x): Flat => ({
       bone: 'head',
@@ -436,7 +437,7 @@ export function figure(outfit: Outfit): Solid[] {
       { paint: (band) => (band ? outfit.shorts : shade(outfit.shorts, 0.9)) },
     ),
     // A bare shin, its top round the knee inside the shorts, so a bent leg stays one piece.
-    part('shinL', WALKER.skin, [
+    part('shinL', outfit.skin, [
       level(0.13, 0.05, 0.15, -0.055, 0.055),
       level(0.53, 0.03, 0.17, -0.072, 0.072),
     ]),
@@ -503,13 +504,13 @@ export function figure(outfit: Outfit): Solid[] {
       { paint: (band) => (band ? outfit.shirt : shade(outfit.shirt, 0.85)) },
     ),
     // The forearm narrows to the wrist; the hand is a mitten, flat to the thigh, and a thumb.
-    part('foreL', WALKER.skin, HAND, { hull: [HAND[0]!, HAND[1]!, HAND[3]!], open: [false, true] }),
-    part('foreL', WALKER.skin, box([0.243, 0.8, 0.045], [0.266, 0.865, 0.08]), {
+    part('foreL', outfit.skin, HAND, { hull: [HAND[0]!, HAND[1]!, HAND[3]!], open: [false, true] }),
+    part('foreL', outfit.skin, box([0.243, 0.8, 0.045], [0.266, 0.865, 0.08]), {
       ...NO_HULL,
       open: [false, true],
     }),
   ];
-  const ear = part('head', WALKER.skin, box([0.196, 1.6, -0.02], [0.232, 1.7, 0.035]), {
+  const ear = part('head', outfit.skin, box([0.196, 1.6, -0.02], [0.232, 1.7, 0.035]), {
     ...NO_HULL,
     open: [true, false],
   });
@@ -535,7 +536,7 @@ export function figure(outfit: Outfit): Solid[] {
     // The shirt, worn loose: bloused over the belt, broad at the shoulders and sloping to the
     // neck. Its lowest ring is hidden in the belt, so its outline starts above it.
     part('torso', outfit.shirt, [SHIRT_TUCK, ...SHIRT], { hull: SHIRT, open: [true, false] }),
-    part('torso', WALKER.skin, box([-0.07, 1.34, -0.065], [0.07, 1.53, 0.065]), {
+    part('torso', outfit.skin, box([-0.07, 1.34, -0.065], [0.07, 1.53, 0.065]), {
       ...NO_HULL,
       open: [true, true],
     }),
@@ -547,7 +548,7 @@ export function figure(outfit: Outfit): Solid[] {
       {
         ...NO_HULL,
         open: [true, true],
-        paint: (_band, side) => (side === FRONT ? WALKER.skin : shade(outfit.shirt, 0.92)),
+        paint: (_band, side) => (side === FRONT ? outfit.skin : shade(outfit.shirt, 0.92)),
       },
     ),
     ...arm,
@@ -556,7 +557,7 @@ export function figure(outfit: Outfit): Solid[] {
     // back down to the nape.
     part(
       'head',
-      WALKER.skin,
+      outfit.skin,
       [
         across(1.5, 0.16, -0.15, 0.16, 0.06),
         across(1.7, 0.2, -0.19, 0.19, 0.07),
@@ -567,7 +568,7 @@ export function figure(outfit: Outfit): Solid[] {
         paint: (band: number, side: number) =>
           band >= 2 || (band === 1 && side !== FRONT) || (band === 0 && BACK.has(side))
             ? outfit.hair
-            : WALKER.skin,
+            : outfit.skin,
       },
     ),
     ear,

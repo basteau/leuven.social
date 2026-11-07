@@ -77,6 +77,9 @@ import type { Spin } from './spin.ts';
 import { terraceParasols } from './terraces.ts';
 import type { Plates } from './plates.ts';
 import type { AvatarLayer, Refusal, RoomPlace } from './avatar-layer.ts';
+import type { Outfit } from './character.ts';
+import type { PlayerPose } from './crowd.ts';
+import type { Roster } from './players.ts';
 import type { RideAction, RideState } from './bikes.ts';
 import {
   CAMERA_DISTANCE,
@@ -93,6 +96,9 @@ import type { Detail } from './lod.ts';
 
 export type { RideAction, RideState } from './bikes.ts';
 export type { Refusal, RoomPlace } from './avatar-layer.ts';
+export type { Outfit } from './character.ts';
+export type { PlayerPose } from './crowd.ts';
+export type { Roster, RosterEntry } from './players.ts';
 
 export interface ViewerOptions {
   canvas: HTMLCanvasElement;
@@ -121,6 +127,10 @@ export interface ViewerOptions {
   onHeading?: (heading: number) => void;
   /** The light changed: a new time of day, or the day passing. The app paints the sky from it. */
   onDaylight?: (light: Daylight) => void;
+  /** Where the other players' name tags go: an element laid over the canvas. */
+  tags?: HTMLElement;
+  /** Where the avatar is and what it's doing, whenever that changes: for the other players. */
+  onMove?: (state: PlayerPose) => void;
 }
 
 export interface ViewerStats {
@@ -155,6 +165,12 @@ export interface Viewer {
   door(): void;
   /** The rooms there are inside the landmarks, for the menu (their data loads now if need be). */
   rooms(): Promise<RoomPlace[]>;
+  /** The other players to draw, kept by the app from the network; null: none. */
+  others(roster: Roster | null): void;
+  /** Dresses the avatar: its clothes, skin and hair. */
+  dress(outfit: Outfit): void;
+  /** Puts the avatar back where it was last time, facing `heading` (on foot, in the street). */
+  placeAvatar(x: number, z: number, heading: number): void;
   /** The time of day: the preset nearest the hour, and whether the day is passing. */
   timeOfDay(): { preset: PresetId; passing: boolean };
   /** Steps to the next time of day (morning, midday, golden hour, dusk, night) and names it. */
@@ -982,6 +998,8 @@ export function createViewer(options: ViewerOptions): Viewer {
           ...(options.onDoor && { onDoor: options.onDoor }),
           ...(options.onBlocked && { onBlocked: options.onBlocked }),
           ...(options.onRideChange && { onRide: options.onRideChange }),
+          ...(options.onMove && { onMove: options.onMove }),
+          tags: options.tags ?? null,
         });
         invalidate();
         return avatar;
@@ -1351,6 +1369,9 @@ export function createViewer(options: ViewerOptions): Viewer {
     door: () => avatar?.door(),
     ride: (action) => withAvatar((loaded) => loaded.ride(action)),
     rooms: () => loadAvatar().then((loaded) => loaded.rooms()),
+    others: (roster) => withAvatar((loaded) => loaded.others(roster)),
+    dress: (outfit) => withAvatar((loaded) => loaded.dress(outfit)),
+    placeAvatar: (x, z, turned) => withAvatar((loaded) => loaded.placeAt(x, z, turned)),
     spin: spinMap,
     timeOfDay: () => ({ preset: presetAt(hour), passing }),
     nextTimeOfDay,

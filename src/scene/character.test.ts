@@ -116,8 +116,8 @@ describe('characterGeometry', () => {
     }
   });
 
-  test('dresses the walker in its outfit, with bare arms and legs', () => {
-    const outfit = { shirt: 0x3cb4a8, shorts: 0xf2e8f0, hair: 0xd8b060 };
+  test('dresses the walker in its outfit, with bare arms and legs in its own skin', () => {
+    const outfit = { shirt: 0x3cb4a8, shorts: 0xf2e8f0, hair: 0xd8b060, skin: 0x8d5a3c };
     const colours = unindexed(characterGeometry(outfit)).getAttribute('color');
     const has = (hex: number) =>
       Array.from({ length: colours.count }, (_, i) => i).some((i) =>
@@ -127,12 +127,13 @@ describe('characterGeometry', () => {
       outfit.shirt,
       outfit.shorts,
       outfit.hair,
-      WALKER.skin,
+      outfit.skin,
       WALKER.sneakers,
       SOLE_COLOR,
     ]) {
       expect(has(hex)).toBe(true);
     }
+    expect(has(WALKER.skin)).toBe(false);
   });
 });
 

@@ -2,6 +2,7 @@ import type { BufferAttribute, BufferGeometry, Material, Mesh, Scene } from 'thr
 
 import { createRideSounds } from '../audio/riding.ts';
 import type { Avatar } from './avatar.ts';
+import type { Outfit } from './figure.ts';
 import { BIKES, BIKE_MOST, LOOK, WHEEL, bakeBike } from './bike-rig.ts';
 import type { BikeArrays, Stand } from './bike-rig.ts';
 import { loose } from './collide.ts';
@@ -67,6 +68,8 @@ export interface Bikes {
   cancel(): void;
   /** Bikes and riders show with the street furniture, not from far out. */
   show(near: boolean): void;
+  /** The rider wears the avatar's clothes, skin and hair. */
+  dress(outfit: Outfit): void;
   dispose(): void;
 }
 
@@ -394,6 +397,10 @@ export function createBikes(kit: BikesKit): Bikes {
       const near = !riding && !a.place && nearest(w.x, w.z, NEAR) !== null;
       publish(a.mode === 'bike' ? 'riding' : near ? 'near' : '');
       return busy;
+    },
+    dress(outfit) {
+      look = { ...look, ...outfit };
+      riders.dress(0, look);
     },
     show(near) {
       shown = near;

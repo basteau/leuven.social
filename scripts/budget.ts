@@ -74,11 +74,12 @@ const BUDGETS: {
   // room's walls, going straight to a floor, and the review's fixes (rooms retried after a
   // failure, a late answer dropped, in and out with a step past the edge) took it to 19.3 KB,
   // still under walk mode's 20.5. 22: the walker's figure (2.7 KB), a chunk of its own while
-  // the traffic shared it, rides here now the traffic is gone: 21.5 KB.
+  // the traffic shared it, rides here now the traffic is gone: 21.5 KB. 24: the other players
+  // (players.ts, crowd.ts: their figures, gaits and name tags), 2 KB.
   {
     label: 'Avatar JS (after first frame)',
     pattern: 'assets/avatar-layer-*.js',
-    limit: 22 * KB,
+    limit: 24 * KB,
     gzip: true,
   },
   // The street-name lookup for the sign, a chunk beside the avatar's that loads with it.
@@ -91,13 +92,21 @@ const BUDGETS: {
   // Bikes load near a rack (or on F): taking and leaving one, the bell, the bikes left standing.
   // Riding was 12 KB with its kinematic bicycle, rider IK and scripted mounts; a bike is now the
   // avatar at a bike's paces, drawn as the traffic's own cyclist, at about 2.8 KB. 3.5: the
-  // rider's x-ray silhouette behind houses, as the walker has (0.3 KB). 9: the bike's rig and
-  // the rider (rider.ts), which rode in the traffic's chunk, came back here when it went: 8.5 KB,
-  // where the traffic, the figure and the bikes were 23 KB together.
+  // rider's x-ray silhouette behind houses, as the walker has (0.3 KB). The rider and the
+  // bike's rig, which rode in the traffic's chunk, are a chunk of their own below, shared with
+  // the other players' riders: 2.6 KB.
   {
     label: 'Bikes JS (near a rack)',
     pattern: 'assets/bikes-*.js',
-    limit: 9 * KB,
+    limit: 3 * KB,
+    gzip: true,
+  },
+  // The rider (rider.ts) and the bike's rig: the avatar's and the other players' bikes, loaded
+  // with the bikes or when someone near rides. 6.5 KB, where the traffic and its figure were 20.
+  {
+    label: 'Rider JS (with the bikes)',
+    pattern: 'assets/rider-*.js',
+    limit: 7 * KB,
     gzip: true,
   },
   // The plates on the facades load once the view comes down to the street, in a chunk and a

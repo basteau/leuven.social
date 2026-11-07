@@ -30,7 +30,16 @@ import type { Avatar, AvatarState } from './avatar.ts';
 import type { Bikes, RideAction, RideState } from './bikes.ts';
 import { XRAY_LOOK, createCharacterMaterial, createXrayMaterial } from './character-material.ts';
 import type { Fade } from './character-material.ts';
-import { CHARACTER_SCALE, applyPose, createCharacter, poseAt, restPose } from './character.ts';
+import {
+  CHARACTER_SCALE,
+  applyPose,
+  characterGeometry,
+  createCharacter,
+  poseAt,
+  restPose,
+} from './character.ts';
+import type { Outfit } from './character.ts';
+import type { PlayerPose } from './crowd.ts';
 import { loose } from './collide.ts';
 import { BAYER } from './facade-material.ts';
 import { LEAD, recentre, screenSteer } from './follow.ts';
@@ -43,8 +52,10 @@ import { markerDrop, markerGeometry, markerRadius } from './marker.ts';
 import { MeshBuilder, linearVertexColors } from './mesh-builder.ts';
 import type { LineBuilder } from './mesh-builder.ts';
 import { clock, decay, ticks } from './motion.ts';
-import { OUTLINE } from './palette.ts';
+import { OUTLINE, WALKER } from './palette.ts';
 import { nearestParked } from './parked.ts';
+import { createPlayers } from './players.ts';
+import type { Roster } from './players.ts';
 import { unpackDepth } from './pick.ts';
 import { passedVertices, routeMarker } from './route-marker.ts';
 import type { RouteMarker } from './route-marker.ts';
@@ -105,6 +116,8 @@ const OUTSIDE = 2;
 /** After the rooms failed to load, they are tried again no sooner than this (ms). */
 const ROOMS_RETRY_MS = 30_000;
 
+const noop = () => {};
+
 /** requestIdleCallback where there is one (not in Safari), else a moment later. */
 const idle = (run: () => void): number =>
   'requestIdleCallback' in globalThis
@@ -158,6 +171,10 @@ export interface AvatarHost {
   onRoomsUnavailable?(message: string): void;
   /** A building you can go into is beside you (`inside` false), you're in one, or neither. */
   onDoor?(door: { room: string; inside: boolean } | null): void;
+  /** Where the other players' name tags go: an element over the canvas, or none. */
+  tags: HTMLElement | null;
+  /** Where the avatar is and what it's doing, whenever that changes: for the other players. */
+  onMove?(state: PlayerPose): void;
 }
 
 /** A room as the menu lists it: where its door is, to look at. */
@@ -194,6 +211,14 @@ export interface AvatarLayer {
   rooms(): Promise<RoomPlace[]>;
   /** What's worth drawing at the view's span, each frame the viewer draws. */
   detail(detail: Detail, span: number): void;
+  /** The other players to draw, or none. */
+  others(roster: Roster | null): void;
+  /** Dresses the avatar: its clothes, skin and hair. */
+  dress(outfit: Outfit): void;
+  /** Puts the avatar back where it was last time (m), on the open ground nearest, facing `heading`. */
+  placeAt(x: number, z: number, heading: number): void;
+  /** How many draw calls the other players take this frame. */
+  readonly playersDrawn: number;
   dispose(): void;
 }
 
@@ -218,8 +243,9 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
 
   const fade: Fade = { value: 1 };
   const body = createCharacterMaterial(host.gradientMap, fade);
-  const xray = createXrayMaterial(fade);
-  const character = createCharacter(body, xray);
+  let outfit: Outfit = WALKER;
+  const xray = createXrayMaterial(fade, outfit.shirt);
+  const character = createCharacter(body, xray, outfit);
   character.mesh.scale.setScalar(CHARACTER_SCALE);
   character.mesh.visible = false;
   scene.add(character.mesh);
@@ -333,6 +359,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
         shadowsChanged: host.shadowsChanged,
       });
       bikes.show(true);
+      bikes.dress(outfit);
       wake();
       return bikes;
     });
@@ -390,6 +417,45 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
   };
   /** The ground underfoot: the street's, or the room's floor. */
   const underfoot = () => (room && interiors ? interiors.grid(room, avatar.floor) : grid);
+
+  // The other players, drawn as the avatar is, round where the view looks (players.ts).
+  const riderKit = {
+    three: {
+      BackSide,
+      InstancedBufferAttribute,
+      InstancedMesh,
+      Matrix4,
+      MeshBasicMaterial,
+      MeshToonMaterial,
+    },
+    MeshBuilder,
+    linearVertexColors,
+    bayer: BAYER,
+    gradientMap: host.gradientMap,
+    night: host.night,
+    ink: OUTLINE,
+    xray: XRAY_LOOK,
+  };
+  const players = createPlayers({
+    scene,
+    camera,
+    canvas,
+    body,
+    xray: (color) => createXrayMaterial(fade, color),
+    tags: host.tags,
+    reducedMotion,
+    floorAt(at) {
+      if (!at.place) return host.groundAt(at.x, at.z);
+      const inside = interiors?.byId(at.place);
+      return inside && interiors ? interiors.standing(inside, at.floor, at.x, at.z).y : null;
+    },
+    riders: () =>
+      import('./rider.ts').then(({ createRiders }) => {
+        if (disposed) throw new Error('The map closed while the riders loaded.');
+        return createRiders(riderKit, scene, 24);
+      }),
+  });
+  let unlisten: () => void = noop;
 
   function publishPlace(): void {
     canvas.dataset.place = room?.id ?? '';
@@ -686,6 +752,10 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     const phase =
       prevPhase + Math.atan2(Math.sin(w.phase - prevPhase), Math.cos(w.phase - prevPhase)) * blend;
     place(x, z, heading, phase, dt);
+    const view = controls.target;
+    const here = room?.id ?? '';
+    busy = players.frame(now, dt, shown === 'figure', view.x, view.z, here, avatar.floor) || busy;
+    tell();
 
     if (Math.hypot(w.x - publishedAt[0], w.z - publishedAt[1]) >= 1) publish();
     if (marker && !w.route) clearRoute();
@@ -769,6 +839,43 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     return true;
   }
 
+  /** What the other players are told: where the avatar is, as it changes (the app throttles it). */
+  const told: PlayerPose = {
+    x: Number.NaN,
+    z: 0,
+    heading: 0,
+    speed: 0,
+    mode: 'foot',
+    place: '',
+    floor: 0,
+  };
+  function tell(): void {
+    if (!host.onMove) return;
+    const w = avatar.walker;
+    const where = room?.id ?? '';
+    if (
+      w.x === told.x &&
+      w.z === told.z &&
+      w.heading === told.heading &&
+      w.speed === told.speed &&
+      avatar.mode === told.mode &&
+      where === told.place &&
+      avatar.floor === told.floor
+    ) {
+      return;
+    }
+    Object.assign(told, {
+      x: w.x,
+      z: w.z,
+      heading: w.heading,
+      speed: w.speed,
+      mode: avatar.mode,
+      place: where,
+      floor: avatar.floor,
+    });
+    host.onMove({ ...told });
+  }
+
   /**
    * Where the avatar stands, each metre and once it stands still: for the smoke test and anyone
    * debugging.
@@ -795,6 +902,33 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     },
     get state() {
       return avatarState(avatar);
+    },
+    get playersDrawn() {
+      return players.drawn;
+    },
+    others(roster) {
+      unlisten();
+      unlisten = roster ? roster.listen(wake) : noop;
+      players.use(roster);
+      wake();
+    },
+    dress(next) {
+      outfit = next;
+      const geometry = characterGeometry(outfit);
+      character.mesh.geometry.dispose();
+      character.mesh.geometry = geometry;
+      character.xray.geometry = geometry;
+      xray.color.setHex(outfit.shirt);
+      bikes?.dress(outfit);
+      wake();
+    },
+    placeAt(x, z, heading) {
+      // Only ever on foot in the street: it comes back where it left, never mid-ride or mid-room.
+      if (room || avatar.mode !== 'foot' || bikes?.busy) return;
+      const spot = grid.nearest(x, z, 30);
+      if (!spot) return;
+      asked++;
+      teleport(spot[0], spot[1], heading);
     },
     feet,
     steer(right, up) {
@@ -847,6 +981,8 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     },
     dispose() {
       disposed = true;
+      unlisten();
+      players.dispose();
       cancelAnimationFrame(frame);
       cancelIdle(prewarming);
       bikes?.dispose();

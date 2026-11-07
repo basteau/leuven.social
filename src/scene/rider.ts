@@ -74,7 +74,7 @@ const ELBOW_Y = SHOULDER_Y - UPPER_ARM;
 const KNEE_Y = REST_HIPS - THIGH;
 const NECK_Y = REST_HIPS + 0.56;
 /** The figure dressed so each face says which of the instance's colours it takes: one channel each. */
-const SENTINEL: Outfit = { shirt: 0xff0000, shorts: 0x00ff00, hair: 0x0000ff };
+const SENTINEL: Outfit = { shirt: 0xff0000, shorts: 0x00ff00, hair: 0x0000ff, skin: WALKER.skin };
 const MOUTH = shade(WALKER.skin, 0.62);
 
 /**

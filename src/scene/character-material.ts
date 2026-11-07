@@ -87,8 +87,9 @@ export const XRAY_LOOK: MeshBasicMaterialParameters = {
   blendDst: OneMinusSrcAlphaFactor,
 };
 
-export function createXrayMaterial(fade: Fade): MeshBasicMaterial {
-  const material = new MeshBasicMaterial(XRAY_LOOK);
+/** The silhouette in `color`: by default the avatar's shirt, another player's in theirs. */
+export function createXrayMaterial(fade: Fade, color: number = WALKER.shirt): MeshBasicMaterial {
+  const material = new MeshBasicMaterial({ ...XRAY_LOOK, color });
   // Not the blob shadow or the soles: mid-stride their corners dip into the street, which isn't
   // hiding them.
   material.onBeforeCompile = (shader) =>
