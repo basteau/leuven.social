@@ -28,12 +28,14 @@ export function awningRoom(along: number, length: number, others: readonly numbe
 }
 
 /**
- * Potted bay trees either side of a café's, bar's or restaurant's door (src/scene/storefronts.ts
- * draws them; the avatar meets each as a post): `along` each side of the front's middle, `out`
- * from its wall, pots `radius` round. A front needs room for them, and none where its terrace is.
+ * What stands either side of a front's door (src/scene/storefronts.ts draws it; the avatar meets
+ * each as a post): a café's, bar's or restaurant's potted bay trees (a bar's beer barrel for one
+ * of them), a greengrocer's crates of fruit, a florist's buckets of flowers. `along` each side of
+ * the front's middle, `out` from its wall, `radius` round. A front needs room for them, and none
+ * where its terrace is.
  */
 export const DOOR_PLANT = { along: 0.95, out: 0.4, radius: 0.24 } as const;
-const PLANTED = new Set(['cafe', 'bar', 'restaurant']);
+const PLANTED = new Set(['cafe', 'bar', 'restaurant', 'greengrocer', 'florist']);
 
 /** Where a front's door plants stand (x, z pairs), given its point on the wall and its room. */
 export function doorPlants(

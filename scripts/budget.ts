@@ -137,7 +137,11 @@ const BUDGETS: {
     // 8: a table under each of Oude Markt's parasols, chairs round it and people at them with
     // their drinks, and bay trees by café doors, asked for to liven the square (0.9 KB).
     // 8.5: each lamp's pool under its lantern, fading in two rings (0.1 KB).
-    limit: 8.5 * KB,
+    // 10.75: a symbol sign for every trade (a cup, a croissant, a shirt, a bike…), what stands
+    // by the doors (a barrel, crates of fruit, buckets of flowers), a barber's pole, and the
+    // public places' banners, flags, hangings and marquees, asked for so the city reads without
+    // words (2.2 KB).
+    limit: 10.75 * KB,
     gzip: true,
   },
   // The rooms inside the landmarks, authored by hand, fetched near one.

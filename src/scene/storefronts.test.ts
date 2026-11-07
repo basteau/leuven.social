@@ -7,15 +7,17 @@ import type { ShopKind } from '../data/shop-kinds.ts';
 import { AWNING } from './facade-codes.ts';
 import { MeshBuilder } from './mesh-builder.ts';
 import { CAFE_TABLE } from '../data/shops.ts';
+import { groundFloor } from './signs.ts';
 import {
   addAwning,
+  addBarrel,
+  addBuckets,
   addCafeTable,
+  addCrates,
   addDoorPlant,
   addGuest,
-  addSign,
   addStorefronts,
   addTerrace,
-  groundFloor,
 } from './storefronts.ts';
 
 // A 12 m front along z = 0, facing north (-z), its building behind it.
@@ -92,31 +94,50 @@ test('a café table on a square: chairs round it, some taken, all inside the rea
   expect(Math.max(...guest.points.map(([, y]) => y!))).toBeCloseTo(1.69);
 });
 
-test('a bar without a terrace gets its sign and a bay tree each side of its door', () => {
-  const bar = built((m) =>
-    addStorefronts(m, new MeshBuilder(), [{ building, front: front('bar') }], kit, ground),
-  );
-  expect(bar.count).toBe(60 + 2 * 50);
+/** How many vertices a front of `kind` draws, alone on its building, 12 m high. */
+const alone = (kind: ShopKind, top = 12) =>
+  built((m) =>
+    addStorefronts(
+      m,
+      new MeshBuilder(),
+      [{ building, front: front(kind) }],
+      { ...kit, wallTop: () => top },
+      ground,
+    ),
+  ).count;
+
+test('by the door: a bar’s barrel and bay tree, a greengrocer’s crates, a florist’s buckets', () => {
+  const at = alone;
+  // Its sign (a pint on a board on a bracket), then a barrel and a bay tree.
+  expect(at('bar')).toBe(80 + 136 + 50);
+  // No sign of their own: what they sell stands by the door.
+  expect(at('greengrocer')).toBe(2 * 136);
+  expect(at('florist')).toBe(2 * 234);
+  // A barber's pole by a hairdresser's door, and nothing on the pavement.
+  expect(at('hairdresser')).toBe(220);
+});
+
+test('what stands by a door stays within the post the walk grid meets it as', () => {
+  const f = { x: 0, z: 0, fx: 0, fz: -1, scale: 1 };
+  for (const draw of [
+    (m: MeshBuilder) => addBarrel(m, f),
+    (m: MeshBuilder) => addCrates(m, f, 3),
+    (m: MeshBuilder) => addBuckets(m, f, 2),
+  ]) {
+    const { points } = built(draw);
+    for (const [x, y, z] of points) {
+      // The crates' corners reach a little past the post, the way a pot's rim does.
+      expect(Math.hypot(x!, z!)).toBeLessThan(0.35);
+      expect(y).toBeGreaterThanOrEqual(0);
+      expect(y).toBeLessThan(1);
+    }
+  }
 });
 
 test('a bay tree by the door: a pot and a cone of leaves', () => {
   const plant = built((m) => addDoorPlant(m, { x: 0, z: 0, fx: 0, fz: 1, scale: 1 }, 1));
   expect(plant.count).toBe(16 + 4 + 24 + 6);
   expect(Math.max(...plant.points.map(([, y]) => y!))).toBeCloseTo(1.6);
-});
-
-test('signs: a board, a token through it, a cross, a cone of fries', () => {
-  const f = { x: 10, z: 0, fx: 0, fz: -1, scale: 1 };
-  const sizes = (['bank', 'cafe', 'bar', 'bakery', 'icecream', 'pharmacy', 'frituur'] as const).map(
-    (kind) => built((m) => addSign(m, f, kind, 12)).count,
-  );
-  expect(sizes).toEqual([40, 60, 60, 60, 60, 60, 95]);
-  // Square to the wall, hung out over the street above head height.
-  const { points } = built((m) => addSign(m, f, 'frituur', 12));
-  for (const [, y, z] of points) {
-    expect(z).toBeLessThanOrEqual(1e-6);
-    expect(y).toBeGreaterThan(2.5);
-  }
 });
 
 test('a terrace is drawn inside the footprint the walk grid closes', () => {
@@ -135,9 +156,10 @@ test("a cell's fronts: awnings stop short of each other and the corners, signs h
   ];
   const awnings = new MeshBuilder();
   const { count, points } = built((m) => addStorefronts(m, awnings, fronts, kit, ground));
-  // Bakery and café awnings; their signs and the café's terrace; the service front has no room.
+  // Bakery and café awnings; their signs (a croissant, a cup) and the café's terrace; the
+  // service front has no room.
   expect(awnings.build().getAttribute('position').count).toBe(14 * 2);
-  expect(count).toBe(60 + 60 + 148 + 156);
+  expect(count).toBe(160 + 100 + 148 + 156);
   const ys = points.map(([, y]) => y!);
   // The terrace stands on the ground as drawn, the signs over it where it's above the footing.
   expect(Math.min(...ys)).toBeCloseTo(2.5);
@@ -154,4 +176,18 @@ test("a cell's fronts: awnings stop short of each other and the corners, signs h
   mesh.lift = 7;
   addStorefronts(mesh, awnings, fronts, kit, ground);
   expect([mesh.lift, awnings.lift]).toEqual([7, 0]);
+});
+
+test('a public place shows its sign by its door, and nothing on the pavement', () => {
+  expect(alone('university')).toBe(60);
+  expect(alone('hotel')).toBe(120);
+  expect(alone('museum')).toBe(80);
+  expect(alone('cinema')).toBe(alone('theatre'));
+  expect(alone('school')).toBeGreaterThan(100);
+  // A one-storey building has no room for a banner, and a front by the corner none for flags.
+  expect(alone('university', 3.5)).toBe(0);
+  const crowded = built((m) =>
+    addStorefronts(m, new MeshBuilder(), [{ building, front: front('hotel', 1.5) }], kit, ground),
+  );
+  expect(crowded.count).toBe(0);
 });
