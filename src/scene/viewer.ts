@@ -164,6 +164,10 @@ export interface Viewer {
   run(on: boolean): void;
   /** Pins the camera to the avatar again. */
   recentre(): void;
+  /** Whether the camera is on the avatar: false once the map has been dragged off it. */
+  pinned(): boolean;
+  /** Back to the avatar and down to the street, for the way back when the view is far out. */
+  comeDown(): void;
   /**
    * Takes the camera to a spot on the ground (metres east and south of the middle, as `City` has
    * them), down to the street; the avatar stays where it is.
@@ -1489,6 +1493,8 @@ export function createViewer(options: ViewerOptions): Viewer {
     steer: (x, y) => avatar?.steer(x, y),
     run: (on) => avatar?.run(on),
     recentre: () => avatar?.recentre(),
+    pinned: () => controls.pinned || !avatar,
+    comeDown: () => avatar?.comeDown(),
     lookAt: (x, z) => withAvatar((loaded) => loaded.lookAt(x, z)),
     door: () => avatar?.door(),
     ride: (action) => withAvatar((loaded) => loaded.ride(action)),
