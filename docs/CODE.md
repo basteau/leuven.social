@@ -4,15 +4,15 @@
 
 The code is split by what it is allowed to know about. Lint enforces the arrows, so breaking one fails `bun run lint` with a message pointing here.
 
-| Layer       | Holds                                                                               | May import                                                           |
-| ----------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `src/data`  | The city model, the binary format, geometry and projection maths, the map area      | `@portable/*` and web APIs only. No three.js, React or other layers. |
-| `src/net`   | Multiplayer in the browser: the wire format, accounts, presence, smoothing          | `src/data`, `@portable/*` and web APIs. No three.js or React.        |
-| `src/scene` | Everything 3D: meshes, materials, camera, controls, the render loop                 | `src/data`, `src/net`, `src/audio`, three.js. No React.              |
-| `src/audio` | The few UI, walking and riding sounds, synthesised with Web Audio                   | Web APIs only. No three.js, React or other layers.                   |
-| `src/app`   | The React shell: the command menu, the few things on the map, loading, shortcuts    | `src/data`, `src/net`, `src/scene`, `src/audio`                      |
-| `scripts/`  | Build-time edges: fetching and baking data, icons, budgets, the smoke test, deploys | `src/data`, plus the `Bun` global for files and processes            |
-| `server/`   | The multiplayer server: accounts, the presence hub, SQLite ([MULTIPLAYER.md])       | `src/net`, `src/data`, the `Bun` global, `bun:sqlite`, `process.env` |
+| Layer       | Holds                                                                                           | May import                                                           |
+| ----------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `src/data`  | The city model, the binary format, geometry and projection maths, the map area                  | `@portable/*` and web APIs only. No three.js, React or other layers. |
+| `src/net`   | Multiplayer in the browser: the wire format, accounts, presence, smoothing                      | `src/data`, `@portable/*` and web APIs. No three.js or React.        |
+| `src/scene` | Everything 3D: meshes, materials, camera, controls, the render loop                             | `src/data`, `src/net`, `src/audio`, three.js. No React.              |
+| `src/audio` | The few UI, walking and riding sounds, synthesised with Web Audio                               | Web APIs only. No three.js, React or other layers.                   |
+| `src/app`   | The React shell: the command menu, the few things on the map, loading, shortcuts                | `src/data`, `src/net`, `src/scene`, `src/audio`                      |
+| `scripts/`  | Build-time edges: fetching and baking data, icons, budgets, the smoke test, deploys, load tests | `src/data`, `src/net`, plus the `Bun` global for files and processes |
+| `server/`   | The multiplayer server: accounts, the presence hub, SQLite ([MULTIPLAYER.md])                   | `src/net`, `src/data`, the `Bun` global, `bun:sqlite`, `process.env` |
 
 [MULTIPLAYER.md]: MULTIPLAYER.md
 
@@ -33,7 +33,7 @@ The code is split by what it is allowed to know about. Lint enforces the arrows,
 | `door()`                                         | Goes into the building beside the avatar, or out of the one it is in (Enter): the one thing that moves it at once.                                                                           |
 | `rooms()`                                        | The rooms inside the landmarks for the menu, each `{ id, name, x, z }` at its door (loading their data if need be).                                                                          |
 | `timeOfDay()`, `nextTimeOfDay()`, `passTime(on)` | The light, and the day passing.                                                                                                                                                              |
-| `others(roster)`                                 | The other players to draw: a `Roster` the app keeps from the network (who, how they look, where at a moment), or null.                                                                       |
+| `others(roster)`                                 | The other players to draw: a `Roster` the app keeps from the network (who, how they look, where at a moment, told where the map looks), or null.                                             |
 | `dress(outfit)`, `placeAvatar(x, z, heading)`    | Your clothes, skin and hair; back where you left last time (on foot, in the street).                                                                                                         |
 | `stats()`, `ready`, `dispose()`                  | The last frame's cost; a promise that settles once the first frame is drawn.                                                                                                                 |
 

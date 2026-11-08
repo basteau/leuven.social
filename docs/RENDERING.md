@@ -58,6 +58,10 @@ There are no modes. The map's orthographic camera at the true isometric pitch is
 - **Feet on the ground as drawn.** The avatar, its bike and the bikes left about the city stand on the terrain plus the layer drawn there (a pavement 0.15 m over the terrain, a square 0.2 m), as the parked bikes do: the avatar host's `groundAt` is the viewer's `drawnAt`, which reads `drawnGround` from the furniture chunk (the pavement's height until that has loaded). Feet and tyres stand 4 cm over it (`FEET_Y` in `avatar-layer.ts`), so their ink never dips into the street, and a kerb's step up or down eases over a 40 ms half-life (`KERB_EASE`) rather than in one frame.
 - **The figure doesn't cast into the static shadow map**, but it receives it, so it darkens in the shade of the houses it passes.
 
+### Other players
+
+The other players cost what the view draws, not how many are online. The server tells a client only of those in the 3×3 of 350 m cells round where its map looks ([MULTIPLAYER.md](MULTIPLAYER.md)), and each of those is a few numbers (`players.ts`): where the roster says they are and a gait. The 24 nearest the view wear a figure from a pool (a rig, an x-ray and a name tag, two draw calls each, three in all for the riders), made the first time it is needed and handed on, at most three dressed a frame, so a crowd arriving doesn't stall one. Everyone else in view, up to 240, is an instance of one mesh, a few prisms tinted by the shirt: one draw call however many. Poses are written into reused objects, so a frame of a crowd allocates nothing. News from players the view wouldn't draw is worth no frame: the map stays idle.
+
 ### Hidden, and found
 
 At 35° a house across a 6 m street hides the avatar much of the time, and the view stays there at every zoom: a steeper camera barely clears Leuven's 6–8 m streets while flattening the facades (at 65° a 7 m street is still 64% hidden, and a facade keeps 42% of its height). The see-through opening that used to dither away whatever stood in front (`occlusion.ts`) is gone, and with it the city material's and the plates' two uniforms.
@@ -114,9 +118,9 @@ The size and render budgets are enforced by `bun run verify`; if one is exceeded
 | What                                                                            | Limit           | Checked by          |
 | ------------------------------------------------------------------------------- | --------------- | ------------------- |
 | App shell JS (React + the shell), gzipped                                       | 88 KB           | `scripts/budget.ts` |
-| 3D engine JS (three.js chunk, palette), gzipped                                 | 172.5 KB        | `scripts/budget.ts` |
+| 3D engine JS (three.js chunk, palette), gzipped                                 | 173 KB          | `scripts/budget.ts` |
 | Furniture JS (after the first frame)                                            | 11 KB           | `scripts/budget.ts` |
-| Avatar JS, with its rooms, figure and the other players (after the first frame) | 25 KB           | `scripts/budget.ts` |
+| Avatar JS, with its rooms, figure and the other players (after the first frame) | 26 KB           | `scripts/budget.ts` |
 | Street names JS (with the avatar)                                               | 1.5 KB          | `scripts/budget.ts` |
 | Bikes JS (near a rack)                                                          | 3 KB            | `scripts/budget.ts` |
 | Rider JS, with the bike's rig (with the bikes, or when another player rides)    | 7 KB            | `scripts/budget.ts` |
@@ -124,8 +128,8 @@ The size and render budgets are enforced by `bun run verify`; if one is exceeded
 | Minimap JS (once the map is up)                                                 | 2 KB            | `scripts/budget.ts` |
 | Full map JS and CSS (when first opened)                                         | 8 KB, 1.5 KB    | `scripts/budget.ts` |
 | Account sheet JS and CSS (when first opened)                                    | 2.5 KB, 1.25 KB | `scripts/budget.ts` |
-| Multiplayer JS: accounts, presence, protocol (once the map is up)               | 8.5 KB          | `scripts/budget.ts` |
-| First-load JS (shell + engine)                                                  | 260 KB          | `scripts/budget.ts` |
+| Multiplayer JS: accounts, presence, protocol (once the map is up)               | 9 KB            | `scripts/budget.ts` |
+| First-load JS (shell + engine)                                                  | 260.5 KB        | `scripts/budget.ts` |
 | CSS loaded with the page, gzipped                                               | 3.75 KB         | `scripts/budget.ts` |
 | HTML, with the loading screen inline, gzipped                                   | 7 KB            | `scripts/budget.ts` |
 | Menu JS (loaded while the city is built)                                        | 7 KB            | `scripts/budget.ts` |
@@ -142,6 +146,38 @@ Every frame keeps the same cap, shadow redraws included. A redraw draws the cast
 The loading screen is in the HTML (its tokens, styles and the little town as inline CSS and SVG, about 6.7 KB gzipped), so it paints with the first bytes, before any script or stylesheet. The three.js chunk loads in parallel with the city data, while the screen counts the city's bytes. The menu is a chunk of its own (about 6 KB), fetched once the city has arrived and the network is free, while the first frame is built: the first load doesn't grow, and the menu is ready when the map is.
 
 The viewer publishes the first frame, the latest and the most expensive frame of the visit, and the smoke test checks all three at every step: default view, after the controls, zoomed in, zoomed all the way out, dragged around out there (which redraws the shadow map for the most city at once), down at the street walking a few steps, back out, riding and after it, beside Sint-Pieterskerk, inside it by its door and out again, and on a phone. Going into the room and out again must not take a long task. Each visible cell is two draw calls (three or four from zoom 2, with its furniture and its awnings), and a frame that redraws shadows adds one or two per casting cell; draw calls are cheap here because every cell shares one material and program, so the budget watches triangles first. Typical numbers for the whole ring plus Heverlee: 37 calls and 272k triangles at the default view, 25 and 182k zoomed in, 96 and 582k zoomed out, 73 and 593k for the first frame (shadows included), about 33 and 425k at the closest zoom walking or riding (with the traffic's near shapes), and 35 to 39 inside the church.
+
+## Measuring
+
+`bun scripts/perf.ts` records frames in a real headless Chrome on hardware GL, with a swarm of real presence bots (`scripts/swarm.ts`) around: map and street, desktop 1440×900 and phone 390×844 at 3×, at full speed and at 4× CPU. Never pass `--disable-frame-rate-limit`: uncapped, the walk loop floods the GPU queue with stalls that look like a shader problem and are not. Software GL isn't representative either. The numbers below are from one MacBook (Apple M4): they say the code doesn't get slower with players, not what a phone can do. Only a real mid-range Android and an iPhone can say that, and they haven't been tried.
+
+| Street view, desktop, 4× CPU           | fps | p95 ms | max ms | script | heap   |
+| -------------------------------------- | --- | ------ | ------ | ------ | ------ |
+| 1000 across the city, before           | 60  | 16.8   | 16.8   | 58%    | 113 MB |
+| 1000 across the city, now              | 60  | 16.7   | 16.8   | 19%    | 63 MB  |
+| 1000 within 90 m of the avatar, before | 60  | 16.8   | 16.8   | 67%    | 168 MB |
+| 1000 within 90 m of the avatar, now    | 60  | 16.8   | 16.8   | 31%    | 66 MB  |
+
+With 1000 connected, a phone viewport at 4× CPU went from 57% to 18% of the main thread and from 185 MB of heap to 115. All 32 runs (0, 50 and 1000 players, map and street, two viewports, two CPU speeds) held 60 fps with a p95 of 16.8 ms and a longest task under the 50 ms the browser reports. On a load made to be GPU-bound (`--burn 28`, 28 ms a frame at full size, going with the pixels), the scaler stepped from 1440 to 1224 to 1036 pixels wide, half a second or more apart, and held 58 fps.
+
+### Loading the city in pieces: measured, and not done
+
+Cells are built on the main thread and all of `city.bin` loads before the first frame, so loading it in pieces seemed the next step. The numbers don't ask for it:
+
+| Measured                                              | Result                              |
+| ----------------------------------------------------- | ----------------------------------- |
+| Decoding `city.bin`, party walls and cutting (laptop) | 20 ms and 64 ms                     |
+| Building a cell (86 cells)                            | median 5.8 ms, longest 13.8 ms      |
+| All 86 cells, in 8 ms slices while idle               | 512 ms                              |
+| Geometry on the GPU, every cell built                 | 67 MB                               |
+| First frame, fast connection                          | 0.7 s                               |
+| First frame, 4× CPU and 9 Mbit/s                      | 3.5 s                               |
+| First frame, 4× CPU and 400 kbit/s                    | 29 s, nearly all of it the download |
+
+- **Building only what's near the view** saves little: the zoom limit lets a phone see about 1 km of a 3 km city, so a ring that keeps zooming out instant holds most of it, and a smaller one turns zooming out into a stall.
+- **Evicting far cells** has nothing to win back at 67 MB, and would rebuild on the way back.
+- **A worker** would take at most 14 ms off a frame that already fits, for a builder that today shares `three` and the city with the main thread.
+- **Splitting `city.bin` by region** is the one that would help, and only on a connection around 400 kbit/s. It touches what the whole city is used for (the walk grid, both maps, the street names). Worth doing if real visitors turn out to be on such connections.
 
 ## Growing the city
 
