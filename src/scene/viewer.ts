@@ -588,7 +588,8 @@ export function createViewer(options: ViewerOptions): Viewer {
 
   // The one camera, from the whole city down to a street (lod.ts).
   const camera = new OrthographicCamera(-1, 1, 1, -1, 1, CAMERA_DISTANCE * 2);
-  // Arrow keys pan while the map has focus.
+  /** How far out this window may zoom (zoom-limit.ts). A room keeps its own limits. */
+  let farthestZoom = MIN_ZOOM;
   // A drag lets go of the avatar; zooming keeps it in the middle (map-controls.ts).
   const controls = new MapControls(
     camera,
@@ -612,6 +613,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     camera.lookAt(t);
     clampTarget();
     invalidate();
+    furnishAhead();
   }
 
   let width = 0;
@@ -630,8 +632,11 @@ export function createViewer(options: ViewerOptions): Viewer {
     const halfH = VIEW_HEIGHT / 2;
     const halfW = halfH * (buffer.x / buffer.y);
     // How far out the map may go depends on how much ground this window shows (zoom-limit.ts).
-    controls.minZoom = minZoomFor(buffer.x / buffer.y, VIEW_HEIGHT);
-    camera.zoom = Math.max(camera.zoom, controls.minZoom);
+    farthestZoom = minZoomFor(buffer.x / buffer.y, VIEW_HEIGHT);
+    if (!avatar?.state.place) {
+      controls.minZoom = farthestZoom;
+      camera.zoom = Math.max(camera.zoom, farthestZoom);
+    }
     Object.assign(camera, { left: -halfW, right: halfW, top: halfH, bottom: -halfH });
     camera.updateProjectionMatrix();
     invalidate();
@@ -1002,6 +1007,7 @@ export function createViewer(options: ViewerOptions): Viewer {
           yaw: () => yaw,
           placeCamera,
           render: renderNow,
+          farthestZoom: () => farthestZoom,
           onRoute: (target) => {
             routeTo = target;
             options.onRoute?.(target);
@@ -1076,7 +1082,10 @@ export function createViewer(options: ViewerOptions): Viewer {
   function onChange(): void {
     clampTarget();
     invalidate();
-    // The view moved: the furniture round its new place is made ahead, when idle.
+    furnishAhead();
+  }
+  /** The view moved: the furniture round its new place is made ahead, when idle. */
+  function furnishAhead(): void {
     if (furnishing && !idleHandle) idleHandle = idle(buildInBackground);
   }
 

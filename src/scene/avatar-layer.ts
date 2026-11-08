@@ -47,7 +47,7 @@ import { LEAD, recentre, screenSteer } from './follow.ts';
 import { loadInteriors } from './interiors.ts';
 import type { Interiors } from './interiors.ts';
 import type { Detail } from './lod.ts';
-import { MAX_ZOOM, MIN_ZOOM } from './lod.ts';
+import { MAX_ZOOM } from './lod.ts';
 import type { MapControls } from './map-controls.ts';
 import { markerDrop, markerGeometry, markerRadius } from './marker.ts';
 import { MeshBuilder, linearVertexColors } from './mesh-builder.ts';
@@ -84,6 +84,8 @@ const TAP_REACH = 8;
 const TRIES = 8;
 /** A tap this far off (m) that no route reaches is a long way round: too far, not nowhere. */
 const DETOUR = 80;
+/** A spot picked on the full map goes to the street within this of it (m). */
+const NAVIGATE_SNAP = 30;
 /** A tap that touches the avatar within this of its feet (m) stops it where it is. */
 const ON_AVATAR = 1;
 /**
@@ -174,6 +176,8 @@ export interface AvatarHost {
   onBlocked?(why: Refusal): void;
   /** A bike near enough to ride, riding, or neither. */
   onRide?(state: RideState): void;
+  /** How far out this window may zoom, back in the street. */
+  farthestZoom(): number;
   /** A route to a picked spot began (its end, m) or ended (null). A bike's own short ones don't count. */
   onRoute?(target: readonly [number, number] | null): void;
   /** The site's base URL, where rooms.json is served. */
@@ -528,13 +532,13 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     avatar.floor = 0;
     host.hideLandmark(null);
     interiors?.show(null, 0);
-    [controls.minZoom, controls.maxZoom] = [MIN_ZOOM, MAX_ZOOM];
+    [controls.minZoom, controls.maxZoom] = [host.farthestZoom(), MAX_ZOOM];
     publishPlace();
     publishDoor();
     // Walked out for a tap outside: on to it, unless the keys took over on the way.
     const next = onward;
     onward = null;
-    if (next && avatar.walker.route) walkTo(...next, TAP_REACH);
+    if (next && avatar.walker.route) routeOrRefuse(...next);
   }
   /**
    * Out through the door a step past the footprint's edge (the room's grid keeps its threshold
@@ -632,15 +636,15 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
 
   /** The route being walked was picked (a tap, the map); a bike's own short ones aren't. */
   let picked = false;
-  let routeTo: readonly [number, number] | null = null;
-  /** Tells the host when the end of the picked route changes, or it's gone. */
+  let reported: Float32Array | null = null;
+  /** Tells the host when the picked route changes, or it's gone. Called every frame walked. */
   function syncRoute(): void {
     const { route } = avatar.walker;
     if (!route) picked = false;
-    const end = picked && route ? ([route.at(-2)!, route.at(-1)!] as const) : null;
-    if (end?.[0] === routeTo?.[0] && end?.[1] === routeTo?.[1]) return;
-    routeTo = end;
-    host.onRoute?.(routeTo);
+    const current = picked ? route : null;
+    if (current === reported) return;
+    reported = current;
+    host.onRoute?.(current && [current.at(-2)!, current.at(-1)!]);
   }
 
   function clearRoute(): void {
@@ -663,7 +667,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     if (!from) return false;
     const places = here.around(x, z, reach, most);
     if (here.walkable(x, z)) places.unshift([x, z]);
-    for (const [tx, tz] of places) {
+    for (const [tx, tz] of places.slice(0, most)) {
       const route = by.route(from[0]!, from[1]!, tx, tz, loose);
       if (route) {
         follow(route);
@@ -810,11 +814,19 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     const far = Math.hypot(at[0] - w.x, at[1] - w.z);
     if (far > ROUTE_REACH) refuse(...at, 'far');
     else if (room) leaveFor(at);
-    // A route the router can't find so far off is a long way round: too far, not nowhere, and
-    // not worth another search (a failed one fills its whole window).
-    else if (!walkTo(...at, TAP_REACH, far > DETOUR ? 1 : TRIES)) {
-      refuse(...at, far > DETOUR ? 'far' : 'closed');
-    }
+    else routeOrRefuse(...at);
+  }
+
+  /**
+   * A route to a spot, or says why there's none. One the router can't find so far off is a long
+   * way round: too far, not nowhere, and not worth another search (a failed one fills its window).
+   */
+  function routeOrRefuse(x: number, z: number): boolean {
+    const w = avatar.walker;
+    const far = Math.hypot(x - w.x, z - w.z) > DETOUR;
+    if (walkTo(x, z, TAP_REACH, far ? 1 : TRIES)) return true;
+    refuse(x, z, far ? 'far' : 'closed');
+    return false;
   }
 
   /** In a room: out through its door, and on to `at` once outside. */
@@ -823,6 +835,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     const { door } = room;
     const out = [door.x - Math.sin(door.facing) * 0.8, door.z - Math.cos(door.facing) * 0.8];
     if (walkTo(out[0]!, out[1]!, TAP_REACH)) onward = at;
+    else refuse(...at, 'closed');
   }
 
   function wake(): void {
@@ -1134,11 +1147,14 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       place(w.x, w.z, w.heading, w.phase, 0);
     },
     goTo(x, z) {
-      if (room) leaveFor([x, z]);
-      else if (!walkTo(x, z, TAP_REACH)) {
-        refuse(x, z, 'far');
-        return;
-      }
+      asked++;
+      onward = null;
+      bikes?.cancel();
+      if (bikes?.busy) return;
+      // A mark can sit inside a block: the street nearest it is where to go.
+      const at = grid.nearest(x, z, NAVIGATE_SNAP, true) ?? [x, z];
+      if (room) leaveFor(at);
+      else if (!routeOrRefuse(...at)) return;
       pinCamera();
     },
     cancelRoute() {
