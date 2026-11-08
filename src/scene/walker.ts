@@ -1,6 +1,6 @@
 import { CREEP, moveBody } from './collide.ts';
 import type { Ground } from './collide.ts';
-import { springTo, springToAngle } from './motion.ts';
+import { springTo, springToAngle, wrap } from './motion.ts';
 import type { Spring } from './motion.ts';
 
 /**
@@ -126,8 +126,6 @@ export function followRoute(w: Walker, route: Float32Array): void {
   w.next = 1;
   w.travelled = 0;
 }
-
-const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
 /** How far from a walk into a run a speed is: 0 at walking pace or slower, 1 flat out. */
 export const runBlend = (speed: number) =>

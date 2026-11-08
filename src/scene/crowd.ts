@@ -1,4 +1,5 @@
 import { BIKE_STRIDE } from './avatar.ts';
+import { wrap } from './motion.ts';
 import { STRIDE_RUN, STRIDE_WALK, runBlend } from './walker.ts';
 
 /**
@@ -43,8 +44,6 @@ const STANDING = 0.05;
 const LEAN_SHARE = 0.45;
 const MAX_LEAN = (16 * Math.PI) / 180;
 const G = 9.8;
-
-const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
 export function createGait(heading = 0): Gait {
   return { phase: 0, still: 0, turning: 0, lean: 0, heading };

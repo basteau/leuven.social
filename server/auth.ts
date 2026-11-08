@@ -83,8 +83,6 @@ export function createAuth(config: AuthConfig) {
   return betterAuth(authOptions(config));
 }
 
-export type Auth = ReturnType<typeof createAuth>;
-
 /** Creates or updates better-auth's tables, so a fresh database just works. */
 export async function migrateAuth(config: AuthConfig): Promise<void> {
   const { runMigrations } = await getMigrations(authOptions(config));

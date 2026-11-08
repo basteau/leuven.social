@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { clock, decay, decayAngle, spring, springTo, springToAngle, ticks } from './motion.ts';
+import { clock, decay, spring, springTo, springToAngle, ticks } from './motion.ts';
 
 /** Runs `update` for one second at `hz` frames a second. */
 function second(hz: number, update: (dt: number) => void): void {
@@ -16,11 +16,6 @@ describe('decay', () => {
       expect(x).toBeCloseTo(8 - 8 / 16, 6);
     }
     expect(decay(3, 8, 0, 1 / 60)).toBe(8);
-  });
-
-  test('turns an angle the short way round', () => {
-    const a = decayAngle(Math.PI - 0.1, -Math.PI + 0.1, 0.1, 0.1);
-    expect(Math.abs(a)).toBeCloseTo(Math.PI, 6);
   });
 });
 

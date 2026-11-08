@@ -5,6 +5,8 @@
  *
  *   bun run build && bun run build:server && bun scripts/perf.ts
  *   bun scripts/perf.ts --bots 0,50 --views map --viewports desktop --cpus 1
+ *   bun scripts/perf.ts --load                  # time to the first frame, also on a slow connection
+ *   bun scripts/perf.ts --burn 28               # a GPU-bound load, for the dynamic resolution
  *
  * Never pass --disable-frame-rate-limit to the browser: uncapped, the walk loop floods the GPU
  * queue with stalls that look like a shader problem and are not.
@@ -36,6 +38,10 @@ const views = flag('views', 'map,walk');
 const viewports = flag('viewports', 'desktop,phone') as (keyof typeof VIEWPORTS)[];
 const cpus = flag('cpus', '1,4').map(Number);
 const seconds = Number(flag('seconds', '6')[0]);
+const LOAD = Bun.argv.includes('--load');
+/** Pretends a frame costs this many ms at the size the page opened at, going with its pixels. */
+const BURN = Number(flag('burn', '0')[0]);
+const SHOT = Bun.argv.includes('--shot');
 
 const BIN = Bun.fileURLToPath(new URL('../node_modules/.bin/', import.meta.url));
 const DATA = `${process.env.HOME}/.agent-browser/browsers/`;
@@ -133,6 +139,11 @@ const measure = (view: string, ms: number) => `(async () => {
       ${
         view === 'map'
           ? `c.dispatchEvent(new WheelEvent('wheel', { deltaY: 60 * (sign = -sign), clientX: innerWidth / 2, clientY: innerHeight / 2, bubbles: true, cancelable: true }));`
+          : ''
+      }
+      ${
+        BURN
+          ? `const until = performance.now() + ${BURN} * (c.width / (window.perfWidth ??= c.width)) ** 2; while (performance.now() < until);`
           : ''
       }
       if (now - start < ${ms}) requestAnimationFrame(step); else done();
@@ -271,6 +282,59 @@ try {
     throw new Error('the page did not get ready');
   };
 
+  if (LOAD) {
+    const results: Record<string, unknown>[] = [];
+    await send('Network.enable');
+    await send('Network.setCacheDisabled', { cacheDisabled: true });
+    // Or the service worker answers from its own cache, past the emulated network.
+    await send('Network.setBypassServiceWorker', { bypass: true });
+    for (const [name, cpu, kbit] of [
+      ['fast', 1, 0],
+      ['phone on 4G', 4, 9000],
+      ['phone on slow 3G', 4, 400],
+    ] as const) {
+      await send('Emulation.setDeviceMetricsOverride', VIEWPORTS.phone);
+      await send('Network.emulateNetworkConditions', {
+        offline: false,
+        latency: kbit ? 150 : 0,
+        downloadThroughput: kbit ? (kbit * 1024) / 8 : -1,
+        uploadThroughput: kbit ? (kbit * 1024) / 8 : -1,
+      });
+      await send('Emulation.setCPUThrottlingRate', { rate: cpu });
+      await send('Page.navigate', { url: 'about:blank' });
+      await Bun.sleep(300);
+      const start = performance.now();
+      await send('Page.navigate', { url: SITE });
+      let ready = 0;
+      for (let i = 0; i < 1200; i++) {
+        await Bun.sleep(100);
+        const state = await page<string>(`document.documentElement.dataset.state ?? ''`).catch(
+          () => '',
+        );
+        if (state === 'ready') {
+          ready = performance.now() - start;
+          break;
+        }
+      }
+      await send('Emulation.setCPUThrottlingRate', { rate: 1 });
+      await send('Network.emulateNetworkConditions', {
+        offline: false,
+        latency: 0,
+        downloadThroughput: -1,
+        uploadThroughput: -1,
+      });
+      // Long enough for the idle builder to get through every cell.
+      await Bun.sleep(4000);
+      const [vertices, mb] = await page<[number, number]>(
+        `(() => { const d = document.querySelector('canvas').dataset; return [+d.vertices, +d.geometryBytes / 2 ** 20]; })()`,
+      );
+      results.push({ name, readyMs: Math.round(ready), vertices, mb: Number(mb.toFixed(1)) });
+      console.error(JSON.stringify(results.at(-1)));
+    }
+    console.log(JSON.stringify(results));
+    throw new Error('done');
+  }
+
   await load('desktop');
   const renderer = await page<string>(`(() => {
     const gl = document.createElement('canvas').getContext('webgl2');
@@ -332,6 +396,15 @@ try {
           ];
           rows.push(row);
           console.error(row.join(' | '));
+          if (SHOT && view === 'walk' && cpu === cpus[0]) {
+            const { data } = await send<{ data: string }>('Page.captureScreenshot', {
+              format: 'png',
+            });
+            await Bun.write(
+              `${ARTIFACTS}perf-${scenario.name.replace(/\s/g, '-')}-${viewport}.png`,
+              Buffer.from(data, 'base64'),
+            );
+          }
         }
       }
       await send('Emulation.setCPUThrottlingRate', { rate: 1 });
@@ -361,8 +434,10 @@ try {
   console.log(`| ${head.map(() => '---').join(' | ')} |`);
   for (const row of rows) console.log(`| ${row.join(' | ')} |`);
 } catch (error) {
-  console.error(`\nPERF FAILED  ${error instanceof Error ? error.message : String(error)}`);
-  process.exitCode = 1;
+  if (!(error instanceof Error && error.message === 'done')) {
+    console.error(`\nPERF FAILED  ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  }
 } finally {
   cdp?.close();
   chrome.kill();

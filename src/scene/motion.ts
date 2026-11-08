@@ -5,16 +5,13 @@
  * on a faster screen.
  */
 
-const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+/** An angle in radians, brought into (-π, π]. */
+export const wrap = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
 
 /** Moves `value` toward `goal`, halving the gap every `halfLife` seconds. */
 export function decay(value: number, goal: number, halfLife: number, dt: number): number {
   return halfLife > 0 ? goal + (value - goal) * 2 ** (-dt / halfLife) : goal;
 }
-
-/** The same for an angle in radians, the short way round. */
-export const decayAngle = (value: number, goal: number, halfLife: number, dt: number) =>
-  wrap(decay(value, value + wrap(goal - value), halfLife, dt));
 
 /** A value with momentum: where it is and how fast it's going (per second). */
 export interface Spring {

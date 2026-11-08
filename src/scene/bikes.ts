@@ -6,6 +6,7 @@ import type { Outfit } from './figure.ts';
 import { BIKE_MOST, LOOK, WHEEL, bakeBike } from './bike-rig.ts';
 import type { BikeArrays, Stand } from './bike-rig.ts';
 import { loose } from './collide.ts';
+import { wrap } from './motion.ts';
 import { BIKES } from './palette.ts';
 import { WALKER } from './palette.ts';
 import { PARKED, nearestParked, parkedHeading } from './parked.ts';
@@ -98,7 +99,6 @@ const MAX_LEAN = (16 * Math.PI) / 180;
 const BRAKING = 2;
 const G = 9.8;
 
-const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 const key = (x: number, z: number) => `${x.toFixed(2)} ${z.toFixed(2)}`;
 
 /** A bike left standing, and the rack bike it was, to put back. */

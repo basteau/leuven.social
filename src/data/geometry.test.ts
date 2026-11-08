@@ -11,10 +11,8 @@ import {
   orientedRect,
   pointInRing,
   ringInArea,
-  ringInside,
   signedArea,
   joinRings,
-  pointAlong,
   simplifyLine,
   simplifyRing,
   clipLine,
@@ -38,13 +36,11 @@ describe('clipRing', () => {
   test('keeps a ring that is fully inside', () => {
     const ring = [1, 1, 4, 1, 4, 4, 1, 4];
     expect(Math.abs(signedArea(clipRing(ring, bounds)))).toBe(9);
-    expect(ringInside(ring, bounds)).toBe(true);
   });
 
   test('cuts a ring that crosses the edge', () => {
     const clipped = clipRing([5, 5, 15, 5, 15, 15, 5, 15], bounds);
     expect(Math.abs(signedArea(clipped))).toBeCloseTo(25);
-    expect(ringInside(clipped, bounds)).toBe(true);
   });
 
   test('drops a ring that is fully outside', () => {
@@ -188,14 +184,4 @@ describe('uncoveredPieces', () => {
     expect(uncoveredPieces([0, 0, 5, 0, 5, 5], () => false)).toEqual([[0, 0, 5, 0, 5, 5]]);
     expect(uncoveredPieces([12, 0, 18, 0], (x) => road(x))).toEqual([]);
   });
-});
-
-test('pointAlong walks a polyline by its length and heads along the segment it lands on', () => {
-  const line = [0, 0, 10, 0, 10, 10];
-  expect(pointAlong(line, 0)).toEqual([0, 0, 1, 0]);
-  expect(pointAlong(line, 0.25)).toEqual([5, 0, 1, 0]);
-  expect(pointAlong(line, 0.75)).toEqual([10, 5, 0, 1]);
-  expect(pointAlong(line, 1)).toEqual([10, 10, 0, 1]);
-  expect(pointAlong(line, 2)).toEqual([10, 10, 0, 1]);
-  expect(pointAlong([3, 4], 0.5)).toEqual([3, 4, 1, 0]);
 });

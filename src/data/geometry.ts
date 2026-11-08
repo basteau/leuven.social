@@ -168,15 +168,6 @@ export function simplifyRing(ring: ArrayLike<number>, tolerance: number): number
   return pts;
 }
 
-export function ringInside(ring: ArrayLike<number>, b: Bounds): boolean {
-  for (let i = 0; i < ring.length; i += 2) {
-    const x = ring[i]!;
-    const z = ring[i + 1]!;
-    if (x < b.minX || x > b.maxX || z < b.minZ || z > b.maxZ) return false;
-  }
-  return true;
-}
-
 type Edge = (x: number, z: number) => number;
 
 /** Sutherland–Hodgman clip of a polygon against an axis-aligned rectangle. */
@@ -380,29 +371,6 @@ export function uncoveredPieces(
   }
   flush();
   return pieces;
-}
-
-/**
- * The point a share `t` (0 to 1) of the way along a flat polyline, by length, and the unit
- * direction of the segment it is on: [x, z, dx, dz].
- */
-export function pointAlong(line: ArrayLike<number>, t: number): [number, number, number, number] {
-  let total = 0;
-  for (let i = 0; i + 3 < line.length; i += 2) {
-    total += Math.hypot(line[i + 2]! - line[i]!, line[i + 3]! - line[i + 1]!);
-  }
-  let left = Math.min(Math.max(t, 0), 1) * total;
-  for (let i = 0; i + 3 < line.length; i += 2) {
-    const [ax, az, bx, bz] = [line[i]!, line[i + 1]!, line[i + 2]!, line[i + 3]!];
-    const len = Math.hypot(bx - ax, bz - az);
-    if (left <= len || i + 5 >= line.length) {
-      const k = len > 0 ? Math.min(1, left / len) : 0;
-      const [dx, dz] = len > 0 ? [(bx - ax) / len, (bz - az) / len] : [1, 0];
-      return [ax + (bx - ax) * k, az + (bz - az) * k, dx, dz];
-    }
-    left -= len;
-  }
-  return [line[0] ?? 0, line[1] ?? 0, 1, 0];
 }
 
 /**
