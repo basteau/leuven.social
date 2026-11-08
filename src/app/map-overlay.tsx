@@ -274,6 +274,8 @@ export function MapOverlay(props: Props) {
       setSelection({ kind: 'spot', x, z });
     }
   };
+  // A long press still pending when the map closes must not drop a mark afterwards.
+  useEffect(() => () => clearTimeout(press.current?.timer), []);
   // React's wheel listener is passive: the map listens itself, to keep the page from scrolling.
   useEffect(() => {
     const canvas = canvasRef.current;
