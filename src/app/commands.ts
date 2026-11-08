@@ -21,6 +21,8 @@ export type ActionId =
   | 'run'
   | 'ride'
   | 'bell'
+  | 'open-map'
+  | 'stop-route'
   | 'sound'
   | 'time'
   | 'pass-time'
@@ -61,7 +63,9 @@ export type IconName =
   | 'clock'
   | 'keys'
   | 'info'
-  | 'place';
+  | 'place'
+  | 'map'
+  | 'stop';
 
 /**
  * Keys, as keycaps: each inner list is a chord or a set of keys shown side by side, and the
@@ -89,6 +93,8 @@ export interface CommandState {
   /** A building you can go into beside you, or the one you're in. */
   door: { room: string; inside: boolean } | null;
   running: boolean;
+  /** A route to a picked spot is being walked. */
+  routing: boolean;
   soundOn: boolean;
   /** The time of day on the map, and whether the day is passing by itself. */
   time: PresetId;
@@ -159,7 +165,7 @@ const view = (s: CommandState): Command[] => [
     label: 'Minimap',
     detail: s.minimap ? 'The streets round you, in the corner' : 'Hidden',
     keywords: 'minimap map overview radar corner where others players',
-    keys: [['N']],
+    keys: [['H']],
     icon: 'map',
     on: s.minimap,
     action: 'minimap',
@@ -179,6 +185,20 @@ const yours = (s: CommandState): Command[] => {
       icon: 'pin',
       action: 'recentre',
     },
+    ...(s.routing
+      ? [
+          {
+            id: 'stop-route',
+            group: 'walk',
+            label: 'Stop navigating',
+            detail: 'Let go of the route; Esc does this first, then leaves',
+            keywords: 'stop cancel navigation navigating route walking destination',
+            keys: [['Esc']],
+            icon: 'stop',
+            action: 'stop-route',
+          } satisfies Command,
+        ]
+      : []),
     {
       id: 'account',
       group: 'walk',
@@ -252,6 +272,16 @@ const timeLabel = (id: PresetId) => PRESETS.find((p) => p.id === id)!.label;
 
 const general = (s: CommandState): Command[] => [
   {
+    id: 'open-map',
+    group: 'general',
+    label: 'Open the map',
+    detail: 'The whole city, your marks and where you are',
+    keywords: 'map full city overview gps waypoint waypoints marks pins navigate atlas',
+    keys: [['M']],
+    icon: 'map',
+    action: 'open-map',
+  },
+  {
     id: 'time',
     group: 'general',
     label: 'Time of day',
@@ -278,7 +308,7 @@ const general = (s: CommandState): Command[] => [
     label: s.soundOn ? 'Mute' : 'Unmute',
     detail: s.soundOn ? 'Sound is on' : 'Sound is off',
     keywords: 'sound audio mute unmute volume quiet',
-    keys: [['M']],
+    keys: [['N']],
     icon: s.soundOn ? 'sound-on' : 'sound-off',
     action: 'sound',
   },
@@ -337,7 +367,7 @@ export function keySheet(k: Keycaps, mod: string): KeySection[] {
         },
         { what: 'Turn the map', keys: [[k.KeyQ, k.KeyE]], touch: 'From this menu' },
         { what: 'North up, back to you', keys: [['R']] },
-        { what: 'Show or hide the minimap', keys: [['N']], touch: 'From this menu' },
+        { what: 'Show or hide the minimap', keys: [['H']], touch: 'From this menu' },
         { what: 'Join, or change your look', keys: [['L']], touch: 'The button at the top' },
       ],
     },
@@ -349,6 +379,7 @@ export function keySheet(k: Keycaps, mod: string): KeySection[] {
         { what: 'Run', keys: [['Shift']], touch: 'From this menu' },
         { what: 'Walk to a spot nearby', keys: [['Click']], touch: 'Tap it' },
         { what: 'Go into a building beside you, or out', keys: [['↵']], touch: 'Go in' },
+        { what: 'Stop the route', keys: [['Esc']], touch: 'The Stop button' },
         { what: 'Back to you', keys: [['Space']], touch: 'The arrow at the edge' },
       ],
     },
@@ -368,7 +399,8 @@ export function keySheet(k: Keycaps, mod: string): KeySection[] {
       rows: [
         { what: 'Open this menu', keys: [[mod, 'K'], ['/']], touch: 'The menu button' },
         { what: 'Controls and keys', keys: [['?']] },
-        { what: 'Mute or unmute', keys: [['M']] },
+        { what: 'Open the map', keys: [['M']] },
+        { what: 'Mute or unmute', keys: [['N']] },
         { what: 'Next time of day', keys: [['T']] },
         { what: 'Let the day pass, or hold it', keys: [['P']] },
       ],

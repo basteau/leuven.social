@@ -16,7 +16,7 @@ import { CAFE_TABLE, TERRACE, frontPoint } from '../data/shops.ts';
 import type { FrontPoint } from '../data/shops.ts';
 import type { MeshBuilder, V3 } from './mesh-builder.ts';
 import { FRONTS, GUESTS, PROPS, pick } from './palette.ts';
-import { box, prism } from './prop-shapes.ts';
+import { at as frameAt, away, box, panel, prism } from './prop-shapes.ts';
 import type { Frame } from './prop-shapes.ts';
 import {
   LOW_EDGE,
@@ -38,6 +38,11 @@ const REACH = 1;
 const SLOPE = 0.4;
 const VALANCE = 0.2;
 const PAPER = 0xf6eedc;
+const WOOD = 0x9a6a42;
+const WICKER = 0xc9a46a;
+const CHALK = 0x2f3b38;
+/** Fronts that put a menu board on the pavement. */
+const BOARDS = new Set<ShopKind>(['cafe', 'bar', 'restaurant', 'bakery', 'icecream']);
 
 /** A front's frame for `box` and `prism`: u along its wall, v out of it, y up from `y`. */
 const frame = (p: FrontPoint, along = 0): Frame => ({
@@ -109,7 +114,58 @@ export function addAwning(
  */
 export function addTerrace(mesh: MeshBuilder, p: FrontPoint, kind: ShopKind, seed = 0): void {
   const [x, z] = [p.x + p.nx * TERRACE.out, p.z + p.nz * TERRACE.out];
-  addCafeTable(mesh, x, z, p.nx, p.nz, 2, FRONTS[kind].canvas, seed, true);
+  const color = FRONTS[kind].canvas;
+  const layout = roll(seed * 3 + 11);
+  if (kind === 'bar' && layout < 0.55) {
+    // Standing tables: a tall round top on a post, two glasses and nobody sitting.
+    const f: Frame = { x, z, fx: p.nx, fz: p.nz, scale: 1 };
+    for (const u of [-0.55, 0.55]) {
+      prism(mesh, f, [u, 0], [0.32, 0.32], [1.08, 1.12], PAPER, 1, 6);
+      box(mesh, f, [u - 0.04, u + 0.04], [-0.04, 0.04], [0, 1.08], PROPS.iron, false);
+      box(mesh, f, [u - 0.04, u + 0.04], [0.06, 0.14], [1.12, 1.3], GUESTS.drinks[0]);
+    }
+    return;
+  }
+  if (layout < 0.3) {
+    // A bistro pair: one table, two chairs, the first taken.
+    addCafeTable(mesh, x, z, p.nx, p.nz, 2, color, seed, true);
+  } else if (layout < 0.75) {
+    // The same in wicker, whatever the café's colour.
+    addCafeTable(mesh, x, z, p.nx, p.nz, 2, WICKER, seed, true);
+  } else {
+    // A long communal table with a bench each side.
+    const f: Frame = { x, z, fx: p.nx, fz: p.nz, scale: 1 };
+    box(mesh, f, [-0.95, 0.95], [-0.2, 0.2], [0.9, 0.95], WOOD);
+    box(mesh, f, [-0.5, 0.5], [-0.12, 0.12], [0, 0.9], PROPS.iron, false);
+    for (const v of [-0.34, 0.34]) box(mesh, f, [-0.9, 0.9], [v - 0.1, v + 0.1], [0, 0.5], color);
+  }
+}
+
+/** A sandwich board on the pavement by a door: two chalk-black leaves in a wooden A-frame, no words. */
+export function addBoard(mesh: MeshBuilder, f: Frame): void {
+  for (const s of [-1, 1]) {
+    mesh.quad(
+      frameAt(f, -0.3, s * 0.32, 0),
+      frameAt(f, 0.3, s * 0.32, 0),
+      frameAt(f, 0.3, 0, 0.95),
+      frameAt(f, -0.3, 0, 0.95),
+      CHALK,
+      away(f, 0, s, 0.4),
+    );
+  }
+  // A few pale chalk lines of menu, no readable words.
+  for (const y of [0.45]) {
+    panel(
+      mesh,
+      [
+        frameAt(f, -0.18, 0.15 * (1 - y / 0.95) + 0.015, y),
+        frameAt(f, 0.18, 0.15 * (1 - y / 0.95) + 0.015, y),
+        frameAt(f, 0.18, 0.15 * (1 - y / 0.95) + 0.015, y + 0.035),
+        frameAt(f, -0.18, 0.15 * (1 - y / 0.95) + 0.015, y + 0.035),
+      ],
+      PAPER,
+    );
+  }
 }
 
 /** Pots in terracotta or anthracite, and the bay's two greens. */
@@ -333,6 +389,15 @@ export function addStorefronts(
     if (PLACES.has(kind)) addPlace(mesh, p, kind, top, room, end);
     else if (end !== undefined && kind === 'hairdresser') addBarberPole(mesh, frame(p, end), top);
     else if (end !== undefined) addSign(mesh, frame(p, end), kind, signHeight(top));
+    if (BOARDS.has(kind) && roll(front.building * 13 + Math.round(front.along)) < 0.6) {
+      const out = REACH + 0.55;
+      const sideways = end === undefined ? 0 : -Math.sign(end) * (room * 0.5);
+      addBoard(mesh, {
+        ...frame(p, sideways),
+        x: p.x + p.ux * sideways + p.nx * out,
+        z: p.z + p.uz * sideways + p.nz * out,
+      });
+    }
     const spots = doorPlants(p, front, room);
     for (let i = 0; i < spots.length; i += 2) {
       const [x, z] = [spots[i]!, spots[i + 1]!];

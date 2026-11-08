@@ -3,9 +3,10 @@ import type { BufferAttribute, BufferGeometry, Material, Mesh, Scene } from 'thr
 import { createRideSounds } from '../audio/riding.ts';
 import type { Avatar } from './avatar.ts';
 import type { Outfit } from './figure.ts';
-import { BIKES, BIKE_MOST, LOOK, WHEEL, bakeBike } from './bike-rig.ts';
+import { BIKE_MOST, LOOK, WHEEL, bakeBike } from './bike-rig.ts';
 import type { BikeArrays, Stand } from './bike-rig.ts';
 import { loose } from './collide.ts';
+import { BIKES } from './palette.ts';
 import { WALKER } from './palette.ts';
 import { PARKED, nearestParked, parkedHeading } from './parked.ts';
 import type { Furniture } from './parked.ts';

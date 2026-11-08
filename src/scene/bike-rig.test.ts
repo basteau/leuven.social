@@ -2,11 +2,9 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   AXLE,
-  BIKES,
   BIKE_BONES,
   BIKE_MOST,
   LOOK,
-  PARTS,
   STEERING,
   WHEEL,
   bakeBike,
@@ -14,7 +12,7 @@ import {
   bonePivot,
 } from './bike-rig.ts';
 import type { BikeArrays } from './bike-rig.ts';
-import { BIKES as PALETTE_BIKES, OUTLINE, PROPS } from './palette.ts';
+import { BIKES, PROPS } from './palette.ts';
 import { LOOK as PROPS_LOOK } from './props.ts';
 
 const looks = [
@@ -90,15 +88,6 @@ describe('the rideable bike', () => {
 
   test('wears the look and colours the racks use', () => {
     expect(JSON.stringify(LOOK)).toBe(JSON.stringify(PROPS_LOOK));
-    expect([...BIKES]).toEqual([...PALETTE_BIKES]);
-    expect(PARTS.tyre).toBe(PROPS.wheel);
-    expect(PARTS.spokes).toBe(PROPS.spokes);
-    expect(PARTS.iron).toBe(PROPS.iron);
-    expect(PARTS.crate).toBe(PROPS.crate);
-    expect(PARTS.crateInside).toBe(PROPS.crateInside);
-    expect(PARTS.lantern).toBe(PROPS.lantern);
-    expect(PARTS.leather).toBe(PROPS.wood);
-    expect(PARTS.ink).toBe(OUTLINE);
     const red = bikeArrays(2 * LOOK.colour);
     expect(has(red, BIKES[2])).toBe(true);
     expect(has(bikeArrays(LOOK.crate), PROPS.crateInside)).toBe(true);

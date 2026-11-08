@@ -25,10 +25,14 @@ export interface ShortcutTarget {
   viewer: RefObject<Viewer | null>;
   /** The Run toggle: on, Shift isn't needed. */
   running: RefObject<boolean>;
+  /** Opens the full map (M). */
+  openMap: () => void;
+  /** A route to a picked spot is being walked: Escape lets go of it before it leaves. */
+  routing: RefObject<boolean>;
   /** A walking key went down: someone is walking with the keyboard. */
   onWalkKey: () => void;
   toggleSound: () => void;
-  /** N: the minimap on or off. */
+  /** H: the minimap on or off. */
   toggleMinimap: () => void;
   /** L: your account, to join or change your look. */
   openAccount: () => void;
@@ -50,10 +54,10 @@ export interface ShortcutTarget {
 /**
  * The keyboard, one map of keys with no modes: + and - zoom, Q and E turn the map,
  * held W A S D walk the avatar (Shift runs), F takes or leaves a bike and B rings its bell, Space
- * (or Esc) brings the view back to the avatar, R turns north up and back to you, M mutes, N shows
- * or hides the minimap, and T and
- * P set the time of day. ⌘K and its kin open the menu. Shortcuts act while focus is anywhere in the app
- * except the menu, not in the rest of the page.
+ * brings the view back to the avatar and Esc does too, once any route to a picked spot is let go;
+ * R turns north up and back to you, M opens the full map, N mutes, H shows or hides the minimap,
+ * and T and P set the time of day. ⌘K and its kin open the menu. Shortcuts act while focus is
+ * anywhere in the app except the menu, not in the rest of the page.
  */
 export function useShortcuts(target: ShortcutTarget): void {
   useEffect(() => {
@@ -118,8 +122,8 @@ export function useShortcuts(target: ShortcutTarget): void {
         }
         return;
       }
-      // Turning goes by position too, like walking; the rest are named for what they do (M mutes,
-      // R resets), so they go by letter.
+      // Turning goes by position too, like walking; the rest are named for what they do (M opens
+      // the map, N mutes, R resets), so they go by letter.
       // A held key's repeats are no new presses: the hold goes by its keydown and keyup, and only
       // zoom goes on while its key is held.
       if (idleRepeat(event)) return;
@@ -139,8 +143,9 @@ export function useShortcuts(target: ShortcutTarget): void {
         '+': () => viewer.zoomBy(1.25),
         '=': () => viewer.zoomBy(1.25),
         '-': () => viewer.zoomBy(0.8),
-        m: target.toggleSound,
-        n: target.toggleMinimap,
+        m: target.openMap,
+        n: target.toggleSound,
+        h: target.toggleMinimap,
         l: target.openAccount,
         t: target.nextTime,
         p: target.togglePassing,
@@ -148,7 +153,7 @@ export function useShortcuts(target: ShortcutTarget): void {
         // Space brings the view back to you, as in games with a free camera; Escape too. Enter
         // goes into the building beside you, or out of it.
         ...(!onControl && { ' ': () => viewer.recentre(), enter: () => viewer.door() }),
-        escape: () => viewer.recentre(),
+        escape: () => (target.routing.current ? viewer.cancelRoute() : viewer.recentre()),
       };
       (byCode[code] ?? byKey[key])?.();
     };

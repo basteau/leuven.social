@@ -187,7 +187,7 @@ async function expectCreditsShown(): Promise<void> {
 
 /**
  * The loading screen is the page's own HTML, there before any script, and gone once the map is
- * drawn; then the map has no controls on it but the menu button.
+ * drawn; then the map has no controls on it but the map and menu buttons.
  */
 async function expectBareMap(): Promise<void> {
   const html = await (await fetch(BASE)).text();
@@ -199,7 +199,7 @@ async function expectBareMap(): Promise<void> {
     `JSON.stringify([...document.querySelectorAll('main button:not(.avatar-arrow)')].filter((b) => b.checkVisibility() && !b.closest('dialog')).map((b) => b.getAttribute('aria-label') ?? b.textContent))`,
   );
   // Who you are (Join, as a guest), the minimap and the menu: nothing else.
-  const expected = ['Join', 'Minimap: show more of the city', 'Menu'];
+  const expected = ['Join', 'Minimap: show more of the city', 'Open the map', 'Menu'];
   if (buttons.join() !== expected.join()) {
     throw new Error(`the map should show only ${expected.join(', ')}, not ${buttons.join(', ')}`);
   }
@@ -209,7 +209,7 @@ async function expectBareMap(): Promise<void> {
   );
   if (arrow !== 'false') throw new Error(`the arrow over the avatar isn't showing (${arrow})`);
   console.log(
-    'ok  loading screen in the HTML, then a bare map: Join, the minimap, the menu button and the arrow over you',
+    'ok  loading screen in the HTML, then a bare map: Join, the minimap, the map and menu buttons and the arrow over you',
   );
 }
 
@@ -263,7 +263,7 @@ async function expectMenu(): Promise<void> {
   await browser('press', 'Control+k');
   await browser('wait', '--fn', menu.closed);
   // Opened with its button, a command still gives focus to the map, not back to the button.
-  await browser('click', 'button.menu-trigger');
+  await browser('click', 'button[aria-label=Menu]');
   await browser('wait', '--fn', `${menu.open} && document.activeElement?.matches('.menu-search')`);
   await browser('keyboard', 'type', 'zoom in');
   await browser('wait', '--fn', `${menu.first} === 'Zoom in'`);
@@ -394,6 +394,44 @@ async function expectPlayers(): Promise<void> {
   }
 }
 
+/**
+ * The full map: M opens it (its chunk loads then), it has a canvas and the Marks button, and
+ * Escape shuts it again, giving the keys back to the map.
+ */
+async function expectMap(): Promise<void> {
+  await browser(
+    'eval',
+    `localStorage.setItem('leuven-waypoints', '[{"id":"smoke","x":12,"z":-8,"name":"Smoke","colour":"#d2553f"}]')`,
+  );
+  await browser('press', 'm');
+  await browser('wait', '--fn', `!!document.querySelector('dialog.bigmap')?.open`);
+  await browser('wait', '800'); // its first paint
+  await browser('screenshot', `${ARTIFACTS}smoke-bigmap.png`);
+  const parts = await evalJson<string[]>(
+    `JSON.stringify([...document.querySelectorAll('dialog.bigmap .map-btn')].map((b) => b.getAttribute('aria-label')))`,
+  );
+  if (!parts.some((p) => p.startsWith('Marks'))) throw new Error('the map has no Marks button');
+  await browser('press', 'Escape');
+  await browser(
+    'wait',
+    '--fn',
+    `!document.querySelector('dialog.bigmap') && document.activeElement === document.querySelector('.map')`,
+  );
+  console.log('ok  full map: M opens it with its tools, Escape shuts it');
+
+  // A mark's Navigate walks there; the Stop pill shows while it does, and Escape lets go of it.
+  const stop = `[...document.querySelectorAll('button')].some((b) => b.textContent.includes('Stop'))`;
+  await browser('press', 'm');
+  await browser('wait', '--fn', `!!document.querySelector('dialog.bigmap')?.open`);
+  await browser('click', 'dialog.bigmap .map-btn[aria-label^="Marks"]');
+  await browser('click', '[aria-label="Navigate to Smoke"]');
+  await browser('wait', '--fn', `!document.querySelector('dialog.bigmap') && ${stop}`);
+  // Dispatched, not pressed: agent-browser's Escape hides the page, which stops its frames.
+  await holdKeys(['Escape'], 0);
+  await browser('wait', '--fn', `!(${stop})`);
+  console.log('ok  a mark: Navigate walks there, Stop shows, Escape lets go of the route');
+}
+
 /** Where the keys the smoke test holds sit on the keyboard: walking reads `code`, not `key`. */
 const CODES: Record<string, string> = {
   w: 'KeyW',
@@ -438,8 +476,8 @@ async function expectStill(after: string, before: string): Promise<void> {
 /** Zooms in with the + key until the view shows the avatar's figure, then brings it back. */
 async function zoomToStreet(): Promise<void> {
   for (let i = 0; i < 14; i++) await browser('press', '+');
-  // Dispatched, not pressed: agent-browser's Escape hides the page, which stops its frames.
-  await holdKeys(['Escape'], 0);
+  // Space, not Escape, which would first let go of a route being walked.
+  await holdKeys([' '], 0);
   await browser('wait', '--fn', `${canvasData('avatar')} === 'true'`);
 }
 
@@ -723,6 +761,7 @@ try {
   await expectCreditsShown();
   await expectBareMap();
   await expectMenu();
+  await expectMap();
   // Exercise every control once, then check nothing broke.
   await browser('press', 'e');
   await browser('press', 'r');
@@ -774,7 +813,7 @@ try {
   await expectShortTasks('phone 390×844');
   await browser('screenshot', `${ARTIFACTS}smoke-phone.png`);
   // On a phone the menu button opens the menu as a sheet; its close button shuts it.
-  await browser('click', 'button.menu-trigger');
+  await browser('click', 'button[aria-label=Menu]');
   await browser('wait', '--fn', menu.open);
   await browser('wait', '500');
   await browser('screenshot', `${ARTIFACTS}smoke-phone-menu.png`);

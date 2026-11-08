@@ -1,0 +1,255 @@
+/*
+ * The full map's own styles. They load with its chunk, not with the first page. Same look as the HUD's buttons: paper, ink border, hard shadow.
+ */
+
+/* Round buttons on the map: the same stack of paper, ink and a hard shadow as the menu button. */
+.map-btn {
+  pointer-events: auto;
+  border: var(--border) solid var(--ink);
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: var(--shadow-hard);
+  cursor: pointer;
+}
+
+.map-btn:active {
+  translate: 0 calc(var(--lift) - 1px);
+  box-shadow: var(--shadow-pressed);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .map-btn:hover {
+    background: var(--paper-press);
+  }
+}
+
+/* The full map: a modal dialog over everything, the canvas filling it. */
+.bigmap {
+  position: fixed;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  max-inline-size: none;
+  max-block-size: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: var(--sky-horizon);
+  color: var(--ink);
+  overflow: clip;
+}
+
+.bigmap::backdrop {
+  background: transparent;
+}
+
+.bigmap-canvas {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.bigmap-canvas:active {
+  cursor: grabbing;
+}
+
+.bigmap-top {
+  position: absolute;
+  inset-block-start: calc(var(--gutter) + env(safe-area-inset-top, 0px));
+  inset-inline: max(var(--gutter), env(safe-area-inset-left, 0px))
+    max(var(--gutter), env(safe-area-inset-right, 0px));
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  pointer-events: none;
+}
+
+.bigmap-title {
+  margin: 0;
+  padding: var(--space-s) var(--space-l);
+  border: var(--border) solid var(--ink);
+  border-radius: 999px;
+  background: var(--paper);
+  box-shadow: var(--shadow-hard);
+  font: 700 0.9375rem / 1 var(--font-ui);
+}
+
+.map-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  min-inline-size: 40px;
+  block-size: 40px;
+  padding-inline: 9px;
+  border-radius: 999px;
+  font: inherit;
+}
+
+/* 40px to the eye, 44px to the thumb. */
+.map-btn::after {
+  position: absolute;
+  inset: -2px;
+  content: '';
+}
+
+.map-btn kbd {
+  opacity: 0.75;
+}
+
+.map-count {
+  font: 700 0.75rem / 1 var(--font-ui);
+}
+
+@media (hover: none), (pointer: coarse) {
+  .map-btn kbd {
+    display: none;
+  }
+}
+
+.bigmap-tools {
+  position: absolute;
+  inset-inline-end: max(var(--gutter), env(safe-area-inset-right, 0px));
+  inset-block-start: 50%;
+  translate: 0 -50%;
+  display: grid;
+  gap: var(--space-s);
+}
+
+/* The sheet: what was picked, or the list of marks, at the bottom, where a thumb reaches. */
+.bigmap-sheet {
+  position: absolute;
+  inset-inline: max(var(--gutter), env(safe-area-inset-left, 0px))
+    max(var(--gutter), env(safe-area-inset-right, 0px));
+  inset-block-end: calc(var(--gutter) + env(safe-area-inset-bottom, 0px));
+  max-inline-size: 26rem;
+  margin-inline: auto;
+  max-block-size: 50dvh;
+  overflow-y: auto;
+  display: grid;
+  gap: var(--space-m);
+  padding: var(--space-m);
+  border: var(--border) solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--paper);
+  box-shadow: var(--shadow-hard);
+}
+
+.sheet-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  margin: 0;
+  font: 700 1rem / 1.2 var(--font-ui);
+}
+
+.sheet-note {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.5;
+  text-wrap: balance;
+}
+
+.sheet-field {
+  display: grid;
+  gap: var(--space-xs);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+/* 16px, or iOS zooms the page in when the field takes focus. */
+.sheet-field input {
+  min-block-size: var(--control);
+  padding-inline: var(--space-m);
+  border: var(--border) solid var(--ink);
+  border-radius: var(--radius-inner);
+  background: #fff;
+  color: var(--ink);
+  font: 500 16px / 1.2 var(--font-ui);
+}
+
+.sheet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-s);
+}
+
+.sheet-actions .action {
+  flex: 1 1 8rem;
+  padding-inline: var(--space-m);
+}
+
+.swatch {
+  flex: none;
+  inline-size: 0.875rem;
+  block-size: 0.875rem;
+  border: var(--border) solid var(--ink);
+  border-radius: 50%;
+}
+
+.swatches {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  gap: var(--space-s);
+}
+
+.swatch-btn {
+  inline-size: 36px;
+  block-size: 36px;
+  border: var(--border) solid var(--ink);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.swatch-btn[aria-pressed='true'] {
+  outline: 3px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.mark-list {
+  display: grid;
+  gap: var(--space-s);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mark-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+}
+
+.mark-name {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-s);
+  min-block-size: var(--control);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: 600 0.9375rem / 1.2 var(--font-ui);
+  text-align: start;
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .map-btn {
+    transition:
+      translate 120ms var(--ease-out),
+      box-shadow 120ms var(--ease-out),
+      background-color 120ms var(--ease-out);
+  }
+}

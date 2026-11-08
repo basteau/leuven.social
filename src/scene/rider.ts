@@ -12,7 +12,8 @@ import type {
   WebGLProgramParametersWithUniforms,
 } from 'three';
 
-import { AXLE, BIKES, BRACKET, CRANK, LOOK, PARTS, WHEEL, bikeArrays } from './bike-rig.ts';
+import { AXLE, BRACKET, CRANK, LOOK, PARTS, WHEEL, bikeArrays } from './bike-rig.ts';
+import { BIKES } from './palette.ts';
 import {
   ANKLE,
   ARM_SPREAD,

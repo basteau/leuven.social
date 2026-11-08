@@ -22,6 +22,7 @@ import { inRing } from '../data/cell-grid.ts';
 import type { City } from '../data/city.ts';
 import { DOOR_HALF } from '../data/room-grid.ts';
 import type { Room } from '../data/rooms.ts';
+import type { Presence } from '../data/presence.ts';
 import { Router } from '../data/route.ts';
 import type { Terrain } from '../data/terrain.ts';
 import { WalkGrid } from '../data/walkable.ts';
@@ -173,6 +174,8 @@ export interface AvatarHost {
   onBlocked?(why: Refusal): void;
   /** A bike near enough to ride, riding, or neither. */
   onRide?(state: RideState): void;
+  /** A route to a picked spot began (its end, m) or ended (null). A bike's own short ones don't count. */
+  onRoute?(target: readonly [number, number] | null): void;
   /** The site's base URL, where rooms.json is served. */
   base: string;
   /** The city's material and ink, which the rooms are drawn in. */
@@ -214,6 +217,12 @@ export interface AvatarLayer {
   run(on: boolean): void;
   /** A tap on the map at client coordinates: walk or ride there, if it's within reach. */
   tap(clientX: number, clientY: number): void;
+  /** Walks or rides to a spot (m) along a route, as a tap does, and pins the camera again. */
+  goTo(x: number, z: number): void;
+  /** Lets go of the route being walked to a picked spot, if any. */
+  cancelRoute(): void;
+  /** You, then the other players, as the full map draws them. */
+  presences(): Presence[];
   /** Takes the camera to a spot (m), down to the street, leaving the avatar where it is. */
   lookAt(x: number, z: number): void;
   /** Pins the camera to the avatar again, gliding back to it. */
@@ -617,6 +626,23 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     });
   }
 
+  /** The other players, as last given, and a pose to read them into for the full map. */
+  let crowd: Roster | null = null;
+  const seen: PlayerPose = { x: 0, z: 0, heading: 0, speed: 0, mode: 'foot', place: '', floor: 0 };
+
+  /** The route being walked was picked (a tap, the map); a bike's own short ones aren't. */
+  let picked = false;
+  let routeTo: readonly [number, number] | null = null;
+  /** Tells the host when the end of the picked route changes, or it's gone. */
+  function syncRoute(): void {
+    const { route } = avatar.walker;
+    if (!route) picked = false;
+    const end = picked && route ? ([route.at(-2)!, route.at(-1)!] as const) : null;
+    if (end?.[0] === routeTo?.[0] && end?.[1] === routeTo?.[1]) return;
+    routeTo = end;
+    host.onRoute?.(routeTo);
+  }
+
   function clearRoute(): void {
     hint.visible = false;
     hint.geometry.dispose();
@@ -658,6 +684,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     marker = routeMarker(route, room ? () => floorY : ground);
     hint.geometry = marker.geometry;
     hint.visible = true;
+    picked = true;
     wake();
   }
 
@@ -765,6 +792,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     if (Math.hypot(tx - w.x, tz - w.z) < ON_AVATAR && ty > feet[1] + 0.3 && ty < feet[1] + 3) {
       w.route = null;
       clearRoute();
+      syncRoute();
       return;
     }
     // In a room: the floor under what it touched, or, outside the room, out through its door
@@ -781,16 +809,20 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     }
     const far = Math.hypot(at[0] - w.x, at[1] - w.z);
     if (far > ROUTE_REACH) refuse(...at, 'far');
-    else if (room) {
-      const { door } = room;
-      const out = [door.x - Math.sin(door.facing) * 0.8, door.z - Math.cos(door.facing) * 0.8];
-      if (walkTo(out[0]!, out[1]!, TAP_REACH)) onward = at;
-    }
+    else if (room) leaveFor(at);
     // A route the router can't find so far off is a long way round: too far, not nowhere, and
     // not worth another search (a failed one fills its whole window).
     else if (!walkTo(...at, TAP_REACH, far > DETOUR ? 1 : TRIES)) {
       refuse(...at, far > DETOUR ? 'far' : 'closed');
     }
+  }
+
+  /** In a room: out through its door, and on to `at` once outside. */
+  function leaveFor(at: [number, number]): void {
+    if (!room) return;
+    const { door } = room;
+    const out = [door.x - Math.sin(door.facing) * 0.8, door.z - Math.cos(door.facing) * 0.8];
+    if (walkTo(out[0]!, out[1]!, TAP_REACH)) onward = at;
   }
 
   function wake(): void {
@@ -864,6 +896,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
 
     if (Math.hypot(w.x - publishedAt[0], w.z - publishedAt[1]) >= 1) publish();
     if (marker && !w.route) clearRoute();
+    syncRoute();
     if (marker) hint.geometry.setDrawRange(passedVertices(marker, w.travelled), Infinity);
 
     // The camera: pinned, after the avatar, a little ahead of where it goes; else to a place.
@@ -1013,6 +1046,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       return (character.mesh.visible ? 2 : 0) + players.calls;
     },
     others(roster) {
+      crowd = roster;
       unlisten();
       // News from far off, or from nobody the view would draw, is worth no frame.
       unlisten = roster
@@ -1072,7 +1106,10 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
           if (request !== asked || disposed) return;
           const chores = loaded.act(action, avatar);
           // Out of reach after all: walking to it is given up.
-          if (chores.walkTo && !walkTo(...chores.walkTo)) loaded.cancel();
+          if (chores.walkTo) {
+            if (walkTo(...chores.walkTo)) picked = false;
+            else loaded.cancel();
+          }
           wake();
         },
         () => {}, // nothing to ride: the street stays the street
@@ -1095,6 +1132,41 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       shown = detail.avatar;
       const w = avatar.walker;
       place(w.x, w.z, w.heading, w.phase, 0);
+    },
+    goTo(x, z) {
+      if (room) leaveFor([x, z]);
+      else if (!walkTo(x, z, TAP_REACH)) {
+        refuse(x, z, 'far');
+        return;
+      }
+      pinCamera();
+    },
+    cancelRoute() {
+      const w = avatar.walker;
+      if (!w.route) return;
+      w.route = null;
+      clearRoute();
+      syncRoute();
+      wake();
+    },
+    presences() {
+      const w = avatar.walker;
+      const now = performance.now();
+      const list: Presence[] = [
+        { id: 'me', x: w.x, z: w.z, heading: Math.PI - w.heading, self: true },
+      ];
+      for (const { id } of crowd?.entries() ?? []) {
+        if (crowd?.pose(id, now, seen)) {
+          list.push({
+            id: String(id),
+            x: seen.x,
+            z: seen.z,
+            heading: Math.PI - seen.heading,
+            self: false,
+          });
+        }
+      }
+      return list;
     },
     dispose() {
       disposed = true;

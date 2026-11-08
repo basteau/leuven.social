@@ -43,12 +43,19 @@ What loads when:
 | The avatar (`avatar-layer.ts`) and its rooms' code (`interiors.ts`, `room-mesh.ts`, `src/data/rooms.ts`, `room-grid.ts`), the street names (`streets.ts`) | Once the first frame is drawn                                                     |
 | The furniture                                                                                                                                             | Once the first frame is drawn                                                     |
 | The minimap (`minimap-view.tsx`), the other players (`multiplayer.ts`, `src/net/`)                                                                        | Once the first frame is drawn                                                     |
+| The full map (`map-overlay.tsx`, `map-raster.ts`, `map-draw.ts` and `map.css`)                                                                            | When it is first opened (M, the map button or the menu)                           |
 | The account sheet (`account-sheet.tsx` and its CSS)                                                                                                       | When it is first opened (the corner, L or the menu)                               |
 | The rider and the bike's rig (`rider.ts`)                                                                                                                 | With the bikes, or when another player near rides                                 |
 | The bikes (`bikes.ts`)                                                                                                                                    | When the avatar comes within 25 m of a parked bike, or on F                       |
 | `rooms.json`                                                                                                                                              | When the avatar's figure is in view within 160 m of a landmark, or the menu opens |
 
 A lazy chunk takes what it shares with the engine as a `kit` (three.js classes, `MeshBuilder`, the terrain) instead of importing it, or the bundler splits the shared modules into an extra chunk: the furniture does, and the bikes take their three.js classes from the avatar. A chunk loaded from a chunk splits three.js off the engine even when it only imports it, so the rooms' code rides in the avatar's chunk; only their data waits.
+
+### The full map
+
+Everyone on the map is a `Presence` (`src/data/presence.ts`): `{ id, x, z, heading, self }`. `viewer.presences()` returns the list, you and then the other players, and the full map (`src/app/map-overlay.tsx`) draws every entry from it. The minimap keeps reading `live`, which is written as things move. The map's maths is pure and tested in `src/data`: `map-view.ts` (projection, footprint simplifying) and `waypoints.ts` (marks kept in `localStorage`, parsed defensively).
+
+A route to a picked spot (a tap on the street, or a mark's Navigate here) is what `onRoute` reports: the Stop pill, Escape and the menu's Stop navigating use it. A bike's own short route to its rack doesn't count.
 
 `src/audio` exports one shared engine, `sound`. The app uses it for button taps and the sound toggle; the avatar imports `walking.ts` for footsteps and cues, and the bikes' chunk `riding.ts`.
 

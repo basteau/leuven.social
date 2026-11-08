@@ -526,7 +526,7 @@ export function addBuilding(
   const landmark = LANDMARK_MODELS.get(b.id);
   const plan = planOf(b);
   const ink = landmark || signedArea(b.ring) >= MIN_INKED_AREA ? inkOf(lines) : NO_INK;
-  const wall = landmark?.wall ?? wallColor(b.kind, b.id);
+  const wall = landmark?.wall ?? wallColor(b.kind, b.id, b.ring[0], b.ring[1]);
   const [ring, ...holes] = wallRings(b, plan) as [ArrayLike<number>, ...ArrayLike<number>[]];
 
   const top = cut ?? plan.eave;

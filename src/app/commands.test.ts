@@ -8,6 +8,7 @@ const state = (over: Partial<CommandState> = {}): CommandState => ({
   ride: '',
   door: null,
   running: false,
+  routing: false,
   soundOn: true,
   time: 'golden',
   passing: false,
@@ -32,6 +33,7 @@ describe('commandsFor', () => {
       'turn-right',
       'reset',
       'minimap',
+      'open-map',
       'time',
       'pass-time',
       'sound',
@@ -80,6 +82,20 @@ describe('commandsFor', () => {
     });
     expect(byId(state(), 'pass-time')).toMatchObject({ on: false, keys: [['P']] });
     expect(byId(state({ passing: true }), 'pass-time')?.on).toBe(true);
+  });
+
+  test('Stop navigating is offered only while a route is being walked', () => {
+    expect(byId(state(), 'stop-route')).toBeUndefined();
+    expect(byId(state({ routing: true }), 'stop-route')).toMatchObject({
+      action: 'stop-route',
+      keys: [['Esc']],
+    });
+    expect(ids(state({ routing: true })).slice(0, 2)).toEqual(['recentre', 'stop-route']);
+  });
+
+  test('the map opens from M, and mute moved to N', () => {
+    expect(byId(state(), 'open-map')).toMatchObject({ action: 'open-map', keys: [['M']] });
+    expect(byId(state(), 'sound')?.keys).toEqual([['N']]);
   });
 
   test('sound says what pressing it will do', () => {

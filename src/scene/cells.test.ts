@@ -160,7 +160,8 @@ test('a cell builds into one mesh and one set of outlines', () => {
   );
   // The rails of the track's one segment in this cell, then its masts, lead the outlines.
   expect(detail.rails).toBe(2);
-  expect(detail.masts - detail.rails).toBe(2 * west!.masts.length);
+  const links = west!.masts.filter((m) => m.link).length;
+  expect(detail.masts - detail.rails).toBe(4 * west!.masts.length + 2 * links);
   const g = unindexed(mesh.build({ facade: true }));
   const p = g.getAttribute('position');
   // Fine paint comes last: the lane line's dash and the zebra's bars, just over the road.

@@ -10,24 +10,22 @@
  * a diamond frame, a carrier or a crate, its colour), in the colours the racks use.
  */
 
+import { BIKES, OUTLINE, PROPS } from './palette.ts';
+
 /** A parked bike's look, packed in a byte, as props.ts packs it. */
 export const LOOK = { step: 1, carrier: 2, crate: 4, basket: 8, colour: 16 } as const;
-/** The racks' bike colours and parts, as in palette.ts (`BIKES`, `PROPS`, `OUTLINE`). */
-export const BIKES = [
-  0x2f3a4a, 0x2b2420, 0xd2553f, 0xf6eedc, 0x8db36f, 0x5b6170, 0xe8b94a,
-] as const;
+/** The bike's parts, in the colours of the parked bikes: one palette (palette.ts), no copies. */
 export const PARTS = {
-  tyre: 0x2b2420,
-  spokes: 0xb7b3aa,
-  iron: 0x3b4150,
-  crate: 0xb5402f,
-  crateInside: 0x5a2a20,
-  ink: 0x2b2420,
-  lantern: 0xf3dfa8,
+  tyre: PROPS.wheel,
+  spokes: PROPS.spokes,
+  iron: PROPS.iron,
+  crate: PROPS.crate,
+  crateInside: PROPS.crateInside,
+  ink: OUTLINE,
+  lantern: PROPS.lantern,
   /** A tan saddle and grips: warm, like the walker's summer. */
-  leather: 0x9a6a42,
+  leather: PROPS.wood,
 } as const;
-
 export const BIKE_BONES = ['frame', 'steer', 'front', 'rear', 'crank', 'pedalL', 'pedalR'] as const;
 export type BikeBone = (typeof BIKE_BONES)[number];
 

@@ -52,7 +52,8 @@ describe('terraceParasols', () => {
     for (const p of parasols) {
       expect(pointInRing(SQUARE, p.x, p.z)).toBe(true);
       expect(Math.abs(p.z)).toBeGreaterThan(10); // two rows deep: the middle stays open
-      expect(PARASOLS).toContain(p.color as (typeof PARASOLS)[number]);
+      expect(p.color).not.toBe(p.trim);
+      expect(p.canopy === undefined || p.canopy > 0).toBe(true);
     }
   });
 

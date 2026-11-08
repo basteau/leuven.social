@@ -68,6 +68,8 @@ import {
 import type { ShadowSquare } from './shadow-fit.ts';
 import { applyShadowChunks } from './shadow-filter.ts';
 import { SPIN_EASE, spinStep } from './spin.ts';
+import { minZoomFor } from './zoom-limit.ts';
+import type { Presence } from '../data/presence.ts';
 import { isTap } from './tap.ts';
 import type { Spin } from './spin.ts';
 import { terraceParasols } from './terraces.ts';
@@ -126,6 +128,8 @@ export interface ViewerOptions {
   tags?: HTMLElement;
   /** Where the avatar is and what it's doing, whenever that changes: for the other players. */
   onMove?: (state: PlayerPose) => void;
+  /** A route to a picked spot began (its end, local metres) or ended (null). */
+  onRoute?: (target: readonly [number, number] | null) => void;
 }
 
 export interface ViewerStats {
@@ -172,6 +176,14 @@ export interface Viewer {
   nextTimeOfDay(): PresetId;
   /** Lets the day pass, an hour every few seconds, or holds it where it is. */
   passTime(on: boolean): void;
+  /** Walks (or rides) to a spot along a route, as a tap does, from anywhere in reach. */
+  navigateTo(x: number, z: number): void;
+  /** Lets go of the route being walked to a picked spot, if any. */
+  cancelRoute(): void;
+  /** You and the other players, for the full map. Empty until the avatar has loaded. */
+  presences(): readonly Presence[];
+  /** The end of the route being walked to a picked spot, or null. */
+  routeTarget(): readonly [number, number] | null;
   stats(): ViewerStats;
   /** Settles once the first frame is drawn, a few tasks after `createViewer` returns. */
   ready: Promise<void>;
@@ -181,6 +193,8 @@ export interface Viewer {
 const ROTATE_MS = 280;
 /** The avatar's arrow points this far over its feet (m): just over its head, drawn 1.3× life. */
 const OVER_HEAD = 2.7;
+/** Street furniture is made ahead for cells this near the view's middle (m). */
+const FURNISH_REACH = 700;
 /** The street sign looks the name up again once the avatar has moved this far (m). */
 const STREET_STEP = 1;
 interface CellEntry {
@@ -252,6 +266,8 @@ const STEP_MS = 40;
  */
 const RAIL_PIXEL = 0.5;
 const MAST_PIXEL = 0.9;
+/** From this many metres a pixel, the outlines are one dense dark mesh: only the surfaces draw. */
+const OUTLINE_PIXEL = 1.5;
 
 /** Triangles a mesh draws within its draw range. */
 function drawn({ geometry }: Mesh): number {
@@ -613,6 +629,9 @@ export function createViewer(options: ViewerOptions): Viewer {
     renderer.getDrawingBufferSize(buffer);
     const halfH = VIEW_HEIGHT / 2;
     const halfW = halfH * (buffer.x / buffer.y);
+    // How far out the map may go depends on how much ground this window shows (zoom-limit.ts).
+    controls.minZoom = minZoomFor(buffer.x / buffer.y, VIEW_HEIGHT);
+    camera.zoom = Math.max(camera.zoom, controls.minZoom);
     Object.assign(camera, { left: -halfW, right: halfW, top: halfH, bottom: -halfH });
     camera.updateProjectionMatrix();
     invalidate();
@@ -748,15 +767,16 @@ export function createViewer(options: ViewerOptions): Viewer {
       const skip = pixel > MAST_PIXEL ? marks.masts : pixel > RAIL_PIXEL ? marks.rails : 0;
       outlines.geometry.setDrawRange(skip * 2, Infinity);
       const inView = frustum.intersectsBox(box);
+      const inked = inView && pixel <= OUTLINE_PIXEL;
       surfaces.visible = inView;
-      outlines.visible = inView;
+      outlines.visible = inked;
       const casts = shadowPass && shadowFrustum.intersectsBox(box);
       casters.visible = casts;
       const from = fromStreet ? trunksFrom : shadowFrom;
       if (casts) casters.geometry.setDrawRange(from, fineVertices - from);
       if (inView) {
         draw(surfaces);
-        calls++; // its outlines
+        if (inked) calls++; // its outlines
       }
       if (casts) draw(casters);
       const { furniture, tall, glow } = entry;
@@ -791,6 +811,13 @@ export function createViewer(options: ViewerOptions): Viewer {
   /** What `cull` counted for the cells, and what the frame drew besides them, last frame. */
   const counted = { calls: 0, triangles: 0 };
   const others = { calls: 0, triangles: 0 };
+  /**
+   * Furniture shows only from zoom 2, where the view is under 300 m tall, so it is made ahead
+   * only for cells near the view; further ones get it when the view comes near (`prepare`).
+   * That keeps what a visit that never zooms in holds on the GPU to a third less.
+   */
+  const wantsFurniture = (entry: CellEntry) =>
+    !entry.furniture && entry.box.distanceToPoint(controls.target) < FURNISH_REACH;
 
   // Everything else is built in small slices while the page has nothing better to do.
   let idleHandle = 0;
@@ -799,10 +826,10 @@ export function createViewer(options: ViewerOptions): Viewer {
     const t = controls.target;
     const near = (a: CellEntry, b: CellEntry) =>
       a.box.distanceToPoint(t) - b.box.distanceToPoint(t);
-    // The cells first, then their furniture, nearest first.
+    // The cells first, then the furniture of those within reach of the view, nearest first.
     const waiting = [
       ...cells.filter((entry) => !entry.objects.length).toSorted(near),
-      ...cells.filter((entry) => !entry.furniture).toSorted(near),
+      ...cells.filter(wantsFurniture).toSorted(near),
     ];
     const start = performance.now();
     // A frame is drawn only when it would show something new: a cell that came into view, or
@@ -836,7 +863,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     publish({ vertices: held.vertices, geometryBytes: held.bytes });
     // Cells left to furnish wait for the chunk, which picks the work up again when it arrives.
     const unbuilt = cells.some((e) => !e.objects.length);
-    if (unbuilt || (furnishing && cells.some((e) => !e.furniture))) {
+    if (unbuilt || (furnishing && cells.some(wantsFurniture))) {
       idleHandle = idle(buildInBackground);
     }
   }
@@ -975,6 +1002,10 @@ export function createViewer(options: ViewerOptions): Viewer {
           yaw: () => yaw,
           placeCamera,
           render: renderNow,
+          onRoute: (target) => {
+            routeTo = target;
+            options.onRoute?.(target);
+          },
           shadowsChanged: () => {
             renderer.shadowMap.needsUpdate = true;
             invalidate();
@@ -1045,6 +1076,8 @@ export function createViewer(options: ViewerOptions): Viewer {
   function onChange(): void {
     clampTarget();
     invalidate();
+    // The view moved: the furniture round its new place is made ahead, when idle.
+    if (furnishing && !idleHandle) idleHandle = idle(buildInBackground);
   }
 
   let spin = 0;
@@ -1106,6 +1139,8 @@ export function createViewer(options: ViewerOptions): Viewer {
     camera.updateProjectionMatrix();
     invalidate();
   }
+
+  let routeTo: readonly [number, number] | null = null;
 
   /** North at the top again, and the camera back on the avatar (over Grote Markt before it loads). */
   function resetView(): void {
@@ -1324,6 +1359,10 @@ export function createViewer(options: ViewerOptions): Viewer {
     others: (roster) => withAvatar((loaded) => loaded.others(roster)),
     dress: (outfit) => withAvatar((loaded) => loaded.dress(outfit)),
     placeAvatar: (x, z, turned) => withAvatar((loaded) => loaded.placeAt(x, z, turned)),
+    navigateTo: (x, z) => withAvatar((loaded) => loaded.goTo(x, z)),
+    cancelRoute: () => avatar?.cancelRoute(),
+    presences: () => avatar?.presences() ?? [],
+    routeTarget: () => routeTo,
     spin: spinMap,
     timeOfDay: () => ({ preset: presetAt(hour), passing }),
     nextTimeOfDay,

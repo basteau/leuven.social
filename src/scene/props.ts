@@ -448,8 +448,8 @@ function addRack(
       const [[ax, , az], [bx, , bz]] = [at(r, 0, -half, 0), at(r, 0, half, 0)];
       r = { ...r, slope: slopeThrough(ground, mesh.lift, [ax, az], [bx, bz]) };
     }
-    tube(mesh, r, -half, RAIL, half, RAIL, PROPS.iron, RAIL_BAR);
-    for (const e of [-half, half]) tube(mesh, r, e, 0, e, RAIL + RAIL_BAR, PROPS.iron, RAIL_BAR);
+    tube(mesh, r, -half, RAIL, half, RAIL, PROPS.rack, RAIL_BAR);
+    for (const e of [-half, half]) tube(mesh, r, e, 0, e, RAIL + RAIL_BAR, PROPS.rack, RAIL_BAR);
   }
   for (const slot of rackSlots(p, seed)) {
     const { f: placed, steer, look } = parkedBike(p, slot, seed);

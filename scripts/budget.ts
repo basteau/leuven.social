@@ -29,7 +29,9 @@ const BUDGETS: {
     // screen when you're off it (0.4 KB), asked for. 87: other people (1.3 KB), asked for: who
     // you are in the corner (Join, or your name and how many are here), the account sheet and
     // the other players' chunk loaded once the map is up, the minimap's place and its key.
-    limit: 87 * KB,
+    // 87.5 and a bit: the full map's button, the Stop pill and their wiring (0.5 KB), merged onto
+    // multiplayer's shell.
+    limit: 88 * KB,
     gzip: true,
   },
   // The engine, and the palette it shares with the chunks it loads later (vite.config.ts).
@@ -38,7 +40,7 @@ const BUDGETS: {
   {
     label: '3D engine JS (three.js)',
     pattern: 'assets/{viewer,palette}-*.js',
-    // 168: livelier facades asked for (1.4 KB): frames, sills and flower boxes on ordinary
+    // 169: the map's presence list, routes, plumbob and zoom limit (0.4 KB). 168: livelier facades asked for (1.4 KB): frames, sills and flower boxes on ordinary
     // windows, the Stadhuis's tiers of niches with their statues, tracery in the churches'
     // lancets, the parasols' valances and the café guests' colours.
     // 170.5: each house its own style (1.8 KB): arched or tall windows with balcony rails,
@@ -48,12 +50,15 @@ const BUDGETS: {
     // the day, keeping it round the view, and counting it in the frame budget.
     // 172.5: the kerbstones along the carriageways (0.3 KB), asked for so the pavements read.
     // 171.5: the traffic went (171.1 KB), so only real players walk the streets.
-    limit: 171.5 * KB,
+    // 172.5: the zoom-out limit, catenary wires, café colour families and the routes the full
+    // map asks for (0.9 KB), merged onto multiplayer's engine.
+    limit: 172.5 * KB,
     gzip: true,
   },
   // 3.5: just above 3.1 KB. 3.75: the minimap, the other players' name tags and who you are in
   // the corner (0.4 KB). The account sheet's own styles load with it, below.
   { label: 'CSS', pattern: 'assets/index-*.css', limit: 3.75 * KB, gzip: true },
+  { label: 'Map CSS (with the map)', pattern: 'assets/map-*.css', limit: 1.5 * KB, gzip: true },
   {
     label: 'Account sheet CSS (when opened)',
     pattern: 'assets/account-sheet-*.css',
@@ -82,7 +87,7 @@ const BUDGETS: {
   // The menu loads while the city is built: its list, search, pages, icons and places.
   {
     label: 'Menu JS (while building)',
-    pattern: 'assets/command-menu-*.js',
+    pattern: 'assets/{command-menu,menu-icons}-*.js',
     // 6: just above 5.8 KB. 6.5: Time of day and Let the day pass, with their icons (0.4 KB).
     // 7: the minimap's toggle and Join Leuven or Your look, with their icons (0.3 KB).
     limit: 7 * KB,
@@ -143,6 +148,10 @@ const BUDGETS: {
     limit: 7 * KB,
     gzip: true,
   },
+  // The map: the full map and its marks, the radar and the recentre arrow, and the raster of
+  // the city's layers they share. All lazy: the radar and arrow after the first frame, the
+  // full map when it is opened.
+  { label: 'Map JS (lazy)', pattern: 'assets/map-*.js', limit: 8 * KB, gzip: true },
   // Street furniture, monuments and the shop fronts' awnings, signs and terraces load once the
   // first frame is drawn, with the prop and terrace footprints they share with the avatar.
   // 6: the storefronts' shapes and the fronts' places on their walls added 1.6 KB.
@@ -159,7 +168,8 @@ const BUDGETS: {
     // by the doors (a barrel, crates of fruit, buckets of flowers), a barber's pole, and the
     // public places' banners, flags, hangings and marquees, asked for so the city reads without
     // words (2.2 KB).
-    limit: 10.75 * KB,
+    // 11: terrace layouts and menu boards, merged onto every trade's symbol (0.1 KB).
+    limit: 11 * KB,
     gzip: true,
   },
   // The rooms inside the landmarks, authored by hand, fetched near one.
@@ -183,7 +193,8 @@ const BUDGETS: {
   {
     label: 'First-load JS',
     pattern: 'assets/{index,viewer}-*.js',
-    limit: 258.5 * KB,
+    // 260: the engine's and the shell's additions above (1 KB).
+    limit: 260 * KB,
     gzip: true,
     closure: true,
   },
