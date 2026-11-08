@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { DRIFT_STEP, edgePoint, homeDirection } from './drift.ts';
+import { DRIFT_STEP, driftChanged, edgePoint, homeDirection } from './drift.ts';
 import {
   MAP_MAX_SCALE,
   MAP_MIN_SCALE,
@@ -43,9 +43,16 @@ describe('drift', () => {
     expect(homeDirection(0, 0, 400, 200)).toBeNull();
     expect(homeDirection(0.85, -0.5, 400, 200)).toBeNull();
     expect(homeDirection(2, 0, 400, 200)).toBeCloseTo(0);
-    expect(homeDirection(0, -3, 400, 200)).toBeCloseTo((Math.PI / 2) * -1 * -1);
+    expect(homeDirection(0, -3, 400, 200)).toBeCloseTo(Math.PI / 2);
     expect(homeDirection(-2, 0, 400, 200)).toBeCloseTo(Math.PI);
     expect(DRIFT_STEP).toBeGreaterThan(0);
+  });
+  test('tells the arrow only of an appearance, a disappearance or a real turn', () => {
+    expect(driftChanged(null, null)).toBe(false);
+    expect(driftChanged(null, 1)).toBe(true);
+    expect(driftChanged(1, null)).toBe(true);
+    expect(driftChanged(1, 1 + DRIFT_STEP / 2)).toBe(false);
+    expect(driftChanged(1, 1 + DRIFT_STEP * 2)).toBe(true);
   });
   test('places the arrow on the inset edge in its direction', () => {
     expect(edgePoint(0, 400, 200, 20)).toEqual({ x: 380, y: 100 });

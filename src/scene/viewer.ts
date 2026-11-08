@@ -62,7 +62,7 @@ import type { ShadowSquare } from './shadow-fit.ts';
 import { applyShadowChunks } from './shadow-filter.ts';
 import { SPIN_EASE, spinStep } from './spin.ts';
 import { minZoomFor } from './zoom-limit.ts';
-import { DRIFT_STEP, homeDirection } from '../data/drift.ts';
+import { driftChanged, homeDirection } from '../data/drift.ts';
 import type { Presence } from '../data/presence.ts';
 import { isTap } from './tap.ts';
 import type { Spin } from './spin.ts';
@@ -879,20 +879,16 @@ export function createViewer(options: ViewerOptions): Viewer {
   let heading = Number.NaN;
   // Grote Markt on screen, for the recentre arrow.
   const home = new Vector3(0, terrain.height(0, 0), 0);
+  const homeY = home.y;
   let drift: number | null = null;
   function signDrift(): void {
     if (!options.onDrift) return;
     let direction: number | null = null;
     if (view === camera) {
-      home.set(0, terrain.height(0, 0), 0).project(camera);
+      home.set(0, homeY, 0).project(camera);
       direction = homeDirection(home.x, home.y, canvas.clientWidth, canvas.clientHeight);
     }
-    if (
-      direction === null
-        ? drift === null
-        : drift !== null && Math.abs(direction - drift) < DRIFT_STEP
-    )
-      return;
+    if (!driftChanged(drift, direction)) return;
     options.onDrift((drift = direction));
   }
   function signHeading(): void {

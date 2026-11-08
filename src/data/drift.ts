@@ -13,11 +13,17 @@ export function homeDirection(
 ): number | null {
   const limit = 1 - margin;
   if (Math.abs(ndcX) <= limit && Math.abs(ndcY) <= limit) return null;
-  return Math.atan2(0 - ndcY * h, ndcX * w);
+  return Math.atan2(0 - ndcY * h, ndcX * w); // `0 -` keeps +0 (not -0), so due west is π, never -π;
 }
 
 /** The arrow turns in steps of this many radians: no state change for a smaller pan. */
 export const DRIFT_STEP = 0.05;
+
+/** Whether the arrow has to be told: it appeared or went, or turned by a step or more. */
+export function driftChanged(prev: number | null, next: number | null): boolean {
+  if (next === null || prev === null) return next !== prev;
+  return Math.abs(next - prev) >= DRIFT_STEP;
+}
 
 /**
  * Where the arrow sits, from a direction on screen (radians, 0 pointing right, y down) in a
