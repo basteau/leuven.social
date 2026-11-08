@@ -132,11 +132,11 @@ const BUDGETS: {
   // moved to a chunk of their own, taking what they share with the engine as a kit, as plates.ts
   // does; only the palette, which scene/props.ts imports, loads as a chunk of its own beside it.
   // 250: panning and zooming with our own map controls (map-controls.ts) took 4.4 KB off; the
-  // load, menu and key fixes put 0.4 back: 249.2 KB. 251: the livelier facades (1.4 KB).
+  // load, menu and key fixes put 0.4 back: 249.2 KB. 251: the livelier facades (1.4 KB). 252: catenary wires and café parasol families (0.1 KB).
   {
     label: 'First-load JS',
     pattern: 'assets/{index,viewer}-*.js',
-    limit: 251 * KB,
+    limit: 252 * KB,
     gzip: true,
     closure: true,
   },

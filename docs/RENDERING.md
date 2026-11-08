@@ -120,8 +120,8 @@ The size and render budgets are enforced by `bun run verify`; if one is exceeded
 | City data                                       | 1 MB    | `scripts/budget.ts` |
 | Draw calls per frame                            | 100     | `scripts/smoke.ts`  |
 | Triangles per frame                             | 600k    | `scripts/smoke.ts`  |
-| Vertices, every cell built                      | 2.92M   | `scripts/smoke.ts`  |
-| Geometry on the GPU, every cell built           | 70 MB   | `scripts/smoke.ts`  |
+| Vertices, every cell built                      | 2.85M   | `scripts/smoke.ts`  |
+| Geometry on the GPU, every cell built           | 68 MB   | `scripts/smoke.ts`  |
 | Longest main-thread task while loading          | 150 ms  | `scripts/smoke.ts`  |
 | Console errors and warnings                     | 0       | `scripts/smoke.ts`  |
 

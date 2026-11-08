@@ -44,21 +44,13 @@ const SIGNS = new Set<ShopKind>([
   'bank',
 ]);
 /** A sign's board, half its reach out from the wall and half its height (m); a third over life. */
-const BOARD = { out: [0.25, 1.15], half: 0.45 } as const;
+const BOARD = { out: [0.25, 1.2], half: 0.5 } as const;
 const PAPER = 0xf6eedc;
 const WOOD = 0x9a6a42;
 const WICKER = 0xc9a46a;
 const CHALK = 0x2f3b38;
 /** Fronts that put a menu board on the pavement. */
-const BOARDS = new Set<ShopKind>([
-  'cafe',
-  'bar',
-  'restaurant',
-  'snack',
-  'bakery',
-  'icecream',
-  'frituur',
-]);
+const BOARDS = new Set<ShopKind>(['cafe', 'bar', 'restaurant', 'bakery', 'icecream']);
 const GOLD = 0xe8b94a;
 const LOAF = 0xd99a52;
 const FRIES = 0xf2cf5b;
@@ -166,6 +158,7 @@ export function addSign(mesh: MeshBuilder, f: Frame, kind: ShopKind, top: number
     [o0 - 0.05, o1 + 0.05],
     [y - BOARD.half - 0.05, y + BOARD.half + 0.05],
     PAPER,
+    false,
   );
   box(mesh, f, [-0.07, 0.07], [o0, o1], [y - BOARD.half, y + BOARD.half], canvas);
   if (kind === 'restaurant') {
@@ -179,6 +172,7 @@ export function addSign(mesh: MeshBuilder, f: Frame, kind: ShopKind, top: number
         [mid + s * 0.27 - 0.025, mid + s * 0.27 + 0.025],
         [y - 0.2, y + 0.2],
         PAPER,
+        false,
       );
   } else if (kind === 'cafe') token(0.1, 0.16, 0.13, PAPER);
   else if (kind === 'bar') token(0.1, 0.11, 0.24, GOLD);
@@ -268,15 +262,8 @@ export function addTerrace(mesh: MeshBuilder, p: FrontPoint, kind: ShopKind, see
     // A long communal table with a bench each side.
     const f: Frame = { x, z, fx: p.nx, fz: p.nz, scale: 1 };
     box(mesh, f, [-0.95, 0.95], [-0.2, 0.2], [0.9, 0.95], WOOD);
-    for (const u of [-0.8, 0.8]) {
-      box(mesh, f, [u - 0.04, u + 0.04], [-0.15, 0.15], [0, 0.9], PROPS.iron, false);
-    }
-    for (const v of [-0.34, 0.34]) {
-      box(mesh, f, [-0.9, 0.9], [v - 0.1, v + 0.1], [0.44, 0.5], color);
-      for (const u of [-0.7, 0.7]) {
-        box(mesh, f, [u - 0.04, u + 0.04], [v - 0.04, v + 0.04], [0, 0.44], PROPS.iron, false);
-      }
-    }
+    box(mesh, f, [-0.5, 0.5], [-0.12, 0.12], [0, 0.9], PROPS.iron, false);
+    for (const v of [-0.34, 0.34]) box(mesh, f, [-0.9, 0.9], [v - 0.1, v + 0.1], [0, 0.5], color);
   }
 }
 
@@ -292,9 +279,8 @@ export function addBoard(mesh: MeshBuilder, f: Frame): void {
       away(f, 0, s, 0.4),
     );
   }
-  box(mesh, f, [-0.33, 0.33], [-0.03, 0.03], [0.93, 0.98], WOOD);
   // A few pale chalk lines of menu, no readable words.
-  for (const y of [0.55, 0.42, 0.3]) {
+  for (const y of [0.45]) {
     panel(
       mesh,
       [

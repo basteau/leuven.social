@@ -97,7 +97,7 @@ test('a bar without a terrace gets its sign and a bay tree each side of its door
   const bar = built((m) =>
     addStorefronts(m, new MeshBuilder(), [{ building, front: front('bar') }], kit, ground),
   );
-  expect(bar.count).toBe(80 + 2 * 50);
+  expect(bar.count).toBe(76 + 2 * 50);
 });
 
 test('a bay tree by the door: a pot and a cone of leaves', () => {
@@ -111,7 +111,7 @@ test('signs: a board, a token through it, a cross, a cone of fries', () => {
   const sizes = (['bank', 'cafe', 'bar', 'bakery', 'icecream', 'pharmacy', 'frituur'] as const).map(
     (kind) => built((m) => addSign(m, f, kind, 12)).count,
   );
-  expect(sizes).toEqual([60, 80, 80, 80, 80, 60, 95]);
+  expect(sizes).toEqual([56, 76, 76, 76, 76, 60, 95]);
   // Square to the wall, hung out over the street above head height.
   const { points } = built((m) => addSign(m, f, 'frituur', 12));
   for (const [, y, z] of points) {
@@ -138,7 +138,7 @@ test("a cell's fronts: awnings stop short of each other and the corners, signs h
   const { count, points } = built((m) => addStorefronts(m, awnings, fronts, kit, ground));
   // Bakery and café awnings; their signs and the café's terrace; the service front has no room.
   expect(awnings.build().getAttribute('position').count).toBe(14 * 2);
-  expect(count).toBe(420);
+  expect(count).toBe(260);
   const ys = points.map(([, y]) => y!);
   // The terrace stands on the ground as drawn, the signs over it where it's above the footing.
   expect(Math.min(...ys)).toBeCloseTo(2.5);

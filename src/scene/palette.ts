@@ -46,6 +46,8 @@ export const PARASOLS = [0xf6eedc, 0xd2553f, 0xe8b94a, 0xe07b4f, 0x4a77a8] as co
  */
 export const PROPS = {
   iron: 0x3b4150,
+  /** Galvanised steel of bike racks: paler than the iron, so a rack reads against dark tarmac and bikes. */
+  rack: 0x9aa3ae,
   lantern: 0xf3dfa8,
   wood: 0x9a6a42,
   glass: 0xa9c4cf,
@@ -102,7 +104,7 @@ export const STRUCTURES = {
   coping: 0xddd0b4,
 } as const;
 export const BIKES = [
-  0x2f3a4a, 0x2b2420, 0xd2553f, 0xf6eedc, 0x8db36f, 0x5b6170, 0xe8b94a,
+  0x2f3a4a, 0x2b2420, 0xb5493a, 0xe6dfcc, 0x7f9a78, 0x5b6170, 0xc9a14a,
 ] as const;
 
 export const PITCHED_ROOFS = [0x4f5666, 0x3c4354, 0x6c707a, 0x7a3e31, 0x9c4a35, 0xb85e3c];
@@ -194,8 +196,8 @@ export const PITCH: Record<PitchSurface, number> = {
  * old timber, platforms in pale concrete. Rails and masts are ink lines.
  */
 export const RAIL = {
-  main: { ballast: 0x9a8f80, sleepers: 0xc9c0ae },
-  yard: { ballast: 0x8d7b68, sleepers: 0x7a6250 },
+  main: { ballast: 0x8c8274, sleepers: 0xc9c0ae },
+  yard: { ballast: 0x7e6e5d, sleepers: 0x7a6250 },
   parapet: 0xb7ab95,
   platform: 0xd9d0bd,
   platformSide: 0xa79c88,

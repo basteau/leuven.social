@@ -33,12 +33,10 @@ const MAX_TRIANGLES = 600_000;
  * parked bikes (83 triangles each where they were 43, asked for so they read up close) took it
  * to 2.72M and 64.9 MB (2,723,825 vertices). Houses at their exact ground: 2.73M. Café tables,
  * chairs and guests under Oude Markt's parasols, guests at the terraces and bay trees by café
- * doors, asked for to liven the city: 2.84M and 67.7 MB. Street-level legibility (a lamp with
- * a cap, sign rims and a restaurant sign, menu boards, terrace layouts): 2.90M and 69.0 MB. Just
- * above, so nothing grows unnoticed.
+ * doors, asked for to liven the city: 2.84M and 67.7 MB. Just above, so nothing grows unnoticed.
  */
-const MAX_VERTICES = 2_920_000;
-const MAX_GEOMETRY_MB = 70;
+const MAX_VERTICES = 2_850_000;
+const MAX_GEOMETRY_MB = 68;
 /**
  * The longest the main thread may be busy at once while the page loads (ms). About 60 on a
  * laptop since the roofs are planned lazily and the cells casting into the first frame are built

@@ -437,8 +437,8 @@ function addRack(
       const [[ax, , az], [bx, , bz]] = [at(r, 0, -half, 0), at(r, 0, half, 0)];
       r = { ...r, slope: slopeThrough(ground, mesh.lift, [ax, az], [bx, bz]) };
     }
-    tube(mesh, r, -half, RAIL, half, RAIL, PROPS.iron, RAIL_BAR);
-    for (const e of [-half, half]) tube(mesh, r, e, 0, e, RAIL + RAIL_BAR, PROPS.iron, RAIL_BAR);
+    tube(mesh, r, -half, RAIL, half, RAIL, PROPS.rack, RAIL_BAR);
+    for (const e of [-half, half]) tube(mesh, r, e, 0, e, RAIL + RAIL_BAR, PROPS.rack, RAIL_BAR);
   }
   for (const slot of rackSlots(p, seed)) {
     const { f: placed, steer, look } = parkedBike(p, slot, seed);
@@ -453,10 +453,8 @@ function addRack(
 type Furniture = Exclude<PropKind, MonumentKind | 'bikes'>;
 const MODELS: Record<Furniture, (mesh: MeshBuilder, f: Frame) => void> = {
   lamp(mesh, f) {
-    // A post, and a lantern hanging under a dark cap that reaches back to it.
-    box(mesh, f, [-0.1, 0.1], [-0.1, 0.1], [0, 4.5], PROPS.iron, false);
-    box(mesh, f, [-0.26, 0.26], [0.1, 0.62], [4.0, 4.4], PROPS.lantern, false);
-    box(mesh, f, [-0.34, 0.34], [-0.08, 0.7], [4.4, 4.55], PROPS.iron);
+    box(mesh, f, [-0.12, 0.12], [-0.12, 0.12], [0, 4.5], PROPS.iron, false);
+    box(mesh, f, [-0.3, 0.3], [-0.05, 0.55], [4.15, 4.6], PROPS.lantern);
   },
   bench(mesh, f) {
     box(mesh, f, [-0.9, 0.9], [-0.25, 0.25], [0.4, 0.5], PROPS.wood);

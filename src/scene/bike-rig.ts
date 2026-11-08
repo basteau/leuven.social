@@ -14,7 +14,7 @@
 export const LOOK = { step: 1, carrier: 2, crate: 4, basket: 8, colour: 16 } as const;
 /** The racks' bike colours and parts, as in palette.ts (`BIKES`, `PROPS`, `OUTLINE`). */
 export const BIKES = [
-  0x2f3a4a, 0x2b2420, 0xd2553f, 0xf6eedc, 0x8db36f, 0x5b6170, 0xe8b94a,
+  0x2f3a4a, 0x2b2420, 0xb5493a, 0xe6dfcc, 0x7f9a78, 0x5b6170, 0xc9a14a,
 ] as const;
 export const PARTS = {
   tyre: 0x2b2420,
