@@ -4,7 +4,7 @@ import { createSnapshots } from '../net/interpolate.ts';
 import type { Snapshots } from '../net/interpolate.ts';
 import { connectPresence } from '../net/presence.ts';
 import type { Presence, PresenceStatus } from '../net/presence.ts';
-import type { Outfit, PlayerState } from '../net/protocol.ts';
+import type { Dot, Outfit, PlayerState } from '../net/protocol.ts';
 import { isPlace } from '../net/rules.ts';
 import type { Roster, RosterEntry, Viewer } from '../scene/viewer.ts';
 import type { Account } from './account-sheet.tsx';
@@ -19,6 +19,10 @@ import { FIRST_OUTFIT } from './outfits.ts';
 
 /** A look is saved this long after the last change (ms): a few taps on swatches, one request. */
 const SAVE_AFTER_MS = 600;
+/** How often the minimap's dots are written while people walk about (ms). */
+const MINIMAP_MS = 250;
+/** How long the others stand frozen when the connection goes down, before they go (ms). */
+const FROZEN_MS = 5000;
 
 export interface MultiplayerHooks {
   /** Who you are now: a guest, or signed in with your name and look. */
@@ -57,6 +61,14 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
   /** A look chosen but not saved yet, and the save under way: one at a time, in order. */
   let unsaved: Outfit | null = null;
   let saved: Promise<void> = Promise.resolve();
+  /** How many are on the map, as the server last said; it knows those we don't hear of too. */
+  let onlineCount = 0;
+  /** Everyone on the map while the full map is open, as last told. */
+  let dots: readonly Dot[] = [];
+  let wantsDots = false;
+  /** The last time the minimap's dots were written (ms), and the wait to go down. */
+  let dotsAt = 0;
+  let goneFor: ReturnType<typeof setTimeout> | undefined;
   /** Bumped by every sign-in or -up: an answer to an older question about who you are is stale. */
   let asked = 0;
   let disposed = false;
@@ -67,11 +79,13 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
   const roster: Roster = {
     version: () => version,
     entries: () => entries,
-    pose(id, now, out) {
-      const state = others.get(id)?.snapshots.sample(now);
-      if (!state) return false;
-      Object.assign(out, state);
-      return true;
+    pose: (id, now, out) => Boolean(others.get(id)?.snapshots.sample(now, out)),
+    look: (x, z) => presence?.view(x, z),
+    dots: () => dots,
+    fullMap(on) {
+      wantsDots = on;
+      if (!on) dots = [];
+      presence?.dots(on);
     },
     listen(listener) {
       listeners.add(listener);
@@ -87,15 +101,30 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
       entries = [...others.values()];
       tell();
     }
-    live.others = entries.flatMap((o) => {
-      const at = o.snapshots.latest();
-      return at && !at.place ? [{ x: at.x, z: at.z, colour: o.outfit.shirt }] : [];
-    });
-    live.changed();
+    const now = performance.now();
+    // The minimap redraws a list of a few dozen dots a few times a second, not on each packet.
+    if (people || now - dotsAt > MINIMAP_MS) {
+      dotsAt = now;
+      live.others = entries.flatMap((o) => {
+        const at = o.snapshots.latest();
+        return at && !at.place ? [{ x: at.x, z: at.z, colour: o.outfit.shirt }] : [];
+      });
+      live.changed();
+    }
     news();
   }
   function tell(): void {
-    hooks.online(status === 'online' ? others.size + (account.signedIn ? 1 : 0) : null);
+    // The count comes from the server; before it has said, whoever we can see and ourselves.
+    const seen = others.size + (account.signedIn ? 1 : 0);
+    hooks.online(status === 'online' ? Math.max(onlineCount, seen) : null);
+  }
+  /** Down for good or a moment: the others stand frozen for a moment, then go. */
+  function forget(): void {
+    clearTimeout(goneFor);
+    goneFor = undefined;
+    if (!others.size) return;
+    others.clear();
+    changed(true);
   }
   function settle(next: Account): void {
     account = next;
@@ -105,31 +134,41 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
 
   function connect(): void {
     presence?.close();
-    others.clear();
-    changed(true);
+    forget();
+    onlineCount = 0;
     presence = connectPresence({
       // Every connection starts with one, reconnects too, and ids change: start the others afresh.
       onWelcome(id) {
         you = id;
-        if (others.size) {
-          others.clear();
-          changed(true);
-        }
+        forget();
       },
-      onJoin(player) {
-        if (player.id === you) return;
-        const snapshots = createSnapshots();
-        snapshots.push(performance.now(), player.state);
-        others.set(player.id, { ...player, snapshots });
+      onJoin(players) {
+        const now = performance.now();
+        for (const player of players) {
+          if (player.id === you) continue;
+          const snapshots = createSnapshots();
+          snapshots.push(now, player.state);
+          others.set(player.id, { ...player, snapshots });
+        }
         changed(true);
       },
-      onLeave(id) {
-        if (others.delete(id)) changed(true);
+      onLeave(ids) {
+        let any = false;
+        for (const id of ids) any = others.delete(id) || any;
+        if (any) changed(true);
       },
       onStates(updates) {
         const now = performance.now();
         for (const { id, state } of updates) others.get(id)?.snapshots.push(now, state);
         changed(false);
+      },
+      onOnline(count) {
+        onlineCount = count;
+        tell();
+      },
+      onDots(everyone) {
+        dots = everyone;
+        news();
       },
       onOutfit(id, outfit) {
         // Your own comes back too: you wear it already.
@@ -140,15 +179,18 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
       },
       onStatus(next) {
         status = next;
-        // Down, the others are gone till it's back up and they join again.
-        if (next !== 'online' && others.size) {
-          others.clear();
-          changed(true);
+        // Down, the others stand frozen a few seconds, in case it's only a blip, then go.
+        if (next === 'online') {
+          clearTimeout(goneFor);
+          goneFor = undefined;
+        } else if (others.size && goneFor === undefined) {
+          goneFor = setTimeout(forget, FROZEN_MS);
         }
         tell();
       },
     });
     if (account.signedIn && last) presence.send(last);
+    if (wantsDots) presence.dots(true);
   }
 
   /** Signed in: wear your look, and stand where you left (on your first visit, where you are). */
@@ -235,6 +277,7 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
     },
     dispose() {
       disposed = true;
+      clearTimeout(goneFor);
       void save(true);
       document.removeEventListener('visibilitychange', leave);
       globalThis.removeEventListener('pagehide', leave);

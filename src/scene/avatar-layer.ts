@@ -225,6 +225,8 @@ export interface AvatarLayer {
   goTo(x: number, z: number): void;
   /** Lets go of the route being walked to a picked spot, if any. */
   cancelRoute(): void;
+  /** The full map opened or shut, so the others are told of as dots while it is open. */
+  fullMap(on: boolean): void;
   /** You, then the other players, as the full map draws them. */
   presences(): Presence[];
   /** Takes the camera to a spot (m), down to the street, leaving the avatar where it is. */
@@ -486,6 +488,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       const inside = interiors?.byId(at.place);
       return inside && interiors ? interiors.standing(inside, at.floor, at.x, at.z).y : null;
     },
+    groundAt: ground,
     riders: () =>
       import('./rider.ts').then(({ createRiders }) => {
         if (disposed) throw new Error('The map closed while the riders loaded.');
@@ -1171,8 +1174,10 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       const list: Presence[] = [
         { id: 'me', x: w.x, z: w.z, heading: Math.PI - w.heading, self: true },
       ];
+      const known = new Set<number>();
       for (const { id } of crowd?.entries() ?? []) {
         if (crowd?.pose(id, now, seen)) {
+          known.add(id);
           list.push({
             id: String(id),
             x: seen.x,
@@ -1182,7 +1187,14 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
           });
         }
       }
+      // Everyone further off, as the server last said.
+      for (const { id, x, z } of crowd?.dots() ?? []) {
+        if (!known.has(id)) list.push({ id: String(id), x, z, heading: 0, self: false });
+      }
       return list;
+    },
+    fullMap(on) {
+      crowd?.fullMap(on);
     },
     dispose() {
       disposed = true;

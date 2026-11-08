@@ -67,7 +67,9 @@ export async function startBot(
   }, 100);
   const ids = new Map<number, string>();
   const joined = () => {
-    for (const m of heard) if (m.type === 'join') ids.set(m.id, m.name);
+    for (const m of heard) {
+      if (m.type === 'joins') for (const p of m.players) ids.set(p.id, p.name);
+    }
     return [...ids.values()];
   };
   return {
@@ -77,7 +79,9 @@ export async function startBot(
       joined();
       let outfit: Outfit | null = null;
       for (const m of heard) {
-        if (m.type === 'join' && m.name === who) outfit = m.outfit;
+        if (m.type === 'joins') {
+          for (const p of m.players) if (p.name === who) outfit = p.outfit;
+        }
         if (m.type === 'outfit' && ids.get(m.id) === who) outfit = m.outfit;
       }
       return outfit;

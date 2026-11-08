@@ -1082,6 +1082,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   function cover(on: boolean): void {
     if (on === covered) return;
     covered = on;
+    avatar?.fullMap(on);
     // Uncovered, the city as it is now, before the page paints.
     if (!on && !disposed) renderNow();
   }

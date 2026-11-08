@@ -34,13 +34,25 @@ function expectNear(got: PlayerState, want: PlayerState): void {
   });
 }
 
+const near = (a: number, b: number, within: number) => expect(Math.abs(a - b)).toBeLessThan(within);
+const leaving = (id: number) => encodeServerMessage({ type: 'leaves', ids: [id] });
+const movedAs = (m: object) =>
+  decodeServerMessage(
+    encodeServerMessage({
+      type: 'moves',
+      cx: 0,
+      cz: 0,
+      players: [{ id: 1, state: { heading: 0, speed: 99, mode: 'foot', ...m } as never }],
+    }),
+  );
+
 describe('client messages', () => {
   test('a state round-trips within its quantisation', () => {
     const bytes = encodeClientMessage({ type: 'state', state });
     expect(bytes.length).toBe(1 + 13 + 1 + state.place.length);
     const message = decodeClientMessage(bytes);
-    expect(message?.type).toBe('state');
-    expectNear(message!.state, state);
+    if (message?.type !== 'state') throw new Error('no state');
+    expectNear(message.state, state);
   });
 
   test('headings wrap into one turn and speeds clamp to the wire range', () => {
@@ -77,45 +89,116 @@ describe('server messages', () => {
   const messages: ServerMessage[] = [
     { type: 'welcome', you: 0 },
     { type: 'welcome', you: 0xffff_ffff },
-    { type: 'join', id: 7, name: 'Marie-Thérèse', outfit, state },
-    { type: 'leave', id: 300 },
-    { type: 'states', players: [] },
-    {
-      type: 'states',
-      players: [
-        { id: 1, state },
-        { id: 2, state: { ...state, place: '', floor: -1 } },
-      ],
-    },
+    { type: 'joins', players: [] },
+    { type: 'joins', players: [{ id: 7, name: 'Marie-Thérèse', outfit, state }] },
+    { type: 'leaves', ids: [] },
+    { type: 'leaves', ids: [300, 1] },
     { type: 'outfit', id: 9, outfit },
+    { type: 'online', count: 1234 },
+    { type: 'dots', players: [] },
   ];
 
   test.each(messages.map((m) => [m.type, m] as const))('%s round-trips', (_, message) => {
     const back = decodeServerMessage(encodeServerMessage(message));
     expect(back?.type).toBe(message.type);
-    if (back?.type === 'join' && message.type === 'join') {
-      expect({ ...back, state: undefined }).toEqual({ ...message, state: undefined });
-      expectNear(back.state, message.state);
-    } else if (back?.type === 'states' && message.type === 'states') {
-      expect(back.players.map((p) => p.id)).toEqual(message.players.map((p) => p.id));
+    if (back?.type === 'joins' && message.type === 'joins') {
+      const strip = (p: (typeof back.players)[number]) => ({ ...p, state: undefined });
+      expect(back.players.map(strip)).toEqual(message.players.map(strip));
       back.players.forEach((p, i) => expectNear(p.state, message.players[i]!.state));
     } else {
       expect(back).toEqual(message);
     }
   });
 
+  test('a move is 9 bytes, to under 2 cm, across the cells round its frame', () => {
+    const move = { x: 400.123, z: -100.456, heading: 1.25, speed: 4.2, mode: 'bike' } as const;
+    const bytes = encodeServerMessage({
+      type: 'moves',
+      cx: 1,
+      cz: -1,
+      players: [{ id: 300, state: move }],
+    });
+    // Tag, the cell, a count of one: 6 bytes; a two-byte id and its seven.
+    expect(bytes.length).toBe(6 + 9);
+    const back = decodeServerMessage(bytes);
+    if (back?.type !== 'moves') throw new Error('no moves');
+    expect([back.cx, back.cz]).toEqual([1, -1]);
+    expect(back.players[0]?.id).toBe(300);
+    const got = back.players[0]!.state;
+    near(got.x, move.x, 0.02);
+    near(got.z, move.z, 0.02);
+    near(got.heading, move.heading, 0.001);
+    near(got.speed, move.speed, 0.11);
+    expect(got.mode).toBe('bike');
+  });
+
+  test('a move keeps its mode and clamps to its frame', () => {
+    const clamped = movedAs({ x: 1e6, z: -1e6 });
+    if (clamped?.type !== 'moves') throw new Error('no moves');
+    expect(clamped.players[0]?.state).toMatchObject({ x: 700, z: -350, mode: 'foot' });
+    expect(clamped.players[0]?.state.speed).toBeCloseTo(25.4);
+  });
+
+  test('a door keeps the whole state', () => {
+    const back = decodeServerMessage(encodeServerMessage({ type: 'placed', id: 5, state }));
+    if (back?.type !== 'placed') throw new Error('no placed');
+    expect(back.id).toBe(5);
+    expectNear(back.state, state);
+  });
+
+  test('dots land within half a metre, with their colours', () => {
+    const back = decodeServerMessage(
+      encodeServerMessage({
+        type: 'dots',
+        players: [{ id: 3, x: -1234.5, z: 1999, colour: 0xfa8064 }],
+      }),
+    );
+    if (back?.type !== 'dots') throw new Error('no dots');
+    expect(back.players[0]).toMatchObject({ id: 3, colour: 0xfa8064 });
+    near(back.players[0]!.x, -1234.5, 0.5);
+    near(back.players[0]!.z, 1999, 0.5);
+  });
+
   test('ids outside u32 and overlong names are refused when encoding', () => {
-    expect(() => encodeServerMessage({ type: 'leave', id: -1 })).toThrow(RangeError);
-    expect(() => encodeServerMessage({ type: 'leave', id: 2 ** 32 })).toThrow(RangeError);
-    expect(() => encodeServerMessage({ type: 'leave', id: 1.5 })).toThrow(RangeError);
+    expect(() => leaving(-1)).toThrow(RangeError);
+    expect(() => leaving(2 ** 32)).toThrow(RangeError);
+    expect(() => leaving(1.5)).toThrow(RangeError);
     expect(() =>
-      encodeServerMessage({ type: 'join', id: 1, name: 'n'.repeat(65), outfit, state }),
+      encodeServerMessage({
+        type: 'joins',
+        players: [{ id: 1, name: 'n'.repeat(65), outfit, state }],
+      }),
     ).toThrow(RangeError);
   });
 });
 
+describe('what the client says about its view', () => {
+  test('where the map looks and whether the full map is open', () => {
+    expect(decodeClientMessage(encodeClientMessage({ type: 'view', x: 12.5, z: -3.25 }))).toEqual({
+      type: 'view',
+      x: 12.5,
+      z: -3.25,
+    });
+    for (const on of [true, false]) {
+      expect(decodeClientMessage(encodeClientMessage({ type: 'dots', on }))).toEqual({
+        type: 'dots',
+        on,
+      });
+    }
+  });
+
+  test('a view off the number line is refused', () => {
+    const frame = encodeClientMessage({ type: 'view', x: 0, z: 0 });
+    frame.set([0x7f, 0xc0, 0, 0], 1);
+    expect(decodeClientMessage(frame)).toBeNull();
+  });
+});
+
 describe('malformed frames decode to null', () => {
-  const good = encodeServerMessage({ type: 'join', id: 7, name: 'Bram', outfit, state });
+  const good = encodeServerMessage({
+    type: 'joins',
+    players: [{ id: 7, name: 'Bram', outfit, state }],
+  });
 
   test('empty, unknown tags and the wrong direction', () => {
     expect(decodeServerMessage(new Uint8Array())).toBeNull();
@@ -146,15 +229,19 @@ describe('malformed frames decode to null', () => {
     expect(patch(12, 2)).toBeNull(); // mode
     expect(patch(1, 0x7f, 0xc0, 0, 0)).toBeNull(); // x = NaN
     expect(patch(5, 0x7f, 0x80, 0, 0)).toBeNull(); // z = Infinity
-    expect(patch(11, 255)?.state.speed).toBe(25.5); // the most a byte holds
+    expect(patch(11, 255)).toMatchObject({ state: { speed: 25.5 } }); // the most a byte holds
     expect(patch(15, 0xff)).toBeNull(); // invalid UTF-8 in the place
     expect(patch(14, MAX_PLACE_BYTES + 1)).toBeNull(); // the place's length
   });
 
   test('a lying player count and an overlong id', () => {
-    expect(decodeServerMessage(new Uint8Array([13, 50, 1]))).toBeNull();
-    expect(decodeServerMessage(new Uint8Array([12, 0x80, 0x80, 0x80, 0x80, 0x10]))).toBeNull();
-    expect(decodeServerMessage(new Uint8Array([12, ...Array(11).fill(0x80)]))).toBeNull();
+    expect(decodeServerMessage(new Uint8Array([15, 50, 1]))).toBeNull(); // joins
+    expect(decodeServerMessage(new Uint8Array([16, 50, 1]))).toBeNull(); // leaves
+    expect(decodeServerMessage(new Uint8Array([17, 0, 0, 0, 0, 50, 1]))).toBeNull(); // moves
+    expect(decodeServerMessage(new Uint8Array([20, 50, 1]))).toBeNull(); // dots
+    const longId = [14, 0x80, 0x80, 0x80, 0x80, 0x10, ...Array(12).fill(0)];
+    expect(decodeServerMessage(new Uint8Array(longId))).toBeNull();
+    expect(decodeServerMessage(new Uint8Array([14, ...Array(11).fill(0x80)]))).toBeNull();
   });
 
   test('random bytes never throw', () => {

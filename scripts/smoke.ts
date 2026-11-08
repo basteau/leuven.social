@@ -389,7 +389,10 @@ async function expectPlayers(): Promise<void> {
     await browser('wait', '--fn', `!!document.querySelector('dialog.account')?.open`);
     await browser('find', 'role', 'button', 'click', '--name', 'Sign out');
     await browser('wait', '--fn', `${html('account')} === ''`);
-    await until(() => bot.heard.some((m) => m.type === 'leave'), 'the bot seeing smoke-anna leave');
+    await until(
+      () => bot.heard.some((m) => m.type === 'leaves'),
+      'the bot seeing smoke-anna leave',
+    );
     await browser('press', 'Escape');
     console.log('ok  signed out: a guest again, and gone for the others');
   } finally {

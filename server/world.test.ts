@@ -7,7 +7,8 @@ import {
   quantise,
 } from '../src/net/protocol.ts';
 import type { Outfit, PlayerState, ServerMessage } from '../src/net/protocol.ts';
-import { CLOSE_SIGNED_OUT, createWorld, sanitise } from './world.ts';
+import { CELL_SIZE } from '../src/data/grid.ts';
+import { CLOSE_SIGNED_OUT, createWorld, sanitise, withinReach } from './world.ts';
 import type { WorldOptions } from './world.ts';
 
 const outfit: Outfit = { skin: 1, hair: 2, shirt: 3, shorts: 4 };
@@ -25,7 +26,13 @@ const here: PlayerState = quantise({
 class FakeConnection {
   messages: ServerMessage[] = [];
   closed: { code: number; reason: string } | null = null;
-  send(frame: Uint8Array) {
+  queued = 0;
+  dropping = false;
+  buffered() {
+    return this.queued;
+  }
+  send(frame: Uint8Array): number | void {
+    if (this.dropping) return 0;
     const message = decodeServerMessage(frame);
     if (!message) throw new Error('the world sent a malformed frame');
     this.messages.push(message);
@@ -45,7 +52,7 @@ function setup(options: WorldOptions = {}) {
   const saved: [string, PlayerState][] = [];
   const world = createWorld({
     now: () => time,
-    save: (userId, state) => saved.push([userId, state]),
+    save: (saves) => saved.push(...saves.map((s): [string, PlayerState] => [s.userId, s.state])),
     ...options,
   });
   const join = (userId: string | null) => {
@@ -56,11 +63,14 @@ function setup(options: WorldOptions = {}) {
   };
   const move = (id: number, state: Partial<PlayerState> = {}) =>
     world.receive(id, encodeClientMessage({ type: 'state', state: { ...here, ...state } }));
+  const look = (id: number, x: number, z: number) =>
+    world.receive(id, encodeClientMessage({ type: 'view', x, z }));
   return {
     world,
     saved,
     join,
     move,
+    look,
     advance: (ms: number) => (time += ms),
   };
 }
@@ -125,6 +135,40 @@ describe('sanitise', () => {
   });
 });
 
+const ofType = <T extends ServerMessage['type']>(messages: ServerMessage[], type: T) =>
+  messages.filter((m): m is Extract<ServerMessage, { type: T }> => m.type === type);
+const joinedIds = (messages: ServerMessage[]) =>
+  ofType(messages, 'joins').flatMap((m) => m.players.map((p) => p.id));
+const leftIds = (messages: ServerMessage[]) => ofType(messages, 'leaves').flatMap((m) => m.ids);
+const movedIds = (messages: ServerMessage[]) =>
+  ofType(messages, 'moves').flatMap((m) => m.players.map((p) => p.id));
+
+describe('withinReach', () => {
+  const from = { ...here, x: 0, z: 0 };
+
+  test('lets a figure go as far as top speed allows', () => {
+    const next = { ...from, x: 30 };
+    expect(withinReach(from, next, 1)).toBe(next);
+  });
+
+  test('stops a teleport at the edge of what the time allows', () => {
+    const got = withinReach(from, { ...from, x: 10_000 }, 1);
+    expect(got.x).toBeCloseTo(38);
+    expect(got.z).toBe(0);
+  });
+
+  test('a long pause does not earn a long jump', () => {
+    expect(withinReach(from, { ...from, x: 10_000 }, 3600).x).toBeCloseTo(158);
+  });
+
+  test('a door moves a figure at once', () => {
+    const inside = { ...from, x: 10_000, place: 'stadhuis' };
+    expect(withinReach(from, inside, 0)).toBe(inside);
+    const upstairs = { ...inside, floor: 1 };
+    expect(withinReach(inside, upstairs, 0)).toBe(upstairs);
+  });
+});
+
 describe('createWorld', () => {
   test('welcomes a player with their id and a guest with 0', () => {
     const { join, world } = setup();
@@ -136,34 +180,127 @@ describe('createWorld', () => {
     expect(world.size).toBe(2);
   });
 
-  test('announces a player with their first state, to everyone else', async () => {
+  test('a player appears with their first state, to those nearby, at the next tick', async () => {
     const { join, move, world } = setup();
     const a = join('a');
     const b = join('b');
     const guest = join(null);
+    await move(b.id);
+    world.tick();
     for (const c of [a, b, guest]) c.connection.take();
     expect(world.stateOf('a')).toBeNull();
     await move(a.id);
-    const joined: ServerMessage = { type: 'join', id: a.id, name: 'A', outfit, state: here };
-    expect(b.connection.take()).toEqual([joined]);
-    expect(guest.connection.take()).toEqual([joined]);
+    expect(guest.connection.take()).toEqual([]);
+    world.tick();
+    const joins: ServerMessage = {
+      type: 'joins',
+      players: [{ id: a.id, name: 'A', outfit, state: here }],
+    };
+    expect(b.connection.take()).toEqual([joins]);
+    expect(guest.connection.take()).toEqual([joins]);
     expect(a.connection.take()).toEqual([]);
     expect(world.stateOf('a')).toEqual(here);
   });
 
-  test('a newcomer hears about everyone already placed', async () => {
-    const { join, move } = setup();
+  test('a newcomer hears of everyone placed nearby in one frame', async () => {
+    const { join, move, world } = setup();
     const a = join('a');
-    join('b');
-    await move(a.id);
-    const c = join(null);
-    expect(c.connection.take()).toEqual([
-      { type: 'welcome', you: 0 },
-      { type: 'join', id: a.id, name: 'A', outfit, state: here },
-    ]);
+    const b = join('b');
+    const c = join('c');
+    await Promise.all([move(a.id), move(b.id), move(c.id)]);
+    world.tick();
+    const late = join(null);
+    world.tick();
+    const heard = late.connection.take();
+    expect(heard[0]).toEqual({ type: 'welcome', you: 0 });
+    expect(heard.length).toBe(2);
+    expect(joinedIds(heard).toSorted()).toEqual([a.id, b.id, c.id].toSorted());
   });
 
-  test('ticks batch only those who moved, to everyone', async () => {
+  test('a far-off player is not heard of at all', async () => {
+    const { join, move, world } = setup();
+    const near = join('near');
+    const far = join('far');
+    await move(near.id, { x: 10, z: 20 });
+    await move(far.id, { x: CELL_SIZE * 3 + 10, z: 20 });
+    world.tick();
+    near.connection.take();
+    far.connection.take();
+    await move(far.id, { x: CELL_SIZE * 3 + 15, z: 20 });
+    world.tick();
+    expect(near.connection.take()).toEqual([]);
+    expect(far.connection.take()).toEqual([]);
+  });
+
+  test('walking across a cell edge brings people into view and takes them out', async () => {
+    const { join, move, world, advance } = setup();
+    const west = join('west');
+    const east = join('east');
+    const walker = join('walker');
+    await move(west.id, { x: -CELL_SIZE + 10, z: 20 });
+    await move(east.id, { x: CELL_SIZE * 2 + 10, z: 20 });
+    await move(walker.id, { x: CELL_SIZE - 1, z: 20 });
+    world.tick();
+    expect(joinedIds(walker.connection.take())).toEqual([west.id]);
+    for (const c of [west, east]) c.connection.take();
+    // It stepped from cell 0 into cell 1: east comes into view, west goes out of it.
+    advance(1000);
+    await move(walker.id, { x: CELL_SIZE + 1, z: 20 });
+    world.tick();
+    const heard = walker.connection.take();
+    expect(joinedIds(heard)).toEqual([east.id]);
+    expect(leftIds(heard)).toEqual([west.id]);
+    expect(joinedIds(east.connection.take())).toEqual([walker.id]);
+    expect(leftIds(west.connection.take())).toEqual([walker.id]);
+    // And out the other way.
+    advance(1000);
+    await move(walker.id, { x: CELL_SIZE - 1, z: 20 });
+    world.tick();
+    expect(leftIds(walker.connection.take())).toEqual([east.id]);
+    expect(leftIds(east.connection.take())).toEqual([walker.id]);
+  });
+
+  test('a client hears of what its map looks at, whatever its figure does', async () => {
+    const { join, move, look, world } = setup();
+    const here1 = join('here1');
+    const there = join('there');
+    const guest = join(null);
+    await move(here1.id, { x: 10, z: 20 });
+    await move(there.id, { x: CELL_SIZE * 4 + 10, z: 20 });
+    world.tick();
+    expect(joinedIds(guest.connection.take())).toEqual([here1.id]);
+    await look(guest.id, CELL_SIZE * 4 + 20, 20);
+    world.tick();
+    const heard = guest.connection.take();
+    expect(leftIds(heard)).toEqual([here1.id]);
+    expect(joinedIds(heard)).toEqual([there.id]);
+  });
+
+  test('coming into view and going out of it in one tick says nothing', async () => {
+    const wide = [{ minX: -1e5, minZ: -1e5, maxX: 1e5, maxZ: 1e5 }];
+    const { join, move, look, world } = setup({ area: wide });
+    const player = join('player');
+    const viewer = join(null);
+    await look(viewer.id, 20, 20);
+    await move(player.id, { x: CELL_SIZE * 6, z: 20 });
+    world.tick();
+    expect(joinedIds(viewer.connection.take())).toEqual([]);
+    // A door brings the player into what it watches, just as it looks away from there.
+    await move(player.id, { x: 30, z: 20, place: 'stadhuis' });
+    await look(viewer.id, CELL_SIZE * 12, 20);
+    world.tick();
+    expect(viewer.connection.take()).toEqual([]);
+    // And out, as it looks back.
+    await look(viewer.id, 20, 20);
+    world.tick();
+    expect(joinedIds(viewer.connection.take())).toEqual([player.id]);
+    await move(player.id, { x: CELL_SIZE * 6, z: 20, place: '' });
+    await look(viewer.id, CELL_SIZE * 12, 20);
+    world.tick();
+    expect(leftIds(viewer.connection.take())).toEqual([player.id]);
+  });
+
+  test('ticks batch only those who moved', async () => {
     const { join, move, world } = setup();
     const a = join('a');
     const b = join('b');
@@ -175,16 +312,94 @@ describe('createWorld', () => {
     await move(a.id, { x: 11 });
     await move(a.id, { x: 12 });
     world.tick();
-    const update: ServerMessage = {
-      type: 'states',
-      players: [{ id: a.id, state: { ...here, x: 12 } }],
-    };
-    expect(a.connection.take()).toEqual([update]);
-    expect(b.connection.take()).toEqual([update]);
+    const [moves, ...rest] = b.connection.take();
+    expect(rest).toEqual([]);
+    expect(moves).toMatchObject({ type: 'moves', cx: 0, cz: 0 });
+    expect(moves?.type === 'moves' && moves.players[0]?.id).toBe(a.id);
+    expect(moves?.type === 'moves' && moves.players[0]?.state.x).toBeCloseTo(12, 1);
+    // Nobody is told about their own step.
+    expect(a.connection.take()).toEqual([]);
     // The same state again (a heartbeat) is not news.
     await move(a.id, { x: 12 });
     world.tick();
     expect(b.connection.take()).toEqual([]);
+  });
+
+  test('in a crowd the nearest move every tick and the others take turns', async () => {
+    const { join, move, world, advance } = setup({ rate: { limit: 1e6, period: 1000 } });
+    const viewer = join('viewer');
+    await move(viewer.id, { x: 10, z: 10 });
+    const crowd = Array.from({ length: 100 }, (_, i) => ({ c: join(`p${i}`), i }));
+    await Promise.all(crowd.map(({ c, i }) => move(c.id, { x: 10 + i, z: 10 })));
+    world.tick();
+    viewer.connection.take();
+
+    const heard = new Map<number, number>();
+    for (let t = 0; t < 10; t++) {
+      advance(100);
+      // eslint-disable-next-line no-await-in-loop -- ticks follow one another
+      await Promise.all(
+        crowd.map(({ c, i }) => move(c.id, { x: 10 + i + (t % 2 ? 0.1 : 0.2), z: 10 })),
+      );
+      world.tick();
+      const moved = movedIds(viewer.connection.take());
+      expect(moved.length).toBeGreaterThanOrEqual(32);
+      expect(moved.length).toBeLessThanOrEqual(160);
+      for (const id of moved) heard.set(id, (heard.get(id) ?? 0) + 1);
+    }
+    // Everyone was heard within the second, and the nearest in every tick of it.
+    expect(heard.size).toBe(100);
+    expect(heard.get(crowd[0]!.c.id)).toBe(10);
+    expect(heard.get(crowd[20]!.c.id)).toBe(10);
+    expect(heard.get(crowd[99]!.c.id)).toBeLessThan(4);
+  });
+
+  test('someone who stops mid-crowd is still heard to have stopped, on their turn', async () => {
+    const { join, move, world, advance } = setup({ rate: { limit: 1e6, period: 1000 } });
+    const viewer = join('viewer');
+    await move(viewer.id, { x: 10, z: 10 });
+    const crowd = Array.from({ length: 50 }, (_, i) => join(`p${i}`));
+    await Promise.all(crowd.map((c, i) => move(c.id, { x: 12 + i, z: 10 })));
+    const last = crowd.at(-1)!;
+    world.tick();
+    viewer.connection.take();
+    // One last step from the far one, during which everyone else keeps it out of the nearest.
+    advance(100);
+    await Promise.all(crowd.map((c, i) => move(c.id, { x: 12 + i + 0.5, z: 10, speed: 2 })));
+    world.tick();
+    viewer.connection.take();
+    const movedAfter: number[] = [];
+    for (let t = 0; t < 12; t++) {
+      advance(100);
+      // eslint-disable-next-line no-await-in-loop -- ticks follow one another
+      await Promise.all(
+        crowd.map((c, i) =>
+          c === last ? null : move(c.id, { x: 12 + i + (t % 2), z: 10, speed: 2 }),
+        ),
+      );
+      world.tick();
+      movedAfter.push(...movedIds(viewer.connection.take()));
+    }
+    expect(movedAfter).toContain(last.id);
+  });
+
+  test('a door goes first, with the full state', async () => {
+    const { join, move, world } = setup();
+    const a = join('a');
+    const b = join('b');
+    await move(a.id);
+    await move(b.id);
+    world.tick();
+    b.connection.take();
+    await move(a.id, { x: 12, place: 'stadhuis', floor: 1 });
+    world.tick();
+    const heard = b.connection.take();
+    expect(heard[0]).toEqual({
+      type: 'placed',
+      id: a.id,
+      state: { ...here, x: 12, place: 'stadhuis', floor: 1 },
+    });
+    expect(heard[1]?.type).toBe('moves');
   });
 
   test('guests and text frames are not heard', async () => {
@@ -207,6 +422,15 @@ describe('createWorld', () => {
     expect(world.stateOf('a')?.x).toBe(50);
   });
 
+  test('a figure cannot jump further than it could have gone', async () => {
+    const { join, move, world, advance } = setup();
+    const a = join('a');
+    await move(a.id, { x: 0, z: 0 });
+    advance(1000);
+    await move(a.id, { x: 900, z: 0 });
+    expect(world.stateOf('a')?.x).toBeCloseTo(38);
+  });
+
   test('a connection sending too fast is dropped to its allowance', async () => {
     const { join, move, world, advance } = setup({ rate: { limit: 2, period: 1000 } });
     const a = join('a');
@@ -219,20 +443,37 @@ describe('createWorld', () => {
     expect(world.stateOf('a')?.x).toBe(4);
   });
 
-  test('leaving tells the others, saves the last state, and forgets the player', async () => {
+  test('leaving tells those who saw it, saves the last state, and forgets the player', async () => {
     const { join, move, world, saved } = setup();
     const a = join('a');
     const b = join('b');
     const quiet = join('quiet');
     await move(a.id, { x: 30 });
+    world.tick();
     b.connection.take();
     world.disconnect(a.id);
     world.disconnect(quiet.id);
     world.disconnect(a.id);
-    expect(b.connection.take()).toEqual([{ type: 'leave', id: a.id }]);
+    world.tick();
+    expect(b.connection.take()).toEqual([{ type: 'leaves', ids: [a.id] }]);
     expect(saved).toEqual([['a', { ...here, x: 30 }]]);
     expect(world.stateOf('a')).toBeNull();
     expect(world.size).toBe(1);
+  });
+
+  test('a freed id is only used again after everyone has heard it left', async () => {
+    const { join, move, world } = setup();
+    const a = join('a');
+    const b = join('b');
+    await move(a.id);
+    world.tick();
+    b.connection.take();
+    world.disconnect(a.id);
+    const during = join('during');
+    expect(during.id).not.toBe(a.id);
+    world.tick();
+    expect(leftIds(b.connection.take())).toEqual([a.id]);
+    expect(join('after').id).toBe(a.id);
   });
 
   test('a message that lands after its connection left is dropped', async () => {
@@ -244,22 +485,31 @@ describe('createWorld', () => {
     expect(world.stateOf('a')).toBeNull();
   });
 
-  test('saves a moving player every so often, and not when nothing changed', async () => {
-    const { join, move, world, saved, advance } = setup({ saveEvery: 1000 });
-    const a = join('a');
-    await move(a.id, { x: 1 });
+  test('saves a moving player every so often, in one batch, and not when nothing changed', async () => {
+    const batches: number[] = [];
+    let time = 0;
+    const world = createWorld({
+      now: () => time,
+      saveEvery: 1000,
+      save: (saves) => batches.push(saves.length),
+    });
+    const a = new FakeConnection();
+    const b = new FakeConnection();
+    const ids = [
+      world.connect(a, { userId: 'a', name: 'A', outfit }),
+      world.connect(b, { userId: 'b', name: 'B', outfit }),
+    ];
+    await Promise.all(
+      ids.map((id) => world.receive(id, encodeClientMessage({ type: 'state', state: here }))),
+    );
     world.tick();
-    expect(saved).toEqual([]);
-    advance(1000);
+    expect(batches).toEqual([]);
+    time += 1000;
     world.tick();
-    expect(saved).toEqual([['a', { ...here, x: 1 }]]);
-    advance(1000);
+    expect(batches).toEqual([2]);
+    time += 1000;
     world.tick();
-    expect(saved.length).toBe(1);
-    await move(a.id, { x: 2 });
-    advance(1000);
-    world.tick();
-    expect(saved.length).toBe(2);
+    expect(batches).toEqual([2]);
   });
 
   test('flush saves everyone with unsaved moves', async () => {
@@ -277,13 +527,15 @@ describe('createWorld', () => {
     const watcher = join(null);
     const first = join('a');
     await move(first.id, { x: 7 });
+    world.tick();
     watcher.connection.take();
     const second = join('a');
     expect(first.connection.closed).toEqual({
       code: CLOSE_REPLACED,
       reason: 'Signed in somewhere else',
     });
-    expect(watcher.connection.take()).toEqual([{ type: 'leave', id: first.id }]);
+    world.tick();
+    expect(leftIds(watcher.connection.take())).toEqual([first.id]);
     expect(saved).toEqual([['a', { ...here, x: 7 }]]);
     // The old socket's close event comes later and must not unseat the new one.
     world.disconnect(first.id);
@@ -298,20 +550,23 @@ describe('createWorld', () => {
     const ana = join('ana');
     const bo = join('bo');
     await move(ana.id);
+    world.tick();
     bo.connection.take();
     world.drop('ana');
     expect(ana.connection.closed).toEqual({ code: CLOSE_SIGNED_OUT, reason: 'Signed out' });
-    expect(bo.connection.take()).toEqual([{ type: 'leave', id: ana.id }]);
+    world.tick();
+    expect(leftIds(bo.connection.take())).toEqual([ana.id]);
     expect(world.stateOf('ana')).toBeNull();
     // Nobody online by that name: nothing to do.
     world.drop('nobody');
   });
 
-  test('a new outfit reaches everyone', async () => {
+  test('a new outfit reaches those who see them, and whoever comes later', async () => {
     const { join, move, world } = setup();
     const a = join('a');
     const b = join('b');
     await move(a.id);
+    world.tick();
     a.connection.take();
     b.connection.take();
     const red = { ...outfit, shirt: 0xff0000 };
@@ -320,11 +575,12 @@ describe('createWorld', () => {
     expect(b.connection.take()).toEqual([{ type: 'outfit', id: a.id, outfit: red }]);
     expect(a.connection.take()).toEqual([{ type: 'outfit', id: a.id, outfit: red }]);
     const c = join(null);
-    expect(c.connection.take()[1]).toMatchObject({ type: 'join', outfit: red });
+    world.tick();
+    expect(ofType(c.connection.take(), 'joins')[0]?.players[0]?.outfit).toEqual(red);
   });
 
   test('a connection that throws on send does not stop the others', async () => {
-    const { join, move } = setup();
+    const { join, move, world } = setup();
     const broken = join('broken');
     broken.connection.send = () => {
       throw new Error('closed');
@@ -334,7 +590,136 @@ describe('createWorld', () => {
     await move(broken.id);
     const c = join('c');
     await move(c.id);
-    expect(b.connection.take().map((m) => m.type)).toEqual(['join', 'join']);
+    world.tick();
+    expect(joinedIds(b.connection.take()).toSorted()).toEqual([broken.id, c.id].toSorted());
+  });
+
+  test('a client too slow to keep up misses frames, then starts over', async () => {
+    const { join, move, world, advance } = setup();
+    const a = join('a');
+    const slow = join('slow');
+    await move(a.id);
+    world.tick();
+    slow.connection.take();
+    slow.connection.queued = 100_000;
+    advance(1000);
+    await move(a.id, { x: 11 });
+    world.tick();
+    expect(slow.connection.take()).toEqual([]);
+    expect(slow.connection.closed).toBeNull();
+    // Still draining: nothing yet, however far it has fallen behind.
+    slow.connection.queued = 20_000;
+    advance(1000);
+    await move(a.id, { x: 12 });
+    world.tick();
+    expect(slow.connection.take()).toEqual([]);
+    // Caught up: told to forget everyone, then who is here, as they are.
+    slow.connection.queued = 0;
+    world.tick();
+    const heard = slow.connection.take();
+    expect(heard[0]).toEqual({ type: 'welcome', you: slow.id });
+    expect(joinedIds(heard)).toEqual([a.id]);
+    expect(ofType(heard, 'joins')[0]?.players[0]?.state.x).toBe(12);
+  });
+
+  test('a socket that drops a frame is treated as behind', async () => {
+    const { join, move, world } = setup();
+    const a = join('a');
+    const b = join('b');
+    await move(a.id);
+    world.tick();
+    b.connection.take();
+    b.connection.dropping = true;
+    await move(a.id, { x: 11 });
+    world.tick();
+    b.connection.dropping = false;
+    world.tick();
+    expect(b.connection.take()[0]).toEqual({ type: 'welcome', you: b.id });
+  });
+
+  test('how many are on the map goes out every so often, when it changed', async () => {
+    const { join, move, world } = setup();
+    const a = join('a');
+    const guest = join(null);
+    await move(a.id);
+    for (let i = 0; i < 10; i++) world.tick();
+    expect(ofType(guest.connection.take(), 'online')).toEqual([{ type: 'online', count: 1 }]);
+    for (let i = 0; i < 10; i++) world.tick();
+    expect(ofType(guest.connection.take(), 'online')).toEqual([]);
+  });
+
+  test('the full map gets everyone as dots, only while it is open', async () => {
+    const { join, move, world } = setup();
+    const a = join('a');
+    const far = join('far');
+    const viewer = join(null);
+    await move(a.id, { x: 10, z: 20 });
+    await move(far.id, { x: CELL_SIZE * 3, z: 20 });
+    await world.receive(viewer.id, encodeClientMessage({ type: 'dots', on: true }));
+    for (let i = 0; i < 20; i++) world.tick();
+    const [dots] = ofType(viewer.connection.take(), 'dots');
+    expect(dots?.players.map((p) => p.id).toSorted()).toEqual([a.id, far.id].toSorted());
+    expect(dots?.players[0]?.colour).toBe(outfit.shirt);
+    await world.receive(viewer.id, encodeClientMessage({ type: 'dots', on: false }));
+    for (let i = 0; i < 20; i++) world.tick();
+    expect(ofType(viewer.connection.take(), 'dots')).toEqual([]);
+  });
+
+  test('sliced, every client still hears each move once a round', async () => {
+    const { join, move, look, world, advance } = setup({ slices: 2 });
+    const a = join('a');
+    const b = join('b');
+    const guest = join(null);
+    await move(a.id);
+    await move(b.id);
+    await look(guest.id, 10, 20);
+    world.tick();
+    world.tick();
+    for (const c of [a, b, guest]) c.connection.take();
+    advance(100);
+    await move(a.id, { x: 11 });
+    world.tick();
+    world.tick();
+    expect(movedIds(b.connection.take())).toEqual([a.id]);
+    expect(movedIds(guest.connection.take())).toEqual([a.id]);
+    // Heard once, not once a slice.
+    world.tick();
+    world.tick();
+    expect(movedIds(b.connection.take())).toEqual([]);
+  });
+
+  test('a freed id waits for every slice to hear it left', async () => {
+    const { join, move, world } = setup({ slices: 2 });
+    const a = join('a');
+    join('b');
+    await move(a.id);
+    world.tick();
+    world.tick();
+    world.disconnect(a.id);
+    world.tick();
+    expect(join('during').id).not.toBe(a.id);
+    world.tick();
+    expect(join('after').id).toBe(a.id);
+  });
+
+  test('reports its load', async () => {
+    let time = 0;
+    let tock = 0;
+    const world = createWorld({ now: () => time, clock: () => (tock += 2) });
+    const a = new FakeConnection();
+    const id = world.connect(a, { userId: 'a', name: 'A', outfit });
+    world.connect(new FakeConnection(), null);
+    for (let i = 0; i < 100; i++) {
+      time += 100;
+      // eslint-disable-next-line no-await-in-loop -- ticks follow one another
+      await world.receive(
+        id,
+        encodeClientMessage({ type: 'state', state: { ...here, x: 10 + i / 100 } }),
+      );
+      world.tick();
+    }
+    expect(world.stats()).toMatchObject({ online: 2, players: 1, tickMs: 2, tickMaxMs: 2 });
+    expect(world.stats().bytesPerSecond).toBeGreaterThan(0);
   });
 
   test('runs on its defaults: the real clock and map, saving nowhere', async () => {

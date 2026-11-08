@@ -117,10 +117,39 @@ describe('createSnapshots', () => {
 
   test('after a pause the figure sets off from where it stood', () => {
     const s = createSnapshots({ delay: 0 });
-    s.push(0, at(0));
+    s.push(0, at(0, 0, { speed: 0 }));
     s.push(5000, at(1));
-    expect(s.sample(4900)).toEqual(at(0));
+    expect(s.sample(4900)).toEqual(at(0, 0, { speed: 0 }));
     expect(s.sample(4950)!.x).toBeCloseTo(0.5);
+  });
+
+  test('a figure a crowd tells of only now and then glides across the gap', () => {
+    const s = createSnapshots({ delay: 0 });
+    s.push(0, at(0, 0, { speed: 2 }));
+    s.push(1000, at(2, 0, { speed: 2 }));
+    expect(s.sample(500)!.x).toBeCloseTo(1);
+  });
+
+  test('and carries on walking until the next word of it, not for ever', () => {
+    const s = createSnapshots({ delay: 0, extrapolate: 200 });
+    const east = { heading: Math.PI / 2, speed: 2 };
+    s.push(0, at(0, 0, east));
+    s.push(1000, at(2, 0, east));
+    expect(s.sample(1800)!.x).toBeCloseTo(3.6);
+    // A second and a quarter of the last gap, then it stops where it is.
+    expect(s.sample(5000)!.x).toBeCloseTo(4.5);
+  });
+
+  test('can write into a state it is given, allocating nothing', () => {
+    const s = createSnapshots({ delay: 0 });
+    s.push(0, at(0));
+    s.push(100, at(2));
+    const out = at(99);
+    expect(s.sample(50, out)).toBe(out);
+    expect(out.x).toBeCloseTo(1);
+    expect(s.sample(0, out)).toBe(out);
+    expect(out.x).toBe(0);
+    expect(s.sample(10_000, out)).toBe(out);
   });
 
   test('a second update in the same millisecond replaces the first', () => {

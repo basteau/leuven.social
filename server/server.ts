@@ -7,7 +7,7 @@
  *   POST /api/account  sign up with { username, password }, signed in on success
  *   GET  /api/me       { name, outfit, at }, or null for a guest (not an error: browsers log those)
  *   PUT  /api/me       { outfit }: keeps it and tells everyone online
- *   GET  /api/health   { ok, online }
+ *   GET  /api/health   { ok, online, players, tickMs, tickMaxMs, bytesPerSecond }
  *   /ws                presence (world.ts); the session cookie decides player or guest
  */
 
@@ -75,6 +75,8 @@ interface SocketData {
 }
 
 const API_HEADERS = { 'cache-control': 'no-store' };
+/** The 100 ms of a presence tick are spread over this many, so no single one blocks the server. */
+const SLICES = 2;
 
 /**
  * better-auth limits sign-ins per IP from `x-real-ip`. nginx sets it in production; the server
@@ -125,8 +127,9 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
   const auth = createAuth(authConfig);
   const store = createStore(db);
   const world = createWorld({
-    save: (userId, state) => store.savePosition(userId, state),
+    save: (saves) => store.savePositions(saves),
     saveEvery: config.saveEvery,
+    slices: SLICES,
   });
   // (A `take` of cost 0 reads what's left: it is always "allowed", so `remaining` is the test.)
   // better-auth limits its own routes by address; sign-up goes through auth.api, which it doesn't
@@ -257,8 +260,7 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
       }
       return authRoute(pathname.slice('/api/auth'.length), request);
     }
-    if (pathname === '/api/health' && method === 'GET')
-      return json({ ok: true, online: world.size });
+    if (pathname === '/api/health' && method === 'GET') return json({ ok: true, ...world.stats() });
     if (pathname === '/api/account' && method === 'POST') return signUp(request);
     if (pathname === '/api/me' && (method === 'GET' || method === 'PUT')) return me(request);
     return problem(404, 'NOT_FOUND', 'Not found');
@@ -280,14 +282,16 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
       maxPayloadLength: 1024,
       // The client says something at least every few seconds (throttle.ts's heartbeat).
       idleTimeout: 60,
-      // A reader too slow to keep up is closed rather than skipped: skipped, it would miss joins
-      // and leaves for good; closed, its client reconnects to everyone as they are.
+      // The hub stops sending to a socket long before this (world.ts, it starts it over when it
+      // catches up): whoever is still this far behind has stopped reading.
+      backpressureLimit: 1024 * 1024,
       closeOnBackpressureLimit: true,
       open(ws) {
         ws.data.id = world.connect(
           {
-            send: (frame) => void ws.sendBinary(frame),
+            send: (frame) => ws.sendBinary(frame),
             close: (code, reason) => ws.close(code, reason),
+            buffered: () => ws.getBufferedAmount(),
           },
           ws.data.account,
         );
@@ -301,7 +305,7 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
     },
   });
 
-  const ticker = setInterval(() => world.tick(), config.tick ?? 100);
+  const ticker = setInterval(() => world.tick(), (config.tick ?? 100) / SLICES);
   const url = new URL(`http://${server.hostname}:${server.port}/`);
   log.info('listening on %s', url.href);
 

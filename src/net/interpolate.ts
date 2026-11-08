@@ -2,7 +2,8 @@
  * Smooths another player's figure between the server's 10 Hz updates. Each update is kept with
  * the time it arrived, and the figure is drawn a little in the past (`delay`), between the two
  * updates around that moment, so it glides at an even pace however unevenly packets land. When
- * the updates run out it carries on the way it faces at its own pace for a moment, then stops,
+ * the updates run out it carries on the way it faces at its own pace for a moment, about as long
+ * as the last gap between updates (in a crowd a far figure is told of once a second), then stops,
  * rather than running off. A jump of more than `snap` metres, or a change of room or floor, is a door or a
  * teleport: the figure is shown at the old spot until the new one's time and then at the new
  * one, never sliding through walls in between.
@@ -13,7 +14,8 @@ import type { PlayerState } from './protocol.ts';
 export interface InterpolationOptions {
   /** How far in the past to draw (ms): a little over one server tick. */
   delay?: number;
-  /** The longest the figure keeps going past its last update (ms). */
+  /** The figure keeps going past its last update for at least this long (ms), and longer if
+   * updates come further apart, up to `MOST_AHEAD`. */
   extrapolate?: number;
   /** Two updates further apart than this (m) are a jump, not a walk. */
   snap?: number;
@@ -24,8 +26,11 @@ export interface InterpolationOptions {
 export interface Snapshots {
   /** Records a state received at `time` (ms, any steady clock such as `performance.now()`). */
   push(time: number, state: PlayerState): void;
-  /** The state to draw at `now` (ms, the same clock), or null before the first update. */
-  sample(now: number): PlayerState | null;
+  /**
+   * The state to draw at `now` (ms, the same clock), or null before the first update. Written
+   * into `out` if given, so a frame of a crowd allocates nothing.
+   */
+  sample(now: number, out?: PlayerState): PlayerState | null;
   /** The latest state received, unsmoothed. */
   latest(): PlayerState | null;
 }
@@ -38,6 +43,9 @@ const TURN = Math.PI * 2;
 /** The server's tick (ms), and a gap between updates that means the figure stood still. */
 const TICK = 100;
 const PAUSE = 250;
+/** How much of a gap (at most `MOST_AHEAD` ms) it dead-reckons across while updates are sparse. */
+const AHEAD_SHARE = 1.25;
+const MOST_AHEAD = 1500;
 
 /** The signed angle from `a` to `b` the short way round, in (-π, π]. */
 export function shortestArc(a: number, b: number): number {
@@ -53,15 +61,9 @@ interface Snapshot {
 const jumped = (a: PlayerState, b: PlayerState, snap: number) =>
   a.place !== b.place || a.floor !== b.floor || Math.hypot(b.x - a.x, b.z - a.z) > snap;
 
-/** Between `a` (t = 0) and `b` (t = 1). */
-function lerp(a: PlayerState, b: PlayerState, t: number): PlayerState {
-  return {
-    ...(t < 1 ? a : b),
-    x: a.x + (b.x - a.x) * t,
-    z: a.z + (b.z - a.z) * t,
-    heading: a.heading + shortestArc(a.heading, b.heading) * t,
-    speed: a.speed + (b.speed - a.speed) * t,
-  };
+/** Writes a copy of `from` into `out` (if any); returns the one to hand back. */
+function copy(from: PlayerState, out: PlayerState | undefined): PlayerState {
+  return out ? Object.assign(out, from) : from;
 }
 
 export function createSnapshots(options: InterpolationOptions = {}): Snapshots {
@@ -81,32 +83,39 @@ export function createSnapshots(options: InterpolationOptions = {}): Snapshots {
       }
       // After a pause (the server only sends a figure that moved), start from where it stood one
       // tick ago, or its first steps would be squeezed into the tail of the pause.
-      if (last && time - last.time > PAUSE) buffer.push({ time: time - TICK, state: last.state });
+      // A figure that was moving is one a crowd only tells of in turns: it glides across the gap.
+      if (last && time - last.time > PAUSE && last.state.speed === 0) {
+        buffer.push({ time: time - TICK, state: last.state });
+      }
       buffer.push({ time, state });
       while (buffer.length > keep) buffer.shift();
     },
 
-    sample(now) {
+    sample(now, out) {
       const first = buffer[0];
       const last = buffer.at(-1);
       if (!first || !last) return null;
       const t = now - delay;
-      if (t <= first.time) return first.state;
+      if (t <= first.time) return copy(first.state, out);
 
       if (t >= last.time) {
         const before = buffer.at(-2);
         if (!before || last.state.speed === 0 || jumped(before.state, last.state, snap)) {
-          return last.state;
+          return copy(last.state, out);
         }
         // Keep going for a moment only, the way it faces at the pace it said: not the way the last
         // two updates went, which two packets a millisecond apart would stretch into a leap.
-        const ahead = (Math.min(t - last.time, extrapolate) / 1000) * last.state.speed;
+        const reach = Math.max(
+          extrapolate,
+          Math.min(MOST_AHEAD, (last.time - before.time) * AHEAD_SHARE),
+        );
+        const ahead = (Math.min(t - last.time, reach) / 1000) * last.state.speed;
         const { x, z, heading } = last.state;
-        return {
-          ...last.state,
-          x: x + Math.sin(heading) * ahead,
-          z: z + Math.cos(heading) * ahead,
-        };
+        const to = out ?? { ...last.state };
+        Object.assign(to, last.state);
+        to.x = x + Math.sin(heading) * ahead;
+        to.z = z + Math.cos(heading) * ahead;
+        return to;
       }
 
       // Drop what the draw time has passed, keeping the update just before it.
@@ -115,8 +124,15 @@ export function createSnapshots(options: InterpolationOptions = {}): Snapshots {
       buffer.splice(0, i);
       const a = buffer[0]!;
       const b = buffer[1]!;
-      if (jumped(a.state, b.state, snap)) return a.state;
-      return lerp(a.state, b.state, (t - a.time) / (b.time - a.time));
+      if (jumped(a.state, b.state, snap)) return copy(a.state, out);
+      const u = (t - a.time) / (b.time - a.time);
+      const to = out ?? { ...a.state };
+      Object.assign(to, u < 1 ? a.state : b.state);
+      to.x = a.state.x + (b.state.x - a.state.x) * u;
+      to.z = a.state.z + (b.state.z - a.state.z) * u;
+      to.heading = a.state.heading + shortestArc(a.state.heading, b.state.heading) * u;
+      to.speed = a.state.speed + (b.state.speed - a.state.speed) * u;
+      return to;
     },
 
     latest: () => buffer.at(-1)?.state ?? null,

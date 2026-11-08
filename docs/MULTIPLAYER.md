@@ -53,7 +53,7 @@ better-auth (`server/auth.ts`) does the security work: password hashing (scrypt)
 | `GET /api/auth/get-session`       | better-auth's session, or null                                                                                                                 |
 | `GET /api/me`                     | `{ name, outfit, at }`, or `null` for a guest (a 401 would be logged in their console). `at` is the live position while online, else the saved |
 | `PUT /api/me`                     | `{ outfit }`: four 24-bit colours. Saved, and sent to everyone online as `outfit`                                                              |
-| `GET /api/health`                 | `{ ok: true, online }`: the number of open sockets                                                                                             |
+| `GET /api/health`                 | `{ ok: true, online, players, tickMs, tickMaxMs, bytesPerSecond }`: open sockets, those on the map, and how the presence hub is doing          |
 | `/ws`                             | Presence, below. The session cookie makes it a player; without one it is a guest                                                               |
 
 Every `/api` answer is `Cache-Control: no-store`.
@@ -62,26 +62,48 @@ Every `/api` answer is `Cache-Control: no-store`.
 
 One WebSocket per tab, binary frames, codec in `src/net/protocol.ts` (shared by both ends, fully tested; a malformed frame decodes to null and is dropped, never thrown):
 
-| Direction       | Message                               | When                                                      |
-| --------------- | ------------------------------------- | --------------------------------------------------------- |
-| client → server | `state`                               | The avatar moved (throttled, below)                       |
-| server → client | `welcome { you }`                     | First on every connection: your id, 0 for a guest         |
-| server → client | `join { id, name, outfit, state }`    | A player's first state, and everyone placed when you join |
-| server → client | `states { players: [{ id, state }] }` | Every 100 ms, the players who moved since the last one    |
-| server → client | `leave { id }`                        | A placed player disconnected                              |
-| server → client | `outfit { id, outfit }`               | A player online saved new colours                         |
+| Direction       | Message                     | When                                                                    |
+| --------------- | --------------------------- | ----------------------------------------------------------------------- |
+| client → server | `state`                     | The avatar moved (throttled, below)                                     |
+| client → server | `view { x, z }`             | The map looks somewhere else (40 m or another cell, at most 4 a second) |
+| client → server | `dots { on }`               | The full map opened or shut                                             |
+| server → client | `welcome { you }`           | First on every connection: your id, 0 for a guest                       |
+| server → client | `joins { players }`         | Who came into what you hear of, in one frame a tick                     |
+| server → client | `leaves { ids }`            | Who went out of it, gone or further off                                 |
+| server → client | `moves { cx, cz, players }` | Every 100 ms, those who moved since the last one                        |
+| server → client | `placed { id, state }`      | A figure went through a door or changed floor                           |
+| server → client | `outfit { id, outfit }`     | A player you can see saved new colours                                  |
+| server → client | `online { count }`          | How many are on the map, once a second when it changed                  |
+| server → client | `dots { players }`          | Everyone on the map, every 2 s while the full map is open               |
 
-A state is `x`, `z` (f32 metres east and south of the city's middle, as `City` has them), `heading` (radians, sent to a 65536th of a turn), `speed` (0 to 25.5 m/s in tenths), `mode` (`foot` or `bike`), `place` (a room id, `''` in the street) and `floor`: 14 bytes and the room id. Ids are per-connection integers for this server run, not account ids; forget them all on `welcome`.
+A client's own `state` is `x`, `z` (f32 metres east and south of the city's middle, as `City` has them), `heading` (radians, sent to a 65536th of a turn), `speed` (0 to 25.5 m/s in tenths), `mode` (`foot` or `bike`), `place` (a room id, `''` in the street) and `floor`: 14 bytes and the room id. A `moves` entry is 9 bytes: a varint id, `x` and `z` as 16-bit offsets across the 3×3 cells round (`cx`, `cz`) (1.6 cm a step), the heading, and the speed in fifths of a m/s with the mode in its top bit. Ids are per-connection integers, used again once everyone has heard the last holder left; forget them all on `welcome`.
 
 ### The server (`server/world.ts`)
 
 - A player is announced with their first state, so nobody appears at a made-up spot.
-- Every state is checked: positions are pulled onto the map (`AREA` in `src/data/area.ts`), headings wrapped, speed and floor clamped, an odd room id (`isPlace` in `src/net/rules.ts`, which every id in rooms.json passes) dropped to the street, whose one floor is 0.
-- A socket too slow to keep up is closed at its backpressure limit rather than skipped, so it never misses a join or a leave: its client reconnects to everyone as they are.
-- Each connection may send 20 messages a second on average, in bursts up to 40 (`@portable/rate-limit`); the rest are dropped. Frames over 1 kB close the socket. Guests' messages are ignored.
+- **Each client hears only of the 3×3 of 350 m cells (`src/net/interest.ts`, the renderer's own) round where its map looks**: what it said with `view`, else its own figure, else the city's middle. That is at least 350 m of street on every side, further than a figure is drawn. A join or a leave is someone crossing into or out of those cells, or the client looking elsewhere; arriving and leaving in the same tick says nothing. Everyone else is a count (`online`) and, while the full map is open, a dot (`dots`).
+- **In a crowd, the nearest move at full rate, the rest in turns.** Each tick a client hears of the 32 movers nearest what it looks at and, of the others, those whose turn it is, once a second each, at most 160 in a frame. A figure that stopped between its turns is told of on its next one.
+- Everything for a client goes out in one go each tick: leaves, joins, moves. Doors go first, so a figure's jump is one jump.
+- The tick is cut in two 50 ms slices, each writing to half the clients: a thousand socket writes in one go is what takes the time.
+- Every state is checked: positions are pulled onto the map (`AREA` in `src/data/area.ts`), headings wrapped, speed and floor clamped, an odd room id (`isPlace` in `src/net/rules.ts`, which every id in rooms.json passes) dropped to the street, whose one floor is 0. A figure can't get further between two messages than 30 m/s for the time since the last one (up to 5 s of it) plus 8 m; a door, a change of room or floor, is the one thing that moves it at once.
+- A client too slow to keep up is skipped, not cut off: with 64 kB queued it hears nothing until it is down to 8 kB, then starts over (`welcome`, and everyone it can see as they are). Only a socket that has stopped reading is closed, at 1 MB queued.
+- Each connection may send 20 messages a second on average, in bursts up to 40 (`@portable/rate-limit`); the rest are dropped. Frames over 1 kB close the socket. Guests' states are ignored; their `view` is what they see.
 - One live connection per account: signing in again elsewhere closes the old socket with code 4001 (`CLOSE_REPLACED`), which the client treats as final instead of fighting back.
-- A player's position is saved every 15 s while they move, when they leave, and on shutdown. It comes back as `at` from `/api/me`, standing on foot.
+- A player's position is saved every 15 s while they move, when they leave, and on shutdown, each tick's in one SQLite transaction after the frames have gone out. It comes back as `at` from `/api/me`, standing on foot.
 - A new account starts in colours picked from the guests' palettes (`server/outfit.ts`).
+
+### Load (`bun scripts/swarm.ts --bots 1000`)
+
+Real accounts on real sockets, walking at 10 Hz. On the MacBook (M4), 1000 bots:
+
+|                       | Everyone to everyone (before) | Across the city (now) | All within 90 m (now) |
+| --------------------- | ----------------------------- | --------------------- | --------------------- |
+| Per client            | 153 KB/s                      | 4.2 KB/s              | 11.1 KB/s             |
+| Out of the server     | 150 MB/s (1.2 Gbit/s)         | 4.1 MB/s              | 10.8 MB/s             |
+| Mean tick (one slice) | not measured                  | 9.8 ms                | 19 ms                 |
+| Server CPU, one core  | 19%                           | 27%                   | 42%                   |
+
+Deltas against an acknowledged baseline, the plan's other way of cutting a moves frame, aren't done: at 4 KB/s a client there's nothing left worth their memory per client and pair.
 
 ### The browser (`src/net/presence.ts`)
 
@@ -92,9 +114,10 @@ presence.close();
 ```
 
 - `send` goes out at most every 100 ms; a change of mode, room or floor, or a jump of more than 4 m, at once; an unchanged state every 3 s as a heartbeat (`src/net/throttle.ts`).
-- Nothing is sent while disconnected. The socket reconnects with backoff (1 s up to 15 s, `@portable/websockets`), and the latest state goes first on the new connection.
-- Your own id is filtered out of `join` and `states`. `onStatus` reports `connecting`, `online`, `offline` (retrying), `replaced` and `closed`.
+- `view` says where the map looks: at most 4 a second, and only after 40 m or a new cell. It is sent first on each new connection, before any state.
+- Nothing is sent while disconnected. The socket reconnects with backoff (1 s up to 15 s, `@portable/websockets`), and the latest state goes first on the new connection. The others stand frozen for 5 s and then go, unless the socket came back meanwhile, and everyone is known afresh on `welcome`.
+- Your own id is filtered out of `joins`, `moves` and `dots`. `onStatus` reports `connecting`, `online`, `offline` (retrying), `replaced` and `closed`.
 
 ### Smoothing (`src/net/interpolate.ts`)
 
-`createSnapshots()` per remote player: `push(performance.now(), state)` on each update, `sample(performance.now())` each frame. It draws 120 ms in the past between the two updates around that moment (position linearly, heading the short way round), runs on for at most 200 ms past the last update if the figure was moving (the way it faces, at the pace it said: two updates a millisecond apart would otherwise stretch into a leap), and jumps instead of gliding when two updates are more than 15 m apart or change room or floor (a door).
+`createSnapshots()` per remote player: `push(performance.now(), state)` on each update, `sample(performance.now(), out)` each frame, written into `out`, so a frame of a crowd allocates nothing. It draws 120 ms in the past between the two updates around that moment (position linearly, heading the short way round), runs on past the last update if the figure was moving (the way it faces, at the pace it said: two updates a millisecond apart would otherwise stretch into a leap) for 200 ms, or about as long as the last gap between updates up to 1.5 s (in a crowd a far figure is told of once a second), and jumps instead of gliding when two updates are more than 15 m apart or change room or floor (a door).

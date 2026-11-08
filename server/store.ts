@@ -19,6 +19,8 @@ export interface Store {
   player(userId: string, outfit: () => Outfit): PlayerRecord;
   saveOutfit(userId: string, outfit: Outfit): void;
   savePosition(userId: string, state: PlayerState): void;
+  /** Saves many at once, in one transaction: one disk flush however many. */
+  savePositions(saves: { userId: string; state: PlayerState }[]): void;
 }
 
 interface Row {
@@ -54,6 +56,12 @@ export function createStore(db: Database, now: () => number = Date.now): Store {
     'UPDATE players SET x = ?2, z = ?3, heading = ?4, place = ?5, floor = ?6, updated_at = ?7 WHERE user_id = ?1',
   );
 
+  const savePosition = (userId: string, s: PlayerState) =>
+    updatePosition.run(userId, s.x, s.z, s.heading, s.place, s.floor, now());
+  const savePositions = db.transaction((saves: { userId: string; state: PlayerState }[]) => {
+    for (const { userId, state } of saves) savePosition(userId, state);
+  });
+
   return {
     player(userId, outfit) {
       let row = select.get(userId);
@@ -85,8 +93,9 @@ export function createStore(db: Database, now: () => number = Date.now): Store {
     saveOutfit(userId, outfit) {
       updateOutfit.run(userId, JSON.stringify(outfit), now());
     },
-    savePosition(userId, s) {
-      updatePosition.run(userId, s.x, s.z, s.heading, s.place, s.floor, now());
+    savePosition,
+    savePositions(saves) {
+      savePositions(saves);
     },
   };
 }

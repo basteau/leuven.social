@@ -151,7 +151,13 @@ describe('accounts', () => {
   test('health answers without a session', async () => {
     const response = await call(new Jar(), '/api/health');
     expect(response.headers.get('cache-control')).toBe('no-store');
-    expect(await response.json()).toEqual({ ok: true, online: expect.any(Number) });
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      online: expect.any(Number),
+      players: expect.any(Number),
+      tickMs: expect.any(Number),
+      bytesPerSecond: expect.any(Number),
+    });
   });
 
   test('a guest has no account', async () => {
@@ -274,27 +280,29 @@ describe('presence', () => {
     expect((await guest.next('welcome')).you).toBe(0);
 
     a.send();
-    expect(await b.next('join')).toEqual({
-      type: 'join',
+    const joined = await b.next('joins', (m) => m.players.some((p) => p.id === youA));
+    expect(joined.players.find((p) => p.id === youA)).toEqual({
       id: youA,
       name: 'Ann',
       outfit: expect.any(Object),
       state: here,
     });
-    await guest.next('join', (m) => m.id === youA);
+    await guest.next('joins', (m) => m.players.some((p) => p.id === youA));
 
     b.send({ x: 50 });
-    await a.next('join', (m) => m.id === youB && m.name === 'Ben');
+    await a.next('joins', (m) => m.players.some((p) => p.id === youB && p.name === 'Ben'));
 
     a.send({ x: 13, mode: 'bike' });
-    const moved = await b.next('states', (m) => m.players.some((p) => p.id === youA));
-    expect(moved.players.find((p) => p.id === youA)?.state).toMatchObject({ x: 13, mode: 'bike' });
+    const moved = await b.next('moves', (m) => m.players.some((p) => p.id === youA));
+    const move = moved.players.find((p) => p.id === youA)?.state;
+    expect(move?.x).toBeCloseTo(13, 1);
+    expect(move?.mode).toBe('bike');
 
     // The guest's own states go nowhere.
     guest.send({ x: 99 });
     await wait(80);
     expect(
-      a.messages.filter((m) => m.type === 'join').map((m) => m.type === 'join' && m.name),
+      a.messages.flatMap((m) => (m.type === 'joins' ? m.players.map((p) => p.name) : [])),
     ).toEqual(['Ben']);
 
     // A new outfit reaches everyone online.
@@ -306,8 +314,8 @@ describe('presence', () => {
     expect((await as(ann, () => account.me()))?.at).toMatchObject({ x: 13 });
 
     await a.close();
-    expect(await b.next('leave')).toEqual({ type: 'leave', id: youA });
-    await guest.next('leave', (m) => m.id === youA);
+    expect(await b.next('leaves')).toEqual({ type: 'leaves', ids: [youA] });
+    await guest.next('leaves', (m) => m.ids.includes(youA));
     await Promise.all([b.close(), guest.close()]);
   });
 
@@ -347,8 +355,8 @@ describe('presence', () => {
     a.socket.send(new Uint8Array([1, 2, 3]));
     a.socket.send(new Uint8Array([200]));
     a.send({ x: 77 });
-    const join = await b.next('join', (m) => m.id === youA);
-    expect(join.state.x).toBe(77);
+    const joins = await b.next('joins', (m) => m.players.some((p) => p.id === youA));
+    expect(joins.players[0]?.state.x).toBe(77);
     await Promise.all([a.close(), b.close()]);
   });
 });

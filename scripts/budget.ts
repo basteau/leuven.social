@@ -79,7 +79,9 @@ const BUDGETS: {
   {
     label: 'Multiplayer JS (once the map is up)',
     pattern: 'assets/multiplayer-*.js',
-    limit: 8.5 * KB,
+    // 9: interest management's messages (who comes into view and leaves it, compact moves, doors,
+    // the count, the full map's dots) and telling the server where the map looks (0.9 KB).
+    limit: 9 * KB,
     gzip: true,
   },
   // The page itself paints the loading screen before any script or stylesheet: the tokens, its
@@ -110,10 +112,12 @@ const BUDGETS: {
   // the traffic shared it, rides here now the traffic is gone: 21.5 KB. 24: the other players
   // (players.ts, crowd.ts: their figures, gaits and name tags), 2 KB. 25: with the tap's
   // read-back above, 24.2 KB.
+  // 26: the pool of figures and the crowd's one draw call beyond them (0.8 KB), so a thousand
+  // players on the map cost a few numbers each, not a rig and a tag.
   {
     label: 'Avatar JS (after first frame)',
     pattern: 'assets/avatar-layer-*.js',
-    limit: 25 * KB,
+    limit: 26 * KB,
     gzip: true,
   },
   // The street-name lookup for the sign, a chunk beside the avatar's that loads with it.

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { DataTexture, MeshBasicMaterial, MeshToonMaterial, OrthographicCamera, Scene } from 'three';
+import type { InstancedMesh } from 'three';
 
 import type { Outfit } from './character.ts';
 import type { PlayerPose } from './crowd.ts';
@@ -41,6 +42,7 @@ afterAll(() => {
 /** A roster the test moves by hand. */
 function rosterOf(entries: RosterEntry[], poses: Map<number, PlayerPose>) {
   let version = 0;
+  const looks: [number, number][] = [];
   const roster: Roster & { bump(): void; list: RosterEntry[] } = {
     list: entries,
     bump() {
@@ -55,8 +57,11 @@ function rosterOf(entries: RosterEntry[], poses: Map<number, PlayerPose>) {
       return true;
     },
     listen: () => () => {},
+    look: (x, z) => looks.push([x, z]),
+    fullMap: () => {},
+    dots: () => [],
   };
-  return roster;
+  return Object.assign(roster, { looks });
 }
 
 const pose = (over: Partial<PlayerPose> = {}): PlayerPose => ({
@@ -97,6 +102,7 @@ function setup() {
     tags: tags as unknown as HTMLElement,
     reducedMotion: false,
     floorAt: (at) => (at.place === '' ? 1 : at.place === 'kerk' ? 3 : null),
+    groundAt: () => 1,
     riders: () => {
       asked++;
       return Promise.resolve(riders);
@@ -166,9 +172,10 @@ describe('createPlayers', () => {
     const poses = new Map([[1, pose({ place: 'kerk' })]]);
     players.use(rosterOf([{ id: 1, name: 'ana', outfit: WALKER }], poses));
     frame(players, 0, 0.1, true, 0, 0, '', 0);
+    // Being on the roster costs nothing in the scene or the page.
     expect(players.drawn).toBe(0);
-    expect(scene.children[0]!.visible).toBe(false);
-    expect(tags.children[0]!.hidden).toBe(true);
+    expect(scene.children).toHaveLength(0);
+    expect(tags.children).toHaveLength(0);
     // In the same room, on its floor.
     frame(players, 0, 0.1, true, 0, 0, 'kerk', 0);
     expect(players.drawn).toBe(1);
@@ -176,6 +183,7 @@ describe('createPlayers', () => {
     // Too far out for figures.
     frame(players, 0, 0.1, false, 0, 0, 'kerk', 0);
     expect(players.drawn).toBe(0);
+    expect(tags.children[0]!.hidden).toBe(true);
     // A room the map can't place them in.
     poses.set(1, pose({ place: 'elsewhere' }));
     frame(players, 0, 0.1, true, 0, 0, 'elsewhere', 0);
@@ -190,7 +198,7 @@ describe('createPlayers', () => {
     expect(tags.children[0]!.hidden).toBe(true);
   });
 
-  test('joins, leaves and new clothes follow the roster; only the nearest are drawn', () => {
+  test('the nearest are figures, the rest a crowd in one call; the pool follows the roster', () => {
     const { scene, tags, players } = setup();
     const poses = new Map<number, PlayerPose>();
     const entries: RosterEntry[] = [];
@@ -200,24 +208,53 @@ describe('createPlayers', () => {
     }
     const roster = rosterOf(entries, poses);
     players.use(roster);
+    // Three figures are dressed a frame, so the first frames lean on the crowd.
     frame(players, 0, 0.1, true, 0, 0, '', 0);
-    // 24 at most, the nearest the view.
-    expect(players.drawn).toBe(24);
-    expect(scene.children.filter((c) => c.visible)).toHaveLength(24);
-    expect(scene.children.at(-1)!.visible).toBe(false);
-    // One leaves, one changes shirt and name.
+    expect(players.drawn).toBe(30);
+    for (let i = 0; i < 10; i++) frame(players, 0, 0.1, true, 0, 0, '', 0);
+    expect(players.drawn).toBe(30);
+    expect(players.calls).toBe(24 * 2 + 1);
+    expect(tags.children).toHaveLength(24);
+    const crowd = scene.children.find((c) => (c as InstancedMesh).isInstancedMesh) as InstancedMesh;
+    expect(crowd.count).toBe(6);
+    // One changes shirt and name, and the farthest figure leaves: the crowd shrinks, the pool stays.
     const renamed: RosterEntry = { id: 1, name: 'ana', outfit: outfit(0xff0000) };
     roster.list = [renamed, ...entries.slice(1, -1)];
     roster.bump();
-    frame(players, 0, 0.1, true, 0, 0, '', 0);
-    expect(scene.children).toHaveLength(29);
-    expect(tags.children.filter((t) => t.removed)).toHaveLength(1);
-    expect(tags.children[0]!.textContent).toBe('ana');
-    expect(tags.children[0]!.style.props.get('--shirt')).toBe('#ff0000');
-    // Signed out: everyone goes.
+    for (let i = 0; i < 4; i++) frame(players, 0, 0.1, true, 0, 0, '', 0);
+    expect(players.drawn).toBe(29);
+    expect(crowd.count).toBe(5);
+    expect(tags.children).toHaveLength(24);
+    expect(tags.children.some((t) => t.textContent === 'ana')).toBe(true);
+    const ana = tags.children.find((t) => t.textContent === 'ana')!;
+    expect(ana.style.props.get('--shirt')).toBe('#ff0000');
+    // Signed out: nobody is drawn, the figures wait for the next time.
     players.use(null);
-    expect(scene.children).toHaveLength(0);
+    expect(players.drawn).toBe(0);
+    expect(crowd.count).toBe(0);
+    expect(scene.children.filter((c) => c.visible && c !== crowd)).toHaveLength(0);
     expect(frame(players, 0, 0.1, true, 0, 0, '', 0)).toBe(false);
+    players.dispose();
+    expect(scene.children).toHaveLength(0);
+  });
+
+  test('a crowd past the most it can draw is cut off, and those out of reach are skipped', () => {
+    const { players, scene } = setup();
+    const poses = new Map<number, PlayerPose>();
+    const entries: RosterEntry[] = [];
+    for (let id = 1; id <= 300; id++) {
+      poses.set(id, pose({ x: id / 10, z: 0, speed: 1 }));
+      entries.push({ id, name: `p${id}`, outfit: WALKER });
+    }
+    players.use(rosterOf(entries, poses));
+    for (let i = 0; i < 12; i++) frame(players, 0, 0.1, true, 0, 0, '', 0);
+    const crowd = scene.children.find((c) => (c as InstancedMesh).isInstancedMesh) as InstancedMesh;
+    expect(crowd.count).toBe(240);
+    // They walk, so the map keeps drawing.
+    expect(frame(players, 100, 0.1, true, 0, 0, '', 0)).toBe(true);
+    // Out of the view's reach, drawn by nobody.
+    players.place({ figures: true, x: 9000, z: 0, reach: 5, place: '', floor: 0 });
+    expect(players.drawn).toBeLessThan(25);
     players.dispose();
   });
 
@@ -276,6 +313,7 @@ describe('createPlayers', () => {
       tags: null,
       reducedMotion: true,
       floorAt: () => 0,
+      groundAt: () => 0,
       riders: () => {
         tries++;
         return Promise.reject(new Error('offline'));

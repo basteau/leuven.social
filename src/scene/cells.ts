@@ -10,6 +10,7 @@ import type {
 } from '../data/city.ts';
 import { areaOutline, clipLine, clipRing } from '../data/geometry.ts';
 import type { Field } from '../data/pitches.ts';
+import { CELL_SIZE } from '../data/grid.ts';
 import { FLAT } from '../data/terrain.ts';
 import type { Terrain } from '../data/terrain.ts';
 import { addBuilding, footing } from './buildings.ts';
@@ -42,7 +43,7 @@ import { addTree } from './trees.ts';
  * that a view at the default zoom touches only a handful (a draw call or two each), small
  * enough that zoomed in most of the city is culled.
  */
-export const CELL_SIZE = 350;
+export { CELL_SIZE };
 
 export interface Cell {
   bounds: Bounds;
