@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import type { KeyboardEvent, PointerEvent as ReactPointerEvent } from 'react';
 
 import { sound } from '../audio/sound.ts';
@@ -91,6 +91,14 @@ export function MapOverlay(props: Props) {
     }
     return best?.name ?? '';
   };
+
+  // Opaque and over everything, so the city needn't be drawn under it. In a layout effect, so the
+  // city is drawn again before the page paints without the map.
+  useLayoutEffect(() => {
+    const scene = viewer.current;
+    scene?.cover(true);
+    return () => scene?.cover(false);
+  }, [viewer]);
 
   // Open as a modal dialog: it traps focus, takes Escape and keeps the map's own shortcuts out.
   useEffect(() => {

@@ -184,6 +184,8 @@ export interface Viewer {
   presences(): readonly Presence[];
   /** The end of the route being walked to a picked spot, or null. */
   routeTarget(): readonly [number, number] | null;
+  /** The full map covers the canvas (true), or no longer does: everything moves on, undrawn. */
+  cover(on: boolean): void;
   stats(): ViewerStats;
   /** Settles once the first frame is drawn, a few tasks after `createViewer` returns. */
   ready: Promise<void>;
@@ -881,7 +883,10 @@ export function createViewer(options: ViewerOptions): Viewer {
       if (canvas.dataset[key] !== value) canvas.dataset[key] = value;
     }
   }
+  /** Something opaque is over the whole canvas: time and the avatar go on, nothing is drawn. */
+  let covered = false;
   function render(): void {
+    if (covered) return;
     // World metres per drawing-buffer pixel: how much road paint and texture is worth drawing.
     const span = viewSpan();
     const unit = span / renderer.getDrawingBufferSize(buffer).y;
@@ -1056,6 +1061,12 @@ export function createViewer(options: ViewerOptions): Viewer {
     cancelAnimationFrame(frame);
     frame = 0;
     render();
+  }
+  function cover(on: boolean): void {
+    if (on === covered) return;
+    covered = on;
+    // Uncovered, the city as it is now, before the page paints.
+    if (!on && !disposed) renderNow();
   }
   function invalidate(): void {
     // While the avatar moves, its loop draws every frame itself.
@@ -1372,6 +1383,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     cancelRoute: () => avatar?.cancelRoute(),
     presences: () => avatar?.presences() ?? [],
     routeTarget: () => routeTo,
+    cover,
     spin: spinMap,
     timeOfDay: () => ({ preset: presetAt(hour), passing }),
     nextTimeOfDay,

@@ -404,7 +404,7 @@ async function expectPlayers(): Promise<void> {
 async function expectMap(): Promise<void> {
   await browser(
     'eval',
-    `localStorage.setItem('leuven-waypoints', '[{"id":"smoke","x":12,"z":-8,"name":"Smoke","colour":"#d2553f"}]')`,
+    `localStorage.setItem('leuven-waypoints', '[{"id":"smoke","x":64,"z":50,"name":"Smoke","colour":"#d2553f"}]')`,
   );
   await browser('press', 'm');
   await browser('wait', '--fn', `!!document.querySelector('dialog.bigmap')?.open`);
@@ -429,10 +429,45 @@ async function expectMap(): Promise<void> {
   await browser('click', 'dialog.bigmap .map-btn[aria-label^="Marks"]');
   await browser('click', '[aria-label="Navigate to Smoke"]');
   await browser('wait', '--fn', `!document.querySelector('dialog.bigmap') && ${stop}`);
+  await expectNothingDrawnUnderMap(stop);
   // Dispatched, not pressed: agent-browser's Escape hides the page, which stops its frames.
   await holdKeys(['Escape'], 0);
   await browser('wait', '--fn', `!(${stop})`);
   console.log('ok  a mark: Navigate walks there, Stop shows, Escape lets go of the route');
+}
+
+/**
+ * The map over the city while the avatar walks: not one WebGL draw call under it, and the city
+ * drawn again once it shuts. Counted on the context itself, where every draw has to pass.
+ */
+async function expectNothingDrawnUnderMap(walking: string): Promise<void> {
+  const names = `['drawElements', 'drawArrays', 'drawElementsInstanced', 'drawArraysInstanced']`;
+  const gl = `document.querySelector('canvas').getContext('webgl2')`;
+  await browser('press', 'm');
+  await browser('wait', '--fn', `!!document.querySelector('dialog.bigmap')?.open`);
+  await browser(
+    'eval',
+    `(() => { const gl = ${gl}; window.smokeDraws = 0; for (const name of ${names}) { const real = gl[name].bind(gl); gl[name] = (...args) => { window.smokeDraws++; return real(...args); }; } })()`,
+  );
+  await browser('wait', '1000');
+  const under = await evalJson<number>('JSON.stringify(window.smokeDraws)');
+  if (under !== 0) throw new Error(`${under} draw calls under the open map`);
+  if (!(await evalJson<boolean>(`JSON.stringify(${walking})`))) {
+    throw new Error('the walk ended before the map was shown to stop the drawing');
+  }
+  await browser('press', 'm');
+  await browser(
+    'wait',
+    '--fn',
+    `!document.querySelector('dialog.bigmap') && window.smokeDraws > 0`,
+  );
+  await browser(
+    'eval',
+    `(() => { const gl = ${gl}; for (const name of ${names}) delete gl[name]; })()`,
+  );
+  console.log(
+    'ok  nothing is drawn under the full map while the avatar walks, and the city comes back',
+  );
 }
 
 /** Where the keys the smoke test holds sit on the keyboard: walking reads `code`, not `key`. */
