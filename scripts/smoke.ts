@@ -163,7 +163,7 @@ async function expectCreditsShown(): Promise<void> {
 
 /**
  * The loading screen is the page's own HTML, there before any script, and gone once the map is
- * drawn; then the map has no controls on it but the menu button.
+ * drawn; then the map has no controls on it but the map and menu buttons.
  */
 async function expectBareMap(): Promise<void> {
   const html = await (await fetch(BASE)).text();
@@ -174,10 +174,10 @@ async function expectBareMap(): Promise<void> {
   const buttons = await evalJson<string[]>(
     `JSON.stringify([...document.querySelectorAll('main button')].filter((b) => b.checkVisibility() && !b.closest('dialog')).map((b) => b.getAttribute('aria-label') ?? b.textContent))`,
   );
-  if (buttons.join() !== 'Menu') {
-    throw new Error(`the map should show only the menu button, not ${buttons.join(', ')}`);
+  if (buttons.join() !== 'Open the map,Menu') {
+    throw new Error(`the map should show only the map and menu buttons, not ${buttons.join(', ')}`);
   }
-  console.log('ok  loading screen in the HTML, then a bare map with the menu button');
+  console.log('ok  loading screen in the HTML, then a bare map with the map and menu buttons');
 }
 
 const menu = {
@@ -230,7 +230,7 @@ async function expectMenu(): Promise<void> {
   await browser('press', 'Control+k');
   await browser('wait', '--fn', menu.closed);
   // Opened with its button, a command still gives focus to the map, not back to the button.
-  await browser('click', 'button.menu-trigger');
+  await browser('click', 'button[aria-label=Menu]');
   await browser('wait', '--fn', `${menu.open} && document.activeElement?.matches('.menu-search')`);
   await browser('keyboard', 'type', 'zoom in');
   await browser('wait', '--fn', `${menu.first} === 'Zoom in'`);
@@ -239,6 +239,28 @@ async function expectMenu(): Promise<void> {
   console.log(
     `ok  menu: ${rows.length} rows; searched, ran Mute and Unmute, opened the controls, closed to the map`,
   );
+}
+
+/**
+ * The full map: M opens it (its chunk loads then), it has a canvas and the Marks button, and
+ * Escape shuts it again, giving the keys back to the map.
+ */
+async function expectMap(): Promise<void> {
+  await browser('press', 'm');
+  await browser('wait', '--fn', `!!document.querySelector('dialog.bigmap')?.open`);
+  await browser('wait', '800'); // its first paint
+  await browser('screenshot', `${ARTIFACTS}smoke-bigmap.png`);
+  const parts = await evalJson<string[]>(
+    `JSON.stringify([...document.querySelectorAll('dialog.bigmap .map-btn')].map((b) => b.getAttribute('aria-label')))`,
+  );
+  if (!parts.some((p) => p.startsWith('Marks'))) throw new Error('the map has no Marks button');
+  await browser('press', 'Escape');
+  await browser(
+    'wait',
+    '--fn',
+    `!document.querySelector('dialog.bigmap') && document.activeElement === document.querySelector('.map')`,
+  );
+  console.log('ok  full map: M opens it with its tools, Escape shuts it');
 }
 
 /** Where the keys the smoke test holds sit on the keyboard: walking reads `code`, not `key`. */
@@ -304,6 +326,8 @@ async function expectWalking(): Promise<void> {
   await browser('wait', '--fn', `Number(${canvasData('plates')}) > 0`);
   const plates = await evalJson<string>(`JSON.stringify(${canvasData('plates')})`);
   console.log(`ok  plates on the facades while walking: ${plates}`);
+  // The radar shows while walking (its chunk comes once the first frame is drawn).
+  await browser('wait', '--fn', `!!document.querySelector('.radar canvas')`);
   await browser('screenshot', `${ARTIFACTS}smoke-walk.png`);
   // Back to the map from the menu (riding below goes back with Escape).
   await runFromMenu('map', 'Back to the map');
@@ -436,6 +460,7 @@ try {
   await expectCreditsShown();
   await expectBareMap();
   await expectMenu();
+  await expectMap();
   // Exercise every control once, then check nothing broke.
   await browser('press', 'e');
   await browser('press', 'r');
@@ -472,7 +497,7 @@ try {
   await expectShortTasks('phone 390×844');
   await browser('screenshot', `${ARTIFACTS}smoke-phone.png`);
   // On a phone the menu button opens the menu as a sheet; its close button shuts it.
-  await browser('click', 'button.menu-trigger');
+  await browser('click', 'button[aria-label=Menu]');
   await browser('wait', '--fn', menu.open);
   await browser('wait', '500');
   await browser('screenshot', `${ARTIFACTS}smoke-phone-menu.png`);

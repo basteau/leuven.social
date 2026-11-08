@@ -18,6 +18,8 @@ export type ActionId =
   | 'run'
   | 'ride'
   | 'bell'
+  | 'open-map'
+  | 'stop-route'
   | 'sound'
   | 'help'
   | 'about';
@@ -49,7 +51,9 @@ export type IconName =
   | 'sound-off'
   | 'keys'
   | 'info'
-  | 'place';
+  | 'place'
+  | 'map'
+  | 'stop';
 
 /**
  * Keys, as keycaps: each inner list is a chord or a set of keys shown side by side, and the
@@ -76,6 +80,8 @@ export interface CommandState {
   mode: WalkMode;
   ride: RideState;
   running: boolean;
+  /** A route to a picked spot is being walked. */
+  routing: boolean;
   soundOn: boolean;
   keys: Keycaps;
   /** The menu's chord on this platform: ⌘ or Ctrl. */
@@ -168,6 +174,20 @@ const modeCommands = (s: CommandState): Command[] => {
       icon: 'back',
       action: 'map',
     },
+    ...(s.routing
+      ? [
+          {
+            id: 'stop-route',
+            group: 'walk',
+            label: 'Stop navigating',
+            detail: 'Let go of the route; Esc does this first, then leaves',
+            keywords: 'stop cancel navigation navigating route walking destination',
+            keys: [['Esc']],
+            icon: 'stop',
+            action: 'stop-route',
+          } satisfies Command,
+        ]
+      : []),
     ...(s.ride
       ? [
           {
@@ -211,12 +231,22 @@ const modeCommands = (s: CommandState): Command[] => {
 
 const general = (s: CommandState): Command[] => [
   {
+    id: 'open-map',
+    group: 'general',
+    label: 'Open the map',
+    detail: 'The whole city, your marks and where you are',
+    keywords: 'map full city overview gps waypoint waypoints marks pins navigate atlas',
+    keys: [['M']],
+    icon: 'map',
+    action: 'open-map',
+  },
+  {
     id: 'sound',
     group: 'general',
     label: s.soundOn ? 'Mute' : 'Unmute',
     detail: s.soundOn ? 'Sound is on' : 'Sound is off',
     keywords: 'sound audio mute unmute volume quiet',
-    keys: [['M']],
+    keys: [['N']],
     icon: s.soundOn ? 'sound-on' : 'sound-off',
     action: 'sound',
   },
@@ -290,9 +320,10 @@ export function keySheet(k: Keycaps, mod: string): KeySection[] {
         { what: 'Run', keys: [['Shift']], touch: 'Push the stick to its rim' },
         { what: 'Look around', keys: [['Drag']], touch: 'Right thumb' },
         { what: 'Walk to a spot', keys: [['Click']], touch: 'Tap a street' },
+        { what: 'Stop the route', keys: [['Esc']], touch: 'The Stop button' },
         { what: 'Turn the view', keys: [[k.KeyQ, k.KeyE]] },
         { what: 'Closer, further', keys: [['+', '−']] },
-        { what: 'Back to the map', keys: [['Esc']] },
+        { what: 'Stop navigating, then back to the map', keys: [['Esc']] },
       ],
     },
     {
@@ -313,7 +344,8 @@ export function keySheet(k: Keycaps, mod: string): KeySection[] {
       rows: [
         { what: 'Open this menu', keys: [[mod, 'K'], ['/']], touch: 'The menu button' },
         { what: 'Controls and keys', keys: [['?']] },
-        { what: 'Mute or unmute', keys: [['M']] },
+        { what: 'Open the map', keys: [['M']] },
+        { what: 'Mute or unmute', keys: [['N']] },
       ],
     },
   ];

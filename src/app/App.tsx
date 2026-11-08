@@ -20,11 +20,13 @@ import type { ActionId, CommandState } from './commands.ts';
 import type { MenuPage } from './command-menu.tsx';
 import { ActionButton } from './controls.tsx';
 import { Credits } from './credits.tsx';
-import { BikeIcon, MenuIcon } from './icons.tsx';
+import { BikeIcon, MapIcon, MenuIcon, StopIcon } from './icons.tsx';
 import { createTurnHold, KEYCAPS, layoutKeycaps, modKey } from './input.ts';
 import type { KeyboardLayout, Keycaps } from './input.ts';
 import { introErrorSlot, removeIntro, showKeys, showStep } from './intro.ts';
 import { loadStep, stallWatch, unlessAborted } from './loading.ts';
+import { createStore } from './store.ts';
+import type { Waypoint } from '../data/waypoints.ts';
 import type { LoadState } from './loading.ts';
 import { useShortcuts } from './shortcuts.ts';
 import { StreetSign } from './street-sign.tsx';
@@ -42,6 +44,12 @@ const LOAD_STALL_MS = 20_000;
 const loadMenu = () => import('./command-menu.tsx');
 /** React keeps a failed lazy component failed: each try after a failure gets a fresh one. */
 const lazyMenu = () => lazy(() => loadMenu().then((m) => ({ default: m.CommandMenu })));
+
+/** The map's radar and recentre arrow, and the full map, are chunks of their own too. */
+const loadHud = () => import('./map-hud.tsx');
+const loadMap = () => import('./map-overlay.tsx');
+const MapHud = lazy(() => loadHud().then((m) => ({ default: m.MapHud })));
+const MapOverlay = lazy(() => loadMap().then((m) => ({ default: m.MapOverlay })));
 
 /**
  * The menu's chunk can fail to download (a flaky link). Without this, React would take the whole
@@ -62,8 +70,8 @@ class MenuGuard extends Component<{ onError: () => void; children: ReactNode }> 
 
 /** The map's description, naming the keys as this keyboard types them. */
 const mapLabels = (k: Keycaps, mod: string): Record<WalkMode, string> => ({
-  map: `Map of Leuven’s centre around Grote Markt, Oude Markt and Ladeuzeplein. Drag or use the arrow keys to pan; scroll, pinch or press plus and minus to zoom; ${k.KeyQ} and ${k.KeyE} turn the view; click or tap a street to start walking there, or press ${k.KeyW} to start in the middle of the view. ${mod} K or slash opens the menu, with every command and key.`,
-  walk: `Walking in Leuven. ${k.KeyW}, ${k.KeyA}, ${k.KeyS} and ${k.KeyD} or the arrow keys walk, and hold Shift to run; drag to look around; click or tap a street to walk there; hold ${k.KeyQ} or ${k.KeyE} to turn the view; F rides the nearest bike; Escape returns to the map.`,
+  map: `Map of Leuven’s centre around Grote Markt, Oude Markt and Ladeuzeplein. Drag or use the arrow keys to pan; scroll, pinch or press plus and minus to zoom; ${k.KeyQ} and ${k.KeyE} turn the view; click or tap a street to start walking there, or press ${k.KeyW} to start in the middle of the view. M opens the full map. ${mod} K or slash opens the menu, with every command and key.`,
+  walk: `Walking in Leuven. ${k.KeyW}, ${k.KeyA}, ${k.KeyS} and ${k.KeyD} or the arrow keys walk, and hold Shift to run; drag to look around; click or tap a street to walk there; hold ${k.KeyQ} or ${k.KeyE} to turn the view; F rides the nearest bike; M opens the full map; Escape stops a route to a picked spot, then returns to the map.`,
 });
 /** Riding, the map says how. */
 const rideLabel = (k: Keycaps) =>
@@ -169,6 +177,13 @@ export function App() {
     say(sound.on ? 'Sound on' : 'Sound off');
   });
   useEffect(() => sound.attach(), []);
+  // Marks, the recentre arrow's direction and the route being walked: each shown by the part
+  // that needs it, so the shell renders only for a route starting or ending and the map opening.
+  const [marks] = useState(() => createStore<Waypoint[]>([]));
+  const [drift] = useState(() => createStore<number | null>(null));
+  const [routing, setRouting] = useState(false);
+  const routingRef = useRef(routing);
+  const [mapOpen, setMapOpen] = useState(false);
   const [coach, setCoach] = useState(() => !coached());
   const [ride, setRide] = useState<RideState>('');
   const rideRef = useRef(ride);
@@ -335,6 +350,11 @@ export function App() {
             setWalkLoad('failed');
           },
           onStreetChange: setStreet,
+          onDrift: drift.set,
+          onRoute: (target) => {
+            routingRef.current = target !== null;
+            setRouting(target !== null);
+          },
           onRideChange: (state) => {
             rideRef.current = state;
             setRide(state);
@@ -372,7 +392,7 @@ export function App() {
       viewerRef.current?.dispose();
       viewerRef.current = null;
     };
-  }, [attempt, turnHold]);
+  }, [attempt, turnHold, drift]);
 
   const ready = status.state === 'ready';
 
@@ -392,6 +412,8 @@ export function App() {
     mode: walkModeRef,
     running: runningRef,
     startWalk: () => startWalkRef.current(),
+    openMap: () => openMapRef.current(),
+    routing: routingRef,
     onWalkKey: () => steppedRef.current(),
     toggleSound: () => toggleSoundRef.current(),
     turnHold,
@@ -400,6 +422,34 @@ export function App() {
     closeMenu,
     typeAhead: (key) => (typedRef.current += key),
   });
+
+  const openMapRef = useRef(() => {
+    menuOpenRef.current = false;
+    setMenu((m) => ({ ...m, open: false }));
+    setMapOpen(true);
+  });
+  const closeMap = useCallback(() => setMapOpen(false), []);
+  // Shut, the map gives its keys back to the map, once its dialog has let go of focus.
+  const wasMapOpen = useRef(false);
+  useEffect(() => {
+    if (wasMapOpen.current && !mapOpen)
+      mapRef.current?.focus({ focusVisible: false } as FocusOptions);
+    wasMapOpen.current = mapOpen;
+  }, [mapOpen]);
+  // The radar and the arrow come once the city is up and the page has a moment.
+  const [hud, setHud] = useState(false);
+  useEffect(() => {
+    if (!ready) return;
+    const timer = setTimeout(
+      () =>
+        void loadHud().then(
+          () => setHud(true),
+          () => {},
+        ),
+      400,
+    );
+    return () => clearTimeout(timer);
+  }, [ready]);
 
   const toggleRunRef = useRef(() => {
     runningRef.current = !runningRef.current;
@@ -436,6 +486,8 @@ export function App() {
     ride: () => viewerRef.current?.ride('toggle'),
     bell: () => viewerRef.current?.ride('bell'),
     sound: () => toggleSoundRef.current(),
+    'open-map': () => openMapRef.current(),
+    'stop-route': () => viewerRef.current?.cancelRoute(),
   }));
   /** A command from the menu: the menu closes first, and focus goes to the map for its keys. */
   const run = useCallback(
@@ -450,8 +502,8 @@ export function App() {
   );
   const onPage = useCallback((page: MenuPage) => setMenu((m) => ({ ...m, page })), []);
   const commandState: CommandState = useMemo(
-    () => ({ mode: walkMode, ride, running, soundOn, keys, mod }),
-    [walkMode, ride, running, soundOn, keys, mod],
+    () => ({ mode: walkMode, ride, running, routing, soundOn, keys, mod }),
+    [walkMode, ride, running, routing, soundOn, keys, mod],
   );
   // Places by name: choosing one starts a walk there, as a click on the map would.
   const places = useMemo(
@@ -567,6 +619,16 @@ export function App() {
       <footer className="hud hud-bottom">
         {/* By a bike, or on one: the one thing the moment offers, where a thumb finds it. */}
         <div className="bar">
+          {routing && walkMode === 'walk' && (
+            <ActionButton
+              label="Stop"
+              shortcut="Esc"
+              keys="Escape"
+              onPress={() => viewer()?.cancelRoute()}
+            >
+              <StopIcon />
+            </ActionButton>
+          )}
           {pill && (
             <ActionButton
               label={riding ? 'Get off' : 'Ride'}
@@ -578,24 +640,64 @@ export function App() {
             </ActionButton>
           )}
         </div>
-        {ready && (
-          <button
-            type="button"
-            className="menu-trigger"
-            aria-label="Menu"
-            aria-haspopup="dialog"
-            aria-keyshortcuts={mod === '⌘' ? 'Meta+K' : 'Control+K'}
-            onClick={() => {
-              sound.tap();
-              openMenu();
-            }}
-            onPointerEnter={() => void loadMenu().catch(() => {})}
-          >
-            <MenuIcon />
-            <kbd aria-hidden="true">{mod === '⌘' ? '⌘' : 'Ctrl '}K</kbd>
-          </button>
-        )}
+        <div className="hud-end">
+          {ready && (
+            <button
+              type="button"
+              className="menu-trigger map-trigger"
+              aria-label="Open the map"
+              aria-keyshortcuts="M"
+              onClick={() => {
+                sound.tap();
+                openMapRef.current();
+              }}
+              onPointerEnter={() => void loadMap().catch(() => {})}
+            >
+              <MapIcon />
+              <kbd aria-hidden="true">M</kbd>
+            </button>
+          )}
+          {ready && (
+            <button
+              type="button"
+              className="menu-trigger"
+              aria-label="Menu"
+              aria-haspopup="dialog"
+              aria-keyshortcuts={mod === '⌘' ? 'Meta+K' : 'Control+K'}
+              onClick={() => {
+                sound.tap();
+                openMenu();
+              }}
+              onPointerEnter={() => void loadMenu().catch(() => {})}
+            >
+              <MenuIcon />
+              <kbd aria-hidden="true">{mod === '⌘' ? '⌘' : 'Ctrl '}K</kbd>
+            </button>
+          )}
+        </div>
       </footer>
+
+      {hud && placeCity && (
+        <MenuGuard onError={() => setHud(false)}>
+          <Suspense fallback={null}>
+            <MapHud
+              viewer={viewerRef}
+              city={placeCity}
+              walking={walkMode === 'walk'}
+              drift={drift}
+              marks={marks}
+              openMap={() => openMapRef.current()}
+            />
+          </Suspense>
+        </MenuGuard>
+      )}
+      {mapOpen && placeCity && (
+        <MenuGuard onError={closeMap}>
+          <Suspense fallback={null}>
+            <MapOverlay city={placeCity} viewer={viewerRef} marks={marks} onClose={closeMap} />
+          </Suspense>
+        </MenuGuard>
+      )}
 
       {errorSlot ? createPortal(errorNotice, errorSlot) : errorNotice}
 

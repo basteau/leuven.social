@@ -30,6 +30,10 @@ export interface ShortcutTarget {
   /** The Run toggle: on, Shift isn't needed. */
   running: RefObject<boolean>;
   startWalk: () => void;
+  /** Opens the full map (M). */
+  openMap: () => void;
+  /** A route to a picked spot is being walked: Escape lets go of it before it leaves. */
+  routing: RefObject<boolean>;
   /** A walking key went down: someone is walking with the keyboard. */
   onWalkKey: () => void;
   toggleSound: () => void;
@@ -46,7 +50,7 @@ export interface ShortcutTarget {
 }
 
 /**
- * The keyboard: arrows pan, + and - zoom, Q and E turn, M mutes, R resets and W walks on the map
+ * The keyboard: arrows pan, + and - zoom, Q and E turn, M opens the map, N mutes, R resets and W walks on the map
  * (Q, E and W by position, like walking's keys); held keys walk, run and look while walking, and
  * ride a bike after F (W pedals, S brakes, A and D steer, Shift sprints, B rings the bell).
  * ⌘K and its kin open the menu. Shortcuts act while focus is anywhere in the app except the
@@ -119,7 +123,7 @@ export function useShortcuts(target: ShortcutTarget): void {
         return;
       }
       // Turning and walking go by position here too, so a key does the same on the map as on
-      // foot; the rest are named for what they do (M mutes, R resets), so they go by letter.
+      // foot; the rest are named for what they do (M opens the map, N mutes, R resets), so they go by letter.
       // A held key's repeats are no new presses: the hold goes by its keydown and keyup, and only
       // zoom goes on while its key is held.
       if (idleRepeat(event)) return;
@@ -142,10 +146,13 @@ export function useShortcuts(target: ShortcutTarget): void {
         '+': () => viewer.zoomBy(1.25),
         '=': () => viewer.zoomBy(1.25),
         '-': () => viewer.zoomBy(0.8),
-        m: target.toggleSound,
+        m: target.openMap,
+        n: target.toggleSound,
         ...(mode !== 'walk' && { r: () => viewer.resetView() }),
         ...(mode === 'map' && !onControl && { enter: target.startWalk }),
-        ...(mode !== 'map' && { escape: () => viewer.stopWalking() }),
+        ...(mode !== 'map' && {
+          escape: () => (target.routing.current ? viewer.cancelRoute() : viewer.stopWalking()),
+        }),
       };
       (byCode[code] ?? byKey[key])?.();
     };

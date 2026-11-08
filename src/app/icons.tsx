@@ -24,6 +24,21 @@ export const BikeIcon = () => (
   </svg>
 );
 
+/** A folded map: three panels with a pin's dot on the middle one. */
+export const MapIcon = () => (
+  <svg {...iconBase}>
+    <path d="M3 6l6-2 6 2 6-2v14l-6 2-6-2-6 2z" />
+    <path d="M9 4v14M15 6v14" />
+  </svg>
+);
+
+/** Stop: a filled square, the one shape that means it everywhere. */
+export const StopIcon = () => (
+  <svg {...iconBase}>
+    <rect x="6.5" y="6.5" width="11" height="11" rx="2" fill="currentColor" />
+  </svg>
+);
+
 /** The menu: three lines, the shape people look for to find everything else. */
 export const MenuIcon = () => (
   <svg {...iconBase}>
