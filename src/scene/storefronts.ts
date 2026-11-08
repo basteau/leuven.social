@@ -25,6 +25,9 @@ import {
   addFlags,
   addHangings,
   addMarquee,
+  addMedallion,
+  addPortal,
+  addRoofFlag,
   addSign,
   groundFloor,
   signHeight,
@@ -239,6 +242,11 @@ export function addBuckets(mesh: MeshBuilder, f: Frame, seed: number): void {
   }
 }
 
+/** A wall lower than this (m) has no room for a public place's portal under its eaves. */
+const PORTAL_WALL = 4.4;
+/** Nor this little of a front (m either side of its middle): a corner has no room for one. */
+const PORTAL_ROOM = 1.4;
+
 /** Of the chairs at a table, the share someone sits on. */
 const TAKEN = 0.55;
 /** A small, stable number in [0, 1) from a seed, for which chairs are taken and by whom. */
@@ -329,15 +337,19 @@ function addPlace(
   end: number | undefined,
 ): void {
   const middle = frame(p);
+  if (room >= PORTAL_ROOM) {
+    if (top >= PORTAL_WALL) addPortal(mesh, middle, kind);
+    addRoofFlag(mesh, frame(p, room > 2 ? -room * 0.6 : 0), kind, top);
+  }
+  if (end !== undefined) addMedallion(mesh, frame(p, end), kind, signHeight(top));
   if (kind === 'hotel') {
     if (room >= 1.4) addFlags(mesh, middle, top);
   } else if (kind === 'museum') {
     if (room >= 1.6) addHangings(mesh, middle, kind, top);
   } else if (kind === 'cinema' || kind === 'theatre') {
     if (room >= 1.6) addMarquee(mesh, middle, kind, top);
-  } else if (end !== undefined) {
-    if (kind === 'university') addBanner(mesh, frame(p, end), kind, top);
-    else addSign(mesh, frame(p, end), kind, signHeight(top));
+  } else if (kind === 'university' && end !== undefined && room >= 1.2) {
+    addBanner(mesh, frame(p, -Math.sign(end) * Math.min(room, 2.4)), kind, top);
   }
 }
 

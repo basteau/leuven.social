@@ -3,6 +3,7 @@ import { expect, test } from 'bun:test';
 import type { Building, ShopFront } from '../data/city.ts';
 import { discInFootprint } from '../data/props.ts';
 import { frontPoint, terraceFootprint } from '../data/shops.ts';
+import { PLACES } from '../data/shop-kinds.ts';
 import type { ShopKind } from '../data/shop-kinds.ts';
 import { AWNING } from './facade-codes.ts';
 import { MeshBuilder } from './mesh-builder.ts';
@@ -179,18 +180,28 @@ test("a cell's fronts: awnings stop short of each other and the corners, signs h
   expect([mesh.lift, awnings.lift]).toEqual([7, 0]);
 });
 
-test('a public place shows its sign by its door, and nothing on the pavement', () => {
-  expect(alone('university')).toBe(60);
-  expect(alone('hotel')).toBe(120);
-  expect(alone('museum')).toBe(80);
-  expect(alone('cinema')).toBe(alone('theatre'));
-  expect(alone('school')).toBeGreaterThan(100);
-  // A one-storey building has no room for a banner, and a front by the corner none for flags.
-  expect(alone('university', 3.5)).toBe(0);
+test('a public place says what it is: its door, its medallion, a flag over its eaves', () => {
+  for (const kind of PLACES) {
+    const { points } = built((m) =>
+      addStorefronts(m, new MeshBuilder(), [{ building, front: front(kind) }], kit, ground),
+    );
+    // A flag over the 12 m wall, and on the pavement nothing but the steps up to its door.
+    expect([kind, Math.max(...points.map(([, y]) => y!)) > 15]).toEqual([kind, true]);
+    const pavement = points.filter(([, y, z]) => y! < 2.5 && z! < -0.7);
+    expect([kind, pavement.slice(0, 3)]).toEqual([kind, []]);
+  }
+  // Each its own: museums and hotels and cinemas keep what they had, a different shape each.
+  const sizes = (['university', 'hotel', 'museum', 'cinema', 'library'] as const).map((k) =>
+    alone(k),
+  );
+  expect(new Set(sizes).size).toBe(sizes.length);
+  // A low wall has no room for the portal, a front by the corner only for its medallion.
+  expect(alone('library', 3.5)).toBeLessThan(alone('library'));
   const crowded = built((m) =>
     addStorefronts(m, new MeshBuilder(), [{ building, front: front('hotel', 1.5) }], kit, ground),
   );
-  expect(crowded.count).toBe(0);
+  expect(crowded.count).toBeGreaterThan(0);
+  expect(crowded.count).toBeLessThan(alone('hotel') / 2);
 });
 
 test('terraces vary by seed, and every layout stays inside its footprint', () => {

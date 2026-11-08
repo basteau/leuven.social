@@ -314,6 +314,85 @@ const SYMBOLS: Partial<Record<ShopKind, Symbol>> = {
     prism(mesh, f, [0, MID], [0.08, 0.08], [y - 0.2, y - 0.36], LOAF, 0.3, 6, false);
     prism(mesh, f, [0, MID], [0.024, 0.024], [y - 0.36, y - 0.42], GRAPHITE, 0, 6);
   },
+  // A mortarboard over a tassel: a university, in its pale colour on its blue.
+  university: (mesh, f, y, _canvas, stripe) => {
+    slab(
+      mesh,
+      f,
+      [-0.12, 0.12],
+      [
+        [MID - 0.4, y + 0.12],
+        [MID, y + 0.28],
+        [MID + 0.4, y + 0.12],
+        [MID, y - 0.02],
+      ],
+      stripe,
+    );
+    bar(mesh, f, 0.11, [MID - 0.19, y + 0.03], [MID - 0.19, y - 0.22], 0.05, stripe);
+    bar(mesh, f, 0.11, [MID + 0.19, y + 0.03], [MID + 0.19, y - 0.22], 0.05, stripe);
+    bar(mesh, f, 0.11, [MID - 0.19, y - 0.2], [MID + 0.19, y - 0.2], 0.05, stripe);
+    bar(mesh, f, 0.13, [MID + 0.34, y + 0.12], [MID + 0.34, y - 0.24], 0.03, GOLD);
+    disc(mesh, f, 0.14, [MID + 0.34, y - 0.27], 0.06, 6, GOLD);
+  },
+  // A temple front: pediment, three columns and a step.
+  museum: (mesh, f, y, _canvas, stripe) => {
+    slab(
+      mesh,
+      f,
+      [-0.1, 0.1],
+      [
+        [MID - 0.42, y + 0.14],
+        [MID + 0.42, y + 0.14],
+        [MID, y + 0.42],
+      ],
+      PAPER,
+    );
+    for (const c of [-0.28, 0, 0.28]) {
+      bar(mesh, f, 0.09, [MID + c, y + 0.12], [MID + c, y - 0.3], 0.1, PAPER);
+    }
+    bar(mesh, f, 0.1, [MID - 0.42, y - 0.34], [MID + 0.42, y - 0.34], 0.08, stripe);
+  },
+  // A bed: head and foot boards, a mattress under a blanket, a pillow.
+  hotel: (mesh, f, y, _canvas, stripe) => {
+    bar(mesh, f, 0.08, [MID - 0.4, y - 0.3], [MID - 0.4, y + 0.22], 0.08, stripe);
+    bar(mesh, f, 0.08, [MID + 0.4, y - 0.3], [MID + 0.4, y - 0.02], 0.08, stripe);
+    bar(mesh, f, 0.09, [MID - 0.36, y - 0.14], [MID + 0.36, y - 0.14], 0.2, PAPER);
+    bar(mesh, f, 0.1, [MID - 0.06, y - 0.02], [MID + 0.36, y - 0.02], 0.08, stripe);
+    disc(mesh, f, 0.1, [MID - 0.22, y - 0.01], 0.13, 6, PAPER);
+  },
+  // A film reel: a disc in gold, its four holes dark, and a run of film.
+  cinema: (mesh, f, y, _canvas, stripe) => {
+    disc(mesh, f, 0.09, [MID, y], 0.36, 12, stripe);
+    for (const [dv, dy] of [
+      [0.16, 0],
+      [-0.16, 0],
+      [0, 0.16],
+      [0, -0.16],
+    ] as const) {
+      disc(mesh, f, 0.12, [MID + dv, y + dy], 0.08, 6, PATTY);
+    }
+    disc(mesh, f, 0.12, [MID, y], 0.05, 6, PAPER);
+  },
+  // A mask: its face, two eyes and a smile.
+  theatre: (mesh, f, y, _canvas, stripe) => {
+    slab(
+      mesh,
+      f,
+      [-0.1, 0.1],
+      [
+        [MID - 0.32, y + 0.32],
+        [MID + 0.32, y + 0.32],
+        [MID + 0.3, y - 0.06],
+        [MID + 0.14, y - 0.34],
+        [MID - 0.14, y - 0.34],
+        [MID - 0.3, y - 0.06],
+      ],
+      PAPER,
+    );
+    for (const s of [-1, 1]) disc(mesh, f, 0.13, [MID + s * 0.14, y + 0.12], 0.08, 6, stripe);
+    bar(mesh, f, 0.13, [MID - 0.14, y - 0.12], [MID, y - 0.22], 0.05, stripe);
+    bar(mesh, f, 0.13, [MID, y - 0.22], [MID + 0.14, y - 0.12], 0.05, stripe);
+  },
   // A ball in the sports hall's orange, its seams dark.
   sports: (mesh, f, y, canvas, stripe) => {
     disc(mesh, f, 0.08, [MID, y], 0.3, 8, canvas);
@@ -389,6 +468,98 @@ export function addBarberPole(mesh: MeshBuilder, f: Frame, top: number): void {
   }
   box(mesh, f, [-0.14, 0.14], [v - 0.14, v + 0.14], [y1, y1 + 0.1], GOLD);
   box(mesh, f, [-0.14, 0.14], [v - 0.14, v + 0.14], [y0 - 0.1, y0], GOLD);
+}
+
+/** Half the size of a public place's medallion (m, before SIGN_SCALE). */
+const MEDALLION = 0.62;
+/** Drawn larger than a shop's sign: it says what the whole building is. */
+const MEDALLION_SCALE = 1.7;
+const BRASS = 0xd9a441;
+
+/**
+ * A public place's medallion on an iron arm, square to the wall so it reads down the street, at
+ * the first-floor sill: a brass ring, an enamel disc in the place's colour, and its symbol in the
+ * middle, the same on both faces. A public place says what it is by this one sign; a shop by a
+ * smaller one. 200 to 400 vertices.
+ */
+export function addMedallion(mesh: MeshBuilder, f: Frame, kind: ShopKind, middle: number): void {
+  const symbol = SYMBOLS[kind];
+  if (!symbol) return;
+  // Its rim over the walker's head.
+  const high = Math.max(middle, LOW_EDGE + MEDALLION * MEDALLION_SCALE + 0.1);
+  const [g, y] = [{ ...f, scale: MEDALLION_SCALE }, high / MEDALLION_SCALE];
+  const [c, r] = [BOARD.out[0] + MEDALLION + 0.05, MEDALLION];
+  box(mesh, g, [-0.03, 0.03], [0, c + r * 0.7], [y + r + 0.08, y + r + 0.15], PROPS.iron);
+  bar(mesh, g, 0.03, [c - r * 0.4, y + r + 0.1], [c - r * 0.4, y + r * 0.7], 0.05, PROPS.iron);
+  const { canvas, stripe = canvas } = FRONTS[kind];
+  disc(mesh, g, 0.05, [c, y], r, 16, BRASS);
+  disc(mesh, g, 0.075, [c, y], r * 0.86, 16, canvas);
+  // Each symbol is drawn round the middle of a shop's board, so stand it in the medallion's.
+  symbol(mesh, { ...g, ...slide(g, c - MID) }, y, canvas, stripe);
+}
+
+/** Where a frame's origin moves to, `v` further out of the wall. */
+function slide(f: Frame, v: number): Pick<Frame, 'x' | 'z'> {
+  return { x: f.x + f.fx * v * f.scale, z: f.z + f.fz * v * f.scale };
+}
+
+/**
+ * A flag on a pole from the front's cornice, up over the eaves: a public place shows from up the
+ * street and from the map. A two-tone pennant, drawn large. 56 vertices.
+ */
+export function addRoofFlag(mesh: MeshBuilder, f: Frame, kind: ShopKind, top: number): void {
+  const { canvas, stripe = canvas } = FRONTS[kind];
+  const [y0, y1] = [top - 0.5, top + 4.2];
+  box(mesh, f, [-0.05, 0.05], [0.2, 0.3], [y0, y1], PROPS.iron, false);
+  prism(mesh, f, [0, 0.25], [0.09, 0.09], [y1, y1 + 0.14], BRASS, 0.3, 4);
+  const pennant = (from: number, to: number, y: number, h: number, color: number) =>
+    slab(
+      mesh,
+      f,
+      [-0.015, 0.015],
+      [
+        [from, y],
+        [to, y],
+        [to, y - h],
+        [from, y - h],
+      ],
+      color,
+    );
+  pennant(0.3, 2.3, y1 - 0.05, 0.7, canvas);
+  pennant(0.3, 2.3, y1 - 0.75, 0.7, stripe);
+}
+
+/** Stone a place's door is framed in, and the door's dark wood. */
+const PORTAL = { stone: 0xded3bb, wood: 0x3a2c22, glass: 0xf0dfae } as const;
+
+/**
+ * The way in to a public place: two stone jambs, a lintel under a pediment in the place's colour,
+ * a double door with a fanlight, and two steps up to it. Against the wall at the middle of the
+ * front; what a person walks towards. 130 vertices.
+ */
+export function addPortal(mesh: MeshBuilder, f: Frame, kind: ShopKind): void {
+  const { canvas } = FRONTS[kind];
+  const [half, high] = [0.95, 2.75];
+  for (const s of [-1, 1]) {
+    box(mesh, f, [s * half - 0.18, s * half + 0.18], [0, 0.26], [0, high], PORTAL.stone);
+  }
+  box(mesh, f, [-half - 0.28, half + 0.28], [0, 0.32], [high, high + 0.34], PORTAL.stone);
+  slab(
+    mesh,
+    { ...f, fx: -f.fz, fz: f.fx },
+    [-0.34, 0],
+    [
+      [-half - 0.42, high + 0.34],
+      [half + 0.42, high + 0.34],
+      [0, high + 1.05],
+    ],
+    canvas,
+  );
+  box(mesh, f, [-half + 0.18, half - 0.18], [0.02, 0.1], [0, high - 0.5], PORTAL.wood);
+  box(mesh, f, [-0.025, 0.025], [0.08, 0.12], [0.02, high - 0.5], PROPS.iron);
+  box(mesh, f, [-half + 0.18, half - 0.18], [0.02, 0.1], [high - 0.45, high - 0.02], PORTAL.glass);
+  box(mesh, f, [-half - 0.35, half + 0.35], [0, 0.6], [0, 0.1], PORTAL.stone);
+  box(mesh, f, [-half - 0.2, half + 0.2], [0, 0.34], [0.1, 0.2], PORTAL.stone);
 }
 
 /**
