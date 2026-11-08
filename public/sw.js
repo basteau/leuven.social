@@ -32,8 +32,10 @@ function cacheKey(url) {
 async function networkFirst(event, patience = Infinity) {
   const cache = await caches.open(CACHE);
   const key = cacheKey(event.request.url);
+  /** A late answer is the next build: its assets aren't cached, so the page we have stays. */
+  let answeredFromCache = false;
   const network = fetch(event.request).then((response) => {
-    if (response.ok) event.waitUntil(cache.put(key, response.clone()));
+    if (response.ok && !answeredFromCache) event.waitUntil(cache.put(key, response.clone()));
     return response;
   });
   // A page answered from the cache still gets the fresh copy for next time.
@@ -42,7 +44,10 @@ async function networkFirst(event, patience = Infinity) {
   // past `patience` a page we have opens anyway, and the network can still win if we have none.
   const hanging = new Promise((resolve) => {
     if (patience !== Infinity) setTimeout(() => resolve(cache.match(key)), patience);
-  }).then((cached) => cached ?? network);
+  }).then((cached) => {
+    answeredFromCache = Boolean(cached);
+    return cached ?? network;
+  });
   try {
     return await Promise.race([network, hanging]);
   } catch (error) {

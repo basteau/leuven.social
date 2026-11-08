@@ -21,8 +21,8 @@ Each step is safe to repeat, so a rerun is also how you repair a VM.
    - Sets up the server once: a system user `leuven`, the data directory `/srv/leuven/data` (the SQLite database, owned by that user) and `/srv/leuven/data/server.env` with a freshly generated `BETTER_AUTH_SECRET`. The env file is never rewritten: a new secret would sign everyone out.
    - Writes the systemd unit `leuven-server.service` and the nginx site (preinstalled on exe.dev's default image) if they changed, and checks nginx's config before anything goes live.
    - The previous nginx site is kept as `sites-available/leuven.previous`; a new config that fails `nginx -t` puts it back and nothing goes live.
-   - The previous release's hashed assets from the last 7 days are copied into the new one, so a tab left open doesn't 404 on a lazy chunk of the build it loaded.
-   - Then, back to back: points the `/srv/leuven/current` symlink at the release in one rename, reloads nginx if its site changed, and restarts the server if its bundle changed (a site-only deploy leaves everyone connected), so the page and the server it talks to change together.
+   - The previous release's hashed assets are copied into the new one and kept for 7 days from when they stopped being live, so a tab left open doesn't 404 on a lazy chunk of the build it loaded.
+   - Then, back to back: points the `/srv/leuven/current` symlink at the release in one rename, reloads nginx if its site changed, and restarts the server if its bundle, unit or Bun changed since the last one that came up healthy (a site-only deploy leaves everyone connected), so the page and the server it talks to change together.
    - Waits for `/api/health` on the VM. If it doesn't come, the previous release goes back live (site and server) and the deploy fails. The last three releases are kept.
 6. Points exe.dev's HTTPS proxy at port 8000 and makes it public (`ssh exe.dev share port|set-public`).
 7. Fetches the live site and fails if the cache headers below are wrong, a script isn't served precompressed, `data/city.bin` is compressed twice, or `/api/health` doesn't answer.

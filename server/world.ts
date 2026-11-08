@@ -17,7 +17,7 @@
 
 import * as RateLimit from '@portable/rate-limit';
 
-import { AREA } from '../src/data/area.ts';
+import { AREA, VIEW_AREA } from '../src/data/area.ts';
 import type { Bounds } from '../src/data/city.ts';
 import { around, cellAt, cellX, cellZ, watches } from '../src/net/interest.ts';
 import {
@@ -128,6 +128,10 @@ interface Client {
   nine: readonly number[];
   /** Those it has to be told about: +1 now in view, -1 out of it, or nothing if that cancelled. */
   pending: Map<Client, number>;
+  /** When it last moved what it watches (ms). */
+  watchedAt: number;
+  /** The count of players it last heard. */
+  heardOnline: number;
   /** Wants the full map's dots. */
   wantsDots: boolean;
   /** Its socket is backed up: it hears nothing until it has caught up and gets a fresh start. */
@@ -160,6 +164,8 @@ const BEHIND_BYTES = 64 * 1024;
 const CAUGHT_UP_BYTES = 8 * 1024;
 /** How many ticks /api/health averages over. */
 const STATS_TICKS = 100;
+/** A client moves what it watches at most this often (ms): each move is a burst of joins. */
+const LOOK_MS = 250;
 const NOBODY: readonly Client[] = [];
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -243,7 +249,6 @@ export function createWorld(options: WorldOptions = {}): World {
   const saves: SavedPosition[] = [];
   let lastId = 0;
   let tickCount = 0;
-  let onlineSent = -1;
   const selected: Client[] = [];
   const stats = { ticks: 0, busy: 0, longest: 0, bytes: 0, since: 0 };
   let report: WorldStats = { online: 0, players: 0, tickMs: 0, tickMaxMs: 0, bytesPerSecond: 0 };
@@ -288,13 +293,19 @@ export function createWorld(options: WorldOptions = {}): World {
     client.savedAt = now();
   };
 
+  const unwatch = (viewer: Client, cell: number) => {
+    const seers = watchers.get(cell);
+    seers?.delete(viewer);
+    if (seers?.size === 0) watchers.delete(cell);
+  };
+
   const remove = (client: Client) => {
     clients.delete(client.id);
     if (client.account && byUser.get(client.account.userId) === client) {
       byUser.delete(client.account.userId);
     }
     persist(client);
-    for (const cell of client.nine) watchers.get(cell)?.delete(client);
+    for (const cell of client.nine) unwatch(client, cell);
     client.nine = [];
     departed.push(client);
   };
@@ -303,7 +314,9 @@ export function createWorld(options: WorldOptions = {}): World {
   const refile = (player: Client, cell: number) => {
     const old = player.cell;
     if (old !== NOWHERE) {
-      residents.get(old)?.delete(player);
+      const left = residents.get(old);
+      left?.delete(player);
+      if (left?.size === 0) residents.delete(old);
       for (const viewer of watchers.get(old) ?? NOBODY) {
         if (viewer !== player && (cell === NOWHERE || !watches(viewer.watching, cell))) {
           queue(viewer, player, -1);
@@ -332,7 +345,7 @@ export function createWorld(options: WorldOptions = {}): World {
       for (const player of residents.get(c) ?? NOBODY) {
         if (player !== viewer) queue(viewer, player, -1);
       }
-      watchers.get(c)?.delete(viewer);
+      unwatch(viewer, c);
     }
     for (const c of nine) {
       let seers = watchers.get(c);
@@ -354,6 +367,7 @@ export function createWorld(options: WorldOptions = {}): World {
   /** A client that fell behind and caught up: forget everyone, here is everyone it can see. */
   const startOver = (client: Client) => {
     client.behind = false;
+    client.heardOnline = -1;
     client.pending.clear();
     deliver(client, encodeServerMessage({ type: 'welcome', you: client.account ? client.id : 0 }));
     const players: JoinedPlayer[] = [];
@@ -432,6 +446,8 @@ export function createWorld(options: WorldOptions = {}): World {
         watching: NOWHERE,
         nine: [],
         pending: new Map(),
+        watchedAt: Number.NEGATIVE_INFINITY,
+        heardOnline: -1,
         wantsDots: false,
         behind: false,
       };
@@ -449,7 +465,11 @@ export function createWorld(options: WorldOptions = {}): World {
       if (!allowed || clients.get(id) !== client) return;
       const message = decodeClientMessage(data);
       if (message?.type === 'view') {
-        client.look = [message.x, message.z];
+        // Kept on the map: an empty cell a stranger looks at would still cost a list.
+        client.look = [
+          clamp(message.x, VIEW_AREA.minX, VIEW_AREA.maxX),
+          clamp(message.z, VIEW_AREA.minZ, VIEW_AREA.maxZ),
+        ];
         return;
       }
       if (message?.type === 'dots') {
@@ -525,7 +545,10 @@ export function createWorld(options: WorldOptions = {}): World {
       for (const client of clients.values()) {
         const [x, z] = lookOf(client);
         const cell = cellAt(x, z);
-        if (cell !== client.watching) watch(client, cell);
+        if (cell !== client.watching && time - client.watchedAt >= LOOK_MS) {
+          client.watchedAt = time;
+          watch(client, cell);
+        }
       }
 
       // 3. Who is backed up, by how much, is read only now: what is queued is what's left of
@@ -581,10 +604,14 @@ export function createWorld(options: WorldOptions = {}): World {
       while (leaving[0] && leaving[0].after <= tickCount) freeIds.push(leaving.shift()!.id);
 
       // 8. The rarer news: how many are here, and the full map's dots.
-      if (slice === 0 && round % ONLINE_TICKS === 0 && players !== onlineSent) {
-        onlineSent = players;
-        const frame = encodeServerMessage({ type: 'online', count: players });
-        for (const client of clients.values()) if (!client.behind) deliver(client, frame);
+      if (slice === 0 && round % ONLINE_TICKS === 0) {
+        let frame: Uint8Array | null = null;
+        for (const client of clients.values()) {
+          if (client.behind || client.heardOnline === players) continue;
+          client.heardOnline = players;
+          frame ??= encodeServerMessage({ type: 'online', count: players });
+          deliver(client, frame);
+        }
       }
       if (slice === 0 && round % DOTS_TICKS === 0) {
         let frame: Uint8Array | null = null;

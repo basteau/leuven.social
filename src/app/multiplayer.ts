@@ -69,6 +69,8 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
   /** The last time the minimap's dots were written (ms), and the wait to go down. */
   let dotsAt = 0;
   let goneFor: ReturnType<typeof setTimeout> | undefined;
+  /** Where the map looks: said again as soon as there is a socket to say it on. */
+  let lookingAt: [number, number] | null = null;
   /** Bumped by every sign-in or -up: an answer to an older question about who you are is stale. */
   let asked = 0;
   let disposed = false;
@@ -80,7 +82,10 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
     version: () => version,
     entries: () => entries,
     pose: (id, now, out) => Boolean(others.get(id)?.snapshots.sample(now, out)),
-    look: (x, z) => presence?.view(x, z),
+    look(x, z) {
+      lookingAt = [x, z];
+      presence?.view(x, z);
+    },
     dots: () => dots,
     fullMap(on) {
       wantsDots = on;
@@ -191,6 +196,7 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
     });
     if (account.signedIn && last) presence.send(last);
     if (wantsDots) presence.dots(true);
+    if (lookingAt) presence.view(...lookingAt);
   }
 
   /** Signed in: wear your look, and stand where you left (on your first visit, where you are). */

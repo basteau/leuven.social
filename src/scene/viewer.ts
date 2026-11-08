@@ -889,13 +889,10 @@ export function createViewer(options: ViewerOptions): Viewer {
   /**
    * A frame of a continuous loop (walking, riding, a held turn, the day passing): only these say
    * anything about how fast frames can go. A frame drawn on demand follows the last input, and a
-   * gap in those is someone pausing. The map stays sharp, as it isn't a loop for long: the scaler
-   * works on the street, and is back at full size for the next map frame.
+   * gap in those is someone pausing. The scaler works on the street; the map stays sharp (`render`).
    */
   function loopFrame(now: number): void {
-    if (detail.avatar === 'figure') {
-      if (!covered && scaler.frame(now)) resize();
-    } else if (scaler.reset()) resize();
+    if (detail.avatar === 'figure' && !covered && scaler.frame(now)) resize();
     renderNow();
   }
 
@@ -903,6 +900,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   let covered = false;
   function render(): void {
     if (covered) return;
+    if (detail.avatar !== 'figure' && scaler.reset()) resize();
     // World metres per drawing-buffer pixel: how much road paint and texture is worth drawing.
     const span = viewSpan();
     const unit = span / renderer.getDrawingBufferSize(buffer).y;
@@ -1028,7 +1026,10 @@ export function createViewer(options: ViewerOptions): Viewer {
           reducedMotion,
           yaw: () => yaw,
           placeCamera,
-          render: () => loopFrame(performance.now()),
+          render: (continued) => {
+            if (continued) loopFrame(performance.now());
+            else renderNow();
+          },
           farthestZoom: () => farthestZoom,
           onRoute: (target) => {
             routeTo = target;
@@ -1082,7 +1083,12 @@ export function createViewer(options: ViewerOptions): Viewer {
   function cover(on: boolean): void {
     if (on === covered) return;
     covered = on;
-    avatar?.fullMap(on);
+    if (avatar) avatar.fullMap(on);
+    else
+      void loadingAvatar?.then(
+        (loaded) => loaded.fullMap(covered),
+        () => {},
+      );
     // Uncovered, the city as it is now, before the page paints.
     if (!on && !disposed) renderNow();
   }

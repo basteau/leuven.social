@@ -169,7 +169,8 @@ export interface AvatarHost {
   /** Re-aims the camera at the controls' target. */
   placeCamera(): void;
   /** Draws a frame now. */
-  render(): void;
+  /** Draws a frame; `continued` when the last frame's loop asked for this one. */
+  render(continued: boolean): void;
   /** What casts shadows changed: a rack bike taken or put back. */
   shadowsChanged(): void;
   /** A tap the avatar can't go to, and why. */
@@ -335,6 +336,8 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
   let stirring = false;
   /** Whether a tick is under way: its own frame, so the viewer draws none on top of it. */
   let ticking = false;
+  /** The last frame asked for this one: a loop, not a one-off wake. */
+  let looping = false;
   /** Set once the layer is disposed: a download that lands later does nothing. */
   let disposed = false;
   /**
@@ -635,6 +638,8 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
 
   /** The other players, as last given, and a pose to read them into for the full map. */
   let crowd: Roster | null = null;
+  /** The full map is open, so the roster, when it comes, is told to send its dots. */
+  let mapOpen = false;
   const seen: PlayerPose = { x: 0, z: 0, heading: 0, speed: 0, mode: 'foot', place: '', floor: 0 };
 
   /** The route being walked was picked (a tap, the map); a bike's own short ones aren't. */
@@ -945,7 +950,8 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     nope += elapsed;
     busy = placeRefusal() || busy;
 
-    host.render();
+    host.render(looping);
+    looping = busy;
     if (busy) frame = requestAnimationFrame(tick);
     else publish();
   }
@@ -1063,6 +1069,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     },
     others(roster) {
       crowd = roster;
+      if (mapOpen) roster?.fullMap(true);
       unlisten();
       // News from far off, or from nobody the view would draw, is worth no frame.
       unlisten = roster
@@ -1148,6 +1155,8 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       shown = detail.avatar;
       const w = avatar.walker;
       place(w.x, w.z, w.heading, w.phase, 0);
+      // Close enough for figures now: one loop, to catch up with who joined while they weren't.
+      if (shown === 'figure') wake();
     },
     goTo(x, z) {
       asked++;
@@ -1194,6 +1203,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       return list;
     },
     fullMap(on) {
+      mapOpen = on;
       crowd?.fullMap(on);
     },
     dispose() {

@@ -60,6 +60,8 @@ server {
     gzip on;
     gzip_static on;
     gzip_vary on;
+    # exe.dev's proxy may add a Via header; without this nginx would then send text uncompressed.
+    gzip_proxied any;
     gzip_types text/css application/javascript application/json application/manifest+json image/svg+xml;
 
     add_header Cache-Control "no-cache";
@@ -258,13 +260,26 @@ ${NGINX_SITE}LEUVEN_SITE
      fi
      previous=$(readlink ${ROOT}/current || true)
      new=${ROOT}/releases/${release}
-     # A tab left open asks for the chunks of the build it loaded: they stay a week.
+     # A tab left open asks for the chunks of the build it loaded: they stay a week from when
+     # they stopped being live. What the release going out built itself starts that clock now;
+     # what it had carried from before keeps its own.
+     ls -A "$new/site/assets" > "$new/assets.own"
      if [ -d "$previous/site/assets" ]; then
-       find "$previous/site/assets" -type f -mtime -${KEEP_ASSETS_DAYS} -exec cp -pn {} "$new/site/assets/" \\;
+       for file in "$previous"/site/assets/*; do
+         name=\${file##*/}
+         [ -e "$new/site/assets/$name" ] && continue
+         if grep -qxF "$name" "$previous/assets.own" 2>/dev/null; then
+           cp "$file" "$new/site/assets/$name"
+         elif [ -n "$(find "$file" -mtime -${KEEP_ASSETS_DAYS})" ]; then
+           cp -p "$file" "$new/site/assets/$name"
+         fi
+       done
      fi
-     # A site-only change leaves everyone connected: the server restarts only if it changed.
+     # A site-only deploy leaves everyone connected. The stamp covers all that makes the server
+     # what it is, and is written only once one came up healthy, so a rerun repairs a failed one.
+     stamp="$(cat "$new/server/main.js" /etc/systemd/system/${SERVICE}.service | sha256sum | cut -d' ' -f1)-$(${BUN_DIR}/bin/bun --version)"
      server_changed=1
-     if [ -f "$previous/server/main.js" ] && cmp -s "$previous/server/main.js" "$new/server/main.js"; then
+     if [ "$stamp" = "$(cat ${ROOT}/server.stamp 2>/dev/null)" ]; then
        server_changed=0
      fi
      ln -sfn "$new" ${ROOT}/current.next && mv -Tf ${ROOT}/current.next ${ROOT}/current
@@ -276,6 +291,7 @@ ${NGINX_SITE}LEUVEN_SITE
      fi
      for i in $(seq 1 30); do
        if curl -fsS http://127.0.0.1:${SERVER_PORT}/api/health >/dev/null 2>&1; then
+         printf '%s\\n' "$stamp" > ${ROOT}/server.stamp
          ls -1d ${ROOT}/releases/*/ | head -n -${KEEP_RELEASES} | xargs -r rm -rf
          rm -rf "$work"
          exit 0

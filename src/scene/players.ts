@@ -1,4 +1,10 @@
-import { Color, InstancedBufferAttribute, InstancedMesh, Vector3 } from 'three';
+import {
+  Color,
+  InstancedBufferAttribute,
+  InstancedMesh,
+  LinearSRGBColorSpace,
+  Vector3,
+} from 'three';
 import type { Material, MeshBasicMaterial, OrthographicCamera, Scene } from 'three';
 
 import {
@@ -389,7 +395,8 @@ export function createPlayers(kit: PlayersKit): Players {
     array[e + 15] = 1;
     if (crowdOwners[i] !== s.entry) {
       crowdOwners[i] = s.entry;
-      mesh.setColorAt(i, colour.setHex(s.entry.outfit.shirt));
+      // As written: the figures' shader turns their colours linear after the tint is applied.
+      mesh.setColorAt(i, colour.setHex(s.entry.outfit.shirt, LinearSRGBColorSpace));
       mesh.instanceColor!.needsUpdate = true;
     }
   }
@@ -464,7 +471,9 @@ export function createPlayers(kit: PlayersKit): Players {
       for (const s of list) {
         s.drawing = false;
         s.crowded = false;
-        if (isHere(s, view)) here.push(s);
+        if (isHere(s, view) && Math.hypot(s.at.x - view.x, s.at.z - view.z) < view.reach) {
+          here.push(s);
+        }
       }
       if (points.length < here.length * 2) points = new Float32Array(here.length * 4);
       for (let i = 0; i < here.length; i++) {
@@ -524,7 +533,6 @@ export function createPlayers(kit: PlayersKit): Players {
       // Everyone else in view, in one draw call.
       for (const s of here) {
         if ((s.drawing && s.rig) || crowded === CROWD) continue;
-        if (Math.hypot(s.at.x - view.x, s.at.z - view.z) >= view.reach) continue;
         const y = s.at.place ? kit.floorAt(s.at) : kit.groundAt(s.at.x, s.at.z);
         if (y === null) continue;
         placeCrowd(crowdOf(), crowded++, s, y);

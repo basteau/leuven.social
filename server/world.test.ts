@@ -261,7 +261,7 @@ describe('createWorld', () => {
   });
 
   test('a client hears of what its map looks at, whatever its figure does', async () => {
-    const { join, move, look, world } = setup();
+    const { join, move, look, world, advance } = setup();
     const here1 = join('here1');
     const there = join('there');
     const guest = join(null);
@@ -269,6 +269,7 @@ describe('createWorld', () => {
     await move(there.id, { x: CELL_SIZE * 4 + 10, z: 20 });
     world.tick();
     expect(joinedIds(guest.connection.take())).toEqual([here1.id]);
+    advance(250);
     await look(guest.id, CELL_SIZE * 4 + 20, 20);
     world.tick();
     const heard = guest.connection.take();
@@ -278,7 +279,7 @@ describe('createWorld', () => {
 
   test('coming into view and going out of it in one tick says nothing', async () => {
     const wide = [{ minX: -1e5, minZ: -1e5, maxX: 1e5, maxZ: 1e5 }];
-    const { join, move, look, world } = setup({ area: wide });
+    const { join, move, look, world, advance } = setup({ area: wide });
     const player = join('player');
     const viewer = join(null);
     await look(viewer.id, 20, 20);
@@ -286,18 +287,56 @@ describe('createWorld', () => {
     world.tick();
     expect(joinedIds(viewer.connection.take())).toEqual([]);
     // A door brings the player into what it watches, just as it looks away from there.
+    advance(250);
     await move(player.id, { x: 30, z: 20, place: 'stadhuis' });
     await look(viewer.id, CELL_SIZE * 12, 20);
     world.tick();
     expect(viewer.connection.take()).toEqual([]);
     // And out, as it looks back.
+    advance(250);
     await look(viewer.id, 20, 20);
     world.tick();
     expect(joinedIds(viewer.connection.take())).toEqual([player.id]);
+    advance(250);
     await move(player.id, { x: CELL_SIZE * 6, z: 20, place: '' });
     await look(viewer.id, CELL_SIZE * 12, 20);
     world.tick();
     expect(leftIds(viewer.connection.take())).toEqual([player.id]);
+  });
+
+  test('looking somewhere else takes effect at most four times a second', async () => {
+    const { join, move, look, world, advance } = setup();
+    const here1 = join('here1');
+    const guest = join(null);
+    await move(here1.id, { x: 10, z: 20 });
+    world.tick();
+    expect(joinedIds(guest.connection.take())).toEqual([here1.id]);
+    // Flipping back and forth inside the window is one look.
+    await look(guest.id, CELL_SIZE * 3 + 10, 20);
+    world.tick();
+    await look(guest.id, 10, 20);
+    world.tick();
+    expect(guest.connection.take()).toEqual([]);
+    await look(guest.id, CELL_SIZE * 3 + 10, 20);
+    advance(250);
+    world.tick();
+    expect(leftIds(guest.connection.take())).toEqual([here1.id]);
+  });
+
+  test('a look off the map stays on it, and an empty cell leaves nothing behind', async () => {
+    const { join, look, world, advance } = setup();
+    const guest = join(null);
+    for (let i = 0; i < 40; i++) {
+      advance(250);
+      // eslint-disable-next-line no-await-in-loop -- ticks follow one another
+      await look(guest.id, 1e9 + i * 1050, -1e9);
+      world.tick();
+    }
+    // It watches the map's corner, and hears of nobody off it.
+    expect(leftIds(guest.connection.take())).toEqual([]);
+    world.disconnect(guest.id);
+    world.tick();
+    expect(world.size).toBe(0);
   });
 
   test('ticks batch only those who moved', async () => {
@@ -635,6 +674,16 @@ describe('createWorld', () => {
     b.connection.dropping = false;
     world.tick();
     expect(b.connection.take()[0]).toEqual({ type: 'welcome', you: b.id });
+  });
+
+  test('whoever comes later hears how many are on the map', async () => {
+    const { join, move, world } = setup();
+    const a = join('a');
+    await move(a.id);
+    for (let i = 0; i < 10; i++) world.tick();
+    const late = join(null);
+    for (let i = 0; i < 10; i++) world.tick();
+    expect(ofType(late.connection.take(), 'online')).toEqual([{ type: 'online', count: 1 }]);
   });
 
   test('how many are on the map goes out every so often, when it changed', async () => {
