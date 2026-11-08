@@ -2,6 +2,17 @@
 
 Written 2026-11-08. This plan covers the performance, hosting and cleanup work done on the single-player build, and how to redo it on top of the local worktree that has multiplayer and the rendering changes. That worktree wasn't visible when this was written, so everything about it is an assumption to confirm. Re-measure before trusting any number below.
 
+## Runbook for the MacBook (read this first)
+
+For whoever (a person or a Claude session) runs this on the MacBook, in `~/basteau/leuven.social`, where the multiplayer and rendering changes are uncommitted. Nothing here needs the other machine. Do the steps in order and stop at the first red `bun run verify`.
+
+1. **Save the work first.** `git status`, then `git switch -c mac/multiplayer` and commit everything in a few logical commits (server, protocol, client networking, rendering). `git push origin mac/multiplayer` so it can't be lost. Never `git stash drop` or reset the worktree.
+2. **Bring in `main`.** `git fetch origin && git switch -c integrate/visuals-and-perf mac/multiplayer && git merge origin/main`. `main` holds the single-player visual and map work (see "Visual and map work merged on top"). Expect conflicts in `viewer.ts`, `App.tsx`, `shortcuts.ts`, `commands.ts`, `app.css`, `scripts/budget.ts`, `scripts/smoke.ts`, `docs/*`; resolve them keeping both sides: the Mac's networking and rendering plus `main`'s `Presence` list, map, radar, Stop pill, zoom limit. Rendering conflicts (`palette.ts`, `buildings.ts`, `terraces.ts`, `storefronts.ts`, `rails.ts`, `lighting.ts`): the Mac's version wins unless it is plainly the older of the two; re-check colours in a screenshot afterwards. Run `bun install`, `bun run verify`, and look at `.artifacts/`.
+3. **Wire multiplayer into the existing seams, not new ones.** Remote players become `Presence` entries with `self: false` (`src/data/presence.ts`, `viewer.presences()`): the radar and map already draw them, and only `self: true` gets the plumbob. Menu and shortcut changes go through `commands.ts` and `shortcuts.ts` (`M` is the map, `N` is mute). If the Mac already uses `M` or `N`, change one side and update the key sheet.
+4. **Then the plan below**, steps 0 to 4, each its own commit with its own before/after table.
+5. **Check budgets honestly.** Budgets on `main` were raised for the map (first-load JS 253 KB, engine 169 KB, furniture 9 KB, walk 21 KB). Multiplayer will add networking JS: put it in a lazy chunk loaded after the first frame (a solo visitor should still not pay for it, and the server may be down), and raise a budget only with a reason in the commit.
+6. **Do not deploy** until step 1 of the plan ("Hosting changes") is done.
+
 ## Where the earlier work lives
 
 Nothing from it is on `main`. It is on the local branch `archive/perf-hosting-2026-11-08` (not pushed; push it with `git push origin archive/perf-hosting-2026-11-08` or `git bundle` it to move it to the other PC). That branch was deployed once as release `20261107T235825-694e6f9`; it is no longer live (see the deploy warning in step 1) but is still on the VM. Do not redeploy it or `main` until the deploy script handles multiplayer.
@@ -89,6 +100,10 @@ References: [Bun WebSocket docs (pub/sub, backpressure)](https://bun.com/docs/ap
 - **Fail soft.** If the connection drops or the server is slow, the single-player game must keep running at 60 fps; players freeze and fade, nothing blocks the render loop.
 
 Test it with a synthetic swarm: a script that connects 1000 bots walking random streets, plus a real browser measuring the table from step 0.
+
+### 3b. Chunk-by-chunk loading (after 3, measure first)
+
+The renderer already cuts the city into 350 m cells, builds and culls them one by one, and loads walk mode, furniture and plates as lazy chunks. What is still monolithic: `city.bin` (767 KB gzipped) is fetched and decoded whole before the first frame, every cell is built on the main thread, and a built cell is never evicted. Measure first (first-frame time on a throttled network and CPU; main-thread time per cell build; GPU memory after panning across the city). Only then, in this order, keeping what pays off: (1) pre-build only the cells in the zoom-limited view and a prefetch ring, the rest on demand as the view pans (the zoom limit in `zoom-limit.ts` bounds the ring); (2) evict cells far from the view past a memory cap (rebuild on return; `MeshBuilder` already frees CPU arrays after upload); (3) build cells in a worker and transfer the buffers; (4) split `city.bin` into per-region files if (1) to (3) leave download or decode as the bottleneck. Key everything on the same cell index the server's interest management uses (step 3 of this plan), so the client asks the server for the same cells it has loaded and drops the ones it evicted.
 
 ### 4. Code and docs
 
