@@ -10,9 +10,11 @@ import type { ShopKind } from '../data/shop-kinds.ts';
 
 export const WALLS: Record<Kind, readonly number[]> = {
   // Red and dark brown brick, yellow brick, whitewash, cream and sand plaster.
-  house: [0xb5523b, 0xc0674a, 0xa84a3a, 0x94573f, 0xd6bd85, 0xe5d9c0, 0xebe2cc, 0xd9c7a8, 0xc98e6c],
+  // Brick first (the street's common wall), then render and stone; `wallColor` keeps a block to
+  // one family and strays to the next only now and then.
+  house: [0xae5a42, 0xa04f3c, 0x9a5a44, 0xb4694e, 0xd6bd85, 0xe3d6bc, 0xd9c7a8, 0xc8b08c],
   apartments: [0xd8cfc0, 0xc4b8a6, 0xb9a48a, 0xe2d6c2],
-  retail: [0xe9dcc6, 0xd96f4e, 0xf2e8d5, 0xc8a882],
+  retail: [0xe9dcc6, 0xd9c7a8, 0xf0e6d2, 0xc8a882],
   civic: [0xe6dcc8, 0xd8c9a8, 0xcdbb94],
   church: [0xd2c4a2, 0xc9b994],
   shed: [0x9c8f80, 0x8a7d6e],
@@ -104,7 +106,7 @@ export const BIKES = [
 ] as const;
 
 export const PITCHED_ROOFS = [0x4f5666, 0x3c4354, 0x6c707a, 0x7a3e31, 0x9c4a35, 0xb85e3c];
-export const FLAT_ROOFS = [0x8e8f92, 0x9a9996, 0xa7a49d];
+export const FLAT_ROOFS = [0x8c8984, 0x938f88, 0x9c9890];
 
 /**
  * Roof colours sampled from the orthophotos snap to these swatches. `ref` is what that roofing
@@ -114,14 +116,14 @@ export const FLAT_ROOFS = [0x8e8f92, 0x9a9996, 0xa7a49d];
  * one solid slab, but never darker than the streets.
  */
 export const ROOF_SWATCHES: readonly { ref: number; pitched: number; flat: number }[] = [
-  { ref: 0x5b5b7f, pitched: 0x3c4354, flat: 0x85878e }, // dark slate, glazed black tiles
-  { ref: 0x7e7e8b, pitched: 0x4f5666, flat: 0x8e8f92 }, // slate
-  { ref: 0x9f9e9a, pitched: 0x6c707a, flat: 0x9a9996 }, // zinc, grey tiles, bitumen
-  { ref: 0xcac8b4, pitched: 0x8e8b84, flat: 0xaeaaa0 }, // concrete tiles, pale membrane, glass
-  { ref: 0x9c7e81, pitched: 0x7a3e31, flat: 0x958680 }, // old dark red tiles
-  { ref: 0xbf9c8b, pitched: 0x9c4a35, flat: 0x9c8b80 }, // red tiles
-  { ref: 0xe5af8c, pitched: 0xb85e3c, flat: 0xa99482 }, // terracotta
-  { ref: 0x7e8c6c, pitched: 0x667f4c, flat: 0x8d9e6a }, // moss, sedum
+  { ref: 0x5b5b7f, pitched: 0x3c4354, flat: 0x8a8a8b }, // dark slate, glazed black tiles
+  { ref: 0x7e7e8b, pitched: 0x4f5666, flat: 0x8c8a86 }, // slate
+  { ref: 0x9f9e9a, pitched: 0x6c707a, flat: 0x908d87 }, // zinc, grey tiles, bitumen
+  { ref: 0xcac8b4, pitched: 0x8e8b84, flat: 0xa09b90 }, // concrete tiles, pale membrane, glass
+  { ref: 0x9c7e81, pitched: 0x73403a, flat: 0x908781 }, // old dark red tiles
+  { ref: 0xbf9c8b, pitched: 0x924a38, flat: 0x968b84 }, // red tiles
+  { ref: 0xe5af8c, pitched: 0xa85c40, flat: 0x998e80 }, // terracotta
+  { ref: 0x7e8c6c, pitched: 0x667f4c, flat: 0x8a9a6c }, // moss, sedum
 ];
 
 /** Oklab with chroma weighted 3×: on a roof, hue tells tile from slate more than lightness. */
@@ -296,15 +298,20 @@ export const SKY_LIGHT = 0xcfe3ff;
 export const BOUNCE_LIGHT = 0x9a8a70;
 
 /** How far a building's wall strays from its swatch: lightness, and each hue axis (Oklab). */
-const WALL_JITTER = { l: 0.035, ab: 0.007 } as const;
+const WALL_JITTER = { l: 0.02, ab: 0.004 } as const;
+/** Side of the squares (m) that share a wall family: about a street block. */
+const BLOCK = 60;
 
 /**
- * A building's wall colour: a swatch for its kind, nudged a little lighter or darker, warmer
- * or cooler by its id, so a row of houses painted from the same swatch still reads as separate
- * houses. Deterministic, like `pick`.
+ * A building's wall colour: a swatch for its kind, nudged a little lighter or darker by its id.
+ * Where it stands (x, z) picks the block's family: most houses of a block share one swatch and
+ * one in four takes another, so a street reads as one, not as a scatter of paint. Deterministic.
  */
-export function wallColor(kind: Kind, id: number): number {
-  const [l, a, b] = toOklab(pick(WALLS[kind], id));
+export function wallColor(kind: Kind, id: number, x = 0, z = 0): number {
+  const list = WALLS[kind];
+  const block = hash(Math.floor(x / BLOCK) * 73856093 + Math.floor(z / BLOCK) * 19349663);
+  const strays = hash(id * 17 + 5) % 4 === 0;
+  const [l, a, b] = toOklab(list[(strays ? hash(id) : block) % list.length]!);
   const unit = (salt: number) => (hash(id * 31 + salt) / 0xffffffff) * 2 - 1;
   return fromOklab([
     l + unit(1) * WALL_JITTER.l,
