@@ -97,7 +97,7 @@ test('a track is a ballast bed and a sleeper band carrying the distance along it
   for (let i = 0; i < position.count; i++) expect(g.getAttribute('normal').getY(i)).toBe(1);
 });
 
-test('rails and masts are ink lines: two per track segment, two per mast', () => {
+test('rails and masts are ink lines: two per track segment, four per mast and two wires between', () => {
   const lines = new LineBuilder();
   addRailLines(lines, [track(0), track(5, { line: new Float32Array([0, 5, 0, 5]) })]);
   expect(lines.segments).toBe(2);
@@ -105,7 +105,8 @@ test('rails and masts are ink lines: two per track segment, two per mast', () =>
   const position = g.getAttribute('position');
   expect(Math.abs(position.getZ(0) - position.getZ(2))).toBeCloseTo(GAUGE);
   addMasts(lines, planRailway([track(0)]).masts);
-  expect(lines.segments).toBe(2 + 3 * 2);
+  // Four lines a mast, and two wires to the next one along.
+  expect(lines.segments).toBe(2 + 3 * 4 + 2 * 2);
 });
 
 test('a parapet is a low wall with its top outlined', () => {

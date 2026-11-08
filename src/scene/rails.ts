@@ -64,6 +64,8 @@ export interface Mast {
   /** The point over the track centre that the arm reaches. */
   tx: number;
   tz: number;
+  /** Where the next mast along the same track holds the wire (x, z), if there is one. */
+  link?: [number, number];
 }
 
 /** One stretch of a bridge parapet: from a to b, with (nx, nz) pointing away from the track. */
@@ -148,6 +150,7 @@ export function planRailway(rails: readonly Track[]): Railway {
   for (const [r, { line, kind, bridge, electrified, from = 0 }] of rails.entries()) {
     // On from where the track's piece in the last cell left off.
     let travelled = from;
+    let prev: Mast | undefined;
     let next =
       MAST_SPACING / 2 + Math.ceil((from - MAST_SPACING / 2) / MAST_SPACING) * MAST_SPACING;
     for (let k = 0; k + 3 < line.length; k += 2) {
@@ -178,7 +181,12 @@ export function planRailway(rails: readonly Track[]): Railway {
         const side = left >= right ? 1 : -1;
         const [x, z] = [tx + f.nx * side * MAST_OFFSET, tz + f.nz * side * MAST_OFFSET];
         if (masts.some((m) => Math.hypot(m.x - x, m.z - z) < MAST_MERGE)) continue;
-        masts.push({ x, z, tx, tz });
+        const mast: Mast = { x, z, tx, tz };
+        if (prev && Math.hypot(prev.tx - tx, prev.tz - tz) < MAST_SPACING * 1.5) {
+          prev.link = [tx, tz];
+        }
+        prev = mast;
+        masts.push(mast);
       }
       travelled += f.length;
     }
@@ -237,11 +245,23 @@ export function addRailLines(lines: LineBuilder, rails: readonly Rail[]): void {
   }
 }
 
-/** Catenary masts and their arms, as ink lines like the rails. */
+/** The contact wire hangs this high over the rails, a little under the arms (m). */
+const WIRE_HEIGHT = 5.4;
+/**
+ * Catenary masts, their arms and the wires between them, as ink lines like the rails: the mast
+ * with a brace from its top to the arm's tip, the messenger wire from arm to arm and the contact
+ * wire under it, so a line of masts reads as an electrified track from the far zoom.
+ */
 export function addMasts(lines: LineBuilder, masts: readonly Mast[]): void {
-  for (const { x, z, tx, tz } of masts) {
+  for (const { x, z, tx, tz, link } of masts) {
     lines.segment([x, 0, z], [x, MAST_HEIGHT, z]);
     lines.segment([x, ARM_HEIGHT, z], [tx, ARM_HEIGHT, tz]);
+    lines.segment([x, MAST_HEIGHT, z], [tx, ARM_HEIGHT, tz]);
+    lines.segment([tx, ARM_HEIGHT, tz], [tx, WIRE_HEIGHT, tz]);
+    if (link) {
+      lines.segment([tx, ARM_HEIGHT, tz], [link[0], ARM_HEIGHT, link[1]]);
+      lines.segment([tx, WIRE_HEIGHT, tz], [link[0], WIRE_HEIGHT, link[1]]);
+    }
   }
 }
 
