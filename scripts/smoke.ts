@@ -362,13 +362,16 @@ async function expectPlayers(): Promise<void> {
     await until(() => bot.outfitOf('smoke-anna')?.shirt === blue, 'the bot seeing the new shirt');
     await browser('wait', '400');
     await browser('screenshot', `${ARTIFACTS}smoke-account.png`);
-    await browser('press', 'Escape');
+    // Its close button: agent-browser's Escape hides the page, and a hidden page loads too slowly
+    // for the reload below.
+    await browser('click', 'dialog.account button[aria-label="Close"]');
     await browser('wait', '--fn', `!document.querySelector('dialog.account')?.open`);
     console.log('ok  joined from the corner, seen joining; a new shirt, seen at once');
 
     // Back where you left, still signed in, after a reload.
     await tapAt(760, 300);
     await browser('wait', '1500');
+    await browser('wait', '--fn', `${canvasData('speed')} === '0.0'`); // arrived, or it walks on
     const left = await walker();
     await browser('wait', '1200'); // the socket sends at most ten times a second
     await openFresh(BASE);
