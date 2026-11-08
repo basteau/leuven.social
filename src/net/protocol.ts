@@ -3,7 +3,8 @@
  * per frame, a tag byte then the fields, big-endian. A client's own state is 14 bytes plus its room
  * id. A `moves` entry, of which a client hears hundreds a second, is 9: where a figure is as two
  * 16-bit offsets across the 3×3 cells that frame is about (under 2 cm a step), its heading, and
- * its speed with its mode in the top bit; a change of room or floor is its own `placed` message.
+ * its speed with its mode in the top bit; or, for a figure it last heard of nearby, a delta of about
+ * 5. A change of room or floor is its own `placed` message.
  *
  *   client → server  state    x f32, z f32, heading u16, speed u8, mode u8, floor i8, place
  *                    view     x f32, z f32 (what the map looks at, which decides who it hears of)
@@ -11,7 +12,8 @@
  *   server → client  welcome  you
  *                    joins    count, then (id, name, outfit, state) × count
  *                    leaves   count, then id × count
- *                    moves    cell x i16, cell z i16, count, then (id, x u16, z u16, heading u16, speed+mode u8) × count
+ *                    moves    cell x i16, cell z i16, count, then entries, each id×2 (+1 for a delta), then
+ *                               x u16, z u16, heading u16, speed+mode u8, or dx i8, dz i8, what changed u8, then that
  *                    placed   id, state
  *                    outfit   id, outfit
  *                    online   count
@@ -62,6 +64,35 @@ export interface PlayerUpdate {
 /** Where a figure is and how it goes: the part of a state that changes from step to step. */
 export type Move = Pick<PlayerState, 'x' | 'z' | 'heading' | 'speed' | 'mode'>;
 
+/** What a `moves` entry says of a figure: the whole move, or how it differs from the last. */
+export type MoveEntry = { id: number; state: Move } | { id: number; delta: MoveDelta };
+
+/** How a figure differs from its last move: metres, and what changed of its heading and pace. */
+export interface MoveDelta {
+  dx: number;
+  dz: number;
+  heading?: number;
+  speed?: number;
+  mode?: Mode;
+}
+
+/** What a client last heard of a figure, on the wire's steps. NaN: nothing yet. */
+export interface MoveBaseline {
+  x: number;
+  z: number;
+  heading: number;
+  speed: number;
+}
+
+/** Applies a delta to the figure's last move. */
+export const moved = (from: Move, d: MoveDelta): Move => ({
+  x: from.x + d.dx,
+  z: from.z + d.dz,
+  heading: d.heading ?? from.heading,
+  speed: d.speed ?? from.speed,
+  mode: d.mode ?? from.mode,
+});
+
 /** Someone a client hasn't heard of yet. */
 export interface JoinedPlayer {
   id: number;
@@ -93,7 +124,14 @@ export type ServerMessage =
   /** Players no longer within it (gone, or just further off). */
   | { type: 'leaves'; ids: number[] }
   /** The figures that moved, placed across the 3×3 cells round cell (`cx`, `cz`). */
-  | { type: 'moves'; cx: number; cz: number; players: readonly { id: number; state: Move }[] }
+  | {
+      type: 'moves';
+      cx: number;
+      cz: number;
+      /** Encoded whole, or as deltas where `bases` has a baseline; decoded as `MoveEntry`. */
+      players: readonly (MoveEntry | { id: number; state: Move })[];
+      bases?: readonly (MoveBaseline | undefined)[];
+    }
   /** A figure that went into a room or out, or changed floor. */
   | { type: 'placed'; id: number; state: PlayerState }
   | { type: 'outfit'; id: number; outfit: Outfit }
@@ -131,13 +169,17 @@ const SPEED_STEPS = 10;
 const MOVE_SPEED_STEPS = 5;
 const MOVE_BIKE = 0x80;
 const OFFSETS = 65535;
+/** The furthest a delta can say a figure went on either axis, in position steps: about 2 m. */
+const MAX_DELTA = 127;
 /** Three cells across, in `moves`. */
 const SPAN = CELL_SIZE * 3;
+/** A position step in `moves` (m): under 2 cm. */
+const STEP = SPAN / OFFSETS;
 /** The whole map, in `dots`. */
 const AREA_SPAN = Math.max(VIEW_AREA.maxX - VIEW_AREA.minX, VIEW_AREA.maxZ - VIEW_AREA.minZ);
 /** The smallest entries, to refuse a count that is a lie and not a big batch. */
 const MIN_JOIN = 1 + 1 + 12 + 15;
-const MIN_MOVE = 8;
+const MIN_MOVE = 4;
 const MIN_DOT = 8;
 export const MAX_SPEED = 25.5;
 /** Room ids are short slugs; a name is a username. Longer strings are refused, not cut. */
@@ -202,26 +244,74 @@ function writeHeading(w: Binary.Writer, heading: number): void {
 const offset = (v: number, from: number, span: number) =>
   Math.round((clamp(finite(v) - from, 0, span) / span) * OFFSETS);
 
-function writeMove(w: Binary.Writer, m: Move, x0: number, z0: number): void {
-  w.uint16(offset(m.x, x0, SPAN));
-  w.uint16(offset(m.z, z0, SPAN));
-  writeHeading(w, m.heading);
-  const speed = Math.min(127, Math.round(clamp(finite(m.speed), 0, MAX_SPEED) * MOVE_SPEED_STEPS));
-  w.uint8(speed | (m.mode === 'bike' ? MOVE_BIKE : 0));
+/** A move as whole steps on the wire. Positions are steps from the origin, whatever the frame. */
+const stepsOf = (v: number) => Math.round(finite(v) / STEP);
+const speedByte = (m: Move) =>
+  Math.min(127, Math.round(clamp(finite(m.speed), 0, MAX_SPEED) * MOVE_SPEED_STEPS)) |
+  (m.mode === 'bike' ? MOVE_BIKE : 0);
+const headingSteps = (heading: number) => {
+  const turns = finite(heading) / TURN;
+  return Math.round((turns - Math.floor(turns)) * HEADINGS) % HEADINGS;
+};
+
+/**
+ * Writes one entry. With a baseline (what this client last heard of the figure) and a small enough
+ * step it is a delta, about 5 bytes where a whole move is 9; either way the baseline becomes this
+ * move. The socket is reliable and in order, so no acknowledgement is needed: the server only has
+ * to forget a baseline whenever the client could have missed one (world.ts).
+ */
+function writeMove(
+  w: Binary.Writer,
+  id: number,
+  m: Move,
+  x0: number,
+  z0: number,
+  base: MoveBaseline | undefined,
+): void {
+  const qx = stepsOf(clamp(finite(m.x), x0, x0 + SPAN));
+  const qz = stepsOf(clamp(finite(m.z), z0, z0 + SPAN));
+  const heading = headingSteps(m.heading);
+  const speed = speedByte(m);
+  const [dx, dz] = base ? [qx - base.x, qz - base.z] : [Infinity, Infinity];
+  if (base && Math.abs(dx) <= MAX_DELTA && Math.abs(dz) <= MAX_DELTA) {
+    w.varint(id * 2 + 1);
+    w.int8(dx);
+    w.int8(dz);
+    const changes = (heading === base.heading ? 0 : 1) | (speed === base.speed ? 0 : 2);
+    w.uint8(changes);
+    if (changes & 1) w.uint16(heading);
+    if (changes & 2) w.uint8(speed);
+  } else {
+    w.varint(id * 2);
+    w.uint16(qx - stepsOf(x0));
+    w.uint16(qz - stepsOf(z0));
+    w.uint16(heading);
+    w.uint8(speed);
+  }
+  if (base) Object.assign(base, { x: qx, z: qz, heading, speed });
 }
 
-function readMove(r: Binary.Reader, x0: number, z0: number): Move {
-  const x = x0 + (r.uint16() / OFFSETS) * SPAN;
-  const z = z0 + (r.uint16() / OFFSETS) * SPAN;
+const moveSpeed = (byte: number): Pick<Move, 'speed' | 'mode'> => ({
+  speed: (byte & ~MOVE_BIKE) / MOVE_SPEED_STEPS,
+  mode: byte & MOVE_BIKE ? 'bike' : 'foot',
+});
+
+function readMove(r: Binary.Reader, x0: number, z0: number): MoveEntry {
+  const tagged = r.varint();
+  const id = Math.floor(tagged / 2);
+  if (id > MAX_ID) throw new MalformedFrame();
+  if (tagged % 2) {
+    const delta: MoveDelta = { dx: r.int8() * STEP, dz: r.int8() * STEP };
+    const changes = r.uint8();
+    if (changes > 3) throw new MalformedFrame();
+    if (changes & 1) delta.heading = (r.uint16() / HEADINGS) * TURN;
+    if (changes & 2) Object.assign(delta, moveSpeed(r.uint8()));
+    return { id, delta };
+  }
+  const x = (r.uint16() + stepsOf(x0)) * STEP;
+  const z = (r.uint16() + stepsOf(z0)) * STEP;
   const heading = (r.uint16() / HEADINGS) * TURN;
-  const byte = r.uint8();
-  return {
-    x,
-    z,
-    heading,
-    speed: (byte & ~MOVE_BIKE) / MOVE_SPEED_STEPS,
-    mode: byte & MOVE_BIKE ? 'bike' : 'foot',
-  };
+  return { id, state: { x, z, heading, ...moveSpeed(r.uint8()) } };
 }
 
 function writeOutfit(w: Binary.Writer, o: Outfit): void {
@@ -280,14 +370,18 @@ export function decodeClientMessage(bytes: Uint8Array): ClientMessage | null {
   });
 }
 
+function check(value: number): void {
+  if (!Number.isInteger(value) || value < 0 || value > MAX_ID) {
+    throw new RangeError(`${value} is not a u32 id`);
+  }
+}
+
 /** Encodes a server message; throws a RangeError for an id or string the format can't hold. */
 export function encodeServerMessage(message: ServerMessage): Uint8Array<ArrayBuffer> {
   const w = Binary.createWriter();
   w.uint8(TAG[message.type === 'dots' ? 'dotsAll' : message.type]);
   const id = (value: number) => {
-    if (!Number.isInteger(value) || value < 0 || value > MAX_ID) {
-      throw new RangeError(`${value} is not a u32 id`);
-    }
+    check(value);
     w.varint(value);
   };
   switch (message.type) {
@@ -313,10 +407,11 @@ export function encodeServerMessage(message: ServerMessage): Uint8Array<ArrayBuf
       w.varint(message.players.length);
       const x0 = (message.cx - 1) * CELL_SIZE;
       const z0 = (message.cz - 1) * CELL_SIZE;
-      for (const player of message.players) {
-        id(player.id);
-        writeMove(w, player.state, x0, z0);
-      }
+      message.players.forEach((player, i) => {
+        if ('delta' in player) throw new RangeError('A delta is made by encoding, not encoded');
+        check(player.id);
+        writeMove(w, player.id, player.state, x0, z0, message.bases?.[i]);
+      });
       break;
     }
     case 'placed':
@@ -375,10 +470,8 @@ export function decodeServerMessage(bytes: Uint8Array): ServerMessage | null {
         if (count * MIN_MOVE > r.remaining) throw new MalformedFrame();
         const x0 = (cx - 1) * CELL_SIZE;
         const z0 = (cz - 1) * CELL_SIZE;
-        const players: { id: number; state: Move }[] = [];
-        for (let i = 0; i < count; i++) {
-          players.push({ id: readId(r), state: readMove(r, x0, z0) });
-        }
+        const players: MoveEntry[] = [];
+        for (let i = 0; i < count; i++) players.push(readMove(r, x0, z0));
         return { type: 'moves', cx, cz, players };
       }
       case TAG.placed:

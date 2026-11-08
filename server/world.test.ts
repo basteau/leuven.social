@@ -6,7 +6,7 @@ import {
   encodeClientMessage,
   quantise,
 } from '../src/net/protocol.ts';
-import type { Outfit, PlayerState, ServerMessage } from '../src/net/protocol.ts';
+import type { Move, MoveEntry, Outfit, PlayerState, ServerMessage } from '../src/net/protocol.ts';
 import { CELL_SIZE } from '../src/data/grid.ts';
 import { CLOSE_SIGNED_OUT, createWorld, sanitise, withinReach } from './world.ts';
 import type { WorldOptions } from './world.ts';
@@ -134,6 +134,12 @@ describe('sanitise', () => {
     expect(sanitise({ ...here, x: 1e6 }).x).toBeLessThan(2000);
   });
 });
+
+/** A `moves` entry that says the whole move. */
+const whole = (entry: MoveEntry | { id: number; state: Move } | undefined) => {
+  if (!entry || 'delta' in entry) throw new Error('not a whole move');
+  return entry.state;
+};
 
 const ofType = <T extends ServerMessage['type']>(messages: ServerMessage[], type: T) =>
   messages.filter((m): m is Extract<ServerMessage, { type: T }> => m.type === type);
@@ -355,7 +361,7 @@ describe('createWorld', () => {
     expect(rest).toEqual([]);
     expect(moves).toMatchObject({ type: 'moves', cx: 0, cz: 0 });
     expect(moves?.type === 'moves' && moves.players[0]?.id).toBe(a.id);
-    expect(moves?.type === 'moves' && moves.players[0]?.state.x).toBeCloseTo(12, 1);
+    expect(moves?.type === 'moves' && whole(moves.players[0]).x).toBeCloseTo(12, 1);
     // Nobody is told about their own step.
     expect(a.connection.take()).toEqual([]);
     // The same state again (a heartbeat) is not news.
@@ -712,6 +718,62 @@ describe('createWorld', () => {
     await world.receive(viewer.id, encodeClientMessage({ type: 'dots', on: false }));
     for (let i = 0; i < 20; i++) world.tick();
     expect(ofType(viewer.connection.take(), 'dots')).toEqual([]);
+  });
+
+  test('after the first move a figure nearby goes as a delta; a leave forgets it', async () => {
+    const { join, move, world, advance } = setup();
+    const a = join('a');
+    const b = join('b');
+    await move(a.id, { x: 10 });
+    await move(b.id);
+    world.tick();
+    b.connection.take();
+    const entries = async (x: number) => {
+      advance(100);
+      await move(a.id, { x });
+      world.tick();
+      return ofType(b.connection.take(), 'moves')[0]!.players[0]!;
+    };
+    expect('state' in (await entries(10.5))).toBe(true);
+    expect('delta' in (await entries(11))).toBe(true);
+    // Too far for a delta: whole again, and on from there.
+    expect('state' in (await entries(18))).toBe(true);
+    expect('delta' in (await entries(18.5))).toBe(true);
+    // Gone and back: it starts from a whole move again.
+    world.disconnect(a.id);
+    world.tick();
+    b.connection.take();
+    const back = join('a');
+    await move(back.id, { x: 31 });
+    world.tick();
+    b.connection.take();
+    advance(100);
+    await move(back.id, { x: 31.5 });
+    world.tick();
+    expect('state' in ofType(b.connection.take(), 'moves')[0]!.players[0]!).toBe(true);
+  });
+
+  test('a client that fell behind starts its deltas over', async () => {
+    const { join, move, world, advance } = setup();
+    const a = join('a');
+    const b = join('b');
+    await move(a.id, { x: 10 });
+    world.tick();
+    advance(100);
+    await move(a.id, { x: 10.5 });
+    world.tick();
+    b.connection.take();
+    b.connection.queued = 100_000;
+    advance(100);
+    await move(a.id, { x: 11 });
+    world.tick();
+    b.connection.queued = 0;
+    world.tick();
+    b.connection.take();
+    advance(100);
+    await move(a.id, { x: 11.5 });
+    world.tick();
+    expect('state' in ofType(b.connection.take(), 'moves')[0]!.players[0]!).toBe(true);
   });
 
   test('sliced, every client still hears each move once a round', async () => {

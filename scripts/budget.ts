@@ -81,7 +81,8 @@ const BUDGETS: {
     pattern: 'assets/multiplayer-*.js',
     // 9: interest management's messages (who comes into view and leaves it, compact moves, doors,
     // the count, the full map's dots) and telling the server where the map looks (0.9 KB).
-    limit: 9 * KB,
+    // 9.5: delta moves (0.2 KB), about 5 bytes for a figure nearby where a whole move is 9.
+    limit: 9.5 * KB,
     gzip: true,
   },
   // The page itself paints the loading screen before any script or stylesheet: the tokens, its

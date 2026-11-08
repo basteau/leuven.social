@@ -128,7 +128,7 @@ The size and render budgets are enforced by `bun run verify`; if one is exceeded
 | Minimap JS (once the map is up)                                                 | 2 KB            | `scripts/budget.ts` |
 | Full map JS and CSS (when first opened)                                         | 8 KB, 1.5 KB    | `scripts/budget.ts` |
 | Account sheet JS and CSS (when first opened)                                    | 2.5 KB, 1.25 KB | `scripts/budget.ts` |
-| Multiplayer JS: accounts, presence, protocol (once the map is up)               | 9 KB            | `scripts/budget.ts` |
+| Multiplayer JS: accounts, presence, protocol (once the map is up)               | 9.5 KB          | `scripts/budget.ts` |
 | First-load JS (shell + engine)                                                  | 260.5 KB        | `scripts/budget.ts` |
 | CSS loaded with the page, gzipped                                               | 3.75 KB         | `scripts/budget.ts` |
 | HTML, with the loading screen inline, gzipped                                   | 7 KB            | `scripts/budget.ts` |
@@ -160,9 +160,9 @@ The viewer publishes the first frame, the latest and the most expensive frame of
 
 With 1000 connected, a phone viewport at 4× CPU went from 57% to 18% of the main thread and from 185 MB of heap to 115. All 32 runs (0, 50 and 1000 players, map and street, two viewports, two CPU speeds) held 60 fps with a p95 of 16.8 ms and a longest task under the 50 ms the browser reports. On a load made to be GPU-bound (`--burn 28`, 28 ms a frame at full size, going with the pixels), the scaler stepped from 1440 to 1224 to 1036 pixels wide, half a second or more apart, and held 58 fps.
 
-### Loading the city in pieces: measured, and not done
+### Loading the city in pieces: what was measured, and what was built
 
-Cells are built on the main thread and all of `city.bin` loads before the first frame, so loading it in pieces seemed the next step. The numbers don't ask for it:
+Cells are built on the main thread and all of `city.bin` loads before the first frame, so loading it in pieces seemed the next step. The numbers ask for little of it:
 
 | Measured                                              | Result                              |
 | ----------------------------------------------------- | ----------------------------------- |
@@ -174,7 +174,7 @@ Cells are built on the main thread and all of `city.bin` loads before the first 
 | First frame, 4× CPU and 9 Mbit/s                      | 3.5 s                               |
 | First frame, 4× CPU and 400 kbit/s                    | 29 s, nearly all of it the download |
 
-- **Building only what's near the view** saves little: the zoom limit lets a phone see about 1 km of a 3 km city, so a ring that keeps zooming out instant holds most of it, and a smaller one turns zooming out into a stall.
+- **Building only what's near the view: built, as far as it is safe.** The idle builder makes only the cells within what the farthest view of this window can reach, plus 500 m (`buildReach` in `zoom-limit.ts`), and those casting into the shadow map; the rest as the view comes near. That reach keeps zooming out instant, and takes a phone at Grote Markt from 67 MB to 62.4 MB. A smaller ring would turn zooming out into a stall.
 - **Evicting far cells** has nothing to win back at 67 MB, and would rebuild on the way back.
 - **A worker** would take at most 14 ms off a frame that already fits, for a builder that today shares `three` and the city with the main thread.
 - **Splitting `city.bin` by region** is the one that would help, and only on a connection around 400 kbit/s. It touches what the whole city is used for (the walk grid, both maps, the street names). Worth doing if real visitors turn out to be on such connections.

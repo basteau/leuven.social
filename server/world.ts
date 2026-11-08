@@ -26,7 +26,13 @@ import {
   decodeClientMessage,
   encodeServerMessage,
 } from '../src/net/protocol.ts';
-import type { JoinedPlayer, Outfit, PlayerState, ServerMessage } from '../src/net/protocol.ts';
+import type {
+  JoinedPlayer,
+  MoveBaseline,
+  Outfit,
+  PlayerState,
+  ServerMessage,
+} from '../src/net/protocol.ts';
 import { isPlace } from '../src/net/rules.ts';
 import { nearestFirst } from './nearest.ts';
 
@@ -128,6 +134,8 @@ interface Client {
   nine: readonly number[];
   /** Those it has to be told about: +1 now in view, -1 out of it, or nothing if that cancelled. */
   pending: Map<Client, number>;
+  /** What it last heard of the figures nearest it, each sent as a delta from this. */
+  baselines: Map<number, MoveBaseline>;
   /** When it last moved what it watches (ms). */
   watchedAt: number;
   /** The count of players it last heard. */
@@ -166,6 +174,10 @@ const CAUGHT_UP_BYTES = 8 * 1024;
 const STATS_TICKS = 100;
 /** A client moves what it watches at most this often (ms): each move is a burst of joins. */
 const LOOK_MS = 250;
+/** A baseline nothing has been sent from yet: the first move goes whole. */
+const UNKNOWN: MoveBaseline = { x: Number.NaN, z: Number.NaN, heading: 0, speed: 0 };
+/** More than this and they are all forgotten, for a whole move each next time. */
+const MOST_BASELINES = NEAREST * 4;
 const NOBODY: readonly Client[] = [];
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -250,6 +262,7 @@ export function createWorld(options: WorldOptions = {}): World {
   let lastId = 0;
   let tickCount = 0;
   const selected: Client[] = [];
+  const bases: (MoveBaseline | undefined)[] = [];
   const stats = { ticks: 0, busy: 0, longest: 0, bytes: 0, since: 0 };
   let report: WorldStats = { online: 0, players: 0, tickMs: 0, tickMaxMs: 0, bytesPerSecond: 0 };
 
@@ -369,6 +382,7 @@ export function createWorld(options: WorldOptions = {}): World {
     client.behind = false;
     client.heardOnline = -1;
     client.pending.clear();
+    client.baselines.clear();
     deliver(client, encodeServerMessage({ type: 'welcome', you: client.account ? client.id : 0 }));
     const players: JoinedPlayer[] = [];
     for (const cell of client.nine) {
@@ -385,6 +399,8 @@ export function createWorld(options: WorldOptions = {}): World {
     for (const [player, net] of client.pending) {
       if (net > 0 && player.state && player.account) players.push(joined(player));
       else if (net < 0) ids.push(player.id);
+      // Whether it came or went, nothing it heard before stands.
+      client.baselines.delete(player.id);
     }
     client.pending.clear();
     if (ids.length) deliver(client, encodeServerMessage({ type: 'leaves', ids }));
@@ -396,9 +412,25 @@ export function createWorld(options: WorldOptions = {}): World {
     if (!count) return;
     const cell = client.watching;
     const players = selected.slice(0, count) as { id: number; state: PlayerState }[];
+    // A delta only for those it hears of every tick: for the others (their turn, once a second)
+    // what it last heard is old, and a client watching a crowd would keep hundreds for nothing.
+    if (client.baselines.size > MOST_BASELINES) client.baselines.clear();
+    const near = Math.min(count, NEAREST);
+    bases.length = count;
+    for (let i = 0; i < count; i++) {
+      const { id } = players[i]!;
+      if (i >= near) {
+        client.baselines.delete(id);
+        bases[i] = undefined;
+        continue;
+      }
+      let base = client.baselines.get(id);
+      if (!base) client.baselines.set(id, (base = { ...UNKNOWN }));
+      bases[i] = base;
+    }
     deliver(
       client,
-      encodeServerMessage({ type: 'moves', cx: cellX(cell), cz: cellZ(cell), players }),
+      encodeServerMessage({ type: 'moves', cx: cellX(cell), cz: cellZ(cell), players, bases }),
     );
   };
 
@@ -446,6 +478,7 @@ export function createWorld(options: WorldOptions = {}): World {
         watching: NOWHERE,
         nine: [],
         pending: new Map(),
+        baselines: new Map(),
         watchedAt: Number.NEGATIVE_INFINITY,
         heardOnline: -1,
         wantsDots: false,

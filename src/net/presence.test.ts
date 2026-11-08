@@ -157,6 +157,18 @@ describe('connectPresence', () => {
         { id: 7, state: move }, // nobody it has heard of: dropped
       ],
     });
+    const follow = { x: 0, z: 0, heading: 0, speed: 0, mode: 'foot' as const };
+    const base = { x: Number.NaN, z: Number.NaN, heading: 0, speed: 0 };
+    const encodeMove = (x: number) =>
+      encodeServerMessage({
+        type: 'moves',
+        cx: 0,
+        cz: 0,
+        players: [{ id: 6, state: { ...follow, x, z: 2, heading: 0.5, speed: 1.4 } }],
+        bases: [base],
+      });
+    encodeMove(1); // the whole move it already heard
+    socket().deliver(encodeMove(1.5));
     socket().deliver({ type: 'outfit', id: 6, outfit });
     socket().deliver({ type: 'online', count: 3 });
     socket().deliver({
@@ -174,10 +186,12 @@ describe('connectPresence', () => {
 
     expect(log.welcomes).toEqual([5]);
     expect(log.joins).toEqual([joined]);
-    expect(log.states.length).toBe(2);
+    expect(log.states.length).toBe(3);
     expect(log.states[0]?.[0]).toMatchObject({ id: 6, state: { place: '', floor: 0 } });
     expect(log.states[0]?.[0]?.state.x).toBeCloseTo(1, 1);
-    expect(log.states[1]).toEqual([{ id: 6, state: { ...here, place: 'stadhuis', floor: 1 } }]);
+    expect(log.states[1]?.[0]?.state.x).toBeCloseTo(1.5, 1);
+    expect(log.states[1]?.[0]?.state.heading).toBeCloseTo(0.5, 2);
+    expect(log.states[2]).toEqual([{ id: 6, state: { ...here, place: 'stadhuis', floor: 1 } }]);
     expect(log.outfits).toEqual([[6, outfit]]);
     expect(log.leaves).toEqual([6]);
     expect(log.onlines).toEqual([3]);

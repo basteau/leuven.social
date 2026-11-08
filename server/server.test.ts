@@ -294,9 +294,10 @@ describe('presence', () => {
 
     a.send({ x: 13, mode: 'bike' });
     const moved = await b.next('moves', (m) => m.players.some((p) => p.id === youA));
-    const move = moved.players.find((p) => p.id === youA)?.state;
-    expect(move?.x).toBeCloseTo(13, 1);
-    expect(move?.mode).toBe('bike');
+    const entry = moved.players.find((p) => p.id === youA)!;
+    if ('delta' in entry) throw new Error('its first move should be whole');
+    expect(entry.state.x).toBeCloseTo(13, 1);
+    expect(entry.state.mode).toBe('bike');
 
     // The guest's own states go nowhere.
     guest.send({ x: 99 });

@@ -14,6 +14,16 @@ export const MAX_VIEW_AREA = 2.0e6;
 /** Never nearer than the first view (zoom 1), nor further than this. */
 const FARTHEST = 0.2;
 
+/**
+ * How far from the view's middle (m) cells are worth building ahead: what the farthest view this
+ * window can zoom out to reaches, plus `ring`, so zooming out never waits for a cell and a pan
+ * has built what it comes to. Cells further off are built when the view comes near.
+ */
+export function buildReach(aspect: number, ring: number): number {
+  const height = Math.sqrt(MAX_VIEW_AREA / Math.max(aspect, 0.1));
+  return Math.hypot(height, height * aspect) / 2 + ring;
+}
+
 /** The lowest zoom for a view `aspect` (width over height) wide, `viewHeight` m tall at zoom 1. */
 export function minZoomFor(aspect: number, viewHeight: number): number {
   const height = Math.sqrt(MAX_VIEW_AREA / Math.max(aspect, 0.1));

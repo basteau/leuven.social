@@ -7,9 +7,17 @@ import {
   encodeClientMessage,
   encodeServerMessage,
   isOutfit,
+  moved,
   quantise,
 } from './protocol.ts';
-import type { Outfit, PlayerState, ServerMessage } from './protocol.ts';
+import type {
+  MoveBaseline,
+  MoveDelta,
+  MoveEntry,
+  Outfit,
+  PlayerState,
+  ServerMessage,
+} from './protocol.ts';
 
 const state: PlayerState = {
   x: 12.5,
@@ -35,6 +43,12 @@ function expectNear(got: PlayerState, want: PlayerState): void {
 }
 
 const near = (a: number, b: number, within: number) => expect(Math.abs(a - b)).toBeLessThan(within);
+/** A `moves` entry that says the whole move. */
+const whole = (entry: MoveEntry | undefined) => {
+  if (!entry || 'delta' in entry) throw new Error('not a whole move');
+  return entry.state;
+};
+const fresh = (): MoveBaseline => ({ x: Number.NaN, z: Number.NaN, heading: 0, speed: 0 });
 const leaving = (id: number) => encodeServerMessage({ type: 'leaves', ids: [id] });
 const movedAs = (m: object) =>
   decodeServerMessage(
@@ -124,7 +138,7 @@ describe('server messages', () => {
     if (back?.type !== 'moves') throw new Error('no moves');
     expect([back.cx, back.cz]).toEqual([1, -1]);
     expect(back.players[0]?.id).toBe(300);
-    const got = back.players[0]!.state;
+    const got = whole(back.players[0]);
     near(got.x, move.x, 0.02);
     near(got.z, move.z, 0.02);
     near(got.heading, move.heading, 0.001);
@@ -135,8 +149,86 @@ describe('server messages', () => {
   test('a move keeps its mode and clamps to its frame', () => {
     const clamped = movedAs({ x: 1e6, z: -1e6 });
     if (clamped?.type !== 'moves') throw new Error('no moves');
-    expect(clamped.players[0]?.state).toMatchObject({ x: 700, z: -350, mode: 'foot' });
-    expect(clamped.players[0]?.state.speed).toBeCloseTo(25.4);
+    const move = whole(clamped.players[0]);
+    expect(Math.abs(move.x - 700)).toBeLessThan(0.02);
+    expect(Math.abs(move.z + 350)).toBeLessThan(0.02);
+    expect(move.mode).toBe('foot');
+    expect(move.speed).toBeCloseTo(25.4);
+  });
+
+  describe('deltas', () => {
+    const start = { x: 100, z: 200, heading: 1, speed: 4, mode: 'foot' } as const;
+    const send = (move: object, base: MoveBaseline) =>
+      encodeServerMessage({
+        type: 'moves',
+        cx: 0,
+        cz: 0,
+        players: [{ id: 300, state: move as typeof start }],
+        bases: [base],
+      });
+
+    test('the first move goes whole, the next a delta of 5 bytes', () => {
+      const base = fresh();
+      expect(send(start, base).length).toBe(6 + 9);
+      const next = send({ ...start, x: 100.5, z: 200.25 }, base);
+      expect(next.length).toBe(6 + 5);
+      const back = decodeServerMessage(next);
+      if (back?.type !== 'moves') throw new Error('no moves');
+      const entry = back.players[0]!;
+      if (!('delta' in entry)) throw new Error('no delta');
+      expect(entry.id).toBe(300);
+      expect(Math.abs(entry.delta.dx - 0.5)).toBeLessThan(0.02);
+      expect(Math.abs(entry.delta.dz - 0.25)).toBeLessThan(0.02);
+      expect(entry.delta.heading).toBeUndefined();
+      expect(entry.delta.speed).toBeUndefined();
+    });
+
+    test('a new heading and pace travel along, and only when they change', () => {
+      const base = fresh();
+      send(start, base);
+      const bytes = send({ ...start, x: 100.1, heading: 1.5, speed: 9, mode: 'bike' }, base);
+      expect(bytes.length).toBe(6 + 5 + 2 + 1);
+      const back = decodeServerMessage(bytes);
+      if (back?.type !== 'moves') throw new Error('no moves');
+      const delta = (back.players[0] as { delta: MoveDelta }).delta;
+      near(delta.heading!, 1.5, 0.001);
+      near(delta.speed!, 9, 0.11);
+      expect(delta.mode).toBe('bike');
+      expect(moved(start, delta)).toMatchObject({ mode: 'bike' });
+    });
+
+    test('a step too long for a delta goes whole, and the deltas go on from it', () => {
+      const base = fresh();
+      send(start, base);
+      expect(send({ ...start, x: 110 }, base).length).toBe(6 + 9);
+      expect(send({ ...start, x: 110.5 }, base).length).toBe(6 + 5);
+    });
+
+    test('many deltas add up to where the figure is, to within a step', () => {
+      const base = fresh();
+      let x = 100;
+      let at = whole(
+        (decodeServerMessage(send(start, base)) as { players: MoveEntry[] }).players[0],
+      ).x;
+      for (let i = 0; i < 500; i++) {
+        x += 0.5 + Math.sin(i) * 0.3;
+        const back = decodeServerMessage(send({ ...start, x }, base)) as { players: MoveEntry[] };
+        at = moved({ ...start, x: at }, (back.players[0] as { delta: MoveDelta }).delta).x;
+      }
+      near(at, x, 0.02);
+    });
+
+    test('a delta can’t be asked for, and a frame with bits no entry has is refused', () => {
+      expect(() =>
+        encodeServerMessage({
+          type: 'moves',
+          cx: 0,
+          cz: 0,
+          players: [{ id: 1, delta: { dx: 0, dz: 0 } }],
+        }),
+      ).toThrow(RangeError);
+      expect(decodeServerMessage(new Uint8Array([17, 0, 0, 0, 0, 1, 3, 0, 0, 0xff]))).toBeNull();
+    });
   });
 
   test('a door keeps the whole state', () => {

@@ -76,7 +76,7 @@ One WebSocket per tab, binary frames, codec in `src/net/protocol.ts` (shared by 
 | server → client | `online { count }`          | How many are on the map, once a second when it changed                  |
 | server → client | `dots { players }`          | Everyone on the map, every 2 s while the full map is open               |
 
-A client's own `state` is `x`, `z` (f32 metres east and south of the city's middle, as `City` has them), `heading` (radians, sent to a 65536th of a turn), `speed` (0 to 25.5 m/s in tenths), `mode` (`foot` or `bike`), `place` (a room id, `''` in the street) and `floor`: 14 bytes and the room id. A `moves` entry is 9 bytes: a varint id, `x` and `z` as 16-bit offsets across the 3×3 cells round (`cx`, `cz`) (1.6 cm a step), the heading, and the speed in fifths of a m/s with the mode in its top bit. Ids are per-connection integers, used again once everyone has heard the last holder left; forget them all on `welcome`.
+A client's own `state` is `x`, `z` (f32 metres east and south of the city's middle, as `City` has them), `heading` (radians, sent to a 65536th of a turn), `speed` (0 to 25.5 m/s in tenths), `mode` (`foot` or `bike`), `place` (a room id, `''` in the street) and `floor`: 14 bytes and the room id. A `moves` entry is 9 bytes: a varint id, `x` and `z` as 16-bit offsets across the 3×3 cells round (`cx`, `cz`) (1.6 cm a step), the heading, and the speed in fifths of a m/s with the mode in its top bit. For a figure among the 32 nearest it is a delta after the first: the same id, how far it went in those steps (a byte each way, up to 2 m), and the heading and speed only when they changed, about 5 bytes. The socket is reliable and ordered, so the baseline is simply the last move sent; the server forgets it whenever a client could have missed one (a leave, a join, `welcome` after falling behind, a turn that went whole). Ids are per-connection integers, used again once everyone has heard the last holder left; forget them all on `welcome`.
 
 ### The server (`server/world.ts`)
 
@@ -103,7 +103,7 @@ Real accounts on real sockets, walking at 10 Hz. On the MacBook (M4), 1000 bots:
 | Mean tick (one slice) | not measured                  | 9.8 ms                | 19 ms                 |
 | Server CPU, one core  | 19%                           | 27%                   | 42%                   |
 
-Deltas against an acknowledged baseline, the plan's other way of cutting a moves frame, aren't done: at 4 KB/s a client there's nothing left worth their memory per client and pair.
+The table was measured before delta moves; with them, 3.6 KB/s and 3.5 MB/s across the city, 10.5 KB/s and 10.3 MB/s within 90 m (bots turn on every step, so each delta carries a heading: a person walking straight costs less).
 
 ### The browser (`src/net/presence.ts`)
 

@@ -13,8 +13,8 @@
 import * as WebSockets from '@portable/websockets';
 
 import { cellAt } from './interest.ts';
-import { CLOSE_REPLACED, decodeServerMessage, encodeClientMessage } from './protocol.ts';
-import type { Dot, Outfit, PlayerState, PlayerUpdate } from './protocol.ts';
+import { CLOSE_REPLACED, decodeServerMessage, encodeClientMessage, moved } from './protocol.ts';
+import type { Dot, Move, Outfit, PlayerState, PlayerUpdate } from './protocol.ts';
 import { sendDelay } from './throttle.ts';
 import type { Sent } from './throttle.ts';
 
@@ -96,6 +96,8 @@ export function connectPresence(options: PresenceOptions = {}): Presence {
   let wantsDots = false;
   /** Where each player we hear of is: a move doesn't say, a join or a door does. */
   const places = new Map<number, Pick<PlayerState, 'place' | 'floor'>>();
+  /** Each figure's last move: a delta says how the next differs from it. */
+  const lastMoves = new Map<number, Move>();
 
   const report = (next: PresenceStatus) => {
     if (status === next || status === 'replaced' || status === 'closed') return;
@@ -166,8 +168,8 @@ export function connectPresence(options: PresenceOptions = {}): Presence {
   function pumpView() {
     if (!online || !look) return;
     if (told) {
-      const moved = Math.hypot(look[0] - told[0], look[1] - told[1]) >= VIEW_STEP;
-      if (!moved && cellAt(...look) === cellAt(...told)) return;
+      const far = Math.hypot(look[0] - told[0], look[1] - told[1]) >= VIEW_STEP;
+      if (!far && cellAt(...look) === cellAt(...told)) return;
     }
     const wait = toldAt + VIEW_INTERVAL - now();
     if (wait > 0) {
@@ -186,6 +188,7 @@ export function connectPresence(options: PresenceOptions = {}): Presence {
       case 'welcome':
         you = message.you;
         places.clear();
+        lastMoves.clear();
         options.onWelcome?.(you);
         break;
       case 'joins': {
@@ -195,15 +198,24 @@ export function connectPresence(options: PresenceOptions = {}): Presence {
         break;
       }
       case 'leaves':
-        for (const id of message.ids) places.delete(id);
+        for (const id of message.ids) {
+          places.delete(id);
+          lastMoves.delete(id);
+        }
         options.onLeave?.(message.ids);
         break;
       case 'moves': {
         const updates: PlayerUpdate[] = [];
-        for (const { id, state } of message.players) {
+        for (const entry of message.players) {
+          const { id } = entry;
+          const last = lastMoves.get(id);
+          // The server only sends a delta from a move it sent us, so this is never a guess.
+          const move = 'delta' in entry ? last && moved(last, entry.delta) : entry.state;
+          if (!move) continue;
+          lastMoves.set(id, move);
           const at = places.get(id);
           if (at && id !== you) {
-            updates.push({ id, state: { ...state, place: at.place, floor: at.floor } });
+            updates.push({ id, state: { ...move, place: at.place, floor: at.floor } });
           }
         }
         if (updates.length) options.onStates?.(updates);

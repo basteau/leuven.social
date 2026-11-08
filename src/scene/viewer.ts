@@ -68,7 +68,7 @@ import {
 import type { ShadowSquare } from './shadow-fit.ts';
 import { applyShadowChunks } from './shadow-filter.ts';
 import { SPIN_EASE, spinStep } from './spin.ts';
-import { minZoomFor } from './zoom-limit.ts';
+import { buildReach, minZoomFor } from './zoom-limit.ts';
 import type { Presence } from '../data/presence.ts';
 import { isTap } from './tap.ts';
 import type { Spin } from './spin.ts';
@@ -198,6 +198,8 @@ const ROTATE_MS = 280;
 const OVER_HEAD = 2.7;
 /** Street furniture is made ahead for cells this near the view's middle (m). */
 const FURNISH_REACH = 700;
+/** Beyond what the farthest view reaches, cells are built this far ahead of a pan (m). */
+const BUILD_RING = 500;
 /** The street sign looks the name up again once the avatar has moved this far (m). */
 const STREET_STEP = 1;
 interface CellEntry {
@@ -826,6 +828,12 @@ export function createViewer(options: ViewerOptions): Viewer {
    * only for cells near the view; further ones get it when the view comes near (`prepare`).
    * That keeps what a visit that never zooms in holds on the GPU to a third less.
    */
+  /** Whether a cell not built yet is worth building while idle: a view could need it soon. */
+  const wantsBuilding = (entry: CellEntry) =>
+    !entry.objects.length &&
+    (entry.box.distanceToPoint(controls.target) < buildReach(buffer.x / buffer.y, BUILD_RING) ||
+      shadowFrustum.intersectsBox(entry.box));
+
   const wantsFurniture = (entry: CellEntry) =>
     !entry.furniture && entry.box.distanceToPoint(controls.target) < FURNISH_REACH;
 
@@ -838,7 +846,7 @@ export function createViewer(options: ViewerOptions): Viewer {
       a.box.distanceToPoint(t) - b.box.distanceToPoint(t);
     // The cells first, then the furniture of those within reach of the view, nearest first.
     const waiting = [
-      ...cells.filter((entry) => !entry.objects.length).toSorted(near),
+      ...cells.filter(wantsBuilding).toSorted(near),
       ...cells.filter(wantsFurniture).toSorted(near),
     ];
     const start = performance.now();
@@ -872,8 +880,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     // What the cells hand the GPU, for the smoke test, whether or not a frame is drawn.
     publish({ vertices: held.vertices, geometryBytes: held.bytes });
     // Cells left to furnish wait for the chunk, which picks the work up again when it arrives.
-    const unbuilt = cells.some((e) => !e.objects.length);
-    if (unbuilt || (furnishing && cells.some(wantsFurniture))) {
+    if (cells.some(wantsBuilding) || (furnishing && cells.some(wantsFurniture))) {
       idleHandle = idle(buildInBackground);
     }
   }
@@ -1119,9 +1126,9 @@ export function createViewer(options: ViewerOptions): Viewer {
     invalidate();
     furnishAhead();
   }
-  /** The view moved: the furniture round its new place is made ahead, when idle. */
+  /** The view moved: the cells and furniture round its new place are made ahead, when idle. */
   function furnishAhead(): void {
-    if (furnishing && !idleHandle) idleHandle = idle(buildInBackground);
+    if (cells.length && !idleHandle) idleHandle = idle(buildInBackground);
   }
 
   let spin = 0;
