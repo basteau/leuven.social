@@ -10,7 +10,7 @@ import {
   planRoof,
 } from './buildings.ts';
 import { LANDMARK_MODELS } from './landmark-models.ts';
-import { LANCETS, ORNATE, shopFront, ROOF_FLAT, pitchedRoof } from './facade-codes.ts';
+import { LANCETS, ORNATE, shopFront, ROOF_FLAT, WALL_PLAIN, pitchedRoof } from './facade-codes.ts';
 import { Terrain } from '../data/terrain.ts';
 import { LIFT_UNIT, LineBuilder, MeshBuilder, unindexed } from './mesh-builder.ts';
 import { pick } from './palette.ts';
@@ -158,7 +158,9 @@ describe('buildingsGeometry', () => {
     const facade = buildingsGeometry([building({})]).surfaces.getAttribute('facade');
     const values = new Set(Array.from({ length: facade.count }, (_, i) => facade.getX(i)));
     const ridge = plan.type === 'gable' ? plan.ridge : plan.eave;
-    expect(values).toEqual(new Set([Math.fround(plan.eave), 0, Math.fround(pitchedRoof(ridge))]));
+    for (const code of [Math.fround(plan.eave), WALL_PLAIN, Math.fround(pitchedRoof(ridge))]) {
+      expect(values).toContain(code);
+    }
   });
 
   test('a shop front marks the walls that face its street with its kind; the back stays plain', () => {
@@ -167,20 +169,24 @@ describe('buildingsGeometry', () => {
     const g = buildingsGeometry([b]).surfaces;
     const [facade, position] = [g.getAttribute('facade'), g.getAttribute('position')];
     const bakery = shopFront(5, 10);
-    expect(facades(b)).toEqual(new Set([bakery, 10, ROOF_FLAT]));
+    expect(facades(b)).toEqual(new Set([bakery, 10, ROOF_FLAT + 0.5]));
     // Only the wall along z = 0, whose normal is the front's, carries it.
     for (let i = 0; i < facade.count; i++) {
       if (facade.getX(i) === bakery) expect(position.getZ(i)).toBe(0);
     }
     // A building tagged retail with no shop mapped in it has plain windows.
-    expect(facades(building({ kind: 'retail', roof: 'flat' }))).toEqual(new Set([10, ROOF_FLAT]));
+    expect(facades(building({ kind: 'retail', roof: 'flat' }))).toEqual(
+      new Set([10, ROOF_FLAT + 0.5]),
+    );
   });
 
   test('churches mark their walls for lancets; sheds get no windows', () => {
     expect(facades(building({ kind: 'church', roof: 'flat' }))).toEqual(
-      new Set([10 + LANCETS, ROOF_FLAT]),
+      new Set([10 + LANCETS, ROOF_FLAT + 0.5]),
     );
-    expect(facades(building({ kind: 'shed', roof: 'flat' }))).toEqual(new Set([0, ROOF_FLAT]));
+    expect(facades(building({ kind: 'shed', roof: 'flat' }))).toEqual(
+      new Set([WALL_PLAIN, ROOF_FLAT + 0.5]),
+    );
   });
 
   test('a church tower stands square to its footprint and spires up to its tip', () => {

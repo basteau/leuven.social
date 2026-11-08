@@ -150,14 +150,39 @@ export function addTree(
   }
 }
 
-/** The puffs of leaves a tree's crown is drawn with up close, and how many: bigger trees have more. */
+/** The puffs of leaves a tree is drawn with, at every zoom: how few and many, and numbers a puff. */
 export const PUFF = { min: 8, max: 18, stride: 4 } as const;
 
+/** Lightness and hue a tree in its autumn colours takes, one in about ten. */
+const AUTUMN = toOklab(TREE.autumn);
+const AUTUMN_SHARE = 0.06;
+
 /**
- * Puffs round a crown, up close (`createPuffMaterial`): at (x, y, z) a radius each (four numbers
- * a puff) and its colour (three bytes and a pad): on a shell of points spread round the crown, more
- * on top than under it, the ones under it darker and each its own shade, in place of the faceted
- * ball that stands for the tree from afar. Written into `into` and `colors`.
+ * The shape a tree grows into, by its seed and height: most round, some spreading, a tall one here
+ * and there a column (a poplar), a few conifers, in layers. Each only moves the puffs.
+ */
+function habit(seed: number, height: number): 'round' | 'spreading' | 'column' | 'conifer' {
+  const roll = pick(UNITS, seed * 19 + 3) / UNITS.length;
+  if (roll < 0.1) return 'conifer';
+  if (roll < 0.22 && height >= 12) return 'column';
+  return roll < 0.45 ? 'spreading' : 'round';
+}
+
+/**
+ * A colour a little lighter or darker, yellower or bluer by `tint` (from -0.5 to 0.5): each puff
+ * its own shade, at the price of a few multiplications, as a city has a hundred thousand puffs.
+ */
+function shaded(color: number, light: number, tint: number): number {
+  const channel = (shift: number, k: number) =>
+    Math.min(255, Math.round(((color >> shift) & 255) * light * k));
+  return (channel(16, 1 + tint * 0.05) << 16) | (channel(8, 1) << 8) | channel(0, 1 - tint * 0.08);
+}
+
+/**
+ * A tree as drawn (`createPuffMaterial`): balls of leaves on a shell round its crown, more on top
+ * than under it, in its own green, a dark ball inside so what shows between them is shade. Four
+ * numbers a puff in `into`, x, y, z and its radius, and four bytes of colour in `colors`. The
+ * faceted crown is only its shadow and what a tap hits (`CROWN`).
  */
 export function addPuffs(
   into: number[],
@@ -169,34 +194,46 @@ export function addPuffs(
   height = 0,
 ): void {
   const { scale, wide } = treeSize(seed, height);
-  const [h, across] = [CROWN_RADIUS * scale, CROWN_RADIUS * wide];
+  const grown = height || scale * MODEL_HEIGHT;
+  const shape = habit(seed, grown);
+  const [h, across] = [
+    CROWN_RADIUS * scale * (shape === 'column' ? 1.35 : shape === 'spreading' ? 0.82 : 1),
+    CROWN_RADIUS * wide * (shape === 'column' ? 0.55 : shape === 'spreading' ? 1.18 : 1),
+  ];
   const count = Math.round(Math.min(PUFF.max, Math.max(PUFF.min, 6 + across * 1.1)));
-  const [cy, r] = [ground + CROWN_Y * scale, across * 0.5];
-  const base = toOklab(crownColor(seed, height || scale * MODEL_HEIGHT));
+  const [cy, r] = [ground + CROWN_Y * scale, across * (shape === 'column' ? 0.62 : 0.5)];
   const unit = (salt: number) => pick(UNITS, seed * 7 + salt) / (UNITS.length - 1);
-  const turn = unit(11) * Math.PI * 2;
+  // A conifer stays dark and blue; one in sixteen of the others has turned.
+  const own = toOklab(crownColor(seed, grown));
+  const autumn = shape !== 'conifer' && unit(71) < AUTUMN_SHARE;
+  const base: [number, number, number] =
+    shape === 'conifer'
+      ? [own[0] - 0.07, own[1] * 0.9 - 0.012, own[2] * 0.72]
+      : autumn
+        ? [AUTUMN[0] + (unit(72) - 0.5) * 0.05, AUTUMN[1], AUTUMN[2] + (unit(73) - 0.5) * 0.03]
+        : own;
+  const leaf = fromOklab(base);
+  const push = (px: number, py: number, pz: number, radius: number, c: number) => {
+    into.push(px, py, pz, radius);
+    colors.push(c >> 16, (c >> 8) & 255, c & 255, 255);
+  };
   // A dark ball inside, so what shows between the puffs is the shade under the leaves.
-  into.push(x, cy, z, across * 0.72);
-  const core = fromOklab([base[0] - 0.13, base[1] * 0.85, base[2] * 0.85]);
-  colors.push(core >> 16, (core >> 8) & 255, core & 255, 255);
+  push(x, cy, z, across * 0.72, fromOklab([base[0] - 0.13, base[1] * 0.85, base[2] * 0.85]));
+  const turn = unit(11) * Math.PI * 2;
   for (let i = 0; i < count; i++) {
-    // Down a spiral from the top, to a little under the middle.
+    // Down a spiral from the top, to a little under the middle; a conifer in shrinking tiers.
     const t = (i + 0.5) / count;
     const up = 1 - 1.4 * t;
-    const round = Math.sqrt(Math.max(0, 1 - up * up));
+    const round = shape === 'conifer' ? 0.25 + t * 0.75 : Math.sqrt(Math.max(0, 1 - up * up));
     const angle = turn + i * 2.39996;
     const wobble = 0.86 + 0.28 * unit(i + 20);
-    into.push(
-      x + Math.cos(angle) * round * across * 0.68 * wobble,
-      cy + up * h * 0.74,
-      z + Math.sin(angle) * round * across * 0.68 * wobble,
-      r * (0.76 + 0.3 * unit(i + 40)),
+    const spread = shape === 'conifer' ? 0.62 : 0.68;
+    push(
+      x + Math.cos(angle) * round * across * spread * wobble,
+      cy + up * h * (shape === 'conifer' ? 1.05 : 0.74),
+      z + Math.sin(angle) * round * across * spread * wobble,
+      r * (0.76 + 0.3 * unit(i + 40)) * (shape === 'conifer' ? 0.5 + t * 0.55 : 1),
+      shaded(leaf, 1 + (up - 0.2) * 0.1 + (unit(i + 60) - 0.5) * 0.1, unit(i + 80) - 0.5),
     );
-    const c = fromOklab([
-      base[0] + (up - 0.2) * 0.05 + (unit(i + 60) - 0.5) * 0.05,
-      base[1] + (unit(i + 80) - 0.5) * 0.012,
-      base[2] + (unit(i + 90) - 0.5) * 0.02,
-    ]);
-    colors.push(c >> 16, (c >> 8) & 255, c & 255, 255);
   }
 }

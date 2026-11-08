@@ -57,7 +57,9 @@ const BUDGETS: {
     // 177.5: the look of the city, asked for (3.7 KB): roofs in courses, painted grass, water,
     // windows with bars and curtains, floodlit churches, light baked over the streets and leaves
     // in puffs, all in the one material's shader rather than in geometry to download.
-    limit: 177.5 * KB,
+    // 179.5: puffs at every zoom in place of the faceted crowns, shapes of tree, shrubs and flower
+    // beds, brick and stone in the walls, roof furniture (1.6 KB), asked for.
+    limit: 179.5 * KB,
     gzip: true,
   },
   // 3.5: just above 3.1 KB. 3.75: the minimap, the other players' name tags and who you are in
@@ -180,7 +182,8 @@ const BUDGETS: {
     // 13.75: bikes with open spoked wheels and mudguards, hoops and roofs for the racks, a lantern
     // on a slim post, a public place's door, medallion and flag, the dark at the foot of the walls
     // and the baked light (2.4 KB), asked for.
-    limit: 13.75 * KB,
+    // 14: the banks of the water (0.1 KB).
+    limit: 14 * KB,
     gzip: true,
   },
   // The rooms inside the landmarks, authored by hand, fetched near one.
@@ -206,7 +209,8 @@ const BUDGETS: {
     pattern: 'assets/{index,viewer}-*.js',
     // 260: the engine's and the shell's additions above (1 KB). 260.5: dynamic resolution (0.4 KB).
     // 264.75: the look of the city (3.9 KB), asked for; the engine's own note says what.
-    limit: 264.75 * KB,
+    // 267: the engine's addition above.
+    limit: 267 * KB,
     gzip: true,
     closure: true,
   },

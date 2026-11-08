@@ -10,7 +10,8 @@
  *   (src/data/shop-kinds.ts): a glazed ground floor under the kind's awning or fascia.
  * - AWNING + kind: the canvas of a shop's awning (storefronts.ts), striped as its kind is.
  * - ROOF + 100 + the ridge's height in the world: a pitched roof, tiled or slated in its rows.
- * - ROOF_FLAT: a flat roof's gravel and bitumen.
+ * - ROOF_FLAT + a fraction: a flat roof, the fraction how its building is turned (of half a turn).
+ * - WALL_PLAIN: a wall with no windows: a gable, a shed, a tower.
  * - PANE: a window on a roof: glass by day, and at night a lit room in about two of three.
  * - CROWN: a tree's crown, which the puffs of leaves (tree-puffs.ts) cover up close.
  *
@@ -25,6 +26,7 @@ export const AWNING = 3000;
 export const ROOF = 5000;
 export const ROOF_FLAT = 5600;
 export const CROWN = 5700;
+export const WALL_PLAIN = 5750;
 export const PANE = 5800;
 
 /** A wall `top` metres high over a shop front of the kind at `kind` in SHOP_KINDS. */
@@ -32,3 +34,9 @@ export const shopFront = (kind: number, top: number): number => SHOP_FRONT + 100
 
 /** A pitched roof whose ridge stands at `ridge` metres in the world (the shader counts rows from it). */
 export const pitchedRoof = (ridge: number): number => ROOF + 100 + ridge;
+
+/** A flat roof over a building turned `angle` radians from the x axis, its furniture square to it. */
+export function flatRoof(angle: number): number {
+  const half = (((angle / Math.PI) % 1) + 1) % 1;
+  return ROOF_FLAT + Math.min(half, 0.999);
+}

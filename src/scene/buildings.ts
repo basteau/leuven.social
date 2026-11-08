@@ -8,7 +8,15 @@ import { straightSkeleton } from '../data/skeleton.ts';
 import type { Skeleton } from '../data/skeleton.ts';
 import { LANDMARK_MODELS } from './landmark-models.ts';
 import { SHOP_KINDS } from '../data/shop-kinds.ts';
-import { LANCETS, ORNATE, PANE, ROOF_FLAT, pitchedRoof, shopFront } from './facade-codes.ts';
+import {
+  LANCETS,
+  ORNATE,
+  PANE,
+  WALL_PLAIN,
+  flatRoof,
+  pitchedRoof,
+  shopFront,
+} from './facade-codes.ts';
 import { addLandmark, addTower } from './landmarks.ts';
 import type { Terrain } from '../data/terrain.ts';
 import { LIFT_UNIT, LineBuilder, MeshBuilder } from './mesh-builder.ts';
@@ -220,6 +228,7 @@ function hipRoof(
   const slopeColor = roofColor(b.roofColor, false, b.id);
   const topColor = roofColor(b.roofColor, true, b.id);
   const tiles = pitchedRoof(mesh.lift + ridge);
+  const plateau = flatRoof(Math.atan2(orientedRect(b.ring).uz, orientedRect(b.ring).ux));
   for (const face of skeleton.faces) {
     const [ax, az, , bx, bz] = face.points;
     const len = Math.hypot(bx! - ax!, bz! - az!) || 1;
@@ -227,7 +236,7 @@ function hipRoof(
     const hint: V3 = [(bz! - az!) / len, 1, -(bx! - ax!) / len];
     const { below, above, cuts } = cutAt(face.points, cap);
     if (below.length) addPolygon(mesh, below, y, slopeColor, hint, tiles);
-    if (above.length) addPolygon(mesh, above, y, topColor, [0, 1, 0], ROOF_FLAT);
+    if (above.length) addPolygon(mesh, above, y, topColor, [0, 1, 0], plateau);
     for (const [x0, z0, x1, z1] of cuts) lines.segment([x0!, ridge, z0!], [x1!, ridge, z1!]);
   }
   for (const [x0, z0, t0, x1, z1, t1] of skeleton.arcs) {
@@ -274,6 +283,7 @@ function steppedGable(
         at(end, q0, top),
         wall,
         out,
+        WALL_PLAIN,
       );
       mesh.quad(
         at(back, q0, eave),
@@ -282,6 +292,7 @@ function steppedGable(
         at(back, q0, top),
         wall,
         inward,
+        WALL_PLAIN,
       );
       lines.segment(at(end, q0, below), at(end, q0, top));
       lines.segment(at(end, q0, top), at(end, q1, top));
@@ -535,7 +546,13 @@ export function addBuilding(
   // Sheds get no windows, churches lancets: the window grid would make an office block of them.
   const windows = landmark?.windows ?? (b.kind === 'church' ? 'lancet' : b.kind !== 'shed');
   const facade =
-    windows === 'lancet' ? top + LANCETS : windows === 'ornate' ? top + ORNATE : windows ? top : 0;
+    windows === 'lancet'
+      ? top + LANCETS
+      : windows === 'ornate'
+        ? top + ORNATE
+        : windows
+          ? top
+          : WALL_PLAIN;
   addWalls(mesh, ink, ring, top, wall, windows === true ? frontWalls(b, top) : facade, walls, base);
   for (const r of holes) addWalls(mesh, ink, r, top, wall, facade, walls, base);
   if (cut !== undefined) return;
@@ -556,7 +573,7 @@ export function addBuilding(
       ShapeUtils.triangulateShape(contour, courtyards),
       roof,
       [0, 1, 0],
-      ROOF_FLAT,
+      flatRoof(Math.atan2(orientedRect(b.ring).uz, orientedRect(b.ring).ux)),
     );
     if (landmark) addLandmark(mesh, lines, ring, landmark);
     return;
@@ -593,7 +610,26 @@ export function addBuilding(
       steppedGable(mesh, ink, at, end, out, plan, wall);
       continue;
     }
-    mesh.triangle(at(end, -W, eave), at(end, W, eave), at(end, 0, ridge), wall, out);
+    mesh.triangle(at(end, -W, eave), at(end, W, eave), at(end, 0, ridge), wall, out, WALL_PLAIN);
+    if (
+      b.tier !== 'fringe' &&
+      ridge - eave >= ATTIC.rise &&
+      W >= ATTIC.wide &&
+      pick([0, 1], b.id * 43 + end)
+    ) {
+      // A small window in the gable, a hair out of the wall, up where the attic is.
+      const y = eave + (ridge - eave) * 0.42;
+      const h = end + Math.sign(end) * 0.02;
+      mesh.quad(
+        at(h, -ATTIC.half, y - ATTIC.half),
+        at(h, ATTIC.half, y - ATTIC.half),
+        at(h, ATTIC.half, y + ATTIC.half),
+        at(h, -ATTIC.half, y + ATTIC.half),
+        WINDOW.glass,
+        out,
+        PANE,
+      );
+    }
     ink.segment(at(end, W, eave), at(end, 0, ridge));
     ink.segment(at(end, -W, eave), at(end, 0, ridge));
   }
@@ -601,6 +637,9 @@ export function addBuilding(
     roofDetails(mesh, ink, at, plan, b, wall, roof);
   }
 }
+
+/** A window in a gable: how much roof and how wide a house it needs (m), and its half size. */
+const ATTIC = { rise: 2.2, wide: 2.6, half: 0.4 } as const;
 
 /** Chimney stacks: a half-metre box, this far out of the ridge and this far from a gable end. */
 const STACK = { half: 0.28, rise: 0.8, sink: 0.4, inset: 1.1 } as const;

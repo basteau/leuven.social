@@ -106,3 +106,25 @@ test('up close a crown is puffs of leaves: a dark ball inside, more on a bigger 
   expect(puffs(5, 7).spots).toEqual(small.spots);
   expect(puffs(6, 7).spots).not.toEqual(small.spots);
 });
+
+const shape = (seed: number) => {
+  const [spots, colors]: [number[], number[]] = [[], []];
+  addPuffs(spots, colors, 0, 0, 0, seed, 18);
+  let [wide, high] = [0, 0];
+  for (let i = 1; i < spots.length / 4; i++) {
+    wide = Math.max(wide, Math.hypot(spots[i * 4]!, spots[i * 4 + 2]!));
+    high = Math.max(high, spots[i * 4 + 1]!);
+  }
+  const n = colors.length / 4 - 1;
+  const hue = colors[4]! - colors[5]!; // red over green in the first leaves
+  return { ratio: high / wide, hue, n };
+};
+
+test('trees grow into different shapes, and a few have turned', () => {
+  const trees = Array.from({ length: 200 }, (_, seed) => shape(seed));
+  const ratios = trees.map((t) => t.ratio);
+  expect(Math.max(...ratios) / Math.min(...ratios)).toBeGreaterThan(1.6);
+  // Most are green; some have turned to the warm side.
+  expect(trees.filter((t) => t.hue > 0).length).toBeGreaterThan(1);
+  expect(trees.filter((t) => t.hue > 0).length).toBeLessThan(60);
+});

@@ -29,12 +29,13 @@ const BIN = Bun.fileURLToPath(new URL('../node_modules/.bin/', import.meta.url))
  * outlines); a frame that redraws the shadow map adds one per casting cell, or draws the shadow
  * map alone when both wouldn't fit (`FRAME_CALLS` and `FRAME_TRIANGLES` in viewer.ts).
  */
+// 170 calls: the puffs of leaves are one instanced call a cell at every zoom (158 at the worst).
 // 160 calls: at night every lit cell in view adds a glow call, 150 in all zoomed out. Calls are
 // cheap here (one program for the city, one for the glow), so the triangles are what the cap
 // watches. The roofs' chimneys and dormers took the zoomed-out view from 582k to 637k.
 // 1.15M was the traffic's room, zoomed out (about 923k without it); the other players' figures
 // (two calls and about 1,300 triangles each) take what it left.
-const MAX_DRAW_CALLS = 160;
+const MAX_DRAW_CALLS = 170;
 const MAX_TRIANGLES = 1_150_000;
 /**
  * What the whole city hands the GPU once every cell is built: 2.40M vertices and 57.7 MB since
@@ -52,11 +53,12 @@ const MAX_TRIANGLES = 1_150_000;
 // 72.1 MB to 3.25M and 77.9. 3.4M and 82 MB: a symbol sign for every trade and the public
 // places' banners, flags and marquees, asked for so the city reads without words, 108k
 // vertices more (3.35M, 80.2 MB).
-// 3.95M and 98 MB: bikes with open spoked wheels and mudguards (318 vertices where they were 167),
+// 4.05M and 103 MB: the banks of the water, a window in the gables and the walls' codes, measured
+// 4.01M and 101.4 MB. 3.95M and 98 MB: bikes with open spoked wheels and mudguards (318 vertices where they were 167),
 // hoops, racks' roofs and the dark at the foot of the walls, asked for so the streets read up
 // close, 3.91M and 96.9 MB (the lamps' pools, gone to the baked light, gave a little back).
-const MAX_VERTICES = 3_950_000;
-const MAX_GEOMETRY_MB = 98;
+const MAX_VERTICES = 4_050_000;
+const MAX_GEOMETRY_MB = 103;
 /**
  * The longest the main thread may be busy at once while the page loads (ms). About 60 on a
  * laptop since the roofs are planned lazily and the cells casting into the first frame are built

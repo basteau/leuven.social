@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { BufferGeometry } from 'three';
 
-import { LANCETS, PANE, ROOF_FLAT } from './facade-codes.ts';
+import { LANCETS, PANE, ROOF_FLAT, WALL_PLAIN } from './facade-codes.ts';
 import { addLandmark } from './landmarks.ts';
 import type { LandmarkModel, Part } from './landmarks.ts';
 import { LineBuilder, MeshBuilder, unindexed } from './mesh-builder.ts';
@@ -97,7 +97,7 @@ describe('halls', () => {
     const facade = (windows: LandmarkModel['windows']) =>
       new Set(Array.from(build(model([hall], { windows })).surfaces.getAttribute('facade').array));
     expect(facade(true)).toEqual(new Set([9, ROOF_FLAT]));
-    expect(facade(false)).toEqual(new Set([0, ROOF_FLAT]));
+    expect(facade(false)).toEqual(new Set([WALL_PLAIN, ROOF_FLAT]));
     // A church's halls all get lancets, whatever each one says.
     expect(facade('lancet')).toEqual(new Set([9 + LANCETS, ROOF_FLAT]));
   });

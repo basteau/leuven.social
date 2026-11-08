@@ -30,6 +30,7 @@ import type { StreetIndex } from '../data/streets.ts';
 import { Terrain } from '../data/terrain.ts';
 import { addBuilding, footing, partyWalls, wallTop } from './buildings.ts';
 import { AWNING } from './facade-codes.ts';
+import { addGarden } from './gardens.ts';
 import { PUFF, addPuffs } from './trees.ts';
 import type { PartyWalls } from './buildings.ts';
 import { buildCell, groundRange, partition } from './cells.ts';
@@ -42,7 +43,6 @@ import {
   createContactMaterial,
   createPuffMaterial,
   lampLight,
-  setCrowns,
   setLightField,
   setNight,
   setPixelSize,
@@ -263,11 +263,13 @@ const SHADOW_COARSER = 2;
 const VIEW_LAYER = 1 << 0;
 const SHADOW_LAYER = 1 << 1;
 const LIGHTS_ONLY = 1 << 2;
+/** What the view draws: the cells' own layer and the puffs of leaves (`PUFF_LAYER`). */
+const VIEW_MASK = VIEW_LAYER | (1 << PUFF_LAYER);
 /**
  * What one frame may draw, as `scripts/smoke.ts` checks it. A shadow redraw that would take its
  * frame past this gets a frame of its own, and the view follows on the next.
  */
-const FRAME_CALLS = 160;
+const FRAME_CALLS = 170;
 const FRAME_TRIANGLES = 1_150_000;
 /** Frames a second the map draws while the day passes (a little under). */
 const LIVE_FPS = 32;
@@ -347,11 +349,14 @@ export function createViewer(options: ViewerOptions): Viewer {
   // A mesh without a `facade` attribute (street furniture) reads 0: a plain surface.
   Object.assign(material, { defaultAttributeValues: { facade: [0], lift: [0] } });
   const ink = new LineBasicMaterial({ color: OUTLINE });
+  // Towards the sun, for where the puffs of leaves look up their shadow.
+  const sunward = { value: new Vector3(0, 1, 0) };
   const puffMaterial = createPuffMaterial(
     gradientMap,
     lampField,
     material.userData.pixel as { value: number },
     1 / (CAMERA_DISTANCE * 2 - 1),
+    sunward,
   );
   // The lanterns, lit at night.
   const lamps = lampField.on;
@@ -430,6 +435,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     scene.add(surfaces, outlines, casters);
     // Built again (a lost GPU context) while a room is open in it: open again.
     if (hidden && landmarks.has(hidden.id)) hideRange(entry, hidden.id, true);
+    entry.puffs = puffMesh(entry.cell);
     if (propsShown) furnish(entry);
   }
 
@@ -586,7 +592,6 @@ export function createViewer(options: ViewerOptions): Viewer {
     entry.glow = glow && furnitureMesh(glow, true, glowMaterial);
     entry.contact = furnitureMesh(contact, true, contactMaterial);
     entry.tall = tall && furnitureMesh(tall);
-    entry.puffs = puffMesh(entry.cell);
     if (entry.tall) {
       entry.box.union(entry.tall.geometry.boundingBox!);
       renderer.shadowMap.needsUpdate = true;
@@ -594,13 +599,15 @@ export function createViewer(options: ViewerOptions): Viewer {
   }
 
   /** One quad, turned to the camera in the shader, for every puff of leaves (`addPuffs`). */
-  function puffMesh({ trees }: Cell): Mesh | null {
-    if (!trees.length) return null;
+  function puffMesh(cell: Cell): Mesh | null {
+    const { trees } = cell;
     const [spots, colors]: [number[], number[]] = [[], []];
     for (let i = 0; i < trees.length; i += 4) {
       const [x, z, seed, height] = [trees[i]!, trees[i + 1]!, trees[i + 2]!, trees[i + 3]!];
       addPuffs(spots, colors, x, terrain.height(x, z), z, seed, height);
     }
+    addGarden(spots, colors, cell, terrain);
+    if (!spots.length) return null;
     const geometry = new InstancedBufferGeometry();
     geometry.setAttribute(
       'position',
@@ -783,7 +790,6 @@ export function createViewer(options: ViewerOptions): Viewer {
     need.half += Math.min(SHADOW_REACH, span / 4);
     detail = detailAt(span);
     propsShown = detail.furniture;
-    setCrowns(material, propsShown);
     const refit = !shadow || !shadowCovers(shadow, need, SHADOW_COARSER);
     if (refit) fitShadowTo(need);
     const [dx, dy] = [need.x - shadow!.x, need.y - shadow!.y];
@@ -870,15 +876,15 @@ export function createViewer(options: ViewerOptions): Viewer {
         if (contact.visible) draw(contact);
       }
       if (puffs) {
-        puffs.visible = inView && propsShown;
+        puffs.visible = inView;
         if (puffs.visible) {
           calls++;
           triangles += (puffs.geometry as InstancedBufferGeometry).instanceCount * 2;
         }
       }
-      // At night the lamps' light shows at every zoom, as what reads of a city from above.
+      // Lanterns only up close: from afar the light they throw (the baked field) says it all.
       if (glow) {
-        glow.visible = inView && daylight.night > LAMPS_ON;
+        glow.visible = inView && propsShown && daylight.night > LAMPS_ON;
         if (glow.visible) draw(glow);
       }
       if (tall) {
@@ -1025,7 +1031,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     const alone = shadowPass && !together;
     if (alone) [camera.layers.mask, renderer.autoClear] = [LIGHTS_ONLY, false];
     renderer.render(scene, camera);
-    if (alone) [camera.layers.mask, renderer.autoClear] = [VIEW_LAYER, true];
+    if (alone) [camera.layers.mask, renderer.autoClear] = [VIEW_MASK, true];
     // The cost of this very frame and the most any frame cost, for the smoke test and anyone
     // debugging, with what the GPU holds. Frames that redraw the static shadow map (on load, and
     // when the view leaves its square) cost more.
@@ -1372,6 +1378,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     if (step !== sunHour) {
       sunHour = step;
       light = lightFrame(daylightAt(step).sunDirection);
+      sunward.value.set(...daylightAt(step).sunDirection);
       [nearest, farthest] = depthRange(light, cityCorners);
       shadow = undefined; // fitted again, to the new sun, before the next frame
       renderer.shadowMap.needsUpdate = true;
@@ -1530,6 +1537,7 @@ export function createViewer(options: ViewerOptions): Viewer {
         m?.dispose();
       });
       gradientMap.dispose();
+      lampField.map.value.dispose();
       renderer.dispose();
     },
   };

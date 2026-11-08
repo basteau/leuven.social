@@ -10,7 +10,7 @@ import { pointInRing } from '../data/geometry.ts';
 import { propFootprint } from '../data/props.ts';
 import type { Terrain } from '../data/terrain.ts';
 import type { Cell } from './cells.ts';
-import { addContacts } from './contact.ts';
+import { addContacts, addShores } from './contact.ts';
 import { drawnGround } from './drawn-ground.ts';
 import { bakeLight } from './lamp-light.ts';
 import type { LayerHeights } from './ground.ts';
@@ -100,6 +100,8 @@ export function buildFurniture(cell: Cell, kit: FurnitureKit): Furniture {
     cell.props.filter((p) => p.kind === 'bikes'),
     terrain.height.bind(terrain),
   );
+  near.lift = 0;
+  addShores(contact, near, cell.ground.water, cell.bounds, terrain.height.bind(terrain));
   return { near, bikes: new Float32Array(bikes), awnings, contact, tall, glow };
 }
 

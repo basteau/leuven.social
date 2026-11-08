@@ -1,6 +1,6 @@
 import type { Tower } from '../data/city.ts';
 import { orientedRect } from '../data/geometry.ts';
-import { LANCETS, ORNATE, PANE, ROOF_FLAT, pitchedRoof } from './facade-codes.ts';
+import { LANCETS, ORNATE, PANE, ROOF_FLAT, WALL_PLAIN, pitchedRoof } from './facade-codes.ts';
 import type { LineBuilder, MeshBuilder, V3 } from './mesh-builder.ts';
 import { WINDOW } from './palette.ts';
 
@@ -95,7 +95,7 @@ function addHall(mesh: MeshBuilder, lines: LineBuilder, f: Frame, h: Hall, m: La
         ? eave + ORNATE
         : h.windows && m.windows
           ? eave
-          : 0;
+          : WALL_PLAIN;
   const corners = [
     [-L, -W],
     [L, -W],
@@ -199,7 +199,15 @@ function addSpire(
     const [bu, bv] = ring[(k + 1) % s.sides]!;
     const a = point(f, au, av, s.top);
     const b = point(f, bu, bv, s.top);
-    mesh.quad(point(f, au, av, from), point(f, bu, bv, from), b, a, wall, outward(a, b, 0));
+    mesh.quad(
+      point(f, au, av, from),
+      point(f, bu, bv, from),
+      b,
+      a,
+      wall,
+      outward(a, b, 0),
+      WALL_PLAIN,
+    );
     if (s.tip > s.top) {
       mesh.triangle(a, b, apex, roof, outward(a, b, s.radius), pitchedRoof(mesh.lift + s.tip));
     } else mesh.triangle(a, b, apex, roof, [0, 1, 0]);

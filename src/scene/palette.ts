@@ -250,6 +250,14 @@ export const TREE = {
   age: 0.05,
   /** A cherry or a magnolia in flower, now and then among the smaller trees. */
   blossom: 0xeba3bb,
+  /** One tree in about sixteen has turned. */
+  autumn: 0xb5943f,
+} as const;
+
+/** What grows between the trees in a park: dark and lighter shrubs, and beds of flowers. */
+export const GARDEN = {
+  shrubs: [0x4f7e3c, 0x3d6a39, 0x5d8a42, 0x466f46],
+  flowers: [0xe0567a, 0xf2cf5b, 0xf6eedc, 0xd2453f, 0xb57ad0],
 } as const;
 
 /**
