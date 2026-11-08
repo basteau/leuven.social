@@ -50,8 +50,10 @@ test('every kind stands on the ground at its place, a few dozen triangles at mos
   for (const kind of PROP_KINDS) {
     const { triangles, box } = built(prop(kind, kind === 'bikes' ? { size: 6, fill: 1 } : {}));
     expect(triangles).toBeGreaterThan(0);
-    // A group is a plinth and three figures; a statue a plinth and one; a rack its rail and bikes.
-    const most = { bikes: 12 + 6 * 88, group: 180, statue: 90, fountain: 90 }[kind as string] ?? 64;
+    // A group is a plinth and three figures; a statue a plinth and one; a rack its hoops and bikes.
+    const most =
+      { bikes: 108 + 6 * 244, lamp: 96, group: 180, statue: 90, fountain: 90 }[kind as string] ??
+      64;
     expect([kind, triangles <= most]).toEqual([kind, true]);
     expect(box.min.y).toBeCloseTo(0);
     expect(box.max.y).toBeLessThan(kind === 'needle' ? 24 : 7);
@@ -85,10 +87,12 @@ function parked(p: Prop) {
   return { mesh, bikes };
 }
 
-test('a rack holds its fill of bikes in a run, every other one turned round, on its rails', () => {
-  const rails = (size: number) => built(prop('bikes', { size })).triangles;
-  expect(rails(6)).toBe(12); // an empty rack is still a rack: a rail on two legs
-  expect(rails(24)).toBe(24); // two rows
+test('a rack holds its fill of bikes in a run, every other one turned round, at its hoops', () => {
+  const empty = (size: number) => built(prop('bikes', { size })).triangles;
+  expect(empty(6)).toBe(3 * 36); // an empty rack is still a rack: one hoop for two stands
+  expect(empty(12)).toBe(6 * 36);
+  // From 14 stands, a roof on posts over them.
+  expect(empty(14)).toBeGreaterThan(empty(13));
   const p = prop('bikes', { size: 12, fill: 5 / 12 });
   const { bikes } = parked(p);
   expect(bikes).toHaveLength(5);
@@ -117,14 +121,14 @@ function bikeTriangles(look: number): number {
   return mesh.indices / 3;
 }
 
-test('a bike is 78 triangles plain, 84 with a carrier, 88 with a crate or a basket', () => {
+test('a bike is 234 triangles plain, 240 with a carrier, 244 with a crate or a basket', () => {
   expect(
     [0, LOOK.carrier, LOOK.crate, LOOK.basket, LOOK.crate | LOOK.carrier].map(bikeTriangles),
-  ).toEqual([78, 84, 88, 88, 88]);
-  expect(bikeTriangles(LOOK.step | (6 * LOOK.colour))).toBe(78);
-  // In the city's racks, at most 88 and about 83 on average, every look among them.
+  ).toEqual([234, 240, 244, 244, 244]);
+  expect(bikeTriangles(LOOK.step | (6 * LOOK.colour))).toBe(234);
+  // In the city's racks, at most 244 and about 239 on average, every look among them.
   const { mesh, bikes } = parked(prop('bikes', { size: 24, fill: 1, x: 3.7 }));
-  expect(Math.max(...bikes.map(rangeTriangles))).toBeLessThanOrEqual(88);
+  expect(Math.max(...bikes.map(rangeTriangles))).toBeLessThanOrEqual(244);
   expect(bikes.at(-1)![PARKED.to]).toBe(mesh.indices);
   // Each one notes where it stands and how it looks, in a byte.
   expect(bikes.every((b) => b[PARKED.y] === 0 && b[PARKED.look]! < 128)).toBe(true);
@@ -137,31 +141,31 @@ test('a bike is 78 triangles plain, 84 with a carrier, 88 with a crate or a bask
       looks.add(b[PARKED.look]! % LOOK.colour);
     }
   }
-  expect(sum / n).toBeGreaterThan(81);
-  expect(sum / n).toBeLessThan(86);
+  expect(sum / n).toBeGreaterThan(237);
+  expect(sum / n).toBeLessThan(242);
   for (const part of [LOOK.carrier, LOOK.crate, LOOK.basket])
     expect([...looks].some((look) => look & part)).toBe(true);
 });
 
-test('its wheels are round, spoked inside a ring of tyre, and touch the ground', () => {
+test('its wheels are open rings of tyre you can see through, spoked, and touch the ground', () => {
   const mesh = new MeshBuilder();
   addBike(mesh, { x: 0, z: 0, fx: 1, fz: 0, scale: 1 }, 0, 0);
   const g = unindexed(mesh.build());
   const [p, c] = [g.getAttribute('position'), g.getAttribute('color')];
   const tyre = new Set<string>();
-  let reach = 0;
+  let [spoke, hollow] = [0, Infinity];
   for (let i = 0; i < p.count; i++) {
     const [x, y] = [p.getX(i), p.getY(i)];
     // The rear wheel, round its axle at x -0.55, 0.34 up.
     const r = Math.hypot(x + 0.55, y - 0.34);
     if (r > 0.35 || Math.abs(p.getZ(i)) > 0.02) continue;
-    const pale = c.getX(i) > 0.5;
-    if (pale) reach = Math.max(reach, r);
+    if (c.getX(i) > 0.5) spoke = Math.max(spoke, r);
     else if (r > 0.33) tyre.add(`${x.toFixed(3)},${y.toFixed(3)}`);
+    else if (r > 0.1) hollow = Math.min(hollow, r);
   }
-  expect(tyre.size).toBe(8); // an octagon
-  expect(reach).toBeGreaterThan(0.2); // spokes most of the way out, the tyre showing round them
-  expect(reach).toBeLessThan(0.3);
+  expect(tyre.size).toBe(14);
+  expect(spoke).toBeGreaterThan(0.25); // spokes out to the tyre
+  expect(hollow).toBeGreaterThan(0.25); // and nothing dark between them and the hub
   expect(Math.min(...Array.from({ length: p.count }, (_, i) => p.getY(i)))).toBeCloseTo(0, 6);
 });
 
@@ -402,34 +406,45 @@ test('the sign of a bus stop stands across the kerb it faces', () => {
   expect(box.max.x - box.min.x).toBeGreaterThan(box.max.z - box.min.z); // facing +x
 });
 
-test("a lamp's glow is a lit lantern over the furniture's and a pool fading out to its rim", () => {
+test("a lamp's glow is its lantern's panes, lit, a hair larger than the furniture's", () => {
   const mesh = new MeshBuilder();
   const lamp = prop('lamp', { angle: 0.4 });
   addLampGlow(mesh, lamp);
   const g = unindexed(mesh.build({ facade: true }));
   g.computeBoundingBox();
-  expect(g.getAttribute('position').count / 3).toBe(12 + 36);
+  expect(g.getAttribute('position').count / 3).toBe(10);
   const fade = g.getAttribute('facade');
-  const y = g.getAttribute('position');
-  // The pool's middle lies ahead of the post, under the lantern, which hangs over the kerb.
-  let [cx, cz, reach] = [0, 0, 0];
-  for (let i = 0; i < fade.count; i++) {
-    if (y.getY(i) < 0.1 && fade.getX(i) === 1) [cx, cz] = [y.getX(i), y.getZ(i)];
-  }
-  expect(Math.hypot(cx - lamp.x, cz - lamp.z)).toBeGreaterThan(0.2);
-  expect(Math.atan2(cz - lamp.z, cx - lamp.x)).toBeCloseTo(0.4);
-  for (let i = 0; i < fade.count; i++) {
-    // Lantern corners glow full; a pool's middle glows full, its inner ring half, its rim not.
-    const onGround = y.getY(i) < 0.1;
-    const r = Math.hypot(y.getX(i) - cx, y.getZ(i) - cz);
-    reach = Math.max(reach, onGround ? r : 0);
-    if (!onGround) expect(fade.getX(i)).toBe(1);
-    else expect(fade.getX(i)).toBe(r < 1e-6 ? 1 : r < 3 ? 0.5 : 0);
-  }
-  expect(reach).toBeGreaterThan(5);
-  // The lantern stands where the furniture's does, a hair larger, over the pool.
-  const { box } = built(lamp);
-  expect(g.boundingBox!.max.y).toBeGreaterThan(box.max.y);
-  expect(g.boundingBox!.max.y - box.max.y).toBeLessThan(0.1);
-  expect(g.boundingBox!.max.x - g.boundingBox!.min.x).toBeGreaterThan(8);
+  for (let i = 0; i < fade.count; i++) expect(fade.getX(i)).toBe(1);
+  // Up where the furniture's lantern is, on the post.
+  expect(g.boundingBox!.min.y).toBeGreaterThan(4.9);
+  expect((g.boundingBox!.min.x + g.boundingBox!.max.x) / 2).toBeCloseTo(lamp.x, 3);
+  expect(g.boundingBox!.max.x - g.boundingBox!.min.x).toBeLessThan(1);
+});
+
+test('a lamp is a slim post on a foot, with a lantern under a cap', () => {
+  const { box, g } = built(prop('lamp'));
+  const p = g.getAttribute('position');
+  const atHeight = (y0: number, y1: number) => {
+    let reach = 0;
+    for (let i = 0; i < p.count; i++) {
+      if (p.getY(i) >= y0 && p.getY(i) <= y1) {
+        reach = Math.max(reach, Math.hypot(p.getX(i) - 10, p.getZ(i) + 20));
+      }
+    }
+    return reach;
+  };
+  expect(atHeight(2, 4)).toBeLessThan(atHeight(0, 0.2));
+  expect(atHeight(5.2, 5.9)).toBeGreaterThan(atHeight(2, 4));
+  expect(box.max.y).toBeGreaterThan(5.9);
+});
+
+test('a big rack keeps its roof out of the houses, and a house is no place for one', () => {
+  const rack = prop('bikes', { size: 18 });
+  const count = (open?: (x: number, z: number) => boolean) => {
+    const mesh = new MeshBuilder();
+    addProp(mesh, rack, undefined, undefined, open);
+    return mesh.indices / 3;
+  };
+  expect(count(() => false)).toBeLessThan(count());
+  expect(count(() => true)).toBe(count());
 });

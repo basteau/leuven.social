@@ -1,6 +1,7 @@
 import { isMonument } from '../data/city.ts';
 import type { MonumentKind, Prop, PropKind } from '../data/city.ts';
 import {
+  BIKE_HALF_LENGTH,
   BIKE_SHIFT,
   ROW_GAP,
   STAND_SPACING,
@@ -13,7 +14,7 @@ import {
 import { BIKES, PROPS } from './palette.ts';
 import type { MeshBuilder, V3 } from './mesh-builder.ts';
 import { addMonument } from './monuments.ts';
-import { at, away, box, fan, panel, slopeThrough } from './prop-shapes.ts';
+import { at, away, box, fan, panel, prism, slopeThrough } from './prop-shapes.ts';
 import type { Frame } from './prop-shapes.ts';
 
 /**
@@ -32,9 +33,8 @@ const TUBE = 0.045;
  * the tyre (`wheel`), short of the chain guard.
  */
 const FRAME = 0.04;
-/** A wheel's radius, and how far out its pale spokes reach, leaving a ring of dark tyre (m). */
+/** A wheel's radius (m). */
 const WHEEL = 0.34;
-const SPOKES = 0.27;
 /** Half a bike's wheelbase, and where its steering axis stands, from between the wheels (m). */
 const AXLE = 0.55;
 const STEERING = 0.37;
@@ -47,9 +47,11 @@ const CRANK = 0.17;
 /** Most a parked bike stands off square, and its front wheel is turned (radians). */
 export const YAW = (4 * Math.PI) / 180;
 export const STEER = (20 * Math.PI) / 180;
-/** How high a rack's rail runs, and half its bar's thickness (m). */
-const RAIL = 0.4;
-const RAIL_BAR = 0.03;
+/** A hoop of a rack: how long, how high, how round its corners and how thick its tube (m). */
+const HOOP = { half: 0.42, high: 0.82, corner: 0.2, tube: 0.026 } as const;
+/** A rack of this many stands has a roof, ribbed so the bikes under it still show. */
+const COVERED = 14;
+const SHELTER = { high: 2.25, post: 0.05, rib: 0.14, glass: 0.32 } as const;
 
 /**
  * How a parked bike looks, packed in a byte: a step-through frame, a carrier, a crate, a basket,
@@ -83,6 +85,8 @@ function steered(f: Frame, by: number): Frame {
 
 /** Where something stands, as `buildFurniture` sees it: the drawn ground's height at (x, z). */
 export type Ground = (x: number, z: number) => number;
+/** Whether (x, z) is out in the open, with no house on it: what a rack's roof asks. */
+export type Open = (x: number, z: number) => boolean;
 
 /**
  * A bike's frame stood on the drawn ground: sheared onto the plane through the ground under its
@@ -123,40 +127,90 @@ function tube(
   );
 }
 
-/**
- * Three pale sectors from the hub, thin as a bunch of spokes seen edge on, with dark between,
- * and half of each one's angle (radians).
- */
-const SPREAD = 0.2;
-const SECTORS = [
-  [0, 1, 2],
-  [0, 3, 4],
-  [0, 5, 6],
-];
+/** A wheel's tyre as a ring of this many sides, a corner on the ground. */
+const TYRE_SIDES = 14;
+/** How thick the tyre and the rim inside it are (m), and how wide a spoke and a mudguard are. */
+const TYRE = 0.05;
+const SPOKE = 0.013;
+const GUARD = 0.022;
+/** Three spokes across the wheel: six from the hub, sparse enough to see the street through. */
+const SPOKES = 3;
+
+/** The indices of a ring of quads, `n` sections round, inner corners after the outer ones. */
+function ringFaces(n: number, closed: boolean): number[][] {
+  const faces: number[][] = [];
+  for (let i = 0; i < n - (closed ? 0 : 1); i++) {
+    const j = closed ? (i + 1) % n : i + 1;
+    faces.push([i, j, n + j], [i, n + j, n + i]);
+  }
+  return faces;
+}
+const TYRE_FACES = ringFaces(TYRE_SIDES, true);
 
 /**
- * A wheel round its axle at v: a dark octagonal tyre seen from both sides, one corner on the
- * ground, and on each face, a hair out, three pale sectors from the hub, turned by `turn`: the
- * rim and spokes as a pinwheel inside a ring of tyre, so it reads as a spoked wheel without a
- * texture. 18 triangles.
+ * A round wheel you can see through: a dark tyre as an open ring, seen from both sides, a corner
+ * on the ground, a few thin spokes turned by `turn`, and a hub. 56 triangles.
  */
 function wheel(mesh: MeshBuilder, f: Frame, v: number, turn: number): void {
   const r = WHEEL;
-  const tyre = Array.from({ length: 8 }, (_, i) => {
-    const t = (i * Math.PI) / 4;
-    return at(f, 0, v + Math.cos(t) * r, r + Math.sin(t) * r);
-  });
-  panel(mesh, tyre, PROPS.wheel);
+  const inner = r - TYRE;
+  const point = (t: number, radius: number, u: number): V3 =>
+    at(f, u, v + Math.cos(t) * radius, r + Math.sin(t) * radius);
   for (const side of [-1, 1]) {
-    const u = side * 0.012;
-    const points = [at(f, u, v, r)];
-    for (let k = 0; k < 3; k++) {
-      for (const edge of [-1, 1]) {
-        const t = turn + (k * 2 * Math.PI) / 3 + edge * SPREAD;
-        points.push(at(f, u, v + Math.cos(t) * SPOKES, r + Math.sin(t) * SPOKES));
-      }
+    const u = side * 0.016;
+    // Spokes a hair inside the tyre's plane and the hub a hair outside it, so none z-fight there.
+    const spokeU = u * 0.7;
+    const ring = (radius: number) =>
+      Array.from({ length: TYRE_SIDES }, (_, i) =>
+        point((i * 2 * Math.PI) / TYRE_SIDES - Math.PI / 2, radius, u),
+      );
+    mesh.polygon([...ring(r), ...ring(inner)], TYRE_FACES, PROPS.wheel, away(f, side, 0));
+    for (let k = 0; k < SPOKES; k++) {
+      const t = turn + (k * Math.PI) / SPOKES;
+      const [dv, dy] = [-Math.sin(t) * SPOKE, Math.cos(t) * SPOKE];
+      const [cv, cy] = [Math.cos(t) * inner, Math.sin(t) * inner];
+      mesh.quad(
+        at(f, spokeU, v - cv - dv, r - cy - dy),
+        at(f, spokeU, v + cv - dv, r + cy - dy),
+        at(f, spokeU, v + cv + dv, r + cy + dy),
+        at(f, spokeU, v - cv + dv, r - cy + dy),
+        PROPS.spokes,
+        away(f, side, 0),
+      );
     }
-    mesh.polygon(points, SECTORS, PROPS.spokes, away(f, side, 0));
+    mesh.polygon(
+      Array.from({ length: 6 }, (_, i) => point((i * Math.PI) / 3, 0.055, u * 1.4)),
+      fan(6),
+      PROPS.iron,
+      away(f, side, 0),
+    );
+  }
+}
+
+/** A mudguard over a wheel at v, from `start` to `end` round it (radians), thin and seen from both sides. */
+function mudguard(
+  mesh: MeshBuilder,
+  f: Frame,
+  v: number,
+  start: number,
+  end: number,
+  color: number,
+): void {
+  const n = 6;
+  const faces = ringFaces(n, false);
+  for (const side of [-1, 1]) {
+    const u = side * 0.03;
+    const arc = (radius: number) =>
+      Array.from({ length: n }, (_, i) => {
+        const t = start + ((end - start) * i) / (n - 1);
+        return at(f, u, v + Math.cos(t) * radius, WHEEL + Math.sin(t) * radius);
+      });
+    mesh.polygon(
+      [...arc(WHEEL + 0.05), ...arc(WHEEL + 0.05 - GUARD * 2)],
+      faces,
+      color,
+      away(f, side, 0),
+    );
   }
 }
 
@@ -253,7 +307,7 @@ function saddle(mesh: MeshBuilder, f: Frame, color: number): void {
 
 /**
  * A parked city bike, seen side on, in its own frame `f` (v forward from between the wheels): two
- * round wheels with spokes, the front one turned by `steer`; a filled rear triangle that carries
+ * round wheels you can see the street through, the front one turned by `steer`; a filled rear triangle that carries
  * its colour on the map, a diamond's top tube or a step-through's low one, the down tube and the
  * fork; a black chain guard on the right, the cranks and pedals at a turn of their own, a kickstand
  * on the left; a saddle, swept-back bars and a lamp on the fork; and on some a carrier with a red
@@ -268,6 +322,8 @@ export function addBike(mesh: MeshBuilder, f: Frame, steer: number, look: number
   const turn = steer * 11;
   wheel(mesh, f, -AXLE, turn);
   wheel(mesh, front, axle, turn * 3);
+  mudguard(mesh, f, -AXLE, 0.25, 2.5, color);
+  mudguard(mesh, front, axle, 0.5, 2.75, color);
   // The rear triangle (stays, seat tube) from the rear axle, bracket and seat.
   panel(
     mesh,
@@ -317,7 +373,7 @@ export function addBike(mesh: MeshBuilder, f: Frame, steer: number, look: number
   // The kickstand, down from behind the bracket to the ground on the left.
   panel(
     mesh,
-    [at(f, -0.04, -0.12, 0.3), at(f, -0.04, -0.07, 0.3), at(f, -0.16, -0.3, 0)],
+    [at(f, -0.04, -0.12, 0.3), at(f, -0.04, -0.07, 0.3), at(f, -0.09, -0.16, 0.05)],
     PROPS.iron,
   );
   saddle(mesh, f, look & STEP ? PROPS.wood : PROPS.wheel);
@@ -425,10 +481,108 @@ export function rackSlots(p: Prop, seed: number): number[] {
 }
 
 /**
- * A rack: a low rail along each row on a leg at either end, so a half-empty rack still reads as
- * one (12 triangles a row), then its bikes, each noted in `parked` (see `PARKED`). With `ground`,
- * each rail runs from leg to leg on the drawn ground and each bike stands on it under its wheels;
- * without, all stand on the mesh's lift.
+ * A hoop: an arch of galvanised tube standing across the row, as Leuven's stands are, two bikes to
+ * one (`perRow` stands make `perRow / 2` of them). One strip of tube round it, its outer and inner
+ * edges, seen from both sides. 24 triangles.
+ */
+const HOOP_POINTS = (() => {
+  const { half, high, corner } = HOOP;
+  const round = [0, 1, 2, 3].map((k) => (k * Math.PI) / 2 / 3);
+  const left = round.map((t): [number, number] => [
+    -half + corner - Math.cos(t) * corner,
+    high - corner + Math.sin(t) * corner,
+  ]);
+  const right = left.map(([v, y]): [number, number] => [-v, y]).toReversed();
+  return [[-half, 0] as [number, number], ...left, ...right, [half, 0] as [number, number]];
+})();
+const HOOP_FACES = ringFaces(HOOP_POINTS.length, false);
+
+function hoop(mesh: MeshBuilder, f: Frame): void {
+  const { tube: radius } = HOOP;
+  const across = HOOP_POINTS.map(([v, y], i) => {
+    const [pv, py] = HOOP_POINTS[Math.max(0, i - 1)]!;
+    const [nv, ny] = HOOP_POINTS[Math.min(HOOP_POINTS.length - 1, i + 1)]!;
+    const [dv, dy] = [nv - pv, ny - py];
+    const length = Math.hypot(dv, dy) || 1;
+    return [v, y, -dy / length, dv / length] as const;
+  });
+  for (const side of [-1, 1]) {
+    const u = side * radius;
+    const strip = (offset: number) =>
+      across.map(([v, y, nv, ny]) => at(f, u, v + nv * offset, Math.max(0, y + ny * offset)));
+    mesh.polygon([...strip(radius), ...strip(-radius)], HOOP_FACES, PROPS.rack, away(f, side, 0));
+  }
+}
+
+/** How far a rack's roof reaches from its middle along the bikes (m), its posts inside the footprint. */
+const roofHalf = (rows: number) =>
+  (rows === 2 ? ROW_GAP : 0) + BIKE_HALF_LENGTH + BIKE_SHIFT - 0.06;
+
+/** Where a rack's roof reaches, seen from above: corners and the middle of each long side. */
+function roofCorners(f: Frame, rows: number, halfRow: number): [number, number][] {
+  const half = roofHalf(rows);
+  return [-halfRow - 0.3, 0, halfRow + 0.3].flatMap((u) =>
+    [-half, half].map((v): [number, number] => {
+      const [x, , z] = at(f, u, v, 0);
+      return [x, z];
+    }),
+  );
+}
+
+/**
+ * The roof over a big rack: two posts at each end of the row, a dark beam along each side and
+ * ribs across, with gaps between them and pale panes on every other one, so the bikes under it
+ * still show from up the street.
+ */
+function shelter(mesh: MeshBuilder, f: Frame, rows: number, halfRow: number): void {
+  const half = roofHalf(rows);
+  const { high, post, rib, glass } = SHELTER;
+  for (const u of [-halfRow, halfRow]) {
+    for (const v of [-half, half]) {
+      box(mesh, f, [u - post, u + post], [v - post, v + post], [0, high], PROPS.iron, false);
+    }
+  }
+  for (const v of [-half, half]) {
+    box(
+      mesh,
+      f,
+      [-halfRow - 0.3, halfRow + 0.3],
+      [v - post, v + post],
+      [high, high + 0.12],
+      PROPS.iron,
+    );
+  }
+  const ribs = Math.max(3, Math.round((2 * halfRow + 0.3) / (rib + glass + 0.14)));
+  const step = (2 * halfRow + 0.3) / ribs;
+  for (let i = 0; i <= ribs; i++) {
+    const u = -halfRow - 0.15 + i * step;
+    box(
+      mesh,
+      f,
+      [u - 0.035, u + 0.035],
+      [-half - 0.06, half + 0.06],
+      [high + 0.1, high + 0.14],
+      PROPS.iron,
+    );
+    if (i < ribs) {
+      const [a, b] = [u + 0.1, u + 0.1 + glass];
+      mesh.quad(
+        at(f, a, -half, high + 0.13),
+        at(f, b, -half, high + 0.13),
+        at(f, b, half, high + 0.13),
+        at(f, a, half, high + 0.13),
+        PROPS.glass,
+        [0, 1, 0],
+      );
+    }
+  }
+}
+
+/**
+ * A rack: a row of hoops, one for every two stands, so it reads as a rack half empty and looks like
+ * one full, then its bikes, each noted in `parked` (see `PARKED`). Each hoop stands on the ground
+ * drawn under it when `ground` is given, and each bike on the ground under its wheels; a big rack
+ * has a roof over it (`COVERED`).
  */
 function addRack(
   mesh: MeshBuilder,
@@ -437,20 +591,26 @@ function addRack(
   seed: number,
   parked?: number[],
   ground?: Ground,
+  open: Open = () => true,
 ): void {
   const { rows, perRow } = rackRows(p.size);
   const half = ((perRow - 1) / 2) * STAND_SPACING;
   for (let row = 0; row < rows; row++) {
-    // The row's own frame, turned a quarter, so the rail runs along its v.
     const [x, , z] = at(f, 0, rows === 1 ? 0 : row === 0 ? ROW_GAP : -ROW_GAP, 0);
-    let r: Frame = { x, z, fx: -f.fz, fz: f.fx, scale: f.scale };
-    if (ground) {
-      const [[ax, , az], [bx, , bz]] = [at(r, 0, -half, 0), at(r, 0, half, 0)];
-      r = { ...r, slope: slopeThrough(ground, mesh.lift, [ax, az], [bx, bz]) };
+    for (let k = 0; k < perRow; k += 2) {
+      // Between two stands; an odd row's last hoop stands at its last.
+      const u = ((k + 1 < perRow ? k + 0.5 : k) - (perRow - 1) / 2) * STAND_SPACING;
+      const [hx, , hz] = at({ ...f, x, z }, u, 0, 0);
+      let h: Frame = { ...f, x: hx, z: hz };
+      if (ground) {
+        const [[ax, , az], [bx, , bz]] = [at(h, 0, -HOOP.half, 0), at(h, 0, HOOP.half, 0)];
+        h = { ...h, slope: slopeThrough(ground, mesh.lift, [ax, az], [bx, bz]) };
+      }
+      hoop(mesh, h);
     }
-    tube(mesh, r, -half, RAIL, half, RAIL, PROPS.rack, RAIL_BAR);
-    for (const e of [-half, half]) tube(mesh, r, e, 0, e, RAIL + RAIL_BAR, PROPS.rack, RAIL_BAR);
   }
+  const clear = roofCorners(f, rows, half).every(([x, z]) => open(x, z));
+  if (p.size >= COVERED && clear) shelter(mesh, f, rows, half);
   for (const slot of rackSlots(p, seed)) {
     const { f: placed, steer, look } = parkedBike(p, slot, seed);
     const b = ground ? standBike(placed, steer, ground, mesh.lift) : placed;
@@ -461,11 +621,39 @@ function addRack(
   }
 }
 
+/** A lantern's panes: half their width at the foot, their heights, and how much they widen. */
+const PANES = { half: 0.14, y: [3.86, 4.44] as const, flare: 1.32 } as const;
+
 type Furniture = Exclude<PropKind, MonumentKind | 'bikes'>;
 const MODELS: Record<Furniture, (mesh: MeshBuilder, f: Frame) => void> = {
   lamp(mesh, f) {
-    box(mesh, f, [-0.12, 0.12], [-0.12, 0.12], [0, 4.5], PROPS.iron, false);
-    box(mesh, f, [-0.3, 0.3], [-0.05, 0.55], [4.15, 4.6], PROPS.lantern);
+    // A cast-iron foot, a slim post with a collar under the lantern, and a lantern that widens
+    // upward under its cap and finial.
+    prism(mesh, f, [0, 0], [0.12, 0.12], [0, 0.32], PROPS.iron, 0.9, 8, false);
+    prism(mesh, f, [0, 0], [0.108, 0.108], [0.32, 0.72], PROPS.iron, 0.5, 8, false);
+    box(mesh, f, [-0.05, 0.05], [-0.05, 0.05], [0.72, 3.74], PROPS.iron, false);
+    prism(mesh, f, [0, 0], [0.11, 0.11], [3.7, 3.86], PROPS.iron, 1.25, 4);
+    prism(mesh, f, [0, 0], [PANES.half, PANES.half], PANES.y, PROPS.lantern, PANES.flare, 4, false);
+    prism(
+      mesh,
+      f,
+      [0, 0],
+      [PANES.half * PANES.flare + 0.05, PANES.half * PANES.flare + 0.05],
+      [PANES.y[1], PANES.y[1] + 0.26],
+      PROPS.iron,
+      0.12,
+      4,
+    );
+    prism(
+      mesh,
+      f,
+      [0, 0],
+      [0.035, 0.035],
+      [PANES.y[1] + 0.22, PANES.y[1] + 0.4],
+      PROPS.iron,
+      0.5,
+      4,
+    );
   },
   bench(mesh, f) {
     box(mesh, f, [-0.9, 0.9], [-0.25, 0.25], [0.4, 0.5], PROPS.wood);
@@ -511,18 +699,9 @@ const MODELS: Record<Furniture, (mesh: MeshBuilder, f: Frame) => void> = {
 };
 
 /**
- * A lamp's pool of light on the street at night: its radius (m), the inner ring where it is
- * still half full, how far off the ground it lies, and how far ahead of the post its middle
- * is, under the lantern, which hangs out over the kerb (in the prop's own metres).
- */
-const POOL = { radius: 5.6, inner: 2.2, sides: 12, lift: 0.07, ahead: 0.25 } as const;
-
-/**
- * What a lamp gives off at night, for the glow mesh (createGlowMaterial): its lantern, lit, a
- * hair larger than the one in the furniture mesh so it covers it, and a pool of light on the
- * ground under the lantern, full at the middle, half at the inner ring and nothing at the rim
- * (the `facade` value each corner carries, which the material dithers by), so it fades the way
- * light falls off rather than straight. 36 triangles a pool, 12 a lantern.
+ * A lantern as it looks lit at night, for the glow mesh (createGlowMaterial): the panes of the
+ * lantern `MODELS.lamp` draws, a hair larger so they cover them. The light it throws is baked
+ * (lamp-light.ts). 12 triangles.
  */
 export function addLampGlow(mesh: MeshBuilder, p: Prop): void {
   const f = {
@@ -532,88 +711,31 @@ export function addLampGlow(mesh: MeshBuilder, p: Prop): void {
     fz: Math.sin(p.angle),
     scale: propScale('lamp'),
   };
-  const [u, v, y] = [0.32, [-0.07, 0.57] as const, [4.13, 4.62] as const];
-  const corner = (cu: number, cv: number, cy: number) => at(f, cu, cv, cy);
-  const one: V3 = [1, 1, 1];
-  const quad = (a: V3, b: V3, c: V3, d: V3, hint: V3) => {
-    mesh.triangle(a, b, c, PROPS.lamplight, hint, one);
-    mesh.triangle(a, c, d, PROPS.lamplight, hint, one);
-  };
-  quad(
-    corner(-u, v[0], y[0]),
-    corner(u, v[0], y[0]),
-    corner(u, v[1], y[0]),
-    corner(-u, v[1], y[0]),
-    [0, -1, 0],
+  prism(
+    mesh,
+    f,
+    [0, 0],
+    [PANES.half + 0.01, PANES.half + 0.01],
+    PANES.y,
+    PROPS.lamplight,
+    PANES.flare,
+    4,
+    true,
+    1,
   );
-  quad(
-    corner(-u, v[0], y[1]),
-    corner(u, v[0], y[1]),
-    corner(u, v[1], y[1]),
-    corner(-u, v[1], y[1]),
-    [0, 1, 0],
-  );
-  quad(
-    corner(-u, v[0], y[0]),
-    corner(u, v[0], y[0]),
-    corner(u, v[0], y[1]),
-    corner(-u, v[0], y[1]),
-    away(f, 0, -1),
-  );
-  quad(
-    corner(-u, v[1], y[0]),
-    corner(u, v[1], y[0]),
-    corner(u, v[1], y[1]),
-    corner(-u, v[1], y[1]),
-    away(f, 0, 1),
-  );
-  quad(
-    corner(u, v[0], y[0]),
-    corner(u, v[1], y[0]),
-    corner(u, v[1], y[1]),
-    corner(u, v[0], y[1]),
-    away(f, 1, 0),
-  );
-  quad(
-    corner(-u, v[0], y[0]),
-    corner(-u, v[1], y[0]),
-    corner(-u, v[1], y[1]),
-    corner(-u, v[0], y[1]),
-    away(f, -1, 0),
-  );
-  const [cx, cz] = [p.x + f.fx * POOL.ahead * f.scale, p.z + f.fz * POOL.ahead * f.scale];
-  const centre: V3 = [cx, POOL.lift, cz];
-  const ring = (i: number, r: number): V3 => {
-    const t = (i / POOL.sides) * Math.PI * 2;
-    return [cx + Math.cos(t) * r, POOL.lift, cz + Math.sin(t) * r];
-  };
-  const up: V3 = [0, 1, 0];
-  for (let i = 0; i < POOL.sides; i++) {
-    mesh.triangle(
-      centre,
-      ring(i, POOL.inner),
-      ring(i + 1, POOL.inner),
-      PROPS.pool,
-      up,
-      [1, 0.5, 0.5],
-    );
-    mesh.quad(
-      ring(i, POOL.inner),
-      ring(i + 1, POOL.inner),
-      ring(i + 1, POOL.radius),
-      ring(i, POOL.radius),
-      PROPS.pool,
-      up,
-      [0.5, 0.5, 0, 0],
-    );
-  }
 }
 
 /**
  * One prop, in its own frame, written into `mesh`; a rack notes its bikes in `parked`, and stands
  * its rails and bikes on `ground` when given.
  */
-export function addProp(mesh: MeshBuilder, p: Prop, parked?: number[], ground?: Ground): void {
+export function addProp(
+  mesh: MeshBuilder,
+  p: Prop,
+  parked?: number[],
+  ground?: Ground,
+  open?: Open,
+): void {
   const f = {
     x: p.x,
     z: p.z,
@@ -623,6 +745,6 @@ export function addProp(mesh: MeshBuilder, p: Prop, parked?: number[], ground?: 
   };
   const seed = propSeed(p.x, p.z);
   if (isMonument(p.kind)) addMonument(mesh, f, p.kind, p, seed);
-  else if (p.kind === 'bikes') addRack(mesh, f, p, seed, parked, ground);
+  else if (p.kind === 'bikes') addRack(mesh, f, p, seed, parked, ground, open);
   else MODELS[p.kind as Furniture](mesh, f);
 }

@@ -156,7 +156,7 @@ const EXTENT: Record<'lamp' | 'bench' | 'shelter' | 'busstop', [number, number, 
  * Half a parked bike's length, whatever it carries and however its front wheel is turned, and
  * how far it may stand off its stand (m). src/scene/props.test.ts checks every look fits.
  */
-const BIKE_HALF_LENGTH = 0.9;
+export const BIKE_HALF_LENGTH = 0.9;
 export const BIKE_SHIFT = 0.15;
 /** What a rack's end bikes reach past their stand: half a handlebar, turned and off square (m). */
 export const HANDLEBAR = 0.3;

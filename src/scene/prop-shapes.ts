@@ -76,6 +76,7 @@ export function prism(
   taper = 1,
   sides = 4,
   cap = true,
+  facade = 0,
 ): void {
   const k = sides === 4 ? Math.SQRT2 : 1;
   const ring = (y: number, s: number) =>
@@ -89,10 +90,10 @@ export function prism(
     const j = (i + 1) % sides;
     const t = (j / sides) * Math.PI * 2;
     const out = away(f, Math.cos(t), Math.sin(t));
-    if (taper) mesh.quad(bottom[i]!, bottom[j]!, top[j]!, top[i]!, color, out);
-    else mesh.triangle(bottom[i]!, bottom[j]!, top[0]!, color, out);
+    if (taper) mesh.quad(bottom[i]!, bottom[j]!, top[j]!, top[i]!, color, out, facade);
+    else mesh.triangle(bottom[i]!, bottom[j]!, top[0]!, color, out, facade);
   }
-  if (taper && cap) mesh.polygon(top, fan(sides), color, [0, y1 < y0 ? -1 : 1, 0]);
+  if (taper && cap) mesh.polygon(top, fan(sides), color, [0, y1 < y0 ? -1 : 1, 0], facade);
 }
 
 /** An upright box: its top (unless `top` is false) and four sides. */

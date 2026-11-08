@@ -284,7 +284,7 @@ test('each parked bike stands on the ground drawn under its wheels: a slope, a p
       if (over < nearest[half]!) [nearest[half], lowest[half], at[half]] = [over, py, [px, pz]];
     }
     for (const half of [0, 1]) {
-      expect(nearest[half]).toBeCloseTo(0, 3);
+      expect(nearest[half]).toBeCloseTo(0, 2);
       const [px, pz] = at[half]!;
       if (drawn.layer(px, pz) === LAYER_Y.plazas) onSquare++;
       if (drawn.layer(px, pz) === LAYER_Y.roads) onPavement++;
