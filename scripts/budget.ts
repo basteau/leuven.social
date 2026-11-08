@@ -32,10 +32,10 @@ const BUDGETS: {
   {
     label: '3D engine JS (three.js)',
     pattern: 'assets/{viewer,palette}-*.js',
-    // 168: livelier facades asked for (1.4 KB): frames, sills and flower boxes on ordinary
+    // 169: the map's presence list, routes, plumbob and zoom limit (0.4 KB). 168: livelier facades asked for (1.4 KB): frames, sills and flower boxes on ordinary
     // windows, the Stadhuis's tiers of niches with their statues, tracery in the churches'
     // lancets, the parasols' valances and the café guests' colours.
-    limit: 168 * KB,
+    limit: 169 * KB,
     gzip: true,
   },
   // 3.5: just above 3.2 KB. The map's styles are their own file, loaded with its chunks.
