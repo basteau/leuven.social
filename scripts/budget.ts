@@ -52,7 +52,9 @@ const BUDGETS: {
     // 171.5: the traffic went (171.1 KB), so only real players walk the streets.
     // 172.5: the zoom-out limit, catenary wires, café colour families and the routes the full
     // map asks for (0.9 KB), merged onto multiplayer's engine.
-    limit: 172.5 * KB,
+    // 173: dynamic resolution (resolution.ts and its wiring, 0.4 KB), so a phone that can't keep
+    // up with the street draws fewer pixels instead of dropping frames.
+    limit: 173 * KB,
     gzip: true,
   },
   // 3.5: just above 3.1 KB. 3.75: the minimap, the other players' name tags and who you are in
@@ -191,8 +193,8 @@ const BUDGETS: {
   {
     label: 'First-load JS',
     pattern: 'assets/{index,viewer}-*.js',
-    // 260: the engine's and the shell's additions above (1 KB).
-    limit: 260 * KB,
+    // 260: the engine's and the shell's additions above (1 KB). 260.5: dynamic resolution (0.4 KB).
+    limit: 260.5 * KB,
     gzip: true,
     closure: true,
   },

@@ -77,6 +77,7 @@ import type { AvatarLayer, Refusal, RoomPlace } from './avatar-layer.ts';
 import type { Outfit } from './character.ts';
 import type { PlayerPose } from './crowd.ts';
 import type { Roster } from './players.ts';
+import { createScaler, pixelRatio } from './resolution.ts';
 import type { RideAction, RideState } from './bikes.ts';
 import {
   CAMERA_DISTANCE,
@@ -621,10 +622,12 @@ export function createViewer(options: ViewerOptions): Viewer {
   let width = 0;
   let height = 0;
   const buffer = new Vector2();
+  /** Draws fewer pixels while a continuous loop runs slow (resolution.ts). */
+  const scaler = createScaler();
   function resize(): void {
     const w = Math.max(1, canvas.clientWidth);
     const h = Math.max(1, canvas.clientHeight);
-    const ratio = Math.min(globalThis.devicePixelRatio || 1, 2);
+    const ratio = pixelRatio(globalThis.devicePixelRatio, scaler.scale);
     if (w === width && h === height && ratio === renderer.getPixelRatio()) return;
     width = w;
     height = h;
@@ -883,6 +886,19 @@ export function createViewer(options: ViewerOptions): Viewer {
       if (canvas.dataset[key] !== value) canvas.dataset[key] = value;
     }
   }
+  /**
+   * A frame of a continuous loop (walking, riding, a held turn, the day passing): only these say
+   * anything about how fast frames can go. A frame drawn on demand follows the last input, and a
+   * gap in those is someone pausing. The map stays sharp, as it isn't a loop for long: the scaler
+   * works on the street, and is back at full size for the next map frame.
+   */
+  function loopFrame(now: number): void {
+    if (detail.avatar === 'figure') {
+      if (!covered && scaler.frame(now)) resize();
+    } else if (scaler.reset()) resize();
+    renderNow();
+  }
+
   /** Something opaque is over the whole canvas: time and the avatar go on, nothing is drawn. */
   let covered = false;
   function render(): void {
@@ -944,6 +960,7 @@ export function createViewer(options: ViewerOptions): Viewer {
       peakTriangles: peak.triangles,
       vertices: held.vertices,
       geometryBytes: held.bytes,
+      scale: scaler.scale,
       avatar: avatarShown,
       zoom: Math.round(camera.zoom * 100) / 100,
     });
@@ -1011,7 +1028,7 @@ export function createViewer(options: ViewerOptions): Viewer {
           reducedMotion,
           yaw: () => yaw,
           placeCamera,
-          render: renderNow,
+          render: () => loopFrame(performance.now()),
           farthestZoom: () => farthestZoom,
           onRoute: (target) => {
             routeTo = target;
@@ -1119,7 +1136,7 @@ export function createViewer(options: ViewerOptions): Viewer {
       yaw = from + (to - from) * (1 - (1 - t) ** 3);
       placeCamera();
       // Already inside a frame: don't wait for the next one, unless the avatar's loop draws it.
-      if (!avatar?.animating) renderNow();
+      if (!avatar?.animating) loopFrame(now);
       spin = t < 1 ? requestAnimationFrame(step) : 0;
     };
     spin = requestAnimationFrame(step);
@@ -1148,7 +1165,7 @@ export function createViewer(options: ViewerOptions): Viewer {
       );
       last = now;
       placeCamera();
-      if (!avatar?.animating) renderNow();
+      if (!avatar?.animating) loopFrame(now);
       spin = turning.held || turning.rate ? requestAnimationFrame(step) : 0;
     };
     spin = requestAnimationFrame(step);
@@ -1203,6 +1220,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   // Moving the window to a screen with another pixel density changes no CSS size.
   let densityQuery: MediaQueryList | undefined;
   const onDensity = () => {
+    scaler.reset();
     resize();
     watchDensity();
   };
@@ -1284,7 +1302,7 @@ export function createViewer(options: ViewerOptions): Viewer {
       hour = wrapHour(hour + dt * HOURS_PER_SECOND);
       applyDaylight(false);
     }
-    if (!avatar?.animating) renderNow();
+    if (!avatar?.animating) loopFrame(now);
     liveFrame = requestAnimationFrame(tickLive);
   }
   function wake(): void {
