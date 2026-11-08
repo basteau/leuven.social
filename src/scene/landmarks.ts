@@ -1,7 +1,8 @@
 import type { Tower } from '../data/city.ts';
 import { orientedRect } from '../data/geometry.ts';
-import { LANCETS, ORNATE } from './facade-codes.ts';
+import { LANCETS, ORNATE, PANE, ROOF_FLAT, pitchedRoof } from './facade-codes.ts';
 import type { LineBuilder, MeshBuilder, V3 } from './mesh-builder.ts';
+import { WINDOW } from './palette.ts';
 
 /**
  * Hero landmarks as a few low-poly parts placed in their footprint's frame: u runs along the
@@ -28,6 +29,8 @@ export interface Hall {
   hips?: readonly [number, number];
   windows?: boolean;
   wall?: number;
+  /** A window in each gable end, as on a dormer. */
+  pane?: boolean;
 }
 
 /** A square or octagonal tower or turret, topped by a pointed spire (or flat). */
@@ -124,13 +127,15 @@ function addHall(mesh: MeshBuilder, lines: LineBuilder, f: Frame, h: Hall, m: La
       at(-L, W, eave),
       m.roof,
       [0, 1, 0],
+      ROOF_FLAT,
     );
     return;
   }
   const r0 = at(-L + h0, 0, ridge);
   const r1 = at(L - h1, 0, ridge);
+  const tiles = pitchedRoof(mesh.lift + ridge);
   for (const q of [W, -W]) {
-    mesh.quad(at(-L, q, eave), at(L, q, eave), r1, r0, m.roof, out(0, q, W));
+    mesh.quad(at(-L, q, eave), at(L, q, eave), r1, r0, m.roof, out(0, q, W), tiles);
     lines.segment(at(-L, q, eave), r0);
     lines.segment(at(L, q, eave), r1);
   }
@@ -140,9 +145,30 @@ function addHall(mesh: MeshBuilder, lines: LineBuilder, f: Frame, h: Hall, m: La
     [-L, h0, r0],
   ] as const) {
     const hint = out(p, 0, hip > 0 ? Math.abs(p) : 0);
-    mesh.triangle(at(p, -W, eave), at(p, W, eave), r, hip > 0 ? m.roof : wall, hint);
+    mesh.triangle(
+      at(p, -W, eave),
+      at(p, W, eave),
+      r,
+      hip > 0 ? m.roof : wall,
+      hint,
+      hip > 0 ? tiles : 0,
+    );
   }
   lines.segment(r0, r1);
+  if (h.pane) {
+    for (const p of [L + 0.02, -L - 0.02]) {
+      const [q, low, high] = [W * 0.6, eave - 1.15, eave - 0.05];
+      mesh.quad(
+        at(p, -q, low),
+        at(p, q, low),
+        at(p, q, high),
+        at(p, -q, high),
+        WINDOW.glass,
+        out(p, 0),
+        PANE,
+      );
+    }
+  }
 }
 
 function addSpire(
@@ -174,8 +200,9 @@ function addSpire(
     const a = point(f, au, av, s.top);
     const b = point(f, bu, bv, s.top);
     mesh.quad(point(f, au, av, from), point(f, bu, bv, from), b, a, wall, outward(a, b, 0));
-    if (s.tip > s.top) mesh.triangle(a, b, apex, roof, outward(a, b, s.radius));
-    else mesh.triangle(a, b, apex, roof, [0, 1, 0]);
+    if (s.tip > s.top) {
+      mesh.triangle(a, b, apex, roof, outward(a, b, s.radius), pitchedRoof(mesh.lift + s.tip));
+    } else mesh.triangle(a, b, apex, roof, [0, 1, 0]);
     lines.segment(a, b);
     // Octagon corners are too close together for ink: only square towers get their edges.
     if (square) {

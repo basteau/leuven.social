@@ -19,6 +19,7 @@ function dormers(u: number, vs: readonly number[], eave: number): Part[] {
     from: eave - 4,
     eave,
     ridge: eave + 1,
+    pane: true,
   }));
 }
 

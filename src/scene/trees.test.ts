@@ -4,7 +4,7 @@ import { MeshBuilder, unindexed } from './mesh-builder.ts';
 import { deltaE, toOklab } from '../data/colour.ts';
 import { trunkRadius } from '../data/trees.ts';
 import { TREE } from './palette.ts';
-import { MODEL_HEIGHT, TREE_TRIANGLES, addTree, crownColor } from './trees.ts';
+import { MODEL_HEIGHT, PUFF, TREE_TRIANGLES, addPuffs, addTree, crownColor } from './trees.ts';
 
 test('a tree is a slim trunk and a low-poly crown, all facing outward', () => {
   const mesh = new MeshBuilder();
@@ -82,4 +82,27 @@ test('a trunk is never drawn wider than street furniture keeps clear of', () => 
       }
     }
   }
+});
+
+const puffs = (seed: number, height: number) => {
+  const [spots, colors]: [number[], number[]] = [[], []];
+  addPuffs(spots, colors, 10, 3, -20, seed, height);
+  return { spots, colors, count: spots.length / PUFF.stride };
+};
+
+test('up close a crown is puffs of leaves: a dark ball inside, more on a bigger tree', () => {
+  const small = puffs(5, 7);
+  const big = puffs(5, 24);
+  expect(big.count).toBeGreaterThan(small.count);
+  expect(small.count).toBeGreaterThanOrEqual(PUFF.min + 1);
+  expect(big.count).toBeLessThanOrEqual(PUFF.max + 1);
+  expect(small.colors.length).toBe(small.count * 4);
+  // The core is the first, darker than the leaves round it, and every puff is up in the air.
+  const luma = (i: number) =>
+    small.colors[i * 4]! + small.colors[i * 4 + 1]! + small.colors[i * 4 + 2]!;
+  for (let i = 1; i < small.count; i++) expect(luma(i)).toBeGreaterThan(luma(0));
+  for (let i = 0; i < big.count; i++) expect(big.spots[i * 4 + 1]!).toBeGreaterThan(3);
+  // The same seed gives the same tree.
+  expect(puffs(5, 7).spots).toEqual(small.spots);
+  expect(puffs(6, 7).spots).not.toEqual(small.spots);
 });

@@ -1,6 +1,7 @@
 import type { MeshBuilder, V3 } from './mesh-builder.ts';
 import { fromOklab, toOklab } from '../data/colour.ts';
 import { MAX_TRUNK, treeScale } from '../data/trees.ts';
+import { CROWN as CROWN_CODE } from './facade-codes.ts';
 import { TREE, pick } from './palette.ts';
 
 // A four-sided open trunk is all a pixel can show: its caps hide in the crown and the ground.
@@ -143,8 +144,59 @@ export function addTree(
         (a[1] + b[1] + d[1]) / 3 - centreY * scale,
         (a[2] + b[2] + d[2]) / 3 - z,
       ];
-      if (step === 3) mesh.triangle(a, b, d, color, hint);
+      if (step === 3) mesh.triangle(a, b, d, color, hint, CROWN_CODE);
       else mesh.polygon([a, b, place(shape[i + 4]!), d], SIDE, color, hint);
     }
+  }
+}
+
+/** The puffs of leaves a tree's crown is drawn with up close, and how many: bigger trees have more. */
+export const PUFF = { min: 8, max: 18, stride: 4 } as const;
+
+/**
+ * Puffs round a crown, up close (`createPuffMaterial`): at (x, y, z) a radius each (four numbers
+ * a puff) and its colour (three bytes and a pad): on a shell of points spread round the crown, more
+ * on top than under it, the ones under it darker and each its own shade, in place of the faceted
+ * ball that stands for the tree from afar. Written into `into` and `colors`.
+ */
+export function addPuffs(
+  into: number[],
+  colors: number[],
+  x: number,
+  ground: number,
+  z: number,
+  seed: number,
+  height = 0,
+): void {
+  const { scale, wide } = treeSize(seed, height);
+  const [h, across] = [CROWN_RADIUS * scale, CROWN_RADIUS * wide];
+  const count = Math.round(Math.min(PUFF.max, Math.max(PUFF.min, 6 + across * 1.1)));
+  const [cy, r] = [ground + CROWN_Y * scale, across * 0.5];
+  const base = toOklab(crownColor(seed, height || scale * MODEL_HEIGHT));
+  const unit = (salt: number) => pick(UNITS, seed * 7 + salt) / (UNITS.length - 1);
+  const turn = unit(11) * Math.PI * 2;
+  // A dark ball inside, so what shows between the puffs is the shade under the leaves.
+  into.push(x, cy, z, across * 0.72);
+  const core = fromOklab([base[0] - 0.13, base[1] * 0.85, base[2] * 0.85]);
+  colors.push(core >> 16, (core >> 8) & 255, core & 255, 255);
+  for (let i = 0; i < count; i++) {
+    // Down a spiral from the top, to a little under the middle.
+    const t = (i + 0.5) / count;
+    const up = 1 - 1.4 * t;
+    const round = Math.sqrt(Math.max(0, 1 - up * up));
+    const angle = turn + i * 2.39996;
+    const wobble = 0.86 + 0.28 * unit(i + 20);
+    into.push(
+      x + Math.cos(angle) * round * across * 0.68 * wobble,
+      cy + up * h * 0.74,
+      z + Math.sin(angle) * round * across * 0.68 * wobble,
+      r * (0.76 + 0.3 * unit(i + 40)),
+    );
+    const c = fromOklab([
+      base[0] + (up - 0.2) * 0.05 + (unit(i + 60) - 0.5) * 0.05,
+      base[1] + (unit(i + 80) - 0.5) * 0.012,
+      base[2] + (unit(i + 90) - 0.5) * 0.02,
+    ]);
+    colors.push(c >> 16, (c >> 8) & 255, c & 255, 255);
   }
 }

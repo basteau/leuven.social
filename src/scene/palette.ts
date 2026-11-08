@@ -47,7 +47,7 @@ export const PARASOLS = [0xf6eedc, 0xd2553f, 0xe8b94a, 0xe07b4f, 0x4a77a8] as co
 export const PROPS = {
   iron: 0x3b4150,
   /** Galvanised steel of bike racks: paler than the iron, so a rack reads against dark tarmac and bikes. */
-  rack: 0x9aa3ae,
+  rack: 0x7d8792,
   lantern: 0xf3dfa8,
   /** A lantern lit at night, and the pool of light it throws on the street. */
   lamplight: 0xfff2c4,
@@ -170,7 +170,7 @@ export const GROUND = {
   pavement: 0xb3afa6,
   /** The kerbstones along the carriageways: Belgian bluestone, a cool grey between slabs and asphalt. */
   kerb: 0x9a9ea6,
-  plaza: 0xd8bb90,
+  plaza: 0xcbb394,
   water: 0x5f9fc4,
   /** Bridge decks: the pavement's slabs a shade warmer, so a street runs on over the bridge. */
   bridge: 0xb8b0a1,

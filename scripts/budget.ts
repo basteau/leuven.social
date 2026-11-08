@@ -54,7 +54,10 @@ const BUDGETS: {
     // map asks for (0.9 KB), merged onto multiplayer's engine.
     // 173: dynamic resolution (resolution.ts and its wiring, 0.4 KB), so a phone that can't keep
     // up with the street draws fewer pixels instead of dropping frames.
-    limit: 173 * KB,
+    // 177.5: the look of the city, asked for (3.7 KB): roofs in courses, painted grass, water,
+    // windows with bars and curtains, floodlit churches, light baked over the streets and leaves
+    // in puffs, all in the one material's shader rather than in geometry to download.
+    limit: 177.5 * KB,
     gzip: true,
   },
   // 3.5: just above 3.1 KB. 3.75: the minimap, the other players' name tags and who you are in
@@ -174,7 +177,10 @@ const BUDGETS: {
     // public places' banners, flags, hangings and marquees, asked for so the city reads without
     // words (2.2 KB).
     // 11: terrace layouts and menu boards, merged onto every trade's symbol (0.1 KB).
-    limit: 11 * KB,
+    // 13.75: bikes with open spoked wheels and mudguards, hoops and roofs for the racks, a lantern
+    // on a slim post, a public place's door, medallion and flag, the dark at the foot of the walls
+    // and the baked light (2.4 KB), asked for.
+    limit: 13.75 * KB,
     gzip: true,
   },
   // The rooms inside the landmarks, authored by hand, fetched near one.
@@ -199,7 +205,8 @@ const BUDGETS: {
     label: 'First-load JS',
     pattern: 'assets/{index,viewer}-*.js',
     // 260: the engine's and the shell's additions above (1 KB). 260.5: dynamic resolution (0.4 KB).
-    limit: 260.5 * KB,
+    // 264.75: the look of the city (3.9 KB), asked for; the engine's own note says what.
+    limit: 264.75 * KB,
     gzip: true,
     closure: true,
   },

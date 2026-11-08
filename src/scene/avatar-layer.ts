@@ -47,7 +47,7 @@ import { LEAD, recentre, screenSteer } from './follow.ts';
 import { loadInteriors } from './interiors.ts';
 import type { Interiors } from './interiors.ts';
 import type { Detail } from './lod.ts';
-import { MAX_ZOOM } from './lod.ts';
+import { MAX_ZOOM, PUFF_LAYER } from './lod.ts';
 import type { MapControls } from './map-controls.ts';
 import { markerDrop, markerGeometry, markerRadius } from './marker.ts';
 import { MeshBuilder, linearVertexColors } from './mesh-builder.ts';
@@ -725,6 +725,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     const square = PICK_SIDE * PICK_STEP;
     camera.setViewOffset(width, height, x - square / 2, y - square / 2, square, square);
     scene.overrideMaterial = pickDepth;
+    camera.layers.disable(PUFF_LAYER);
     renderer.shadowMap.needsUpdate = false;
     renderer.setRenderTarget(pickTarget);
     renderer.setClearColor(0xffffff, 1);
@@ -735,6 +736,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     renderer.setClearColor(clearColor, clearAlpha);
     renderer.shadowMap.needsUpdate = shadows;
     scene.overrideMaterial = null;
+    camera.layers.enable(PUFF_LAYER);
     camera.clearViewOffset();
     for (let row = 0; row < PICK_SIDE; row++) {
       // Read back bottom row first; `points` is top row first, as `meant` wants.

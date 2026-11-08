@@ -8,7 +8,7 @@ import { straightSkeleton } from '../data/skeleton.ts';
 import type { Skeleton } from '../data/skeleton.ts';
 import { LANDMARK_MODELS } from './landmark-models.ts';
 import { SHOP_KINDS } from '../data/shop-kinds.ts';
-import { LANCETS, ORNATE, shopFront } from './facade-codes.ts';
+import { LANCETS, ORNATE, PANE, ROOF_FLAT, pitchedRoof, shopFront } from './facade-codes.ts';
 import { addLandmark, addTower } from './landmarks.ts';
 import type { Terrain } from '../data/terrain.ts';
 import { LIFT_UNIT, LineBuilder, MeshBuilder } from './mesh-builder.ts';
@@ -196,6 +196,7 @@ function addPolygon(
   y: (t: number) => number,
   color: number,
   hint: V3,
+  facade: number,
 ): void {
   const contour = Array.from(
     { length: points.length / 3 },
@@ -203,7 +204,7 @@ function addPolygon(
   );
   const p = (i: number): V3 => [points[i * 3]!, y(points[i * 3 + 2]!), points[i * 3 + 1]!];
   const corners = contour.map((_, i) => p(i));
-  mesh.polygon(corners, ShapeUtils.triangulateShape(contour, []), color, hint);
+  mesh.polygon(corners, ShapeUtils.triangulateShape(contour, []), color, hint, facade);
 }
 
 /** A hipped roof over the straight skeleton, flattened off where it reaches its surveyed rise. */
@@ -218,14 +219,15 @@ function hipRoof(
   const y = (t: number) => eave + Math.min(t, cap) * pitch;
   const slopeColor = roofColor(b.roofColor, false, b.id);
   const topColor = roofColor(b.roofColor, true, b.id);
+  const tiles = pitchedRoof(mesh.lift + ridge);
   for (const face of skeleton.faces) {
     const [ax, az, , bx, bz] = face.points;
     const len = Math.hypot(bx! - ax!, bz! - az!) || 1;
     // Up and out over its own wall: the outward normal of a counter-clockwise edge is (dz, -dx).
     const hint: V3 = [(bz! - az!) / len, 1, -(bx! - ax!) / len];
     const { below, above, cuts } = cutAt(face.points, cap);
-    if (below.length) addPolygon(mesh, below, y, slopeColor, hint);
-    if (above.length) addPolygon(mesh, above, y, topColor, [0, 1, 0]);
+    if (below.length) addPolygon(mesh, below, y, slopeColor, hint, tiles);
+    if (above.length) addPolygon(mesh, above, y, topColor, [0, 1, 0], ROOF_FLAT);
     for (const [x0, z0, x1, z1] of cuts) lines.segment([x0!, ridge, z0!], [x1!, ridge, z1!]);
   }
   for (const [x0, z0, t0, x1, z1, t1] of skeleton.arcs) {
@@ -549,7 +551,13 @@ export function addBuilding(
     const points = [...contour, ...courtyards.flat()];
     const roof = roofColor(landmark ? null : b.roofColor, true, b.id);
     const corners = points.map((p): V3 => [p.x, plan.eave, p.y]);
-    mesh.polygon(corners, ShapeUtils.triangulateShape(contour, courtyards), roof, [0, 1, 0]);
+    mesh.polygon(
+      corners,
+      ShapeUtils.triangulateShape(contour, courtyards),
+      roof,
+      [0, 1, 0],
+      ROOF_FLAT,
+    );
     if (landmark) addLandmark(mesh, lines, ring, landmark);
     return;
   }
@@ -566,8 +574,17 @@ export function addBuilding(
   // Two roof slopes meet at a ridge along the long axis; gable triangles close the ends.
   const left: V3 = [vx, 1, vz];
   const right: V3 = [-vx, 1, -vz];
-  mesh.quad(at(-L, W, eave), at(L, W, eave), at(L, 0, ridge), at(-L, 0, ridge), roof, left);
-  mesh.quad(at(-L, -W, eave), at(L, -W, eave), at(L, 0, ridge), at(-L, 0, ridge), roof, right);
+  const tiles = pitchedRoof(mesh.lift + ridge);
+  mesh.quad(at(-L, W, eave), at(L, W, eave), at(L, 0, ridge), at(-L, 0, ridge), roof, left, tiles);
+  mesh.quad(
+    at(-L, -W, eave),
+    at(L, -W, eave),
+    at(L, 0, ridge),
+    at(-L, 0, ridge),
+    roof,
+    right,
+    tiles,
+  );
   for (const side of [W, -W]) ink.segment(at(-L, side, eave), at(L, side, eave));
   ink.segment(at(-L, 0, ridge), at(L, 0, ridge));
   for (const end of [L, -L]) {
@@ -671,6 +688,7 @@ function roofDetails(
       pane(u0 + 0.15, y1 - 0.2),
       WINDOW.glass,
       out,
+      PANE,
     );
     mesh.triangle(at(u1, vf, y0), at(u1, vb, y1 + 0.3), at(u1, vf, y1), wall, [ux, 0, uz]);
     mesh.triangle(at(u0, vf, y0), at(u0, vf, y1), at(u0, vb, y1 + 0.3), wall, [-ux, 0, -uz]);
@@ -698,6 +716,7 @@ function roofDetails(
       at(u0, v1, lift(v1)),
       WINDOW.glass,
       [side * vx, 1, side * vz],
+      PANE,
     );
   }
 }

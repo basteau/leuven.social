@@ -6,10 +6,13 @@
  */
 
 import type { Prop } from '../data/city.ts';
+import { pointInRing } from '../data/geometry.ts';
 import { propFootprint } from '../data/props.ts';
 import type { Terrain } from '../data/terrain.ts';
 import type { Cell } from './cells.ts';
+import { addContacts } from './contact.ts';
 import { drawnGround } from './drawn-ground.ts';
+import { bakeLight } from './lamp-light.ts';
 import type { LayerHeights } from './ground.ts';
 import type { MeshBuilder } from './mesh-builder.ts';
 import { addLampGlow, addProp, isLarge } from './props.ts';
@@ -40,6 +43,8 @@ export interface Furniture {
   bikes: Float32Array;
   /** The shop fronts' awnings, which carry their kind in the `facade` attribute, if any. */
   awnings: MeshBuilder | null;
+  /** The dark at the foot of the walls and under the racks (contact.ts). */
+  contact: MeshBuilder;
   /** What shows at every zoom, or null where nothing in the cell is that tall. */
   tall: MeshBuilder | null;
   /** The lamps' light at night (lanterns and pools, `addLampGlow`), or null without a lamp. */
@@ -68,10 +73,11 @@ export function buildFurniture(cell: Cell, kit: FurnitureKit): Furniture {
   const drawn = drawnGround(terrain, cell, kit.layers);
   let tall: MeshBuilder | null = null;
   let glow: MeshBuilder | null = null;
+  const open = (x: number, z: number) => !cell.buildings.some((b) => pointInRing(b.ring, x, z));
   for (const p of cell.props) {
     const mesh = isLarge(p) ? (tall ??= new MeshBuilder()) : near;
     mesh.lift = propBase(drawn, p);
-    addProp(mesh, p, mesh === near ? bikes : undefined, drawn.height);
+    addProp(mesh, p, mesh === near ? bikes : undefined, drawn.height, open);
     if (p.kind === 'lamp') {
       glow ??= new MeshBuilder();
       glow.lift = mesh.lift;
@@ -87,9 +93,17 @@ export function buildFurniture(cell: Cell, kit: FurnitureKit): Furniture {
   }
   const awnings = cell.fronts.length > 0 ? new MeshBuilder() : null;
   if (awnings) addStorefronts(near, awnings, cell.fronts, kit, drawn.height);
-  return { near, bikes: new Float32Array(bikes), awnings, tall, glow };
+  const contact = new MeshBuilder();
+  addContacts(
+    contact,
+    cell.buildings,
+    cell.props.filter((p) => p.kind === 'bikes'),
+    terrain.height.bind(terrain),
+  );
+  return { near, bikes: new Float32Array(bikes), awnings, contact, tall, glow };
 }
 
 // The avatar and the bikes stand on the ground as drawn too, through the
 // viewer, which has this chunk loaded by the time anyone walks.
 export { drawnGround };
+export { bakeLight };

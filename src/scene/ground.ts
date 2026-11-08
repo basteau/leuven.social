@@ -90,9 +90,26 @@ function addRing(mesh: MeshBuilder, ring: Float32Array, y: number, color: number
   mesh.polygon(points, ShapeUtils.triangulateShape(contour, []), color, UP, -surface);
 }
 
-function addRings(mesh: MeshBuilder, rings: readonly Float32Array[], y: number, color: number) {
-  for (const ring of rings) addRing(mesh, ring, y, color);
+function addRings(
+  mesh: MeshBuilder,
+  rings: readonly Float32Array[],
+  y: number,
+  color: number,
+  surface = 0,
+) {
+  for (const ring of rings) addRing(mesh, ring, y, color, surface);
 }
+
+/** What each pitch surface looks like up close: grass, a speckled hard court, raked clay or sand. */
+const PITCH_TEXTURE: Record<PitchSurface, number> = {
+  grass: SURFACE.garden,
+  turf: SURFACE.garden,
+  clay: SURFACE.gravel,
+  tartan: SURFACE.asphalt,
+  hard: SURFACE.asphalt,
+  sand: SURFACE.gravel,
+  gravel: SURFACE.gravel,
+};
 
 /**
  * Paths as flat ribbons along their centre lines. Each segment runs on by half a width at both
@@ -114,6 +131,7 @@ function addPaths(mesh: MeshBuilder, paths: readonly Path[], y: number) {
         [ax - ux - uz, y, az - uz + ux],
         color,
         UP,
+        -SURFACE_OF[surface],
       );
     }
   }
@@ -203,7 +221,15 @@ export function addGround(
     const [x0, z0] = [Math.max(b.minX, within.minX), Math.max(b.minZ, within.minZ)];
     const [x1, z1] = [Math.min(b.maxX, within.maxX), Math.min(b.maxZ, within.maxZ)];
     if (x0 < x1 && z0 < z1)
-      mesh.quad([x0, 0, z0], [x1, 0, z0], [x1, 0, z1], [x0, 0, z1], GROUND.base, UP);
+      mesh.quad(
+        [x0, 0, z0],
+        [x1, 0, z0],
+        [x1, 0, z1],
+        [x0, 0, z1],
+        GROUND.base,
+        UP,
+        -SURFACE.garden,
+      );
   }
   for (const e of areaOutline(area)) {
     const edge = edgeIn(e, within);
@@ -212,16 +238,22 @@ export function addGround(
   // Layers stack a few millimetres apart, from the most generic land to the most specific, so
   // what is mapped inside something else shows: railway land is the land a railway owns, with
   // its grass verges and copses on it; a wood in a park, a pitch or car park in either.
-  addRings(mesh, layers.railLand, LAYER_Y.railLand, GROUND.railway);
+  addRings(mesh, layers.railLand, LAYER_Y.railLand, GROUND.railway, SURFACE.gravel);
   // Lawns and parks speckled with daisies and buttercups, close in (facade-material.ts).
   for (const ring of layers.green)
     addRing(mesh, ring, LAYER_Y.green, GROUND.green, SURFACE.flowers);
-  addRings(mesh, layers.woods, LAYER_Y.woods, GROUND.woods);
+  addRings(mesh, layers.woods, LAYER_Y.woods, GROUND.woods, SURFACE.woods);
   for (const { surface, ring } of layers.pitches) {
-    addRing(mesh, ring, surface === 'tartan' ? PITCH_Y.track : PITCH_Y.pitch, PITCH[surface]);
+    addRing(
+      mesh,
+      ring,
+      surface === 'tartan' ? PITCH_Y.track : PITCH_Y.pitch,
+      PITCH[surface],
+      PITCH_TEXTURE[surface],
+    );
   }
-  addRings(mesh, layers.parking, LAYER_Y.parking, GROUND.parking);
-  addRings(mesh, layers.water, LAYER_Y.water, GROUND.water);
+  addRings(mesh, layers.parking, LAYER_Y.parking, GROUND.parking, SURFACE.asphalt);
+  addRings(mesh, layers.water, LAYER_Y.water, GROUND.water, SURFACE.water);
   // Above the water (footbridges), under the road surfaces that already cover their crossings.
   addPaths(mesh, layers.paths, LAYER_Y.paths);
   // Bridge decks: stone slabs over the water, under any road surface that crosses them.

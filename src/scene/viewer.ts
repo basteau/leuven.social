@@ -1,11 +1,14 @@
 import {
   Box3,
+  BufferAttribute,
   BufferGeometry,
   DataTexture,
   DirectionalLight,
   Fog,
   Frustum,
   HemisphereLight,
+  InstancedBufferAttribute,
+  InstancedBufferGeometry,
   LineBasicMaterial,
   LineSegments,
   Matrix4,
@@ -27,14 +30,20 @@ import type { StreetIndex } from '../data/streets.ts';
 import { Terrain } from '../data/terrain.ts';
 import { addBuilding, footing, partyWalls, wallTop } from './buildings.ts';
 import { AWNING } from './facade-codes.ts';
+import { PUFF, addPuffs } from './trees.ts';
 import type { PartyWalls } from './buildings.ts';
 import { buildCell, groundRange, partition } from './cells.ts';
 import type { Cell, DetailMarks, LandmarkRange } from './cells.ts';
 import type { DrawnGround } from './drawn-ground.ts';
-import type { buildFurniture, drawnGround } from './furniture.ts';
+import type { bakeLight, buildFurniture, drawnGround } from './furniture.ts';
 import {
   createFacadeMaterial,
   createGlowMaterial,
+  createContactMaterial,
+  createPuffMaterial,
+  lampLight,
+  setCrowns,
+  setLightField,
   setNight,
   setPixelSize,
 } from './facade-material.ts';
@@ -81,6 +90,7 @@ import { createScaler, pixelRatio } from './resolution.ts';
 import type { RideAction, RideState } from './bikes.ts';
 import {
   CAMERA_DISTANCE,
+  PUFF_LAYER,
   MAX_ZOOM,
   MIN_ZOOM,
   PITCH,
@@ -213,6 +223,10 @@ interface CellEntry {
   awnings: Mesh | null;
   /** Its lamps' light, shown at night at every zoom, if it has a lamp. */
   glow: Mesh | null;
+  /** The dark at the foot of its walls, up close. */
+  contact: Mesh | null;
+  /** The puffs of leaves its trees are drawn with up close, if it has trees. */
+  puffs: Mesh | null;
   /** Where the rails and the catenary masts end in its outlines, which only show zoomed in. */
   detail: DetailMarks;
   /** Its ground as drawn, read the first time something stands on it there. */
@@ -325,14 +339,24 @@ export function createViewer(options: ViewerOptions): Viewer {
   const fog = new Fog(SKY.horizon, 1e7, 1e7 + 1);
   scene.fog = fog;
   const gradientMap = toonGradient();
+  // The lamps' light, baked over the city the first time it's night (`bakeLamps`).
+  const lampField = lampLight();
+  lampField.cell.value = density >= 1.5 ? 2 : 1;
   // One material for every cell: walls get windows, roads their texture and paint (paint.ts).
-  const material = createFacadeMaterial(gradientMap);
+  const material = createFacadeMaterial(gradientMap, lampField);
   // A mesh without a `facade` attribute (street furniture) reads 0: a plain surface.
   Object.assign(material, { defaultAttributeValues: { facade: [0], lift: [0] } });
   const ink = new LineBasicMaterial({ color: OUTLINE });
-  // The lamps' light at night: the same night uniform as the windows.
-  const lamps = { value: 0 };
+  const puffMaterial = createPuffMaterial(
+    gradientMap,
+    lampField,
+    material.userData.pixel as { value: number },
+    1 / (CAMERA_DISTANCE * 2 - 1),
+  );
+  // The lanterns, lit at night.
+  const lamps = lampField.on;
   const glowMaterial = createGlowMaterial(lamps);
+  const contactMaterial = createContactMaterial(lampField.cell);
 
   const terrain = new Terrain(city.terrain);
 
@@ -357,6 +381,8 @@ export function createViewer(options: ViewerOptions): Viewer {
         tall: null,
         awnings: null,
         glow: null,
+        contact: null,
+        puffs: null,
         detail: { rails: 0, masts: 0 },
         trunksFrom: 0,
         shadowFrom: 0,
@@ -467,13 +493,27 @@ export function createViewer(options: ViewerOptions): Viewer {
    * map goes on without them.
    */
   let furnishing:
-    { buildFurniture: typeof buildFurniture; drawnGround: typeof drawnGround } | undefined;
+    | {
+        buildFurniture: typeof buildFurniture;
+        drawnGround: typeof drawnGround;
+        bakeLight: typeof bakeLight;
+      }
+    | undefined;
   let loadingFurniture: Promise<void> | undefined;
+  /** Bakes the lamps' light the first time it's dark and the chunk that knows how is here. */
+  let lampsBaked = false;
+  function bakeLamps(): void {
+    if (lampsBaked || !furnishing || daylight.night <= LAMPS_ON) return;
+    lampsBaked = true;
+    setLightField(lampField, furnishing.bakeLight(city, terrain));
+    invalidate();
+  }
   function loadFurniture(): void {
     loadingFurniture ??= import('./furniture.ts').then(
       (chunk) => {
         furnishing = chunk;
         if (disposed) return;
+        bakeLamps();
         // The cells waiting for their furniture get it: those in view now, the rest when idle.
         invalidate();
         idleHandle ||= idle(buildInBackground);
@@ -514,7 +554,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     // awnings need it for their stripes, and the glow for its fade.
     const mesh = new Mesh(builder.build({ facade: striped }), drawnWith);
     mesh.castShadow = drawnWith === material;
-    mesh.receiveShadow = true;
+    mesh.receiveShadow = drawnWith === material;
     mesh.frustumCulled = false;
     mesh.visible = false; // until `cull` says otherwise
     hold(mesh);
@@ -528,7 +568,7 @@ export function createViewer(options: ViewerOptions): Viewer {
    */
   function furnish(entry: CellEntry): void {
     if (!furnishing) return loadFurniture();
-    const { near, bikes, awnings, tall, glow } = furnishing.buildFurniture(entry.cell, {
+    const { near, bikes, awnings, contact, tall, glow } = furnishing.buildFurniture(entry.cell, {
       MeshBuilder,
       terrain,
       awning: AWNING,
@@ -544,11 +584,44 @@ export function createViewer(options: ViewerOptions): Viewer {
     entry.box.union(entry.furniture.geometry.boundingBox!);
     entry.awnings = awnings && furnitureMesh(awnings, true);
     entry.glow = glow && furnitureMesh(glow, true, glowMaterial);
+    entry.contact = furnitureMesh(contact, true, contactMaterial);
     entry.tall = tall && furnitureMesh(tall);
+    entry.puffs = puffMesh(entry.cell);
     if (entry.tall) {
       entry.box.union(entry.tall.geometry.boundingBox!);
       renderer.shadowMap.needsUpdate = true;
     }
+  }
+
+  /** One quad, turned to the camera in the shader, for every puff of leaves (`addPuffs`). */
+  function puffMesh({ trees }: Cell): Mesh | null {
+    if (!trees.length) return null;
+    const [spots, colors]: [number[], number[]] = [[], []];
+    for (let i = 0; i < trees.length; i += 4) {
+      const [x, z, seed, height] = [trees[i]!, trees[i + 1]!, trees[i + 2]!, trees[i + 3]!];
+      addPuffs(spots, colors, x, terrain.height(x, z), z, seed, height);
+    }
+    const geometry = new InstancedBufferGeometry();
+    geometry.setAttribute(
+      'position',
+      new BufferAttribute(new Float32Array([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0]), 3),
+    );
+    geometry.setAttribute(
+      'normal',
+      new BufferAttribute(new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1]), 3),
+    );
+    geometry.setIndex([0, 1, 2, 0, 2, 3]);
+    geometry.setAttribute('puff', new InstancedBufferAttribute(new Float32Array(spots), 4));
+    geometry.setAttribute('color', new InstancedBufferAttribute(new Uint8Array(colors), 4, true));
+    geometry.instanceCount = spots.length / PUFF.stride;
+    const mesh = new Mesh(geometry, puffMaterial);
+    mesh.receiveShadow = true;
+    mesh.frustumCulled = false;
+    mesh.visible = false;
+    mesh.layers.set(PUFF_LAYER);
+    held.bytes += spots.length * 4 + colors.length;
+    scene.add(mesh);
+    return mesh;
   }
 
   function hold(...objects: { geometry: BufferGeometry }[]): void {
@@ -591,6 +664,7 @@ export function createViewer(options: ViewerOptions): Viewer {
 
   // The one camera, from the whole city down to a street (lod.ts).
   const camera = new OrthographicCamera(-1, 1, 1, -1, 1, CAMERA_DISTANCE * 2);
+  camera.layers.enable(PUFF_LAYER);
   /** How far out this window may zoom (zoom-limit.ts). A room keeps its own limits. */
   let farthestZoom = MIN_ZOOM;
   // A drag lets go of the avatar; zooming keeps it in the middle (map-controls.ts).
@@ -709,6 +783,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     need.half += Math.min(SHADOW_REACH, span / 4);
     detail = detailAt(span);
     propsShown = detail.furniture;
+    setCrowns(material, propsShown);
     const refit = !shadow || !shadowCovers(shadow, need, SHADOW_COARSER);
     if (refit) fitShadowTo(need);
     const [dx, dy] = [need.x - shadow!.x, need.y - shadow!.y];
@@ -789,7 +864,18 @@ export function createViewer(options: ViewerOptions): Viewer {
         if (inked) calls++; // its outlines
       }
       if (casts) draw(casters);
-      const { furniture, tall, glow } = entry;
+      const { furniture, tall, glow, puffs, contact } = entry;
+      if (contact) {
+        contact.visible = inView && propsShown;
+        if (contact.visible) draw(contact);
+      }
+      if (puffs) {
+        puffs.visible = inView && propsShown;
+        if (puffs.visible) {
+          calls++;
+          triangles += (puffs.geometry as InstancedBufferGeometry).instanceCount * 2;
+        }
+      }
       // At night the lamps' light shows at every zoom, as what reads of a city from above.
       if (glow) {
         glow.visible = inView && daylight.night > LAMPS_ON;
@@ -1247,11 +1333,15 @@ export function createViewer(options: ViewerOptions): Viewer {
       if (entry.tall) scene.remove(entry.tall);
       if (entry.awnings) scene.remove(entry.awnings);
       if (entry.glow) scene.remove(entry.glow);
+      if (entry.puffs) scene.remove(entry.puffs);
+      if (entry.contact) scene.remove(entry.contact);
       entry.objects = [];
       entry.furniture = undefined;
       entry.tall = null;
       entry.awnings = null;
       entry.glow = null;
+      entry.puffs = null;
+      entry.contact = null;
     }
     [held.vertices, held.bytes] = [0, 0];
     shadow = undefined;
@@ -1277,6 +1367,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     fog.color.set(daylight.horizon);
     setNight(material, daylight.night);
     lamps.value = Math.max(0, (daylight.night - LAMPS_ON) / (1 - LAMPS_ON));
+    bakeLamps();
     const step = sunStep(hour);
     if (step !== sunHour) {
       sunHour = step;

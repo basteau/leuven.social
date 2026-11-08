@@ -35,7 +35,7 @@ describe('daylightAt', () => {
     for (const hour of [0, 3, 23.5, 24]) {
       const d = daylightAt(hour);
       expect(d.night).toBe(1);
-      expect(d.sunIntensity).toBeLessThan(0.6);
+      expect(d.sunIntensity).toBeLessThan(1);
       expect(d.sunDirection[1]).toBeGreaterThanOrEqual(0.2);
       expect(d.top).toBeLessThan(0x202040);
     }

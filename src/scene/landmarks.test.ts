@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { BufferGeometry } from 'three';
 
-import { LANCETS } from './facade-codes.ts';
+import { LANCETS, PANE, ROOF_FLAT } from './facade-codes.ts';
 import { addLandmark } from './landmarks.ts';
 import type { LandmarkModel, Part } from './landmarks.ts';
 import { LineBuilder, MeshBuilder, unindexed } from './mesh-builder.ts';
@@ -96,10 +96,30 @@ describe('halls', () => {
     const hall: Part = { type: 'hall', u: 5, v: 0, length: 3, width: 3, eave: 9, windows: true };
     const facade = (windows: LandmarkModel['windows']) =>
       new Set(Array.from(build(model([hall], { windows })).surfaces.getAttribute('facade').array));
-    expect(facade(true)).toEqual(new Set([9, 0]));
-    expect(facade(false)).toEqual(new Set([0]));
+    expect(facade(true)).toEqual(new Set([9, ROOF_FLAT]));
+    expect(facade(false)).toEqual(new Set([0, ROOF_FLAT]));
     // A church's halls all get lancets, whatever each one says.
-    expect(facade('lancet')).toEqual(new Set([9 + LANCETS, 0]));
+    expect(facade('lancet')).toEqual(new Set([9 + LANCETS, ROOF_FLAT]));
+  });
+
+  test('a dormer has a window in each end, a hair out of its gable', () => {
+    const dormer: Part = {
+      type: 'hall',
+      u: 0,
+      v: 0,
+      length: 1,
+      width: 1,
+      from: 20,
+      eave: 22,
+      ridge: 23,
+      pane: true,
+    };
+    const plain = build(model([{ ...dormer, pane: false }])).surfaces.getAttribute(
+      'position',
+    ).count;
+    const { surfaces } = build(model([dormer]));
+    expect(surfaces.getAttribute('position').count).toBe(plain + 2 * 6);
+    expect(new Set(Array.from(surfaces.getAttribute('facade').array))).toContain(PANE);
   });
 
   test('walls start at `from`, so a dormer can sit on a roof', () => {

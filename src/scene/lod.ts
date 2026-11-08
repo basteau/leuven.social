@@ -14,6 +14,8 @@ export const MAX_ZOOM = 40;
 /** True isometric pitch, ≈ 35.26°, and how far the camera stands back from where it looks (m). */
 export const PITCH = Math.atan(1 / Math.SQRT2);
 export const CAMERA_DISTANCE = 2000;
+/** The layer the puffs of leaves are on: quads the tap's depth pass can't place, so it skips them. */
+export const PUFF_LAYER = 3;
 
 export const spanOf = (zoom: number) => VIEW_HEIGHT / zoom;
 
