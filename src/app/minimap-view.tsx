@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 
 import type { City } from '../data/city.ts';
+import { MapIcon } from './icons.tsx';
 import { live } from './live.ts';
 import { covers, drawCity, drawMinimap, indexCity } from './minimap.ts';
 import type { CityImage, MinimapIndex } from './minimap.ts';
 
-/** How much of the city it shows across (m): the streets round you, or the centre. */
-const RANGES = [360, 1400] as const;
+/** How much of the city it shows across (m): the streets round you. The rest is the full map. */
+const RANGE = 360;
 
 /** The city image drawn last, and the canvas it was drawn on. */
 interface Cache {
@@ -44,14 +45,14 @@ function paint(
 
 /**
  * The minimap in the bottom start corner: a round window on the city round you, turned the way
- * the view looks. Pressed, it shows more of the city, or less again. Its own chunk, drawn on the
- * next animation frame after anything moves, and not at all while nothing does.
+ * the view looks. Pressed, it opens the full map, as a map in the corner of any game does. Its
+ * own chunk, drawn on the next animation frame after anything moves, and not at all while nothing
+ * does.
  */
-export function Minimap({ city }: { city: City }) {
+export function Minimap(props: { city: City; onOpen: () => void; onReach: () => void }) {
+  const { city } = props;
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [far, setFar] = useState(false);
   const index = useMemo(() => indexCity(city), [city]);
-  const range = RANGES[far ? 1 : 0];
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -62,10 +63,10 @@ export function Minimap({ city }: { city: City }) {
     const soon = () => {
       frame ||= requestAnimationFrame(() => {
         frame = 0;
-        paint(canvas, pen, index, range, cache);
+        paint(canvas, pen, index, RANGE, cache);
       });
     };
-    paint(canvas, pen, index, range, cache);
+    paint(canvas, pen, index, RANGE, cache);
     const unlisten = live.listen(soon);
     const resized = new ResizeObserver(soon);
     resized.observe(canvas);
@@ -74,17 +75,26 @@ export function Minimap({ city }: { city: City }) {
       resized.disconnect();
       cancelAnimationFrame(frame);
     };
-  }, [index, range]);
+  }, [index]);
 
   return (
     <button
       type="button"
       className="minimap"
-      aria-label="Minimap: show more of the city"
-      aria-pressed={far}
-      onClick={() => setFar((f) => !f)}
+      aria-label="Open the map"
+      aria-haspopup="dialog"
+      aria-keyshortcuts="M"
+      onClick={props.onOpen}
+      onPointerEnter={props.onReach}
     >
-      <canvas ref={canvasRef} aria-hidden="true" />
+      <span className="minimap-round">
+        <canvas ref={canvasRef} aria-hidden="true" />
+      </span>
+      <span className="minimap-tab" aria-hidden="true">
+        <MapIcon />
+        Map
+        <kbd>M</kbd>
+      </span>
     </button>
   );
 }

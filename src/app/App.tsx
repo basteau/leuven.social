@@ -22,6 +22,7 @@ import type { Account } from './account-sheet.tsx';
 import type { ActionId, CommandState } from './commands.ts';
 import type { MenuPage } from './command-menu.tsx';
 import type { Multiplayer } from './multiplayer.ts';
+import { coachStep } from './coach.ts';
 import { ActionButton } from './controls.tsx';
 import { Credits } from './credits.tsx';
 import {
@@ -44,6 +45,7 @@ import type { LoadState } from './loading.ts';
 import { pointerFor } from './pointer.ts';
 import { useShortcuts } from './shortcuts.ts';
 import { StreetSign } from './street-sign.tsx';
+import { ViewControls } from './view-controls.tsx';
 
 type Status = { state: 'loading' } | { state: 'ready' } | { state: 'error'; message: string };
 
@@ -96,11 +98,13 @@ const rideLabel = (k: Keycaps, mod: string) =>
   `Riding a bike in Leuven. ${k.KeyW}, ${k.KeyA}, ${k.KeyS} and ${k.KeyD} ride, Shift sprints, B rings the bell and F gets off; click or tap a street nearby to ride there. Space brings the view back to you. ${mod} K or slash opens the menu.`;
 
 /**
- * How to walk is shown the first time the view comes close enough to show the avatar, until a
- * few seconds after the first step, and then not again on this device: the keys are in the menu.
+ * The first minute, once on this device (`coach.ts`): come down to the street, take a step, look
+ * around. The step's line stays this long after it, and the last line this long, or until the
+ * map is dragged.
  */
 const COACHED_KEY = 'leuven-walk-coached';
 const COACH_AFTER_STEP_MS = 4_000;
+const COACH_LOOK_MS = 7_000;
 /** The first ride is coached for a few seconds, once per device. */
 const RIDE_COACHED_KEY = 'leuven-ride-coached';
 const RIDE_COACH_MS = 7_000;
@@ -239,7 +243,14 @@ export function App() {
   const [routing, setRouting] = useState(false);
   const routingRef = useRef(routing);
   const [mapOpen, setMapOpen] = useState(false);
-  const [coach, setCoach] = useState(() => !coached());
+  const [coach, setCoach] = useState(() => ({
+    done: coached(),
+    street: false,
+    stepped: false,
+    settled: false,
+  }));
+  /** The view has been dragged off the avatar: Back to you says so. */
+  const [away, setAway] = useState(false);
   const [ride, setRide] = useState<RideState>('');
   const rideRef = useRef(ride);
   /** The city, for finding places by name, once it's on screen. */
@@ -265,7 +276,6 @@ export function App() {
       showKeys(caps, mod);
     });
   }, [mod]);
-  const coachTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   // The menu: shut until asked for, and in the page (closed) once its chunk has come, while the
   // city is built, so it opens at once. While it's open, or on its way, the map's shortcuts
@@ -352,15 +362,27 @@ export function App() {
     return typed;
   }, []);
 
-  /** Someone took a first step: the coach has done its job, and goes after a moment. */
+  /** Someone took a first step: the coach moves on, a moment later. */
   const steppedRef = useRef(() => {
     setBlocked(null);
-    if (coachTimer.current !== undefined) return;
-    coachTimer.current = setTimeout(() => {
-      setCoach(false);
-      rememberCoached();
-    }, COACH_AFTER_STEP_MS);
+    setCoach((c) => (c.stepped ? c : { ...c, stepped: true }));
   });
+  useEffect(() => {
+    if (coach.done || !coach.stepped || coach.settled) return;
+    const timer = setTimeout(() => setCoach((c) => ({ ...c, settled: true })), COACH_AFTER_STEP_MS);
+    return () => clearTimeout(timer);
+  }, [coach]);
+  // The last line goes once it's been done (a drag of the map) or after a moment.
+  useEffect(() => {
+    if (coach.done || !coach.settled) return;
+    const finish = () => {
+      setCoach((c) => ({ ...c, done: true }));
+      rememberCoached();
+    };
+    if (away) return finish();
+    const timer = setTimeout(finish, COACH_LOOK_MS);
+    return () => clearTimeout(timer);
+  }, [coach, away]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -418,6 +440,8 @@ export function App() {
           onAvatarUnavailable: () => setAvatarFailed(true),
           onAvatarAt: (x, y, figure) => {
             setAvatarShown(figure);
+            setAway(viewerRef.current?.pinned() === false);
+            if (figure) setCoach((c) => (c.street ? c : { ...c, street: true }));
             const arrow = arrowRef.current;
             const p = arrow && pointerFor(x, y, map.clientWidth, map.clientHeight, figure);
             if (!arrow) return;
@@ -430,7 +454,7 @@ export function App() {
           },
           onStreetChange: setStreet,
           onRoute: (target) => {
-            if (target) setBlocked(null);
+            if (target) steppedRef.current();
             routingRef.current = target !== null;
             setRouting(target !== null);
           },
@@ -601,18 +625,14 @@ export function App() {
     say(runningRef.current ? (sprint ? 'Sprinting' : 'Running') : sprint ? 'Riding' : 'Walking');
   });
 
-  // "Can't go there" stays until the next try, so nobody misses it. A touch with the avatar in
-  // view is a tap to go somewhere: the coach can go too.
+  // "Can't go there" stays until the next try, so nobody misses it.
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || (!blocked && !(avatarShown && coach))) return;
-    const clear = () => {
-      setBlocked(null);
-      if (avatarShown) steppedRef.current();
-    };
+    if (!map || !blocked) return;
+    const clear = () => setBlocked(null);
     map.addEventListener('pointerdown', clear, { once: true, passive: true });
     return () => map.removeEventListener('pointerdown', clear);
-  }, [blocked, avatarShown, coach]);
+  }, [blocked]);
 
   const viewer = () => viewerRef.current;
   /** The other players' chunk, or why there's no joining yet. */
@@ -706,9 +726,7 @@ export function App() {
 
   // A pill goes once its bike, building or route does, the minimap when it's hidden. Pressed or
   // focused, it had focus, which would fall to the page and take the keys with it: back to the map.
-  const shownControls = ready
-    ? Number(!!ride) + Number(!!door) + Number(routing) + Number(minimap)
-    : 0;
+  const shownControls = ready ? Number(!!ride) + Number(!!door) + Number(routing) : 0;
   const hadControls = useRef(0);
   useEffect(() => {
     if (shownControls < hadControls.current && document.activeElement === document.body) {
@@ -717,7 +735,7 @@ export function App() {
     hadControls.current = shownControls;
   }, [shownControls]);
 
-  const coaching = ready && avatarShown && coach && !blocked;
+  const coaching = ready && !blocked ? coachStep(coach) : null;
   const errorSlot = status.state === 'error' ? introErrorSlot() : null;
   const errorNotice = status.state === 'error' && (
     <div className="load-error" role="alert">
@@ -813,7 +831,7 @@ export function App() {
         */}
         <output className="hint">
           {blocked === 'far' ? (
-            'Too far to walk. Get closer first.'
+            'Too far to tap. Open the map and choose Go here.'
           ) : blocked ? (
             'Can’t go there. Pick a street or square.'
           ) : roomsFailed ? (
@@ -837,15 +855,32 @@ export function App() {
                 Tap a street to ride there. Ride gets you off again.
               </span>
             </>
-          ) : coaching ? (
+          ) : coaching === 'zoom' ? (
+            <>
+              <span className="hint-keys">
+                You’re the coral arrow. Scroll or press <kbd>+</kbd> to come down to the street.
+              </span>
+              <span className="hint-touch">
+                You’re the coral arrow. Pinch or press + to come down to the street.
+              </span>
+            </>
+          ) : coaching === 'walk' ? (
             <>
               <span className="hint-keys">
                 <kbd>{keys.KeyW}</kbd> <kbd>{keys.KeyA}</kbd> <kbd>{keys.KeyS}</kbd>{' '}
-                <kbd>{keys.KeyD}</kbd> walk, hold <kbd>Shift</kbd> to run, click to go somewhere.{' '}
-                <kbd>Space</kbd> brings the view back to you.
+                <kbd>{keys.KeyD}</kbd> walk, hold <kbd>Shift</kbd> to run, or click a street to go
+                there.
+              </span>
+              <span className="hint-touch">Tap a street to walk there.</span>
+            </>
+          ) : coaching === 'look' ? (
+            <>
+              <span className="hint-keys">
+                Drag to look around, and <kbd>Space</kbd> comes back to you. The map finds any
+                street.
               </span>
               <span className="hint-touch">
-                Tap a street to walk there. Pinch to zoom; the menu holds the rest.
+                Drag to look around. The map finds any street and takes you there.
               </span>
             </>
           ) : null}
@@ -856,7 +891,14 @@ export function App() {
         {ready && placeCity && minimap && (
           <MenuGuard onError={onMinimapError}>
             <Suspense fallback={null}>
-              <Minimap city={placeCity} />
+              <Minimap
+                city={placeCity}
+                onOpen={() => {
+                  sound.tap();
+                  openMapRef.current();
+                }}
+                onReach={() => void loadMap().catch(() => {})}
+              />
             </Suspense>
           </MenuGuard>
         )}
@@ -896,23 +938,36 @@ export function App() {
             </ActionButton>
           )}
         </div>
+        {/* With the minimap hidden (H, or the menu) the map still has its way in. */}
+        {ready && !minimap && (
+          <button
+            type="button"
+            className="menu-trigger map-trigger"
+            aria-label="Open the map"
+            aria-haspopup="dialog"
+            aria-keyshortcuts="M"
+            onClick={() => {
+              sound.tap();
+              openMapRef.current();
+            }}
+            onPointerEnter={() => void loadMap().catch(() => {})}
+          >
+            <MapIcon />
+            <span>Map</span>
+            <kbd aria-hidden="true">M</kbd>
+          </button>
+        )}
         <div className="hud-end">
           {ready && (
-            <button
-              type="button"
-              className="menu-trigger map-trigger"
-              aria-label="Open the map"
-              aria-haspopup="dialog"
-              aria-keyshortcuts="M"
-              onClick={() => {
-                sound.tap();
-                openMapRef.current();
-              }}
-              onPointerEnter={() => void loadMap().catch(() => {})}
-            >
-              <MapIcon />
-              <kbd aria-hidden="true">M</kbd>
-            </button>
+            <ViewControls
+              viewer={viewerRef}
+              map={mapRef}
+              turnHold={turnHold}
+              keys={keys}
+              away={away}
+              figure={avatarShown}
+              coachZoom={coaching === 'zoom'}
+            />
           )}
           {ready && (
             <button
@@ -928,6 +983,7 @@ export function App() {
               onPointerEnter={() => void loadMenu().catch(() => {})}
             >
               <MenuIcon />
+              <span>Menu</span>
               <kbd aria-hidden="true">{mod === '⌘' ? '⌘' : 'Ctrl '}K</kbd>
             </button>
           )}

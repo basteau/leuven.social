@@ -15,6 +15,8 @@ export function ensureMarks(store: Store<Waypoint[]>): void {
 /** The accent (`--accent` in index.html) as the canvas needs it. */
 export const ACCENT = '#1d5c9b';
 const OTHER = '#8d867c';
+/** You: the avatar's coral, as on the minimap and the arrow over it. */
+const YOU = '#fa8064';
 
 /** A waypoint: a coloured dot in a white ring. */
 export function drawMark(
@@ -46,7 +48,7 @@ export function drawTarget(ctx: CanvasRenderingContext2D, x: number, y: number, 
   ctx.fill();
 }
 
-/** A player: an arrowhead pointing `angle` radians clockwise from up; the own one in the accent. */
+/** A player: an arrowhead pointing `angle` radians clockwise from up; you in your coral. */
 export function drawPlayer(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -64,11 +66,11 @@ export function drawPlayer(
   ctx.lineTo(0, r * 0.45);
   ctx.lineTo(-r * 0.95, r);
   ctx.closePath();
-  ctx.fillStyle = self ? ACCENT : OTHER;
+  ctx.fillStyle = self ? YOU : OTHER;
   ctx.fill();
   ctx.lineWidth = Math.max(1.5, r * 0.3);
   ctx.lineJoin = 'round';
-  ctx.strokeStyle = '#fff';
+  ctx.strokeStyle = self ? '#2b2420' : '#fff';
   ctx.stroke();
   ctx.restore();
 }

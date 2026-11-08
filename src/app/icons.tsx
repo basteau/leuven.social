@@ -15,6 +15,49 @@ export const iconBase = {
   'aria-hidden': true,
 } as const;
 
+export const RotateLeftIcon = () => (
+  <svg {...iconBase}>
+    <path d="M3 12a9 9 0 1 0 3-6.7" />
+    <path d="M3 4v5h5" />
+  </svg>
+);
+
+export const RotateRightIcon = () => (
+  <svg {...iconBase}>
+    <path d="M21 12a9 9 0 1 1-3-6.7" />
+    <path d="M21 4v5h-5" />
+  </svg>
+);
+
+export const PlusIcon = () => (
+  <svg {...iconBase}>
+    <path d="M12 5v14M5 12h14" />
+  </svg>
+);
+
+export const MinusIcon = () => (
+  <svg {...iconBase}>
+    <path d="M5 12h14" />
+  </svg>
+);
+
+/** The compass's needle: north in the avatar's coral, south hollow. Turned with the view. */
+export const NeedleIcon = () => (
+  <svg {...iconBase}>
+    <path d="M12 3l4 9h-8z" fill="var(--you, #fa8064)" stroke="var(--ink)" strokeWidth="1.5" />
+    <path d="M8 12h8l-4 9z" strokeWidth="1.5" />
+  </svg>
+);
+
+/** Back to you: a target, hollow while the view is elsewhere and filled while it's on you. */
+export const TargetIcon = ({ on }: { on: boolean }) => (
+  <svg {...iconBase}>
+    <circle cx="12" cy="12" r="6" />
+    <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+    {on && <circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none" />}
+  </svg>
+);
+
 /** A city bike seen side on: two wheels, the frame between them, the bars up front. */
 export const BikeIcon = () => (
   <svg {...iconBase}>

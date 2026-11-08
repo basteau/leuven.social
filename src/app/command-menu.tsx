@@ -13,7 +13,15 @@ import type { Place } from '../data/places.ts';
 import type { RoomPlace } from '../scene/viewer.ts';
 import { commandsFor, GROUPS, keyCommands, keySheet } from './commands.ts';
 import type { ActionId, CommandState, GroupId, IconName, Keys, KeySection } from './commands.ts';
-import { BikeIcon, MapIcon, StopIcon } from './icons.tsx';
+import {
+  BikeIcon,
+  MapIcon,
+  MinusIcon,
+  PlusIcon,
+  RotateLeftIcon,
+  RotateRightIcon,
+  StopIcon,
+} from './icons.tsx';
 import { menuKey } from './input.ts';
 import {
   BackIcon,
@@ -24,13 +32,9 @@ import {
   PersonIcon,
   InfoIcon,
   KeysIcon,
-  MinusIcon,
   MoonIcon,
   PinIcon,
   PlaceIcon,
-  PlusIcon,
-  RotateLeftIcon,
-  RotateRightIcon,
   RunIcon,
   SearchIcon,
   SoundIcon,

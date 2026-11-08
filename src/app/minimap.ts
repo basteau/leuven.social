@@ -48,6 +48,9 @@ export const MAP_COLOURS: Record<Layer | 'ground' | 'ink' | 'outline', string> =
   outline: 'rgb(58 46 37 / 0.55)',
 };
 
+/** You, on every map: the coral of the avatar's shirt and the arrow over it. */
+export const YOU = '#fa8064';
+
 /** The index's buckets are this many metres a side. */
 const BUCKET = 100;
 
@@ -212,7 +215,7 @@ export function drawMinimap(
   // You: a larger dot with a notch out the way you face.
   pen.translate(view.x, view.z);
   pen.rotate(-view.facing);
-  pen.fillStyle = '#fbf6ea';
+  pen.fillStyle = YOU;
   pen.lineWidth *= 1.4;
   pen.beginPath();
   pen.moveTo(0, dot * 2.6 * px);

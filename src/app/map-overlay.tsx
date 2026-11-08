@@ -17,8 +17,8 @@ import {
 } from '../data/waypoints.ts';
 import type { Waypoint, WaypointColour } from '../data/waypoints.ts';
 import type { Viewer } from '../scene/viewer.ts';
-import { MapIcon } from './icons.tsx';
-import { CloseIcon, MinusIcon, PinIcon, PlusIcon, WalkIcon } from './menu-icons.tsx';
+import { MapIcon, MinusIcon, PlusIcon } from './icons.tsx';
+import { CloseIcon, PinIcon, WalkIcon } from './menu-icons.tsx';
 import { drawMark, drawPlayer, drawTarget, ensureMarks } from './map-draw.ts';
 import { dpr, paintRaster, rasterOf } from './map-raster.ts';
 import type { Store } from './store.ts';

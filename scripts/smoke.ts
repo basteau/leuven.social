@@ -190,7 +190,7 @@ async function expectCreditsShown(): Promise<void> {
 
 /**
  * The loading screen is the page's own HTML, there before any script, and gone once the map is
- * drawn; then the map has no controls on it but the map and menu buttons.
+ * drawn; then the map has only the few controls that belong on it.
  */
 async function expectBareMap(): Promise<void> {
   const html = await (await fetch(BASE)).text();
@@ -201,8 +201,18 @@ async function expectBareMap(): Promise<void> {
   const buttons = await evalJson<string[]>(
     `JSON.stringify([...document.querySelectorAll('main button:not(.avatar-arrow)')].filter((b) => b.checkVisibility() && !b.closest('dialog')).map((b) => b.getAttribute('aria-label') ?? b.textContent))`,
   );
-  // Who you are (Join, as a guest), the minimap and the menu: nothing else.
-  const expected = ['Join', 'Minimap: show more of the city', 'Open the map', 'Menu'];
+  // Who you are (Join, as a guest), the minimap (the way to the map), the view's rail, the menu.
+  const expected = [
+    'Join',
+    'Open the map',
+    'Turn left',
+    'North up',
+    'Turn right',
+    'Zoom in',
+    'Zoom out',
+    'Back to you',
+    'Menu',
+  ];
   if (buttons.join() !== expected.join()) {
     throw new Error(`the map should show only ${expected.join(', ')}, not ${buttons.join(', ')}`);
   }
@@ -212,7 +222,7 @@ async function expectBareMap(): Promise<void> {
   );
   if (arrow !== 'false') throw new Error(`the arrow over the avatar isn't showing (${arrow})`);
   console.log(
-    'ok  loading screen in the HTML, then a bare map: Join, the minimap, the map and menu buttons and the arrow over you',
+    'ok  loading screen in the HTML, then the map: Join, the minimap, the view’s rail, the menu and the arrow over you',
   );
 }
 

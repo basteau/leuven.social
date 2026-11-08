@@ -2,32 +2,6 @@
 
 import { iconBase as base } from './icons.tsx';
 
-export const RotateLeftIcon = () => (
-  <svg {...base}>
-    <path d="M3 12a9 9 0 1 0 3-6.7" />
-    <path d="M3 4v5h5" />
-  </svg>
-);
-
-export const RotateRightIcon = () => (
-  <svg {...base}>
-    <path d="M21 12a9 9 0 1 1-3-6.7" />
-    <path d="M21 4v5h-5" />
-  </svg>
-);
-
-export const PlusIcon = () => (
-  <svg {...base}>
-    <path d="M12 5v14M5 12h14" />
-  </svg>
-);
-
-export const MinusIcon = () => (
-  <svg {...base}>
-    <path d="M5 12h14" />
-  </svg>
-);
-
 export const WalkIcon = () => (
   <svg {...base}>
     <circle cx="13" cy="4.5" r="2" />
