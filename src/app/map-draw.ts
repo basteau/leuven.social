@@ -1,4 +1,4 @@
-/** Small shapes the full map and the minimap share, in the app's ink and accent. */
+/** The small shapes the full map draws, in the app's ink and accent. */
 
 import { loadWaypoints } from '../data/waypoints.ts';
 import type { Waypoint } from '../data/waypoints.ts';

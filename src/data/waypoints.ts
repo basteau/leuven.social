@@ -1,7 +1,6 @@
 /**
  * The marks someone drops on the map and keeps: a spot, an optional name and a colour from a
- * small set. Pure: the app stores them as JSON in localStorage and draws them on the map, the
- * minimap and the radar's rim.
+ * small set. Pure: the app stores them as JSON in localStorage and draws them on the full map.
  */
 
 export const WAYPOINT_COLOURS = ['#d2553f', '#e8b94a', '#4a9a5c', '#4a77a8', '#8a5aa8'] as const;

@@ -24,12 +24,14 @@ import { dpr, paintRaster, rasterOf } from './map-raster.ts';
 import type { Store } from './store.ts';
 
 /**
- * The full map, GTA style: the whole city drawn from the same raster as the radar, panned and
+ * The full map: the whole city drawn from one raster, panned and
  * zoomed with a drag, a pinch, the wheel or the keys, with the player's place and heading, the
  * named squares, the end of an active route and the marks someone keeps. A click or tap picks a
  * spot to mark or walk to; a long press drops a mark at once. Marks live in localStorage.
  */
 
+/** What the mark colours are called, in the order of `WAYPOINT_COLOURS`. */
+const COLOUR_NAMES = ['Red', 'Yellow', 'Green', 'Blue', 'Purple'];
 /** A press that moves less than this (px) and ends within the long-press time is a click. */
 const CLICK_SLOP = 6;
 const LONG_PRESS_MS = 550;
@@ -66,7 +68,7 @@ export function MapOverlay(props: Props) {
   const places = useMemo(() => placesOf(city), [city]);
   /** Everything the canvas draws from, kept out of React: panning must not render components. */
   const live = useRef({
-    frame: { cx: 0, cz: 0, scale: START_SCALE, turn: 0 } as Frame,
+    frame: { cx: 0, cz: 0, scale: START_SCALE } as Frame,
     marks,
     selection: null as Selection,
     squares: places.filter((p) => p.kind === 'square'),
@@ -95,7 +97,7 @@ export function MapOverlay(props: Props) {
     const dialog = dialogRef.current;
     const canvas = canvasRef.current;
     if (!dialog || !canvas) return;
-    dialog.showModal();
+    if (!dialog.open) dialog.showModal();
     const ctx = canvas.getContext('2d')!;
     const raster = rasterOf(city);
     const state = live.current;
@@ -166,15 +168,26 @@ export function MapOverlay(props: Props) {
     };
     const observer = new ResizeObserver(resize);
     observer.observe(canvas);
-    // The player's place changes while it is open only if someone walks on: poll it gently.
-    const poll = setInterval(state.schedule, 500);
+    // People keep walking while it is open: poll them gently, and draw only if someone moved.
+    let last = '';
+    const poll = setInterval(() => {
+      const now = JSON.stringify([viewer.current?.presences(), viewer.current?.routeTarget()]);
+      if (now !== last) state.schedule();
+      last = now;
+    }, 500);
     return () => {
       observer.disconnect();
       clearInterval(poll);
       cancelAnimationFrame(queued);
-      if (dialog.open) dialog.close();
     };
   }, [city, viewer]);
+  // What had focus can go with the sheet: the dialog keeps it, or the keys would stop here.
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (dialog?.open && !dialog.contains(document.activeElement)) {
+      dialog.focus({ focusVisible: false } as FocusOptions);
+    }
+  }, [marks, selection, listing]);
   useEffect(() => {
     live.current.marks = marks;
     live.current.selection = selection;
@@ -304,6 +317,7 @@ export function MapOverlay(props: Props) {
       back();
       return;
     }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.target instanceof Element && e.target.closest('input')) return;
     const arrows: Record<string, [number, number]> = {
       ArrowUp: [0, KEY_PAN],
@@ -315,8 +329,9 @@ export function MapOverlay(props: Props) {
     if (step) panBy(...step);
     else if (e.key === '+' || e.key === '=') zoomAt(0, 0, 1.4);
     else if (e.key === '-') zoomAt(0, 0, 1 / 1.4);
-    else if (e.key.toLowerCase() === 'm') onClose();
-    else return;
+    else if (e.key.toLowerCase() === 'm') {
+      if (!e.repeat) onClose();
+    } else return;
     e.preventDefault();
   };
 
@@ -339,6 +354,7 @@ export function MapOverlay(props: Props) {
     <dialog
       ref={dialogRef}
       className="bigmap"
+      tabIndex={-1}
       aria-label="Map of Leuven"
       onKeyDown={keys}
       onCancel={(e) => {
@@ -495,13 +511,13 @@ export function MapOverlay(props: Props) {
               </label>
               <fieldset className="swatches">
                 <legend className="sr-only">Colour</legend>
-                {WAYPOINT_COLOURS.map((c) => (
+                {WAYPOINT_COLOURS.map((c, i) => (
                   <button
                     key={c}
                     type="button"
                     className="swatch-btn"
                     aria-pressed={c === colour}
-                    aria-label={`Colour ${WAYPOINT_COLOURS.indexOf(c) + 1}`}
+                    aria-label={COLOUR_NAMES[i]}
                     style={{ background: c }}
                     onClick={() => setColour(c)}
                   />

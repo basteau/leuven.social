@@ -1,7 +1,7 @@
 /**
- * A tiny external store: the viewer's callbacks fire often (the arrow's direction while panning),
- * and the shell must not re-render for them. The few components that show such a value subscribe
- * with `useSyncExternalStore`; the shell only calls `set`.
+ * A tiny external store, for a value only a few components show (the marks on the full map), so
+ * the shell needn't re-render for it. They subscribe with `useSyncExternalStore`; the shell only
+ * calls `set`.
  */
 
 export interface Store<T> {

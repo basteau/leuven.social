@@ -34,17 +34,14 @@ describe('presence', () => {
 });
 
 describe('map view', () => {
-  const frame = { cx: 10, cz: 20, scale: 2, turn: 0 };
-  test('projects and unprojects, turned or not', () => {
+  const frame = { cx: 10, cz: 20, scale: 2 };
+  test('projects and unprojects', () => {
     expect(toScreen(frame, 10, 20)).toEqual([0, 0]);
     expect(toScreen(frame, 15, 20)).toEqual([10, 0]);
-    for (const turn of [0, 0.7, -2]) {
-      const f = { ...frame, turn };
-      const [px, py] = toScreen(f, 33, -5);
-      const [x, z] = toCity(f, px, py);
-      expect(x).toBeCloseTo(33);
-      expect(z).toBeCloseTo(-5);
-    }
+    const [px, py] = toScreen(frame, 33, -5);
+    const [x, z] = toCity(frame, px, py);
+    expect(x).toBeCloseTo(33);
+    expect(z).toBeCloseTo(-5);
   });
   test('keeps the zoom within its limits', () => {
     expect(clampScale(0)).toBe(MAP_MIN_SCALE);

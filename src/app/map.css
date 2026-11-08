@@ -117,8 +117,9 @@
 .bigmap-tools {
   position: absolute;
   inset-inline-end: max(var(--gutter), env(safe-area-inset-right, 0px));
-  inset-block-start: 50%;
-  translate: 0 -50%;
+  inset-block-start: calc(
+    var(--gutter) + env(safe-area-inset-top, 0px) + var(--control) + var(--space-s)
+  );
   display: grid;
   gap: var(--space-s);
 }
@@ -183,7 +184,7 @@
 }
 
 .sheet-actions .action {
-  flex: 1 1 8rem;
+  flex: 1 1 auto;
   padding-inline: var(--space-m);
 }
 
@@ -211,7 +212,7 @@
   cursor: pointer;
 }
 
-.swatch-btn[aria-pressed='true'] {
+.swatch-btn[aria-pressed='true']:not(:focus-visible) {
   outline: 3px solid var(--ink);
   outline-offset: 2px;
 }

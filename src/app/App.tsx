@@ -69,7 +69,7 @@ const lazyMenu = () => lazy(() => loadMenu().then((m) => ({ default: m.CommandMe
 
 /** The full map is a chunk of its own too. */
 const loadMap = () => import('./map-overlay.tsx');
-const MapOverlay = lazy(() => loadMap().then((m) => ({ default: m.MapOverlay })));
+const lazyMap = () => lazy(() => loadMap().then((m) => ({ default: m.MapOverlay })));
 
 /**
  * The menu's chunk can fail to download (a flaky link). Without this, React would take the whole
@@ -430,6 +430,7 @@ export function App() {
           },
           onStreetChange: setStreet,
           onRoute: (target) => {
+            if (target) setBlocked(null);
             routingRef.current = target !== null;
             setRouting(target !== null);
           },
@@ -575,6 +576,13 @@ export function App() {
     setMapOpen(true);
   });
   const closeMap = useCallback(() => setMapOpen(false), []);
+  const [MapOverlay, setMapChunk] = useState(lazyMap);
+  /** Its chunk didn't come: shut, said so, and a fresh download on the next try. */
+  const onMapError = useCallback(() => {
+    setMapOpen(false);
+    setMapChunk(() => lazyMap());
+    say('The map didn’t load. Try again.');
+  }, [say]);
   // Shut, the map gives its keys back to the map, once its dialog has let go of focus.
   const wasMapOpen = useRef(false);
   useEffect(() => {
@@ -694,16 +702,18 @@ export function App() {
     [placeCity, closeMenu],
   );
 
-  // The pills go once no bike or building is near. Pressed, one had focus, which would fall to the
-  // page and take the keys with it: back to the map.
-  const pill = ready && (!!ride || !!door);
-  const hadPill = useRef(false);
+  // A pill goes once its bike, building or route does, the minimap when it's hidden. Pressed or
+  // focused, it had focus, which would fall to the page and take the keys with it: back to the map.
+  const shownControls = ready
+    ? Number(!!ride) + Number(!!door) + Number(routing) + Number(minimap)
+    : 0;
+  const hadControls = useRef(0);
   useEffect(() => {
-    if (hadPill.current && !pill && document.activeElement === document.body) {
+    if (shownControls < hadControls.current && document.activeElement === document.body) {
       mapRef.current?.focus({ focusVisible: false } as FocusOptions);
     }
-    hadPill.current = pill;
-  }, [pill]);
+    hadControls.current = shownControls;
+  }, [shownControls]);
 
   const coaching = ready && avatarShown && coach && !blocked;
   const errorSlot = status.state === 'error' ? introErrorSlot() : null;
@@ -890,6 +900,7 @@ export function App() {
               type="button"
               className="menu-trigger map-trigger"
               aria-label="Open the map"
+              aria-haspopup="dialog"
               aria-keyshortcuts="M"
               onClick={() => {
                 sound.tap();
@@ -922,7 +933,7 @@ export function App() {
       </footer>
 
       {mapOpen && placeCity && (
-        <MenuGuard onError={closeMap}>
+        <MenuGuard onError={onMapError}>
           <Suspense fallback={null}>
             <MapOverlay city={placeCity} viewer={viewerRef} marks={marks} onClose={closeMap} />
           </Suspense>

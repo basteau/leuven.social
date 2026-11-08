@@ -5,8 +5,7 @@ import './map.css';
 
 /**
  * The map's static layers, drawn once into one canvas (water, green, roads, building footprints,
- * simplified) and then only copied: the full map and the minimap both paint from it, so panning
- * or walking never redraws 16,000 footprints. In the map's own chunk, with its styles.
+ * simplified) and then only copied, so panning the full map never redraws 16,000 footprints. In the map's own chunk, with its styles.
  */
 
 export interface Raster {
@@ -105,7 +104,6 @@ export function paintRaster(
 ): void {
   ctx.save();
   ctx.translate(x, y);
-  ctx.rotate(frame.turn);
   ctx.scale(frame.scale, frame.scale);
   ctx.translate(-frame.cx, -frame.cz);
   ctx.translate(raster.minX, raster.minZ);

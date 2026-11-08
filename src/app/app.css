@@ -204,6 +204,9 @@ kbd {
 .bar {
   grid-column: 2;
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-s);
 }
 
 /* Pressable things stand on a hard inked shadow, and sink into it when pressed. */
@@ -365,7 +368,7 @@ kbd {
 }
 
 /* On a phone the moment's pill sits over the minimap and the menu button, not squeezed between. */
-@media (max-width: 30rem) {
+@media (max-width: 42rem) {
   .bar {
     grid-column: 1 / -1;
     grid-row: 1;
@@ -377,7 +380,7 @@ kbd {
   }
 
   .minimap,
-  .menu-trigger {
+  .hud-end {
     grid-row: 2;
   }
 }
