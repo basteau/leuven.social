@@ -101,3 +101,13 @@ After steps 1 to 3 are green, re-run a dead-code sweep on the merged tree. Only 
 - At 4x CPU throttle: no stalls over 100 ms and a recovering, non-flapping scaler.
 - Real phone check (a mid-range Android and an iPhone) before announcing: nothing here proves real-device fps.
 - Deploy only after the above, and check the live headers (`curl -I` for `/`, a hashed asset and `data/city.bin`).
+
+## Visual and map work merged on top (2026-11-08)
+
+Merged after the plan above was written, so the MacBook port has to carry them too:
+
+- **Scene look:** block-coherent wall palettes and warmer flat roofs (`palette.ts`, `buildings.ts`), catenary wires and braced masts (`rails.ts`), sun/shade constants (`lighting.ts`), café colour families, terrace layouts, menu boards and rimmed shop signs (`terraces.ts`, `storefronts.ts`), calmer bike and rack colours.
+- **Zoom limit by ground area** (`src/scene/zoom-limit.ts`, recomputed on resize): bounds the triangles in any frame. Furniture is only built for cells within 700 m of the view's middle.
+- **Map, radar, marks, Stop pill, plumbob.** `viewer.presences()` returns `Presence` entries with a `self` flag: multiplayer adds remote players as `self: false` entries and nothing else needs to change. `M` now opens the map and mute moved to `N`.
+- **Merge hotspots with the MacBook code:** `viewer.ts`, `App.tsx`, `shortcuts.ts`, `commands.ts`, `scripts/budget.ts` and `scripts/smoke.ts` (budgets were raised: first-load JS 253 KB, engine 169 KB). Port by cherry-picking commit by commit and re-running `bun run verify`.
+- **Next architecture step:** chunk-per-chunk loading (per-region data files, cell building off the main thread, eviction of far cells), keyed on the same 350 m cells the server's interest management will use. Measure first; `city.bin` is only 767 KB gzipped.
