@@ -115,8 +115,10 @@ const BUDGETS: {
     label: 'Furniture JS (after first frame)',
     pattern: 'assets/{furniture,props,shops}-*.js',
     // 8: a table under each of Oude Markt's parasols, chairs round it and people at them with
-    // their drinks, and bay trees by café doors, asked for to liven the square (0.9 KB).
-    limit: 8 * KB,
+    // their drinks, and bay trees by café doors, asked for to liven the square (0.9 KB). 9: terrace
+    // layouts (pairs, wicker, a long table, standing tables), menu boards, furled parasols, a
+    // restaurant's sign (0.7 KB).
+    limit: 9 * KB,
     gzip: true,
   },
   // About 11.6k house numbers and 1.8k street plates are 67 KB, and 1.1k shop name boards 17 KB

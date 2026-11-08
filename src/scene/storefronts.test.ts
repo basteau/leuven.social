@@ -12,6 +12,7 @@ import {
   addCafeTable,
   addDoorPlant,
   addGuest,
+  addBoard,
   addSign,
   addStorefronts,
   addTerrace,
@@ -96,7 +97,7 @@ test('a bar without a terrace gets its sign and a bay tree each side of its door
   const bar = built((m) =>
     addStorefronts(m, new MeshBuilder(), [{ building, front: front('bar') }], kit, ground),
   );
-  expect(bar.count).toBe(60 + 2 * 50);
+  expect(bar.count).toBe(80 + 2 * 50);
 });
 
 test('a bay tree by the door: a pot and a cone of leaves', () => {
@@ -110,7 +111,7 @@ test('signs: a board, a token through it, a cross, a cone of fries', () => {
   const sizes = (['bank', 'cafe', 'bar', 'bakery', 'icecream', 'pharmacy', 'frituur'] as const).map(
     (kind) => built((m) => addSign(m, f, kind, 12)).count,
   );
-  expect(sizes).toEqual([40, 60, 60, 60, 60, 60, 95]);
+  expect(sizes).toEqual([60, 80, 80, 80, 80, 60, 95]);
   // Square to the wall, hung out over the street above head height.
   const { points } = built((m) => addSign(m, f, 'frituur', 12));
   for (const [, y, z] of points) {
@@ -121,8 +122,8 @@ test('signs: a board, a token through it, a cross, a cone of fries', () => {
 
 test('a terrace is drawn inside the footprint the walk grid closes', () => {
   const { count, points } = built((m) => addTerrace(m, point, 'cafe'));
-  // The table and two chairs, and a guest with a glass on one.
-  expect(count).toBe(148 + 156);
+  // A table with two chairs and a guest with a glass, in wicker or the café's colour.
+  expect(count).toBe(304);
   const foot = terraceFootprint(point);
   for (const [x, , z] of points) expect(discInFootprint(foot, x!, z!, 1e-6)).toBe(true);
 });
@@ -137,7 +138,7 @@ test("a cell's fronts: awnings stop short of each other and the corners, signs h
   const { count, points } = built((m) => addStorefronts(m, awnings, fronts, kit, ground));
   // Bakery and café awnings; their signs and the café's terrace; the service front has no room.
   expect(awnings.build().getAttribute('position').count).toBe(14 * 2);
-  expect(count).toBe(60 + 60 + 148 + 156);
+  expect(count).toBe(420);
   const ys = points.map(([, y]) => y!);
   // The terrace stands on the ground as drawn, the signs over it where it's above the footing.
   expect(Math.min(...ys)).toBeCloseTo(2.5);
@@ -154,4 +155,24 @@ test("a cell's fronts: awnings stop short of each other and the corners, signs h
   mesh.lift = 7;
   addStorefronts(mesh, awnings, fronts, kit, ground);
   expect([mesh.lift, awnings.lift]).toEqual([7, 0]);
+});
+
+test('terraces vary by seed, and every layout stays inside its footprint', () => {
+  const foot = terraceFootprint(point);
+  const counts = new Set<number>();
+  for (const kind of ['cafe', 'bar', 'restaurant'] as const) {
+    for (let seed = 0; seed < 40; seed++) {
+      const { count, points } = built((m) => addTerrace(m, point, kind, seed));
+      counts.add(count);
+      for (const [x, , z] of points) expect(discInFootprint(foot, x!, z!, 1e-6)).toBe(true);
+    }
+  }
+  expect(counts.size).toBeGreaterThan(3);
+});
+
+test('a restaurant hangs a plate and cutlery sign; a menu board stands wordless on the pavement', () => {
+  const f = { x: 10, z: 0, fx: 0, fz: -1, scale: 1 };
+  expect(built((m) => addSign(m, f, 'restaurant', 12)).count).toBeGreaterThan(80);
+  const board = built((m) => addBoard(m, f));
+  expect(Math.max(...board.points.map(([, y]) => y!))).toBeLessThan(1.1);
 });
