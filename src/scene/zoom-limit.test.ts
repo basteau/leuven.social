@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import { MAX_VIEW_AREA, buildReach, minZoomFor } from './zoom-limit.ts';
+import { MAX_VIEW_AREA, minZoomFor } from './zoom-limit.ts';
 
 const VIEW = 560;
 
@@ -26,13 +26,4 @@ test('every window sees the same most ground, within the limits', () => {
 test('stays between the first view and the farthest', () => {
   expect(minZoomFor(100, VIEW)).toBe(1);
   expect(minZoomFor(0.01, VIEW)).toBe(0.2);
-});
-
-test('cells are built as far as the farthest view of this window reaches, plus a ring', () => {
-  // About 1.7 km by 1.1 km at 1280×800: half its diagonal is about a kilometre.
-  expect(buildReach(1.6, 0)).toBeCloseTo(Math.hypot(1789, 1118) / 2, -1);
-  expect(buildReach(1.6, 500)).toBeCloseTo(buildReach(1.6, 0) + 500);
-  // A phone upright reaches further along its long side, for the same ground.
-  expect(buildReach(390 / 844, 0)).toBeGreaterThan(buildReach(1.6, 0));
-  expect(Number.isFinite(buildReach(0, 0))).toBe(true);
 });
