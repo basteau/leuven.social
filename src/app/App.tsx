@@ -468,6 +468,8 @@ export function App() {
           },
         });
         viewerRef.current = viewer;
+        // For scripts/shots.ts, which frames its views by coordinates; gone from the build.
+        if (import.meta.env.DEV) Object.assign(globalThis, { leuvenViewer: viewer });
         return viewer.ready.then(() => {
           if (abort.signal.aborted) return;
           progress.built = true;
