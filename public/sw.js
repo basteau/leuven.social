@@ -3,6 +3,8 @@
 // or a new icon shows up on the next online visit. Bump CACHE to drop everything after a format
 // change.
 const CACHE = 'leuven-v26'; // city format v26: public places' fronts, and no traffic's ways
+/** How long a page waits on the network (ms) before opening from the cache. */
+const PAGE_PATIENCE = 4000;
 
 self.addEventListener('install', () => self.skipWaiting());
 
@@ -27,13 +29,22 @@ function cacheKey(url) {
 }
 
 // Responses go back at once; writing them to the cache continues in the background.
-async function networkFirst(event) {
+async function networkFirst(event, patience = Infinity) {
   const cache = await caches.open(CACHE);
   const key = cacheKey(event.request.url);
-  try {
-    const response = await fetch(event.request);
+  const network = fetch(event.request).then((response) => {
     if (response.ok) event.waitUntil(cache.put(key, response.clone()));
     return response;
+  });
+  // A page answered from the cache still gets the fresh copy for next time.
+  event.waitUntil(network.catch(() => {}));
+  // A connection that hangs (a train tunnel, one bar) is no failure, so it would wait forever:
+  // past `patience` a page we have opens anyway, and the network can still win if we have none.
+  const hanging = new Promise((resolve) => {
+    if (patience !== Infinity) setTimeout(() => resolve(cache.match(key)), patience);
+  }).then((cached) => cached ?? network);
+  try {
+    return await Promise.race([network, hanging]);
   } catch (error) {
     const cached = await cache.match(key);
     if (cached) return cached;
@@ -55,11 +66,9 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET' || url.origin !== self.location.origin) return;
   if (url.pathname.startsWith('/assets/')) {
     event.respondWith(cacheFirst(event));
-  } else if (
-    event.request.mode === 'navigate' ||
-    url.pathname.startsWith('/data/') ||
-    url.pathname.startsWith('/icons/')
-  ) {
+  } else if (event.request.mode === 'navigate') {
+    event.respondWith(networkFirst(event, PAGE_PATIENCE));
+  } else if (url.pathname.startsWith('/data/') || url.pathname.startsWith('/icons/')) {
     event.respondWith(networkFirst(event));
   }
 });

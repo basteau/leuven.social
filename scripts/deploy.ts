@@ -27,6 +27,10 @@ const BUN_VERSION = (
   (await Bun.file(new URL('../package.json', import.meta.url)).json()) as { packageManager: string }
 ).packageManager.replace(/^bun@/, '');
 const KEEP_RELEASES = 3;
+/** Old hashed chunks stay this long (days), so a tab left open doesn't 404 on a lazy import. */
+const KEEP_ASSETS_DAYS = 7;
+/** Text the browser can take compressed; nginx sends the `.gz` beside it (`gzip_static`). */
+const COMPRESSIBLE = '**/*.{js,css,html,json,svg,webmanifest}';
 const REPO = Bun.fileURLToPath(new URL('../', import.meta.url));
 const SSH = ['ssh', '-o', 'BatchMode=yes', '-o', 'StrictHostKeyChecking=accept-new'];
 
@@ -50,7 +54,12 @@ server {
     index index.html;
     server_tokens off;
 
+    # Text is sent as the .gz made at -9 beside it at build time (\`precompress\`), so it costs no
+    # CPU per request; city.bin is gzipped already and keeps its Content-Length for the loading
+    # screen's count. Vary, so a cache can't hand a client an encoding it didn't ask for.
     gzip on;
+    gzip_static on;
+    gzip_vary on;
     gzip_types text/css application/javascript application/json application/manifest+json image/svg+xml;
 
     add_header Cache-Control "no-cache";
@@ -167,6 +176,16 @@ async function ensureBun(): Promise<void> {
   );
 }
 
+/** A `.gz` at the best level beside every text file of the site, for nginx's `gzip_static`. */
+async function precompress(): Promise<void> {
+  const dist = `${REPO}dist/`;
+  for await (const file of new Bun.Glob(COMPRESSIBLE).scan({ cwd: dist })) {
+    const path = dist + file;
+    // eslint-disable-next-line no-await-in-loop -- a few dozen small files
+    await Bun.write(`${path}.gz`, Bun.gzipSync(await Bun.file(path).bytes(), { level: 9 }));
+  }
+}
+
 async function upload(): Promise<string> {
   const sha = await run(['git', 'rev-parse', '--short', 'HEAD']);
   const dirty = (await run(['git', 'status', '--porcelain'])) ? '-dirty' : '';
@@ -223,19 +242,38 @@ ${NGINX_SITE}LEUVEN_SITE
      fi
      site_changed=0
      if ! cmp -s "$work/site" /etc/nginx/sites-available/leuven; then
-       sudo cp /etc/nginx/sites-available/leuven "$work/site.old" 2>/dev/null || true
+       # Kept outside sites-enabled, so a deploy that went wrong can be undone by hand too.
+       sudo cp /etc/nginx/sites-available/leuven /etc/nginx/sites-available/leuven.previous 2>/dev/null || true
        sudo install -m 644 "$work/site" /etc/nginx/sites-available/leuven
        sudo ln -sfn /etc/nginx/sites-available/leuven /etc/nginx/sites-enabled/leuven
        sudo rm -f /etc/nginx/sites-enabled/default
        site_changed=1
      fi
-     sudo nginx -t -q
+     if ! sudo nginx -t -q; then
+       if [ "$site_changed" = 1 ] && sudo test -f /etc/nginx/sites-available/leuven.previous; then
+         sudo cp /etc/nginx/sites-available/leuven.previous /etc/nginx/sites-available/leuven
+       fi
+       echo "the new nginx config failed its test; the previous one is back and nothing went live" >&2
+       exit 1
+     fi
      previous=$(readlink ${ROOT}/current || true)
-     ln -sfn ${ROOT}/releases/${release} ${ROOT}/current.next && mv -Tf ${ROOT}/current.next ${ROOT}/current
+     new=${ROOT}/releases/${release}
+     # A tab left open asks for the chunks of the build it loaded: they stay a week.
+     if [ -d "$previous/site/assets" ]; then
+       find "$previous/site/assets" -type f -mtime -${KEEP_ASSETS_DAYS} -exec cp -pn {} "$new/site/assets/" \\;
+     fi
+     # A site-only change leaves everyone connected: the server restarts only if it changed.
+     server_changed=1
+     if [ -f "$previous/server/main.js" ] && cmp -s "$previous/server/main.js" "$new/server/main.js"; then
+       server_changed=0
+     fi
+     ln -sfn "$new" ${ROOT}/current.next && mv -Tf ${ROOT}/current.next ${ROOT}/current
      sudo systemctl enable -q nginx
      if [ "$site_changed" = 1 ]; then sudo systemctl reload-or-restart nginx; fi
      sudo systemctl is-active -q nginx || sudo systemctl start nginx
-     sudo systemctl restart ${SERVICE}
+     if [ "$server_changed" = 1 ] || ! sudo systemctl is-active -q ${SERVICE}; then
+       sudo systemctl restart ${SERVICE}
+     fi
      for i in $(seq 1 30); do
        if curl -fsS http://127.0.0.1:${SERVER_PORT}/api/health >/dev/null 2>&1; then
          ls -1d ${ROOT}/releases/*/ | head -n -${KEEP_RELEASES} | xargs -r rm -rf
@@ -264,6 +302,14 @@ async function expectHeaders(path: string, cacheControl: string): Promise<Respon
   return response;
 }
 
+/** What a browser that takes gzip is told about `path`: its response headers, lowercased. */
+async function headersFor(path: string): Promise<string> {
+  const url = new URL(path, SITE).href;
+  return (
+    await run(['curl', '-sS', '-o', '/dev/null', '-D', '-', '-H', 'Accept-Encoding: gzip', url])
+  ).toLowerCase();
+}
+
 async function checkLive(): Promise<void> {
   const html = await (await fetch(SITE)).text();
   const asset = /\/assets\/[^"]+\.js/.exec(html)?.[0];
@@ -272,6 +318,13 @@ async function checkLive(): Promise<void> {
   await expectHeaders('/sw.js', 'no-cache');
   await expectHeaders('/data/city.bin', 'no-cache');
   await expectHeaders(asset, 'public, max-age=31536000, immutable');
+  const script = await headersFor(asset);
+  if (!script.includes('content-encoding: gzip') || !script.includes('vary: accept-encoding')) {
+    throw new Error(`${asset} isn't served precompressed:\n${script}`);
+  }
+  if ((await headersFor('/data/city.bin')).includes('content-encoding')) {
+    throw new Error('/data/city.bin is compressed twice');
+  }
   const health = (await (await expectHeaders('/api/health', 'no-store')).json()) as {
     ok?: boolean;
   };
@@ -282,6 +335,7 @@ try {
   step('building');
   await run(['bun', 'run', 'build']);
   await run(['bun', 'run', 'build:server']);
+  await precompress();
   await ensureVm();
   step(`installing Bun ${BUN_VERSION} on ${HOST} if needed`);
   await ensureBun();

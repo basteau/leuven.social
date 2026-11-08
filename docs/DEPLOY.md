@@ -13,17 +13,19 @@ It needs an SSH key that is registered with exe.dev (`ssh exe.dev ls` works). Th
 
 Each step is safe to repeat, so a rerun is also how you repair a VM.
 
-1. Runs `bun run build` (the site, `dist/`) and `bun run build:server` (the server in one file, `dist-server/main.js`).
+1. Runs `bun run build` (the site, `dist/`) and `bun run build:server` (the server in one file, `dist-server/main.js`), and writes a `.gz` at level 9 beside every text file of the site, which nginx sends as it is (`gzip_static`), so compressing costs no CPU per request. `data/city.bin` is gzipped already and keeps its `Content-Length` for the loading screen's count.
 2. Creates the VM with `ssh exe.dev new` if it doesn't exist yet.
 3. Installs Bun into `/opt/bun` unless it is already the version in `package.json`'s `packageManager`, so the server runs on the Bun it was tested with.
 4. Streams both builds over SSH into `/srv/leuven/releases/<time>-<commit>/` (`site/` and `server/main.js`), beside the live one.
 5. Puts it live in one script on the VM (`goLive`):
    - Sets up the server once: a system user `leuven`, the data directory `/srv/leuven/data` (the SQLite database, owned by that user) and `/srv/leuven/data/server.env` with a freshly generated `BETTER_AUTH_SECRET`. The env file is never rewritten: a new secret would sign everyone out.
    - Writes the systemd unit `leuven-server.service` and the nginx site (preinstalled on exe.dev's default image) if they changed, and checks nginx's config before anything goes live.
-   - Then, back to back: points the `/srv/leuven/current` symlink at the release in one rename, reloads nginx if its site changed, and restarts the server, so the page and the server it talks to change together.
+   - The previous nginx site is kept as `sites-available/leuven.previous`; a new config that fails `nginx -t` puts it back and nothing goes live.
+   - The previous release's hashed assets from the last 7 days are copied into the new one, so a tab left open doesn't 404 on a lazy chunk of the build it loaded.
+   - Then, back to back: points the `/srv/leuven/current` symlink at the release in one rename, reloads nginx if its site changed, and restarts the server if its bundle changed (a site-only deploy leaves everyone connected), so the page and the server it talks to change together.
    - Waits for `/api/health` on the VM. If it doesn't come, the previous release goes back live (site and server) and the deploy fails. The last three releases are kept.
 6. Points exe.dev's HTTPS proxy at port 8000 and makes it public (`ssh exe.dev share port|set-public`).
-7. Fetches the live site and fails if the cache headers below are wrong or `/api/health` doesn't answer.
+7. Fetches the live site and fails if the cache headers below are wrong, a script isn't served precompressed, `data/city.bin` is compressed twice, or `/api/health` doesn't answer.
 
 ## On the VM
 
