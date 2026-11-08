@@ -87,6 +87,7 @@ import { loose } from './collide.ts';
 import { clock, decay, spring, springTo, ticks } from './motion.ts';
 import { SKY } from './palette.ts';
 import { DROPPED_KEY, nearestParked } from './parked.ts';
+import { createPlumbob, plumbobScale } from './plumbob.ts';
 import { passedVertices, routeMarker } from './route-marker.ts';
 import type { RouteMarker } from './route-marker.ts';
 import type { Ride, RideAction, RideState } from './ride.ts';
@@ -125,6 +126,9 @@ const NEAR_FADE = 2.4;
  * ink never dips into the street, where the x-ray would show it.
  */
 const FEET_Y = 0.04;
+/** The top of the figure's head (m), and the extra a rider sits up on a bike. */
+const HEAD_TOP = 2.3;
+const RIDER_EXTRA = 0.3;
 /** A kerb's step up or down is eased over this half-life (s), not taken in one frame. */
 const KERB_EASE = 0.04;
 /** The city fades into the haze from FOG_NEAR to FOG_FAR beyond the walker (m). */
@@ -200,6 +204,8 @@ export interface WalkHost {
   renderer: WebGLRenderer;
   /** A bike near enough to ride, riding, or neither. */
   onRide?: ((state: RideState) => void) | undefined;
+  /** A route to a picked spot began (its end, local metres) or ended: null. */
+  onRoute?: ((target: readonly [number, number] | null) => void) | undefined;
 }
 
 export interface Walk {
@@ -235,6 +241,12 @@ export interface Walk {
   zoom(factor: number): void;
   /** Gets on or off the nearest bike, rings its bell, or gets riding ready to download. */
   ride(action: RideAction | 'warm'): void;
+  /** Routes from where the walker stands to the street nearest a spot (m), or says it can't. */
+  goTo(x: number, z: number): void;
+  /** Lets go of the route being walked; the walker stops where it is. */
+  cancelRoute(): void;
+  /** Where the walker stands and which way it faces (clockwise from north), once there is one. */
+  where(): { x: number; z: number; heading: number } | null;
   dispose(): void;
 }
 
@@ -320,6 +332,9 @@ export function createWalk(host: WalkHost): Walk {
   pin.visible = false;
   pin.renderOrder = 2;
   scene.add(pin);
+  // The own player's plumbob: one for the one figure walk mode draws, which is always `self`.
+  const self = createPlumbob(reducedMotion);
+  scene.add(self.mesh);
   const sounds = createWalkSounds();
   let walker: Walker | undefined;
   const pose = restPose();
@@ -420,6 +435,18 @@ export function createWalk(host: WalkHost): Walk {
     controls.enabled = next !== 'walk' && flying === 0;
     canvas.dataset.walk = next;
     host.onModeChange?.(next);
+  }
+
+  /** Tells the host when a route to a picked spot starts or ends. */
+  let routeTo: readonly [number, number] | null = null;
+  /** The route being walked was picked with a click or the map; a bike's own short ones aren't. */
+  let picked = false;
+  function syncRoute(): void {
+    if (mode !== 'walk' || !walker?.route) picked = false;
+    const route = picked ? walker?.route : null;
+    if (!route === !routeTo) return;
+    routeTo = route ? [route.at(-2)!, route.at(-1)!] : null;
+    host.onRoute?.(routeTo);
   }
 
   function clearRoute(): void {
@@ -579,6 +606,8 @@ export function createWalk(host: WalkHost): Walk {
     marker = routeMarker(route, ground);
     hint.geometry = marker.geometry;
     hint.visible = true;
+    picked = true;
+    syncRoute();
     wake();
   }
 
@@ -778,6 +807,7 @@ export function createWalk(host: WalkHost): Walk {
     if (character) character.mesh.visible = false;
     [marked, landed, leaving] = [Number.NaN, Infinity, Number.NaN];
     pin.visible = false;
+    self.mesh.visible = false;
     clearRoute();
     host.setYaw(mapShot.yaw);
     camera.zoom = Math.min(controls.maxZoom, Math.max(controls.minZoom, mapZoomBefore));
@@ -950,9 +980,22 @@ export function createWalk(host: WalkHost): Walk {
       const floor = ground(x, z) + kerb;
       character.mesh.position.set(x, floor + FEET_Y + Math.min(height, 1e3), z);
       character.mesh.rotation.y = heading;
+      // Over its head while it drops in (hovering over the spawn marker until its fall starts),
+      // walks and rides; gone as it waves goodbye.
+      const spot = floor + FEET_Y + (height < Infinity ? Math.min(height, 1e3) : 0);
+      const eyeAt = view.position;
+      self.mesh.visible = waving === null && mode === 'walk';
+      self.place(
+        x,
+        spot + (ridden ? HEAD_TOP + RIDER_EXTRA : HEAD_TOP),
+        z,
+        plumbobScale(spanAt(Math.hypot(eyeAt.x - x, eyeAt.y - spot, eyeAt.z - z), view.fov)),
+        now / 1000,
+      );
       busy ||= landed < SETTLE || waving !== null;
 
       if (marker && !walker.route) clearRoute();
+      syncRoute();
       if (marker) hint.geometry.setDrawRange(passedVertices(marker, walker.travelled), Infinity);
 
       // The look point springs after the walker, a little ahead of where it's going.
@@ -1152,6 +1195,7 @@ export function createWalk(host: WalkHost): Walk {
       sounds.leave();
       walker.route = null;
       clearRoute();
+      syncRoute();
       // Fly back up to the map, turned to the nearest of its four views.
       const zoom = Math.min(controls.maxZoom, Math.max(controls.minZoom, mapZoomBefore));
       Object.assign(mapShot, { yaw: mapYaw(boom.yaw), span: mapSpan(zoom) });
@@ -1201,6 +1245,23 @@ export function createWalk(host: WalkHost): Walk {
         void loadRide().then(() => action !== 'warm' && walker && riding?.act(action, walker));
       }
     },
+    goTo(x, z) {
+      if (mode !== 'walk' || !walker) return;
+      const spot = ensureGrid().nearest(x, z, START_REACH, true);
+      if (spot) walkTo(...spot);
+      else host.onBlocked?.();
+    },
+    cancelRoute() {
+      if (!walker?.route) return;
+      walker.route = null;
+      clearRoute();
+      syncRoute();
+      wake();
+    },
+    where: () =>
+      mode === 'walk' && walker
+        ? { x: walker.x, z: walker.z, heading: Math.PI - walker.heading }
+        : null,
     dispose() {
       riding?.dispose();
       cancelAnimationFrame(frame);
@@ -1216,6 +1277,7 @@ export function createWalk(host: WalkHost): Walk {
       (hint.material as MeshBasicMaterial).dispose();
       pin.geometry.dispose();
       pin.material.dispose();
+      self.dispose();
       sky.geometry.dispose();
       (sky.material as MeshBasicMaterial).dispose();
       body.dispose();

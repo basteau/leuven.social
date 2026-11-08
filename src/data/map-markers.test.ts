@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { DRIFT_FROM, edgePoint, nearestInArea } from './drift.ts';
+import { DRIFT_STEP, edgePoint, homeDirection } from './drift.ts';
 import {
   MAP_MAX_SCALE,
   MAP_MIN_SCALE,
@@ -39,16 +39,13 @@ describe('presence', () => {
 });
 
 describe('drift', () => {
-  const area = [
-    { minX: 0, minZ: 0, maxX: 100, maxZ: 100 },
-    { minX: 0, minZ: 100, maxX: 100, maxZ: 300 },
-  ];
-  test('is zero inside and the distance to the nearest rectangle outside', () => {
-    expect(nearestInArea(50, 50, area).distance).toBe(0);
-    expect(nearestInArea(50, 200, area).distance).toBe(0);
-    expect(nearestInArea(-30, 50, area)).toEqual({ x: 0, z: 50, distance: 30 });
-    expect(nearestInArea(130, 340, area)).toMatchObject({ x: 100, z: 300, distance: 50 });
-    expect(DRIFT_FROM).toBeGreaterThan(0);
+  test('points home only once it is out of view', () => {
+    expect(homeDirection(0, 0, 400, 200)).toBeNull();
+    expect(homeDirection(0.85, -0.5, 400, 200)).toBeNull();
+    expect(homeDirection(2, 0, 400, 200)).toBeCloseTo(0);
+    expect(homeDirection(0, -3, 400, 200)).toBeCloseTo((Math.PI / 2) * -1 * -1);
+    expect(homeDirection(-2, 0, 400, 200)).toBeCloseTo(Math.PI);
+    expect(DRIFT_STEP).toBeGreaterThan(0);
   });
   test('places the arrow on the inset edge in its direction', () => {
     expect(edgePoint(0, 400, 200, 20)).toEqual({ x: 380, y: 100 });

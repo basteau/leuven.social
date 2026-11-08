@@ -1,26 +1,23 @@
-import type { Bounds } from './city.ts';
-
 /**
- * How far the view's middle is from the city, and the nearest spot of it, for the recentre
- * arrow. Zero inside any of the abutting rectangles.
+ * The recentre arrow's direction: where the city's heart (Grote Markt) lies, as a screen
+ * direction (radians, 0 pointing right, y down), or null while it is in view. `ndcX` and `ndcY`
+ * are its place on screen from -1 to 1 (y up), `w` and `h` the view's size in px, `margin` how much
+ * of the edge counts as out of view (0.1: the outer tenth).
  */
-export function nearestInArea(
-  x: number,
-  z: number,
-  area: readonly Bounds[],
-): { x: number; z: number; distance: number } {
-  let best = { x, z, distance: Infinity };
-  for (const a of area) {
-    const nx = Math.min(a.maxX, Math.max(a.minX, x));
-    const nz = Math.min(a.maxZ, Math.max(a.minZ, z));
-    const distance = Math.hypot(nx - x, nz - z);
-    if (distance < best.distance) best = { x: nx, z: nz, distance };
-  }
-  return best;
+export function homeDirection(
+  ndcX: number,
+  ndcY: number,
+  w: number,
+  h: number,
+  margin = 0.1,
+): number | null {
+  const limit = 1 - margin;
+  if (Math.abs(ndcX) <= limit && Math.abs(ndcY) <= limit) return null;
+  return Math.atan2(0 - ndcY * h, ndcX * w);
 }
 
-/** The arrow shows once the middle of the view is this far outside the city (m). */
-export const DRIFT_FROM = 40;
+/** The arrow turns in steps of this many radians: no state change for a smaller pan. */
+export const DRIFT_STEP = 0.05;
 
 /**
  * Where the arrow sits, from a direction on screen (radians, 0 pointing right, y down) in a

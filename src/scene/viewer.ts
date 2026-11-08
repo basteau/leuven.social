@@ -61,6 +61,9 @@ import {
 import type { ShadowSquare } from './shadow-fit.ts';
 import { applyShadowChunks } from './shadow-filter.ts';
 import { SPIN_EASE, spinStep } from './spin.ts';
+import { minZoomFor } from './zoom-limit.ts';
+import { DRIFT_STEP, homeDirection } from '../data/drift.ts';
+import type { Presence } from '../data/presence.ts';
 import { isTap } from './tap.ts';
 import type { Spin } from './spin.ts';
 import { terraceParasols } from './terraces.ts';
@@ -94,6 +97,14 @@ export interface ViewerOptions {
   onRideChange?: (state: RideState) => void;
   /** Which way the view looks, clockwise from north (radians), whenever it turns. */
   onHeading?: (heading: number) => void;
+  /**
+   * On the map, where Grote Markt lies as a screen direction (radians, 0 right, y down) once it
+   * is out of view, or null while it is in view or on foot: for the recentre arrow. Called only
+   * when that changes by a few degrees.
+   */
+  onDrift?: (direction: number | null) => void;
+  /** A route to a picked spot began (its end, local metres) or ended (null). */
+  onRoute?: (target: readonly [number, number] | null) => void;
 }
 
 export interface ViewerStats {
@@ -128,6 +139,21 @@ export interface Viewer {
   steer(right: number, up: number): void;
   /** Runs instead of walking, while on. */
   run(on: boolean): void;
+  /** Slides the map back over Grote Markt, keeping its zoom and turn. */
+  recentre(): void;
+  /**
+   * Goes to a spot: on foot, a route from where the walker stands (the one a tap makes); on the
+   * map, a walk starting there.
+   */
+  navigateTo(x: number, z: number): void;
+  /** Lets go of the route being walked to a picked spot, if any. */
+  cancelRoute(): void;
+  /** Everyone on the map, the own player flagged `self`: empty on the map, one entry on foot. */
+  presences(): readonly Presence[];
+  /** The end of the route being walked, or null. */
+  routeTarget(): readonly [number, number] | null;
+  /** Which way the view looks, clockwise from north (radians). */
+  heading(): number;
   /** Turns the walking view while held: -1 left, 1 right, 0 stops. */
   look(direction: number): void;
   /** Gets on or off the nearest bike, rings its bell, or gets riding ready (`warm`). */
@@ -143,6 +169,9 @@ const VIEW_HEIGHT = 560;
 const PITCH = Math.atan(1 / Math.SQRT2); // true isometric, ≈ 35.26°
 const CAMERA_DISTANCE = 2000;
 const ROTATE_MS = 280;
+const RECENTRE_MS = 320;
+/** Street furniture is made ahead for cells this near the view's middle (m). */
+const FURNISH_REACH = 700;
 /** The street sign looks the name up again once the walker (or the view) has moved this far (m). */
 const STREET_STEP = 1;
 /**
@@ -222,6 +251,8 @@ const STEP_MS = 40;
  */
 const RAIL_PIXEL = 0.5;
 const MAST_PIXEL = 0.9;
+/** From this many metres a pixel, the outlines are one dense dark mesh: only the surfaces draw. */
+const OUTLINE_PIXEL = 1.5;
 
 /** Triangles a mesh draws within its draw range. */
 function drawn({ geometry }: Mesh): number {
@@ -509,6 +540,9 @@ export function createViewer(options: ViewerOptions): Viewer {
     renderer.getDrawingBufferSize(buffer);
     const halfH = VIEW_HEIGHT / 2;
     const halfW = halfH * (buffer.x / buffer.y);
+    // How far out the map may go depends on how much ground this window shows (zoom-limit.ts).
+    controls.minZoom = minZoomFor(buffer.x / buffer.y, VIEW_HEIGHT);
+    camera.zoom = Math.max(camera.zoom, controls.minZoom);
     Object.assign(camera, { left: -halfW, right: halfW, top: halfH, bottom: -halfH });
     camera.updateProjectionMatrix();
     walk?.resized();
@@ -665,15 +699,16 @@ export function createViewer(options: ViewerOptions): Viewer {
       const skip = pixel > MAST_PIXEL ? detail.masts : pixel > RAIL_PIXEL ? detail.rails : 0;
       outlines.geometry.setDrawRange(skip * 2, Infinity);
       const inView = frustum.intersectsBox(box);
+      const inked = inView && pixel <= OUTLINE_PIXEL;
       surfaces.visible = inView;
-      outlines.visible = inView;
+      outlines.visible = inked;
       const casts = shadowPass && shadowFrustum.intersectsBox(box);
       casters.visible = casts;
       const from = fromStreet ? trunksFrom : shadowFrom;
       if (casts) casters.geometry.setDrawRange(from, fineVertices - from);
       if (inView) {
         draw(surfaces);
-        calls++; // its outlines
+        if (inked) calls++; // its outlines
       }
       if (casts) draw(casters);
       const { furniture, tall } = entry;
@@ -696,6 +731,14 @@ export function createViewer(options: ViewerOptions): Viewer {
     return calls <= FRAME_CALLS && triangles <= FRAME_TRIANGLES;
   }
 
+  /**
+   * Furniture shows only from zoom 2, where the view is under 300 m tall, so it is made ahead
+   * only for cells near the view; further ones get it when the view comes near (`prepare`).
+   * That keeps what a visit that never zooms in holds on the GPU to a third less.
+   */
+  const wantsFurniture = (entry: CellEntry) =>
+    !entry.furniture && entry.box.distanceToPoint(controls.target) < FURNISH_REACH;
+
   // Everything else is built in small slices while the page has nothing better to do.
   let idleHandle = 0;
   function buildInBackground(): void {
@@ -703,10 +746,10 @@ export function createViewer(options: ViewerOptions): Viewer {
     const t = controls.target;
     const near = (a: CellEntry, b: CellEntry) =>
       a.box.distanceToPoint(t) - b.box.distanceToPoint(t);
-    // The cells first, then their furniture, nearest first.
+    // The cells first, then the furniture of those within reach of the view, nearest first.
     const waiting = [
       ...cells.filter((entry) => !entry.objects.length).toSorted(near),
-      ...cells.filter((entry) => !entry.furniture).toSorted(near),
+      ...cells.filter(wantsFurniture).toSorted(near),
     ];
     const start = performance.now();
     // A frame is drawn only when it would show something new: a cell that came into view, or
@@ -740,7 +783,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     publish({ vertices: held.vertices, geometryBytes: held.bytes });
     // Cells left to furnish wait for the chunk, which picks the work up again when it arrives.
     const unbuilt = cells.some((e) => !e.objects.length);
-    if (unbuilt || (furnishing && cells.some((e) => !e.furniture))) {
+    if (unbuilt || (furnishing && cells.some(wantsFurniture))) {
       idleHandle = idle(buildInBackground);
     }
   }
@@ -806,6 +849,7 @@ export function createViewer(options: ViewerOptions): Viewer {
 
     signStreet();
     signHeading();
+    signDrift();
   }
 
   // The street sign: names are looked up only while walking, and again only after a step. The
@@ -828,11 +872,32 @@ export function createViewer(options: ViewerOptions): Viewer {
   }
 
   const facing = new Vector3();
+  const viewHeading = () => {
+    view.getWorldDirection(facing);
+    return Math.atan2(facing.x, -facing.z);
+  };
   let heading = Number.NaN;
+  // Grote Markt on screen, for the recentre arrow.
+  const home = new Vector3(0, terrain.height(0, 0), 0);
+  let drift: number | null = null;
+  function signDrift(): void {
+    if (!options.onDrift) return;
+    let direction: number | null = null;
+    if (view === camera) {
+      home.set(0, terrain.height(0, 0), 0).project(camera);
+      direction = homeDirection(home.x, home.y, canvas.clientWidth, canvas.clientHeight);
+    }
+    if (
+      direction === null
+        ? drift === null
+        : drift !== null && Math.abs(direction - drift) < DRIFT_STEP
+    )
+      return;
+    options.onDrift((drift = direction));
+  }
   function signHeading(): void {
     if (!options.onHeading) return;
-    view.getWorldDirection(facing);
-    const now = Math.atan2(facing.x, -facing.z);
+    const now = viewHeading();
     if (Math.abs(now - heading) < 1e-3) return;
     options.onHeading((heading = now));
   }
@@ -871,6 +936,10 @@ export function createViewer(options: ViewerOptions): Viewer {
           render: renderNow,
           renderer,
           onRide: options.onRideChange,
+          onRoute: (target) => {
+            routeTo = target;
+            options.onRoute?.(target);
+          },
           onModeChange: (mode) => {
             // A held turn on the map mustn't fight the flight down.
             if (mode === 'walk') stopTurning();
@@ -968,6 +1037,8 @@ export function createViewer(options: ViewerOptions): Viewer {
   function onChange(): void {
     clampTarget();
     invalidate();
+    // The view moved: the furniture round its new place is made ahead, when idle.
+    if (furnishing && !idleHandle) idleHandle = idle(buildInBackground);
   }
 
   let spin = 0;
@@ -1047,6 +1118,28 @@ export function createViewer(options: ViewerOptions): Viewer {
     controls.update();
     invalidate();
   }
+
+  let glide = 0;
+  function recentre(): void {
+    if (walk?.mode === 'walk') return;
+    walk?.land();
+    cancelAnimationFrame(glide);
+    const t = controls.target;
+    const [x0, z0] = [t.x, t.z];
+    const start = performance.now();
+    const step = (now: number) => {
+      const k = reducedMotion ? 1 : Math.min(1, (now - start) / RECENTRE_MS);
+      const e = 1 - (1 - k) ** 3;
+      t.set(x0 * (1 - e), terrain.height(x0 * (1 - e), z0 * (1 - e)), z0 * (1 - e));
+      placeCamera();
+      glide = k < 1 ? requestAnimationFrame(step) : 0;
+    };
+    step(start);
+  }
+
+  let routeTo: readonly [number, number] | null = null;
+  const own: Presence = { id: 'me', x: 0, z: 0, heading: 0, self: true };
+  const present: Presence[] = [];
 
   function resetView(): void {
     stopTurning();
@@ -1197,6 +1290,18 @@ export function createViewer(options: ViewerOptions): Viewer {
     run: (on) => walk?.run(on),
     ride: (action) => walk?.ride(action),
     look,
+    recentre,
+    navigateTo: (x, z) =>
+      walk?.mode === 'walk' ? walk.goTo(x, z) : withWalk((w) => w.startAt(x, z)),
+    cancelRoute: () => walk?.cancelRoute(),
+    presences() {
+      const at = walk?.where();
+      present.length = 0;
+      if (at) present.push(Object.assign(own, at));
+      return present;
+    },
+    routeTarget: () => routeTo,
+    heading: viewHeading,
     spin: spinMap,
     stats: () => ({
       drawCalls: renderer.info.render.calls,
@@ -1205,6 +1310,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     dispose() {
       cancelAnimationFrame(frame);
       cancelAnimationFrame(spin);
+      cancelAnimationFrame(glide);
       cancelIdle(idleHandle);
       disposed = true;
       walk?.dispose();
