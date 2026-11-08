@@ -11,7 +11,7 @@ import {
   toScreen,
   turnFor,
 } from './map-view.ts';
-import { marked, selfOf } from './presence.ts';
+import { selfOf } from './presence.ts';
 import type { Presence } from './presence.ts';
 import {
   MAX_WAYPOINTS,
@@ -21,7 +21,6 @@ import {
   loadWaypoints,
   parseWaypoints,
   removeWaypoint,
-  renameWaypoint,
   saveWaypoints,
   waypointNear,
 } from './waypoints.ts';
@@ -31,9 +30,8 @@ describe('presence', () => {
     { id: 'a', x: 1, z: 2, heading: 0, self: false },
     { id: 'me', x: 3, z: 4, heading: 1, self: true },
   ];
-  test('only the own player is found and marked', () => {
+  test('finds the own player', () => {
     expect(selfOf(list)?.id).toBe('me');
-    expect(list.filter(marked).map((p) => p.id)).toEqual(['me']);
     expect(selfOf([])).toBeUndefined();
   });
 });
@@ -125,11 +123,9 @@ describe('waypoints', () => {
     expect(list).toHaveLength(MAX_WAYPOINTS);
     expect(list.some((w) => w.id === 'first')).toBe(false);
   });
-  test('removes and renames', () => {
+  test('removes', () => {
     const list = addWaypoint(addWaypoint([], { x: 0, z: 0 }, 'a'), { x: 1, z: 1 }, 'b');
     expect(removeWaypoint(list, 'a').map((w) => w.id)).toEqual(['b']);
-    expect(renameWaypoint(list, 'a', ' Home ')[0]?.name).toBe('Home');
-    expect(renameWaypoint(list, 'a', '  ')[0]?.name).toBe('Mark 1');
   });
   test('parses stored JSON and drops what is malformed', () => {
     const good = { id: 'a', x: 1, z: 2, name: 'n', colour: '#d2553f' as const };

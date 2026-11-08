@@ -40,11 +40,6 @@ export function addWaypoint(
 export const removeWaypoint = (list: readonly Waypoint[], id: string): Waypoint[] =>
   list.filter((w) => w.id !== id);
 
-export function renameWaypoint(list: readonly Waypoint[], id: string, name: string): Waypoint[] {
-  const clean = name.trim().slice(0, NAME_MAX);
-  return list.map((w) => (w.id === id && clean ? { ...w, name: clean } : w));
-}
-
 /** Waypoints back from stored JSON: anything malformed is dropped, never thrown on. */
 export function parseWaypoints(json: string | null): Waypoint[] {
   if (!json) return [];
