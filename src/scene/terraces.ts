@@ -1,7 +1,7 @@
 import type { City } from '../data/city.ts';
 import { orientedRect, pointInRing } from '../data/geometry.ts';
 import type { LineBuilder, MeshBuilder, V3 } from './mesh-builder.ts';
-import { PARASOLS, PROPS, pick } from './palette.ts';
+import { PROPS } from './palette.ts';
 
 /** Squares that get café terraces, by name. Oude Markt is known as the longest bar in Europe. */
 const TERRACE_SQUARES = new Set(['Oude Markt']);
@@ -10,10 +10,34 @@ const ROWS = [4, 8, 12];
 const SPACING = 4.2;
 /** Half the width of a parasol canopy. */
 const CANOPY = 1.5;
+/** And a furled one's: shut parasols stand in the rows between the open ones. */
+const FURLED = 0.3;
 /** Parasols this close to a tree trunk are left out. */
 const TREE_CLEARANCE = 2.2;
 /** Neighbouring parasols in a row belong to one café and share its colour. */
 const PER_CAFE = 3;
+
+/**
+ * Café colour families, a canopy and the valance trimming it: one family per café, so a row of
+ * parasols reads as several places rather than one. Warm, with a cool blue and a sage now and
+ * then, and never a green as strong as a hedge's.
+ */
+const FAMILIES = [
+  [0xf6eedc, 0xd2553f],
+  [0xd2553f, 0xf6eedc],
+  [0xe8b94a, 0x7a3e31],
+  [0x4a77a8, 0xf6eedc],
+  [0xe07b4f, 0xf6eedc],
+  [0xa9bfa0, 0xf6eedc],
+  [0x7a3e31, 0xe8b94a],
+  [0xf6eedc, 0x4a77a8],
+] as const;
+
+/** A small, stable number in [0, 1) from a seed: which café is busy, which parasols are furled. */
+const roll = (seed: number): number => {
+  const h = Math.sin(seed * 12.9898 + 78.233) * 43758.5453;
+  return h - Math.floor(h);
+};
 
 export interface Parasol {
   x: number;
@@ -22,6 +46,10 @@ export interface Parasol {
   ux: number;
   uz: number;
   color: number;
+  /** The valance's colour; the other swatch of the café's family when absent. */
+  trim?: number;
+  /** Half the canopy's width (m): a furled parasol is a slim cone. */
+  canopy?: number;
 }
 
 /** Where the café parasols go: rows along the long sides of each terrace square. */
@@ -55,13 +83,12 @@ export function terraceParasols(city: City): Parasol[] {
         const x = cx + ux * u - uz * v;
         const z = cz + uz * u + ux * v;
         if (!fits(x, z) || !clearOfTrees(x, z)) continue;
-        parasols.push({
-          x,
-          z,
-          ux,
-          uz,
-          color: pick(PARASOLS, row * 101 + Math.floor(i / PER_CAFE)),
-        });
+        // A café a few parasols wide: its colours, how many it has out, and how busy it is.
+        const cafe = row * 101 + Math.floor(i / PER_CAFE);
+        const [color, trim] = FAMILIES[Math.floor(roll(cafe) * FAMILIES.length)]!;
+        if (roll(cafe * 3 + 1) < 0.12) continue;
+        const furled = roll(cafe * 7 + i) < 0.14;
+        parasols.push({ x, z, ux, uz, color, trim, canopy: furled ? FURLED : CANOPY });
       }
     }
   }
@@ -119,6 +146,7 @@ function post(
  */
 export function addParasol(mesh: MeshBuilder, lines: LineBuilder, p: Parasol): void {
   const rim = PARASOL_RIM;
+  const half = p.canopy ?? CANOPY;
   const apex: V3 = [p.x, 3, p.z];
   const corners = [
     [1, 1],
@@ -126,14 +154,14 @@ export function addParasol(mesh: MeshBuilder, lines: LineBuilder, p: Parasol): v
     [-1, -1],
     [1, -1],
   ].map(([a, b]): V3 => [
-    p.x + (a! * p.ux - b! * p.uz) * CANOPY,
+    p.x + (a! * p.ux - b! * p.uz) * half,
     rim,
-    p.z + (a! * p.uz + b! * p.ux) * CANOPY,
+    p.z + (a! * p.uz + b! * p.ux) * half,
   ]);
   for (let k = 0; k < 4; k++) {
     const a = corners[k]!;
     const b = corners[(k + 1) % 4]!;
-    const out: V3 = [(a[0] + b[0]) / 2 - p.x, CANOPY, (a[2] + b[2]) / 2 - p.z];
+    const out: V3 = [(a[0] + b[0]) / 2 - p.x, half, (a[2] + b[2]) / 2 - p.z];
     mesh.triangle(a, b, apex, p.color, out);
     lines.segment(a, b);
   }
@@ -142,7 +170,7 @@ export function addParasol(mesh: MeshBuilder, lines: LineBuilder, p: Parasol): v
   }
   // The valance hanging round the rim, in the café's second colour. Only its outside: the
   // table and chairs under it keep anyone from standing where its inside would show.
-  const trim = p.color === PARASOLS[0] ? PARASOLS[1] : PARASOLS[0];
+  const trim = p.trim ?? (p.color === 0xf6eedc ? 0xd2553f : 0xf6eedc);
   for (let k = 0; k < 4; k++) {
     const [a, b] = [corners[k]!, corners[(k + 1) % 4]!];
     const a1: V3 = [a[0], rim - VALANCE, a[2]];
