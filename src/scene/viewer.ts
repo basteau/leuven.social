@@ -900,7 +900,8 @@ export function createViewer(options: ViewerOptions): Viewer {
   let covered = false;
   function render(): void {
     if (covered) return;
-    if (detail.avatar !== 'figure' && scaler.reset()) resize();
+    // Read from the span, not `detail`: that's last frame's, and one zoom step draws one frame.
+    if (scaler.scale < 1 && detailAt(viewSpan()).avatar !== 'figure' && scaler.reset()) resize();
     // World metres per drawing-buffer pixel: how much road paint and texture is worth drawing.
     const span = viewSpan();
     const unit = span / renderer.getDrawingBufferSize(buffer).y;

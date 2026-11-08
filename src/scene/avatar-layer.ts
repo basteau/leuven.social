@@ -952,7 +952,8 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
 
     host.render(looping);
     looping = busy;
-    if (busy) frame = requestAnimationFrame(tick);
+    // Zooming in may have woken it already, from inside the render above.
+    if (busy && !frame) frame = requestAnimationFrame(tick);
     else publish();
   }
 

@@ -98,12 +98,12 @@ Real accounts on real sockets, walking at 10 Hz. On the MacBook (M4), 1000 bots:
 
 |                       | Everyone to everyone (before) | Across the city (now) | All within 90 m (now) |
 | --------------------- | ----------------------------- | --------------------- | --------------------- |
-| Per client            | 153 KB/s                      | 4.2 KB/s              | 11.1 KB/s             |
-| Out of the server     | 150 MB/s (1.2 Gbit/s)         | 4.1 MB/s              | 10.8 MB/s             |
-| Mean tick (one slice) | not measured                  | 9.8 ms                | 19 ms                 |
-| Server CPU, one core  | 19%                           | 27%                   | 42%                   |
+| Per client            | 153 KB/s                      | 3.6 KB/s              | 10.5 KB/s             |
+| Out of the server     | 150 MB/s (1.2 Gbit/s)         | 3.5 MB/s              | 10.2 MB/s             |
+| Mean tick (one slice) | not measured                  | 11 ms                 | 20 ms                 |
+| Server CPU, one core  | 19%                           | 29%                   | 46%                   |
 
-The table was measured before delta moves; with them, 3.6 KB/s and 3.5 MB/s across the city, 10.5 KB/s and 10.3 MB/s within 90 m (bots turn on every step, so each delta carries a heading: a person walking straight costs less).
+Bots turn on every step, so each delta carries a heading: a person walking straight costs less.
 
 ### The browser (`src/net/presence.ts`)
 

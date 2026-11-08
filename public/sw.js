@@ -38,7 +38,7 @@ async function networkFirst(event, patience = Infinity) {
     if (response.ok && !answeredFromCache) event.waitUntil(cache.put(key, response.clone()));
     return response;
   });
-  // A page answered from the cache still gets the fresh copy for next time.
+  // Kept alive to the end, so a slow answer is still read (and, unless it lost, cached).
   event.waitUntil(network.catch(() => {}));
   // A connection that hangs (a train tunnel, one bar) is no failure, so it would wait forever:
   // past `patience` a page we have opens anyway, and the network can still win if we have none.
