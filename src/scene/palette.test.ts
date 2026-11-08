@@ -6,7 +6,6 @@ import {
   PITCHED_ROOFS,
   ROOF_SWATCHES,
   WALLS,
-  pick,
   roofColor,
   wallColor,
 } from './palette.ts';
@@ -36,7 +35,17 @@ test('walls stray a little from their swatch, the same way every time', () => {
   expect(wallColor('house', 7)).toBe(colours[7]!);
   // Neighbours painted from one swatch still differ.
   expect(new Set(colours).size).toBeGreaterThan(150);
-  for (const [id, colour] of colours.entries()) {
-    expect(deltaE(colour, pick(WALLS.house, id))).toBeLessThan(0.05);
+  // Every wall stays near one of the kind's swatches.
+  for (const colour of colours) {
+    expect(Math.min(...WALLS.house.map((w) => deltaE(colour, w)))).toBeLessThan(0.05);
   }
+});
+
+const near = (c: number) => WALLS.house.findIndex((w) => deltaE(c, w) < 0.05);
+
+test('a block shares one wall family, with a few strays', () => {
+  const tones = Array.from({ length: 200 }, (_, id) => wallColor('house', id, 10, 10));
+  const counts = new Map<number, number>();
+  for (const c of tones) counts.set(near(c), (counts.get(near(c)) ?? 0) + 1);
+  expect(Math.max(...counts.values())).toBeGreaterThan(110);
 });

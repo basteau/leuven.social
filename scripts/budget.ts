@@ -115,8 +115,10 @@ const BUDGETS: {
     label: 'Furniture JS (after first frame)',
     pattern: 'assets/{furniture,props,shops}-*.js',
     // 8: a table under each of Oude Markt's parasols, chairs round it and people at them with
-    // their drinks, and bay trees by café doors, asked for to liven the square (0.9 KB).
-    limit: 8 * KB,
+    // their drinks, and bay trees by café doors, asked for to liven the square (0.9 KB). 9: terrace
+    // layouts (pairs, wicker, a long table, standing tables), menu boards, furled parasols, a
+    // restaurant's sign (0.7 KB).
+    limit: 9 * KB,
     gzip: true,
   },
   // About 11.6k house numbers and 1.8k street plates are 67 KB, and 1.1k shop name boards 17 KB
@@ -130,11 +132,11 @@ const BUDGETS: {
   // moved to a chunk of their own, taking what they share with the engine as a kit, as plates.ts
   // does; only the palette, which scene/props.ts imports, loads as a chunk of its own beside it.
   // 250: panning and zooming with our own map controls (map-controls.ts) took 4.4 KB off; the
-  // load, menu and key fixes put 0.4 back: 249.2 KB. 251: the livelier facades (1.4 KB).
+  // load, menu and key fixes put 0.4 back: 249.2 KB. 251: the livelier facades (1.4 KB). 252: catenary wires and café parasol families (0.1 KB).
   {
     label: 'First-load JS',
     pattern: 'assets/{index,viewer}-*.js',
-    limit: 251 * KB,
+    limit: 252 * KB,
     gzip: true,
     closure: true,
   },
