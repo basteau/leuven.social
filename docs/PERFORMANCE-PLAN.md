@@ -4,7 +4,7 @@ Written 2026-11-08. This plan covers the performance, hosting and cleanup work d
 
 ## Where the earlier work lives
 
-Nothing from it is on `main`. It is on the local branch `archive/perf-hosting-2026-11-08` (not pushed; push it with `git push origin archive/perf-hosting-2026-11-08` or `git bundle` it to move it to the other PC). One live deploy of that branch, release `20261107T235825-694e6f9`, is still serving https://leuven.exe.xyz/. Redeploying from `main` replaces it.
+Nothing from it is on `main`. It is on the local branch `archive/perf-hosting-2026-11-08` (not pushed; push it with `git push origin archive/perf-hosting-2026-11-08` or `git bundle` it to move it to the other PC). That branch was deployed once as release `20261107T235825-694e6f9`; it is no longer live (see the deploy warning in step 1) but is still on the VM. Do not redeploy it or `main` until the deploy script handles multiplayer.
 
 | Commit    | What it does                                                                                                                                                                                                  | Re-apply how                                                                                      |
 | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
@@ -45,15 +45,40 @@ On the other PC's worktree, with hardware GL and a quiet machine, record for map
 
 ### 1. Hosting changes (`285e64d`, `5077f52`)
 
-Cherry-pick, build, run `bun run budget`, then `nginx -t` runs inside deploy. If multiplayer adds a realtime endpoint, decide where it lives before deploying: WebSocket upgrade needs `proxy_pass` with `Upgrade` and `Connection` headers, and exe.dev's proxy must allow it. Do not serve it from the static nginx site without a separate `location`.
+Cherry-pick, build, run `bun run budget`, then `nginx -t` runs inside deploy. **Deploying is dangerous until `scripts/deploy.ts` knows about multiplayer.** On 2026-11-08 a `bun run deploy` from the single-player tree replaced the VM's nginx site with a static-only one and moved `/srv/leuven/current` to a static release, which cut `/ws` and `/api/` off from the running `leuven-server.service`. It was repaired by hand: the live site now runs release `20261107T160502-2ba5d2d` (layout `site/` plus `server/`) behind a rebuilt nginx config that proxies `/ws` (with the Upgrade headers and a 1 hour read timeout) and `/api/` to `127.0.0.1:8787`. That config is a reconstruction; the original is gone. Before any deploy, make the script (a) write that proxying, (b) use the `site/` and `server/` layout the service expects (`ExecStart` runs `/srv/leuven/current/server/main.js`), (c) restart the service when the server bundle changed, and (d) keep a backup of the previous nginx site file so a bad deploy can be undone. A copy of the config from the static deploy is on the VM at `/etc/nginx/sites-available/leuven.static-after-deploy.bak`.
 
 ### 2. Resolution scaler (`541d25a`, `694e6f9`)
 
 Add `resolution.ts` and its tests unchanged. In `viewer.ts`, take the pixel ratio from `pixelRatio(devicePixelRatio, scaler.scale)`, feed `scaler.frame(performance.now())` only from frames drawn by a continuous loop (walk, riding, flights), reset on the map and on a screen-density change. Re-check what "continuous" means after multiplayer: if remote players make the map redraw every frame, map frames become continuous too and the rule must change (feed the scaler from any frame in a loop that requested the next one from inside itself). Acceptance: on the test GPU the scaler stays at 1 with no stalls; on a throttled run it steps down at most once per half second and recovers without flapping.
 
-### 3. Multiplayer at 1000 players: what has to be true
+### 3. Multiplayer at 1000 players
 
-These are targets to design against, not things already built. Confirm which already hold in the multiplayer code.
+**What the deployed server does today.** Read from the bundled `server/main.js` of release `20261107T160502-2ba5d2d` on the VM (the MacBook build; its source `server/world.ts` and `src/net/protocol.ts` was not available here, so re-check each point in the real source before acting):
+
+- One Bun process, a WebSocket at `/ws` and a REST API at `/api/*` on `127.0.0.1:8787`, SQLite for accounts and last positions, sign-in by better-auth. One socket per account (a second login kicks the first).
+- Binary protocol: the client sends its own state (x, z as float32, heading u16, speed u8, mode, floor, a `place` string); at most 20 messages per second per client, 1024-byte payload cap. The server clamps positions to the map area but does not limit how far a player moves between messages.
+- Every 100 ms the server sends **all players that changed to all clients**, in one frame encoded once. An entry is about 16 bytes (more when `place` is set). That is an O(N²) fan-out: with 1000 players all moving, each client receives about 16 KB per tick, about 160 KB/s, and the server sends about 160 MB/s (roughly 1.3 Gbps). One VM uplink will not carry that, and each phone would receive that much too.
+- A new connection receives one `join` frame per connected player, and every join is also broadcast to everyone: 1000 players arriving together cost about a million small frames.
+- Saving positions runs inline in the tick (a SQLite write per client every 15 s), and slow clients are closed (`closeOnBackpressureLimit`) instead of skipped.
+
+**Likely improvements, in priority order** (each needs measuring on the real code before and after):
+
+1. **Interest management.** Send a client only the players in its own cell and the neighbouring cells, using the 350 m grid the renderer already uses. This turns O(N²) into O(N × neighbours) and is the one change that makes 1000 players possible. Bun's built-in pub/sub (`subscribe` per cell topic, `server.publish` per cell) fits it. Spatial grids for interest are the standard approach (see the SCORE and SpatialOS references below).
+2. **Smaller entries.** Positions as 16-bit offsets in the map area (centimetre-level precision over a few kilometres), `place` as a small numeric id sent once on join, mode and floor packed in one byte: about 8 bytes an entry, half of today.
+3. **Delta snapshots.** Send only what changed since a baseline the client acknowledged, with one bit for "unchanged" (Gaffer on Games, "Snapshot Compression"). Players standing still already cost nothing, because the server skips unchanged states; deltas matter for the many that move slowly.
+4. **Distance-based update rate.** Full 10 Hz for the near cells, 2 to 5 Hz for far ones. Heading and speed are already in each entry, so clients can dead-reckon between snapshots.
+5. **Batch the join burst.** One frame with the whole nearby roster, not one frame per player; send arrivals in the next tick's frame.
+6. **Back-pressure that skips instead of closing.** State is latest-wins, so a slow client should miss updates, not be disconnected. Check the `send` return value and the socket's buffered amount. Do not enable per-message compression before measuring CPU: at 16 KB frames and 1000 sockets it may cost more than it saves.
+7. **Batch saves** in one SQLite transaction off the tick, and add a `/api/health` that reports tick time, bytes out per second and client count, so load tests have numbers.
+8. **Reject impossible moves.** Cap displacement per message by speed times elapsed time plus slack, so a client can't teleport.
+
+**Client side, to check in the real code:** how often it sends (the server allows 20 per second; 5 to 10 is plenty), whether remote players are interpolated about 100 to 150 ms behind the newest snapshot, whether each remote player costs allocations or draw calls (see below), and what happens to rendering when the connection drops.
+
+**Test it with a bot swarm, not guesses.** A script that logs in and connects 1000 bots walking random streets, run against a local server, reporting server tick time, bytes out per second and per-client bytes per second, while a real browser records the step 0 table. Compare the O(N²) baseline with each change above. The aim is under 20 KB/s per client and under 20 ms of tick time at 1000 bots.
+
+References: [Bun WebSocket docs (pub/sub, backpressure)](https://bun.com/docs/api/websockets), [Gaffer on Games, Snapshot Compression](https://gafferongames.com/post/snapshot_compression/), [Improbable: dynamic interest management](https://medium.com/improbable-engineering/thinking-spatially-using-dynamic-interest-management-to-create-revolutionary-game-designs-80ed0fe7693). These are background only; no benchmark in them was reproduced here.
+
+**What has to be true on the client for 1000 players.** These are targets to design against, not things already built. Confirm which already hold in the multiplayer code.
 
 - **One draw call per kind of thing, not per player.** 1000 full character rigs (the character is about 1000 lines of meshes) cannot be drawn. Draw the nearest 20 to 40 as full rigs, the rest as an instanced low-detail mesh or billboards (one draw call for all), and skip those out of view using the existing 350 m cell grid. Cap the number of rendered remote players and fade the extras out; show a count.
 - **Interest management.** A client receives only the players in nearby cells, not all 1000. Reuse the 350 m cells as the unit. Typical load: 50 visible neighbours x 12 bytes x 10 Hz is about 6 KB/s per client, about 6 MB/s total from the server for 1000 clients.
