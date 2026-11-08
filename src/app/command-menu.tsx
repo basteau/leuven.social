@@ -12,7 +12,7 @@ import { placesOf } from '../data/places.ts';
 import type { Place } from '../data/places.ts';
 import { commandsFor, GROUPS, keyCommands, keySheet } from './commands.ts';
 import type { ActionId, CommandState, GroupId, IconName, Keys, KeySection } from './commands.ts';
-import { BikeIcon } from './icons.tsx';
+import { BikeIcon, MapIcon, StopIcon } from './icons.tsx';
 import { menuKey } from './input.ts';
 import {
   BackIcon,
@@ -76,6 +76,8 @@ const ICONS: Record<IconName, () => ReactNode> = {
   keys: KeysIcon,
   info: InfoIcon,
   place: PlaceIcon,
+  map: MapIcon,
+  stop: StopIcon,
 };
 
 /** A row of the list: a command, a key from the sheet, or a place. */

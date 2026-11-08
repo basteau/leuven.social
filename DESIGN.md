@@ -122,6 +122,11 @@ The map and the street are the whole screen. There is no HUD: every command, key
 | The hint, under the top corners, when needed | What just happened or what to do next: "Can't walk there", "Getting ready to walk…", the first walk's and ride's coaching, and what a menu command did where nothing else shows it ("Sound off", "Running"). Empty, it takes no room but stays in the page. |
 | The thumb stick, on touch, under the thumb   | It appears where the left thumb lands and goes when it lifts; the first walk shows a dashed ghost of it.                                                                                                                                                    |
 
+| The map button, bottom end, beside the menu | The whole city, your marks and where you are, one tap or M away: the way to find a place without wandering to it. |
+| Stop, bottom middle, while a route to a picked spot is walked | A route you started by tapping should be as easy to end: one pill where the thumb is, Esc on a keyboard (which stops the route first and leaves the walk the second time). Any step of your own also ends it. |
+| The radar, top end, under the credit, on foot | The corner map games taught everyone: you in the middle, the view's way up, your marks and the route's end on it, those beyond its edge pinned to the rim. Tapping it opens the full map. |
+| The recentre arrow, at the screen's edge, on the map | Only while Grote Markt is out of view: a white rounded button pointing back, which slides the map home. Never shown otherwise. |
+
 Everything else (zoom, turn, reset, Mute, Run, the Bell, Back to the map) is in the menu, and on its keys.
 
 ### Tokens
@@ -163,6 +168,13 @@ Tokens are oklch, inline in `index.html`, so the loading screen paints with them
 - **Keys:** ↑ ↓ move (Page Up and Down by five), ↵ chooses, Esc steps back from a page and then closes, and the chord that opened it closes it. A click on the backdrop closes it too, but not a drag that only ends there. Running a command closes the menu first. However it closes, focus goes back to the map, not to the menu button, so the map's keys work at once.
 - **Accessible:** a native modal `<dialog>`, which traps focus. The search is a combobox over a labelled listbox of grouped options (`aria-activedescendant`), and the number of results is announced politely.
 - It loads as its own chunk while the city is built, and is in the page (closed) by the time the map is drawn, so it opens at once. Keys pressed while it is on its way go into its search, never to the map; Esc or the chord again calls it off. If it can't be fetched, the map carries on and the hint says the menu couldn't load; the next try fetches it again.
+
+### The map, the radar and the plumbob
+
+- **The full map** is a modal over the city in the app's paper tones: water, green, roads and building footprints (churches and landmarks a warm brown), the named squares as labels that give way to each other until you zoom in, you as an accent-blue arrow with your heading, and the end of a route as a ring. Drag, pinch, scroll or the arrows pan and zoom; its own buttons are + and −, centre on me and Marks (with their count), and a close button. Click or tap picks a spot (a sheet offers a name, optional, defaulting to the nearest street or square, five colours, **Add mark** and **Navigate here**); press and hold drops a mark at once; a mark's sheet offers Navigate here and Remove, and Marks lists them all with the same. Esc steps back (the sheet or list, then the map). Marks are kept on the device. Navigate here from the map starts a walk at the spot; on foot it routes from where you stand, as a tap on the street does.
+- **The radar** is 116 px, a disc of the same map turned so the view's way is up, with an accent arrow in the middle. Marks wear their colour and shrink to a pip on the rim when beyond it; the route's end is an accent ring. It redraws ten times a second, and only if something moved, while you walk or ride, and not at all otherwise.
+- **The plumbob** is a slim two-tone crystal in the accent blue (about a metre tall) hanging over the head of your own figure, walking or riding, and over the spawn marker as you drop in; it bobs and turns slowly, and holds still with reduced motion. Other players, when there are any, never get one.
+- **The zoom-out limit** takes the map as far out as one frame can be drawn smoothly: the whole centre in a wide window, about a kilometre of it on an upright phone. The full map is for the rest of the city.
 
 ### The street plate
 
@@ -209,7 +221,7 @@ Places aren't named over the city: floating tags covered the very streets they n
 
 - The map is one focusable widget (`role="application"`, focused on load without a ring).
 - ⌘K or Ctrl+K (and ⌘P, Ctrl+P, `/`) opens the menu; `?` opens it at the controls. Every other key works without it.
-- Arrow keys pan, `+`/`-` zoom, Q/E turn (held, they keep turning, and the map settles on the next quarter view when let go), R resets, W or Enter starts a walk in the middle of the view. M mutes or unmutes, in every mode. A key held down is one press, however long (only `+`/`-` keep zooming), so a held W, F or M never acts twice.
+- Arrow keys pan, `+`/`-` zoom, Q/E turn (held, they keep turning, and the map settles on the next quarter view when let go), R resets, W or Enter starts a walk in the middle of the view. M opens the full map and N mutes or unmutes, in every mode. A key held down is one press, however long (only `+`/`-` keep zooming), so a held W, F or M never acts twice.
 - W A S D and Q E go by where they sit on the keyboard, on the map as on foot, so on AZERTY they are Z Q S D and A E. The menu, hints and the map's description name them as the keyboard in use types them, where the browser can say (QWERTY's letters otherwise). Keys named for what they do (M, R) go by letter.
 - Riding: W pedals, S brakes and then backs up, A and D turn the bars (the keys drive like a vehicle, not relative to the screen), Shift sprints, B rings the bell and F gets off. The thumb stick steers by the screen: the bike rides where it points, as hard as it's pushed, sprints at the rim and brakes when pulled back past 135°. A click on a street rides there, slowing for the corners.
 - Walking: W A S D or the arrow keys walk relative to the screen, Shift runs, holding Q/E turns the view, `+`/`-` bring the camera closer or further, Escape returns to the map. Clicking or tapping a street walks there along a route, shown as a quiet trail of small dots that shrink toward a thin ring. On the move the camera drifts back behind the walker a moment after the last look around.
@@ -248,7 +260,7 @@ A tiny city sounds like a toy: felt and soft wood, never game-show beeps. Sounds
 | Walking to a spot    | A quiet tick on setting off, a lighter pair of notes on arriving                                                                                                                                                                                                           |
 
 - **On by default, never before a gesture.** The audio context is made on the first tap, click or key after sound is on, as browsers require.
-- **Mute** (M, or Mute in the menu) says "Sound off" or "Sound on" in the hint, and the menu then offers the other; the choice is remembered.
+- **Mute** (N, or Mute in the menu) says "Sound off" or "Sound on" in the hint, and the menu then offers the other; the choice is remembered.
 - **Quiet:** a master level of 0.4 over voices of 0.03 to about 0.2, so even a running step peaks around a twelfth of full scale.
 - **Silent while the tab is hidden,** and nothing plays per frame: each sound is scheduled when its event happens.
 - Every voice rises over at least 3 ms and falls exponentially (no clicks), and passes through a filter: lowpass on tones for warmth, a band on noise. These follow Raphael Salaja's `create-sound` and `generating-sounds-with-ai` rules.

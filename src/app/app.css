@@ -177,13 +177,19 @@ kbd {
   opacity: 0.75;
 }
 
+/* The corner buttons, side by side: the map, then the menu. */
+.hud-end {
+  grid-column: 3;
+  justify-self: end;
+  display: flex;
+  gap: var(--space-s);
+}
+
 /*
  * The menu button: small and quiet in the end corner, under a right thumb. With a keyboard it
  * shows its chord, so the menu is found by mouse and learnt for next time.
  */
 .menu-trigger {
-  grid-column: 3;
-  justify-self: end;
   position: relative;
   display: inline-flex;
   align-items: center;

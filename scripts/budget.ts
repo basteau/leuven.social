@@ -38,8 +38,9 @@ const BUDGETS: {
     limit: 168 * KB,
     gzip: true,
   },
-  // 3.5: just above 3.1 KB.
-  { label: 'CSS', pattern: 'assets/*.css', limit: 3.5 * KB, gzip: true },
+  // 3.5: just above 3.2 KB. The map's styles are their own file, loaded with its chunks.
+  { label: 'CSS', pattern: 'assets/index-*.css', limit: 3.5 * KB, gzip: true },
+  { label: 'Map CSS (with the map)', pattern: 'assets/map-*.css', limit: 1.5 * KB, gzip: true },
   // The page itself paints the loading screen before any script or stylesheet: the tokens, its
   // styles and the diorama's SVG are inline (about 3 KB of it the little town).
   // 7: just above 6.7 KB.
@@ -47,8 +48,9 @@ const BUDGETS: {
   // The menu loads while the city is built: its list, search, pages, icons and places.
   {
     label: 'Menu JS (while building)',
-    pattern: 'assets/command-menu-*.js',
-    // 6: just above 5.8 KB.
+    pattern: 'assets/{command-menu,menu-icons}-*.js',
+    // 6: just above 5.8 KB; the map and Stop navigating commands and the icons the menu shares
+    // with the map (a chunk of their own) cost about 0.4 KB once the menu's own were slimmed.
     limit: 6 * KB,
     gzip: true,
   },
@@ -70,7 +72,9 @@ const BUDGETS: {
     label: 'Walk mode JS (on first walk)',
     pattern: 'assets/walk-*.js',
     // 20.5: walk mode meets the café tables and the bay trees by café doors (0.1 KB).
-    limit: 20.5 * KB,
+    // 21: the own player's plumbob (0.3 KB) and routing to a picked spot from the map's marks,
+    // cancelling a route and telling where the walker stands (0.3 KB).
+    limit: 21 * KB,
     gzip: true,
   },
   // The street-name lookup for the sign, a chunk beside walk mode's that loads with it.
@@ -105,6 +109,10 @@ const BUDGETS: {
     limit: 5.8 * KB,
     gzip: true,
   },
+  // The map: the full map and its marks, the radar and the recentre arrow, and the raster of
+  // the city's layers they share. All lazy: the radar and arrow after the first frame, the
+  // full map when it is opened.
+  { label: 'Map JS (lazy)', pattern: 'assets/map-*.js', limit: 8 * KB, gzip: true },
   // Street furniture, monuments and the shop fronts' awnings, signs and terraces load once the
   // first frame is drawn, with the prop and terrace footprints they share with walk mode.
   // 6: the storefronts' shapes and the fronts' places on their walls added 1.6 KB.
@@ -132,11 +140,14 @@ const BUDGETS: {
   // moved to a chunk of their own, taking what they share with the engine as a kit, as plates.ts
   // does; only the palette, which scene/props.ts imports, loads as a chunk of its own beside it.
   // 250: panning and zooming with our own map controls (map-controls.ts) took 4.4 KB off; the
-  // load, menu and key fixes put 0.4 back: 249.2 KB. 251: the livelier facades (1.4 KB). 252: catenary wires and café parasol families (0.1 KB).
+  // load, menu and key fixes put 0.4 back: 249.2 KB. 251: the livelier facades (1.4 KB). 252: catenary wires
+  // and café parasol families (0.1 KB). 253: the recentre arrow's direction, the zoom limit, the map's
+  // presence list and routes (0.5 KB in the engine, 0.2 KB for the drift maths shared with the arrow) and
+  // the Stop pill, the map button and their wiring (0.75 KB in the shell). The map, radar and marks are lazy.
   {
     label: 'First-load JS',
     pattern: 'assets/{index,viewer}-*.js',
-    limit: 252 * KB,
+    limit: 253 * KB,
     gzip: true,
     closure: true,
   },

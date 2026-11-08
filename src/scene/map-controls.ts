@@ -31,6 +31,7 @@ export type Surface = EventTarget & {
 export class MapControls {
   readonly target = new Vector3();
   enabled = true;
+  // The viewer sets it for the window (zoom-limit.ts): how far out one frame may reach.
   minZoom = 0.5;
   maxZoom = 4;
   readonly #camera: OrthographicCamera;

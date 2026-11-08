@@ -125,3 +125,10 @@ export const BellIcon = () => (
     <path d="M12 10V7M10 21h4" />
   </svg>
 );
+
+/** An arrow pointing up (the recentre arrow turns it). */
+export const ArrowIcon = () => (
+  <svg {...base}>
+    <path d="M12 19V5M6 11l6-6 6 6" />
+  </svg>
+);
