@@ -5,7 +5,7 @@ import { SKY_LIGHT, SUN } from './palette.ts';
  * The scene's light, shared by the viewer and the rules that check the palette against it.
  * Golden hour: a cool sky fill everywhere and a warm sun that the shadow map takes away.
  */
-export const LIGHT = { sky: 1.3, sun: 2.2 } as const;
+export const LIGHT = { sky: 1.25, sun: 2.35 } as const;
 
 /**
  * How much of its own hue a face keeps in shade. Lit only by the cool sky, every colour drifts
@@ -14,7 +14,7 @@ export const LIGHT = { sky: 1.3, sun: 2.2 } as const;
  */
 export const SHADE_HUE = 0.7;
 /** Shade is a little richer than the colour itself, as painters do it. */
-export const SHADE_CHROMA = 1.1;
+export const SHADE_CHROMA = 1.2;
 /** Lit-to-base lightness ratios between which the hue is restored: full shade to half lit. */
 export const SHADE_RANGE = [0.35, 0.8] as const;
 
