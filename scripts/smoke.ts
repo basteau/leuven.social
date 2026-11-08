@@ -427,7 +427,7 @@ async function expectMap(): Promise<void> {
   await browser('wait', '800'); // its first paint
   await browser('screenshot', `${ARTIFACTS}smoke-bigmap.png`);
   const parts = await evalJson<string[]>(
-    `JSON.stringify([...document.querySelectorAll('dialog.bigmap .map-btn')].map((b) => b.getAttribute('aria-label')))`,
+    `JSON.stringify([...document.querySelectorAll('dialog.bigmap .rail-btn')].map((b) => b.getAttribute('aria-label')))`,
   );
   if (!parts.some((p) => p.startsWith('Marks'))) throw new Error('the map has no Marks button');
   await browser('press', 'Escape');
@@ -442,8 +442,8 @@ async function expectMap(): Promise<void> {
   const stop = `[...document.querySelectorAll('button')].some((b) => b.textContent.includes('Stop'))`;
   await browser('press', 'm');
   await browser('wait', '--fn', `!!document.querySelector('dialog.bigmap')?.open`);
-  await browser('click', 'dialog.bigmap .map-btn[aria-label^="Marks"]');
-  await browser('click', '[aria-label="Navigate to Smoke"]');
+  await browser('click', 'dialog.bigmap .rail-btn[aria-label^="Marks"]');
+  await browser('click', '[aria-label="Go to Smoke"]');
   await browser('wait', '--fn', `!document.querySelector('dialog.bigmap') && ${stop}`);
   await expectNothingDrawnUnderMap(stop);
   // Dispatched, not pressed: agent-browser's Escape hides the page, which stops its frames.

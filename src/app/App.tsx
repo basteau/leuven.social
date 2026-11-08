@@ -33,6 +33,7 @@ import {
   MenuIcon,
   PeopleIcon,
   StopIcon,
+  WalkIcon,
 } from './icons.tsx';
 import { createTurnHold, KEYCAPS, layoutKeycaps, modKey } from './input.ts';
 import type { KeyboardLayout, Keycaps } from './input.ts';
@@ -249,6 +250,8 @@ export function App() {
     stepped: false,
     settled: false,
   }));
+  /** A place the view was sent to, to look at: the Go to pill's, until the view is back on you. */
+  const [looking, setLooking] = useState<{ name: string; x: number; z: number } | null>(null);
   /** The view has been dragged off the avatar: Back to you says so. */
   const [away, setAway] = useState(false);
   const [ride, setRide] = useState<RideState>('');
@@ -440,7 +443,9 @@ export function App() {
           onAvatarUnavailable: () => setAvatarFailed(true),
           onAvatarAt: (x, y, figure) => {
             setAvatarShown(figure);
-            setAway(viewerRef.current?.pinned() === false);
+            const off = viewerRef.current?.pinned() === false;
+            setAway(off);
+            if (!off) setLooking(null);
             if (figure) setCoach((c) => (c.street ? c : { ...c, street: true }));
             const arrow = arrowRef.current;
             const p = arrow && pointerFor(x, y, map.clientWidth, map.clientHeight, figure);
@@ -641,6 +646,11 @@ export function App() {
     if (!loaded) throw new Error('Still connecting. Try again in a moment.');
     return loaded;
   };
+  /** The view goes to a place to look at it; the pill then offers to walk there. */
+  const see = useCallback((name: string, x: number, z: number) => {
+    setLooking({ name, x, z });
+    viewerRef.current?.lookAt(x, z);
+  }, []);
   /** What each of the menu's commands does: thin calls into the viewer and the shell's state. */
   const [actions] = useState((): Record<Exclude<ActionId, 'help' | 'about'>, () => void> => ({
     recentre: () => viewerRef.current?.recentre(),
@@ -687,10 +697,10 @@ export function App() {
       go: (room: RoomPlace) => {
         closeMenu();
         sound.tap();
-        viewerRef.current?.lookAt(room.x, room.z);
+        see(room.name, room.x, room.z);
       },
     }),
-    [rooms, closeMenu],
+    [rooms, closeMenu, see],
   );
   const commandState: CommandState = useMemo(
     () => ({
@@ -717,16 +727,18 @@ export function App() {
             go: (place: Place) => {
               closeMenu();
               sound.tap();
-              viewerRef.current?.lookAt(place.x, place.z);
+              see(place.name, place.x, place.z);
             },
           }
         : undefined,
-    [placeCity, closeMenu],
+    [placeCity, closeMenu, see],
   );
 
   // A pill goes once its bike, building or route does, the minimap when it's hidden. Pressed or
   // focused, it had focus, which would fall to the page and take the keys with it: back to the map.
-  const shownControls = ready ? Number(!!ride) + Number(!!door) + Number(routing) : 0;
+  const shownControls = ready
+    ? Number(!!ride) + Number(!!door) + Number(routing) + Number(!!looking)
+    : 0;
   const hadControls = useRef(0);
   useEffect(() => {
     if (shownControls < hadControls.current && document.activeElement === document.body) {
@@ -906,6 +918,18 @@ export function App() {
           By a bike or a building you can go into: what the moment offers, where a thumb finds it.
         */}
         <div className="bar">
+          {ready && looking && !routing && (
+            <ActionButton
+              label={`Go to ${looking.name}`}
+              primary
+              onPress={() => {
+                viewer()?.navigateTo(looking.x, looking.z);
+                setLooking(null);
+              }}
+            >
+              <WalkIcon />
+            </ActionButton>
+          )}
           {routing && (
             <ActionButton
               label="Stop"
@@ -993,7 +1017,13 @@ export function App() {
       {mapOpen && placeCity && (
         <MenuGuard onError={onMapError}>
           <Suspense fallback={null}>
-            <MapOverlay city={placeCity} viewer={viewerRef} marks={marks} onClose={closeMap} />
+            <MapOverlay
+              city={placeCity}
+              viewer={viewerRef}
+              marks={marks}
+              onClose={closeMap}
+              onSee={see}
+            />
           </Suspense>
         </MenuGuard>
       )}

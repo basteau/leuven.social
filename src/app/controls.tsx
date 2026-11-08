@@ -12,7 +12,7 @@ import { strayPress } from './input.ts';
 export function ActionButton(props: {
   label: string;
   /** The key as shown; `keys` names it for assistive tech when the two differ. */
-  shortcut: string;
+  shortcut?: string;
   keys?: string;
   primary?: boolean;
   disabled?: boolean;
@@ -35,7 +35,7 @@ export function ActionButton(props: {
     >
       {props.children}
       <span>{props.label}</span>
-      <kbd aria-hidden="true">{props.shortcut}</kbd>
+      {props.shortcut && <kbd aria-hidden="true">{props.shortcut}</kbd>}
     </button>
   );
 }

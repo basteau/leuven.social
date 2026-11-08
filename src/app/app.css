@@ -233,6 +233,16 @@ kbd {
   white-space: nowrap;
 }
 
+/* A place's name can be long: it gives way, in a pill that never crowds out what's beside it. */
+.bar .action {
+  max-inline-size: 100%;
+}
+
+.bar .action span {
+  overflow: clip;
+  text-overflow: ellipsis;
+}
+
 .action.primary {
   background: var(--accent);
   color: var(--paper);

@@ -39,6 +39,10 @@
   overflow: clip;
 }
 
+.bigmap:focus-visible {
+  outline-color: transparent;
+}
+
 .bigmap::backdrop {
   background: transparent;
 }
@@ -66,18 +70,106 @@
     max(var(--gutter), env(safe-area-inset-right, 0px));
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-start;
+  gap: var(--space-s);
   pointer-events: none;
 }
 
-.bigmap-title {
-  margin: 0;
-  padding: var(--space-s) var(--space-l);
+/* The search: a field in the map's paper, its results under it, clear of the tools beside it. */
+.map-search {
+  position: relative;
+  flex: 1;
+  max-inline-size: 24rem;
+  pointer-events: auto;
+}
+
+.map-search-box {
+  display: flex;
+  align-items: center;
+  gap: var(--space-s);
+  block-size: var(--control);
+  padding-inline: var(--space-m);
   border: var(--border) solid var(--ink);
   border-radius: 999px;
   background: var(--paper);
   box-shadow: var(--shadow-hard);
-  font: 700 0.9375rem / 1 var(--font-ui);
+}
+
+.map-search-box input {
+  flex: 1;
+  block-size: 100%;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: 600 16px / 1.2 var(--font-ui);
+  outline: none;
+}
+
+.map-search-box:focus-within {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.map-search-box input::placeholder {
+  color: color-mix(in oklch, var(--ink) 60%, var(--paper));
+}
+
+.map-results {
+  position: absolute;
+  inset-block-start: calc(100% + var(--space-s));
+  inset-inline: 0;
+  max-block-size: min(22rem, 60dvh);
+  padding: var(--space-xs);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: var(--border) solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--paper);
+  box-shadow: var(--shadow-hard);
+}
+
+.map-results ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.map-results button {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-m);
+  inline-size: 100%;
+  min-block-size: var(--control);
+  padding-inline: var(--space-s);
+  border: 0;
+  border-radius: var(--radius-inner);
+  background: none;
+  color: inherit;
+  font: 650 0.9375rem / 1.2 var(--font-ui);
+  text-align: start;
+  cursor: pointer;
+}
+
+.map-results button:active {
+  background: var(--paper-press);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .map-results button:hover {
+    background: var(--paper-press);
+  }
+}
+
+.map-result-kind {
+  flex: none;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  opacity: 0.75;
+}
+
+.map-results .sheet-note {
+  padding: var(--space-s);
 }
 
 .map-btn {
@@ -86,26 +178,29 @@
   align-items: center;
   justify-content: center;
   gap: var(--space-xs);
-  min-inline-size: 40px;
-  block-size: 40px;
+  min-inline-size: var(--control);
+  block-size: var(--control);
   padding-inline: 9px;
   border-radius: 999px;
   font: inherit;
-}
-
-/* 40px to the eye, 44px to the thumb. */
-.map-btn::after {
-  position: absolute;
-  inset: -2px;
-  content: '';
 }
 
 .map-btn kbd {
   opacity: 0.75;
 }
 
+/* How many marks: a small badge on the corner of its button. */
 .map-count {
-  font: 700 0.75rem / 1 var(--font-ui);
+  position: absolute;
+  inset-block-start: 2px;
+  inset-inline-end: 2px;
+  min-inline-size: 1rem;
+  padding-inline: 0.2em;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--paper);
+  font: 700 0.6875rem / 1rem var(--font-ui);
+  text-align: center;
 }
 
 @media (hover: none), (pointer: coarse) {
@@ -118,13 +213,50 @@
   position: absolute;
   inset-inline-end: max(var(--gutter), env(safe-area-inset-right, 0px));
   inset-block-start: calc(
-    var(--gutter) + env(safe-area-inset-top, 0px) + var(--control) + var(--space-s)
+    var(--gutter) + env(safe-area-inset-top, 0px) + var(--control) + var(--space-s) + 3px
   );
   display: grid;
+  justify-items: end;
   gap: var(--space-s);
 }
 
 /* The sheet: what was picked, or the list of marks, at the bottom, where a thumb reaches. */
+.bigmap-note {
+  position: absolute;
+  inset-inline: max(var(--gutter), env(safe-area-inset-left, 0px))
+    max(var(--gutter), env(safe-area-inset-right, 0px));
+  inset-block-end: calc(var(--gutter) + env(safe-area-inset-bottom, 0px));
+  inline-size: fit-content;
+  max-inline-size: min(30rem, 100% - 2 * var(--gutter));
+  margin: 0 auto;
+  padding: var(--space-xs) var(--space-m);
+  border: var(--border) solid var(--ink);
+  border-radius: var(--radius);
+  background: var(--paper);
+  box-shadow: var(--shadow-hard);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: center;
+  text-wrap: balance;
+  pointer-events: none;
+}
+
+.sheet-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-m);
+}
+
+.sheet-away {
+  flex: none;
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  opacity: 0.75;
+}
+
 .bigmap-sheet {
   position: absolute;
   inset-inline: max(var(--gutter), env(safe-area-inset-left, 0px))
@@ -185,7 +317,7 @@
 
 .sheet-actions .action {
   flex: 1 1 auto;
-  padding-inline: var(--space-m);
+  padding-inline: var(--space-s);
 }
 
 .swatch {
@@ -205,8 +337,8 @@
 }
 
 .swatch-btn {
-  inline-size: 36px;
-  block-size: 36px;
+  inline-size: var(--control);
+  block-size: var(--control);
   border: var(--border) solid var(--ink);
   border-radius: 50%;
   cursor: pointer;

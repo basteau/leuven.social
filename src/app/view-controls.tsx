@@ -19,11 +19,12 @@ const ZOOM_STEP = 1.6;
 const ZOOM_MS = 140;
 
 /** One button of the rail: an icon, its name for assistive tech, and a tip with its key. */
-function RailButton(props: {
+export function RailButton(props: {
   label: string;
   hint: ReactNode;
   keys?: string;
   on?: boolean;
+  expanded?: boolean;
   onClick?: (event: MouseEvent) => void;
   onPointerDown?: () => void;
   onPointerUp?: () => void;
@@ -35,6 +36,7 @@ function RailButton(props: {
       className="rail-btn"
       aria-label={props.label}
       aria-keyshortcuts={props.keys}
+      aria-expanded={props.expanded}
       data-on={props.on}
       onClick={props.onClick}
       onPointerDown={props.onPointerDown}

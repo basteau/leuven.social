@@ -15,6 +15,15 @@ export const iconBase = {
   'aria-hidden': true,
 } as const;
 
+export const WalkIcon = () => (
+  <svg {...iconBase}>
+    <circle cx="13" cy="4.5" r="2" />
+    <path d="M8 21l3-7 3 3v4" />
+    <path d="M11 14l2-6-4 2.5V14" />
+    <path d="M13 8l2.5 3.5H18" />
+  </svg>
+);
+
 export const RotateLeftIcon = () => (
   <svg {...iconBase}>
     <path d="M3 12a9 9 0 1 0 3-6.7" />

@@ -2,15 +2,6 @@
 
 import { iconBase as base } from './icons.tsx';
 
-export const WalkIcon = () => (
-  <svg {...base}>
-    <circle cx="13" cy="4.5" r="2" />
-    <path d="M8 21l3-7 3 3v4" />
-    <path d="M11 14l2-6-4 2.5V14" />
-    <path d="M13 8l2.5 3.5H18" />
-  </svg>
-);
-
 export const RunIcon = () => (
   <svg {...base}>
     <circle cx="15" cy="4.5" r="2" />

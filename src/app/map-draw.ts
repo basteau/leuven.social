@@ -35,6 +35,28 @@ export function drawMark(
   ctx.stroke();
 }
 
+/** A building you can go into: its door, a paper arch on an accent disc. */
+export function drawDoor(ctx: CanvasRenderingContext2D, x: number, y: number): void {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.beginPath();
+  ctx.arc(0, 0, 9, 0, Math.PI * 2);
+  ctx.fillStyle = ACCENT;
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = '#fff';
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(-3.5, 5);
+  ctx.lineTo(-3.5, -1);
+  ctx.arc(0, -1, 3.5, Math.PI, 0);
+  ctx.lineTo(3.5, 5);
+  ctx.closePath();
+  ctx.fillStyle = '#fff';
+  ctx.fill();
+  ctx.restore();
+}
+
 /** Where a route ends: a ring in the accent with a dot in it. */
 export function drawTarget(ctx: CanvasRenderingContext2D, x: number, y: number, r: number): void {
   ctx.beginPath();
