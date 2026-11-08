@@ -453,8 +453,10 @@ function addRack(
 type Furniture = Exclude<PropKind, MonumentKind | 'bikes'>;
 const MODELS: Record<Furniture, (mesh: MeshBuilder, f: Frame) => void> = {
   lamp(mesh, f) {
-    box(mesh, f, [-0.12, 0.12], [-0.12, 0.12], [0, 4.5], PROPS.iron, false);
-    box(mesh, f, [-0.3, 0.3], [-0.05, 0.55], [4.15, 4.6], PROPS.lantern);
+    // A post, and a lantern hanging under a dark cap that reaches back to it.
+    box(mesh, f, [-0.1, 0.1], [-0.1, 0.1], [0, 4.5], PROPS.iron, false);
+    box(mesh, f, [-0.26, 0.26], [0.1, 0.62], [4.0, 4.4], PROPS.lantern, false);
+    box(mesh, f, [-0.34, 0.34], [-0.08, 0.7], [4.4, 4.55], PROPS.iron);
   },
   bench(mesh, f) {
     box(mesh, f, [-0.9, 0.9], [-0.25, 0.25], [0.4, 0.5], PROPS.wood);
