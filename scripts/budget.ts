@@ -40,7 +40,7 @@ const BUDGETS: {
   {
     label: '3D engine JS (three.js)',
     pattern: 'assets/{viewer,palette}-*.js',
-    // 169: the map's presence list, routes, plumbob and zoom limit (0.4 KB). 168: livelier facades asked for (1.4 KB): frames, sills and flower boxes on ordinary
+    // 169: the map's presence list, routes and zoom limit (0.4 KB). 168: livelier facades asked for (1.4 KB): frames, sills and flower boxes on ordinary
     // windows, the Stadhuis's tiers of niches with their statues, tracery in the churches'
     // lancets, the parasols' valances and the café guests' colours.
     // 170.5: each house its own style (1.8 KB): arched or tall windows with balcony rails,
@@ -148,9 +148,7 @@ const BUDGETS: {
     limit: 7 * KB,
     gzip: true,
   },
-  // The map: the full map and its marks, the radar and the recentre arrow, and the raster of
-  // the city's layers they share. All lazy: the radar and arrow after the first frame, the
-  // full map when it is opened.
+  // The full map and its marks, and the raster of the city's layers: all lazy, when it is opened.
   { label: 'Map JS (lazy)', pattern: 'assets/map-*.js', limit: 8 * KB, gzip: true },
   // Street furniture, monuments and the shop fronts' awnings, signs and terraces load once the
   // first frame is drawn, with the prop and terrace footprints they share with the avatar.

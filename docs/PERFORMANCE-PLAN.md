@@ -1,5 +1,7 @@
 # Performance plan: re-applying on top of multiplayer
 
+> **Status, 2026-11-08.** Multiplayer and this branch are merged on `main`, without the radar and the plumbob. The deploy warning below is out of date: `scripts/deploy.ts` now writes the `/api/` and `/ws` proxy and ships site and server together. The hosting, scaler and 1000-player work below is still open; its budgets and file names (`walk.ts` is gone) are as they were when this was written.
+
 Written 2026-11-08. This plan covers the performance, hosting and cleanup work done on the single-player build, and how to redo it on top of the local worktree that has multiplayer and the rendering changes. That worktree wasn't visible when this was written, so everything about it is an assumption to confirm. Re-measure before trusting any number below.
 
 ## Runbook for the MacBook (read this first)
