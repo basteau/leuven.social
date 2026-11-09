@@ -201,10 +201,13 @@ kbd {
   pointer-events: none;
 }
 
-/* Top: the street plate at the start, you at the end, the credit in a row under them, then the hint. */
+/*
+ * Top: the street plate at the start, you at the end with the credit under you. The hint goes
+ * between them where there's room for all three (below), else in a row of its own under them.
+ */
 .hud-top {
   inset-block-start: 0;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
   padding-block-start: calc(var(--gutter) + env(safe-area-inset-top, 0px));
 }
@@ -495,6 +498,8 @@ kbd {
   position: relative;
   grid-column: 1;
   justify-self: start;
+  /* Its tab hangs below the disc this far: its foot stands on the row's line, as the menu's does. */
+  margin-block-end: var(--space-xs);
   /* Height too: on a phone on its side it would otherwise take a third of the screen. */
   inline-size: clamp(5.5rem, min(24vw, 28dvh), 9.5rem);
   aspect-ratio: 1;
@@ -1271,7 +1276,7 @@ kbd {
   position: relative;
   min-block-size: var(--control);
   /* Half the top edge at most: the street plate has the other half, down to a 320 px screen. */
-  max-inline-size: min(16rem, 48vw);
+  max-inline-size: min(16rem, 48vw, 100%);
   padding-inline: var(--space-s) var(--space-m);
   border: var(--border) solid var(--ink);
   border-radius: 999px;
@@ -1286,7 +1291,7 @@ kbd {
 
 .you.primary {
   /* A guest's name and Join beside it: wider where there's room to read the whole name. */
-  max-inline-size: min(22rem, 48vw);
+  max-inline-size: min(22rem, 48vw, 100%);
   background: var(--accent);
   color: var(--paper);
   padding-inline-start: var(--space-m);
@@ -1415,5 +1420,36 @@ kbd {
     background: Highlight;
     color: HighlightText;
     forced-color-adjust: none;
+  }
+}
+
+/*
+ * Wide enough for the plate, the hint and you side by side: the top row in three, as the bottom
+ * row is, the hint on the middle of the screen whatever is either side of it.
+ */
+@media (min-width: 64rem) {
+  .hud-top {
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  }
+
+  .hint {
+    grid-column: 2;
+    grid-row: 1;
+    max-inline-size: 26rem;
+  }
+
+  .hint:not(:empty) {
+    min-block-size: var(--control);
+    align-content: center;
+  }
+
+  .you {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .credits {
+    grid-column: 3;
+    grid-row: 2;
   }
 }
