@@ -838,30 +838,29 @@ async function expectRiding(): Promise<void> {
   await expectStill('dragging the map', before);
   // A tap in the middle of the view, where the drag brought the rack, walks the avatar there.
   await tapAt(640, 400);
-  await browser(
-    'wait',
-    '--timeout',
-    '20000',
-    '--fn',
-    `${canvasData('walker')} !== ${JSON.stringify(before)} && !${canvasData('walker')}.includes('NaN')`,
-  );
+  // Taps again from where it stands if that one found no way: the rack itself is closed ground.
   await walkUpTo(x, z);
   await zoomToStreet();
   await browser('eval', key('keydown', 'KeyF'));
   await browser('eval', key('keyup', 'KeyF'));
   await browser('wait', '--timeout', '20000', '--fn', `${canvasData('ride')} === 'riding'`);
   await browser('wait', '500');
-  await browser('eval', key('keydown', 'KeyW'));
-  // The fastest it got within three seconds: the street may end in something in the way.
+  // The fastest it got within three seconds, each way until one is open: which bike F takes
+  // depends on where the walk ended, and a wall or a rack may stand right ahead of it.
   let speed = 0;
-  for (let i = 0; i < 12; i++) {
-    await browser('wait', '250');
-    speed = Math.max(speed, await canvasNumber('speed'));
+  let riding = '';
+  for (const way of ['KeyW', 'KeyD', 'KeyS', 'KeyA']) {
+    riding = way;
+    await browser('eval', key('keydown', way));
+    for (let i = 0; i < 12; i++) {
+      await browser('wait', '250');
+      speed = Math.max(speed, await canvasNumber('speed'));
+    }
+    if (speed > 7) break;
+    await browser('eval', key('keyup', way));
   }
-  await browser('eval', key('keydown', 'KeyD'));
-  await browser('wait', '400');
   await browser('screenshot', `${ARTIFACTS}smoke-ride.png`);
-  await browser('eval', `${key('keyup', 'KeyD')};${key('keyup', 'KeyW')}`);
+  await browser('eval', key('keyup', riding));
   // A cruise is 11.5 m/s (ON_BIKE in avatar.ts); the street may end sooner.
   if (!(speed > 7)) throw new Error(`riding: ${speed} m/s at most pedalling 3 s (more than 7)`);
   console.log(`ok  riding: ${speed} m/s pedalling 3 s`);
