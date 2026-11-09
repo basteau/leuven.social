@@ -27,6 +27,7 @@ import type {
   TerrainGrid,
   Tier,
 } from '../src/data/city.ts';
+import { wallAprons } from '../src/data/aprons.ts';
 import { packCity } from '../src/data/format.ts';
 import { Facades, streetSegments } from '../src/data/facades.ts';
 import {
@@ -710,14 +711,51 @@ const terraces = fitTerraces(
 );
 const shopFronts = markShopFronts(buildings, shops.fronts);
 
+// The strips of paving between a wall and the road in front of it (src/data/aprons.ts): laid
+// now, so nothing placed above takes them for the kerb's edge.
+const hardGround = new RingIndex();
+for (const ring of [
+  ...roads,
+  ...carriageways.map((c) => c.ring),
+  ...plazas,
+  ...coverLayer('islands'),
+]) {
+  hardGround.add(ring);
+}
+const softGround = new RingIndex();
+for (const r of [
+  ...coverLayer('green', MIN_GREEN_AREA),
+  ...coverLayer('woods', MIN_GREEN_AREA),
+  ...coverLayer('parking', MIN_GREEN_AREA),
+  ...water,
+  ...railLand,
+  ...pitchRings.map((p) => p.ring),
+  ...bridges,
+]) {
+  softGround.add(r);
+}
+const squareIndex = new RingIndex();
+for (const r of plazas) squareIndex.add(r);
+const aprons = buildings
+  .flatMap((b) =>
+    wallAprons(b.ring, {
+      base: (x, z) =>
+        !hardGround.contains(x, z) && !softGround.contains(x, z) && !footprints.contains(x, z),
+      paved: (x, z) =>
+        squareIndex.contains(x, z) ? 'square' : hardGround.contains(x, z) ? 'road' : null,
+    }),
+  )
+  .map(({ ring, surface }) => ({ ring: new Float32Array(ring), surface }));
+const roadAprons = aprons.flatMap((a) => (a.surface === 'road' ? [a.ring] : []));
+const squareAprons = aprons.flatMap((a) => (a.surface === 'square' ? [a.ring] : []));
 const city: City = {
   area: [...AREA],
   bounds: VIEW_AREA,
   buildings,
-  roads,
+  roads: [...roads, ...roadAprons],
   carriageways,
   markings,
-  plazas,
+  plazas: [...plazas, ...squareAprons],
   green: coverLayer('green', MIN_GREEN_AREA),
   woods: coverLayer('woods', MIN_GREEN_AREA),
   flowerbeds: coverLayer('flowerbeds'),
@@ -742,7 +780,7 @@ const city: City = {
   parapets,
   streetNames: names.table,
   streets,
-  plazaNames,
+  plazaNames: [...plazaNames, ...squareAprons.map(() => -1)],
   terrain: terrainOver(landform, VIEW_AREA),
   fronts: shops.fronts,
 };
