@@ -1060,6 +1060,8 @@ test('an origin pattern may leave the port open, and nothing else', () => {
 test('an address is its own key, an IPv6 one by its /64', () => {
   expect(clientKey(null)).toBe('local');
   expect(clientKey('192.0.2.7')).toBe('192.0.2.7');
+  expect(clientKey('::ffff:192.0.2.7')).toBe('192.0.2.7');
+  expect(clientKey('::FFFF:192.0.2.8')).toBe('192.0.2.8');
   expect(clientKey('2001:db8:aa:bb:1:2:3:4')).toBe('2001:db8:aa:bb');
   expect(clientKey('2001:DB8::1')).toBe('2001:db8:0:0');
   expect(clientKey('2001:0db8:0000:0000::9')).toBe(clientKey('2001:db8::5'));

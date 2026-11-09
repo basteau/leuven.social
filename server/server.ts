@@ -48,6 +48,9 @@ import type { Account, World } from './world.ts';
 export function clientKey(ip: string | null): string {
   if (!ip) return 'local';
   if (!ip.includes(':')) return ip;
+  // An IPv4 address a dual-stack socket wrote as IPv6 is that IPv4 address, not a shared /64.
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip)?.[1];
+  if (mapped) return mapped;
   // Expand '::' to its zero groups first, so 2001:db8::1 and 2001:db8:0:0:… share a key.
   const [head = '', tail] = ip.split('::');
   const groups = head ? head.split(':') : [];
