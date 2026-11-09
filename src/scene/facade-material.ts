@@ -40,13 +40,12 @@ const CONTACT_DARK = 0.26;
 /**
  * Which surface a fragment is, from its `facade` code (the table is facade-codes.ts and SURFACE in
  * paint.ts): each is a function of its own in shader/. To add a surface, give it a code, a function
- * and a line here.
+ * and a line here. An awning's canvas is striped across in its kind's second colour.
  */
 const SURFACES = `${ROOF_SURFACES}
 ${WALL}
 ${GROUND_SURFACE}
 void awningSurface(inout vec3 albedo) {
-  // An awning's canvas, striped across in its kind's second colour (facade-codes.ts).
   vec3 second = uFront[int(vFacade - ${f(AWNING - 0.5)}) * 2 + 1].rgb;
   float along = dot(vWorld.xz, vec2(-vWallNormal.y, vWallNormal.x)) / 0.9;
   float band = mix(0.5, step(0.5, fract(along)), 1.0 - smoothstep(0.2, 0.35, fwidth(along)));
@@ -128,10 +127,12 @@ export function createFacadeMaterial(
         varying vec2 vWallNormal;
         varying float vUp;`,
       )
+      // A crown only casts the shadow and catches the tap, so it folds to nothing here; the puffs
+      // of leaves draw the tree. A lane line is widened to a pixel by the screen size of a metre
+      // across it, measured square to it on screen.
       .replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>
-        // A crown only casts the shadow and catches the tap; the puffs of leaves draw the tree.
         if (facade > ${f(CROWN - 0.5)} && facade < ${f(WALL_PLAIN - 0.5)}) transformed = vec3(0.0);
         float paint = -facade;
         if (paint >= ${f(ANGLES * 2)} && paint < ${f(SLEEPER_CODE)}) {
@@ -145,7 +146,6 @@ export function createFacadeMaterial(
             : kind == ${f(PAINT_KIND.patch)} ? ${f(PAINT_HALF.patch)} : ${f(PAINT_HALF.stripe)};
           float want = reach;
           if (kind == ${f(PAINT_KIND.line)}) {
-            // Screen size of a metre across the line, measured square to it on screen.
             vec2 a = (modelViewMatrix * vec4(across.x, 0.0, across.y, 0.0)).xy;
             vec2 t = (modelViewMatrix * vec4(-across.y, 0.0, across.x, 0.0)).xy;
             float scale = abs(t.x * a.y - t.y * a.x) / max(length(t), 1e-4);
@@ -159,12 +159,12 @@ export function createFacadeMaterial(
           transformed.y += max(want - reach, 0.0) * ${f(PAINT_GRADE)};
         }`,
       )
+      // A wall corner's byte is 2 · its bay number + whether it starts a join (facade-bays.ts).
       .replace(
         '#include <worldpos_vertex>',
         `#include <worldpos_vertex>
         vFacade = facade;
         vLift = lift * ${f(LIFT_UNIT)};
-        // facade-bays.ts: a corner's byte is 2 · its bay number + whether it starts a join.
         vBay = floor(bay / 2.0);
         vJoin = bay - 2.0 * vBay;
         vWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;
@@ -213,11 +213,11 @@ export function createFacadeMaterial(
         }
         #endif`,
       )
+      // Shade keeps a richer version of its own hue at the same lightness (lighting.ts), so sand
+      // in shadow stays sand instead of matching asphalt in the sun.
       .replace(
         '#include <opaque_fragment>',
-        `// Shade keeps a richer version of its own hue at the same lightness (lighting.ts), so
-        // sand in shadow stays sand instead of matching asphalt in the sun.
-        vec3 luma = vec3(${LUMA.map(f).join(', ')});
+        `vec3 luma = vec3(${LUMA.map(f).join(', ')});
         float shadeRatio = dot(outgoingLight, luma) / max(dot(diffuseColor.rgb, luma), 1e-4);
         vec3 own = diffuseColor.rgb * shadeRatio;
         vec3 rich = max(vec3(dot(own, luma)) + (own - dot(own, luma)) * ${f(SHADE_CHROMA)}, 0.0);
