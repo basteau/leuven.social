@@ -1389,6 +1389,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     daylight = daylightAt(hour);
     sun.color.set(daylight.sun);
     sun.intensity = daylight.sunIntensity;
+    sun.shadow.intensity = daylight.shadow;
     sky.color.set(daylight.sky);
     sky.groundColor.set(daylight.bounce);
     sky.intensity = daylight.skyIntensity;
