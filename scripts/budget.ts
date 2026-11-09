@@ -189,8 +189,8 @@ const BUDGETS: {
     // 13.75: bikes with open spoked wheels and mudguards, hoops and roofs for the racks, a lantern
     // on a slim post, a public place's door, medallion and flag, the dark at the foot of the walls
     // and the baked light (2.4 KB), asked for.
-    // 14: the banks of the water (0.1 KB).
-    limit: 14 * KB,
+    // 14.25: the banks of the water and the street trees' pits (0.2 KB).
+    limit: 14.25 * KB,
     gzip: true,
   },
   // The rooms inside the landmarks, authored by hand, fetched near one.

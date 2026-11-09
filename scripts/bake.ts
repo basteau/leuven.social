@@ -506,7 +506,7 @@ for (const ring of [...roads, ...plazas, ...buildings.map((b) => b.ring)]) edges
 for (const p of paths) edges.add(p.line, false);
 const squares = new RingIndex();
 for (const ring of plazas) squares.add(ring);
-const mappedTrees = osmTrees.length / 2;
+const mappedTrees = standing.length;
 const STRIP = 50; // sorted in strips, so neighbours are near each other and deltas stay small
 const placed = placeProps(
   osmPoints.features.flatMap((f) => {
@@ -534,11 +534,20 @@ const station: [number, number] | null = roofCorners.length
         (roofCorners.length / 2),
     ) as [number, number])
   : null;
-// Hedges as they're mapped, cut to the area; one ending inside a house is cut off at the wall by
-// what stands there anyway.
+// Hedges as they're mapped, cut to the area and to what is clear of houses, water and roads, so
+// what's drawn and what's walked round are the same stretches.
+const noHedge = new RingIndex();
+for (const ring of [
+  ...water,
+  ...buildings.map((b) => b.ring),
+  ...carriageways.filter((c) => c.kind !== 'cycleway').map((c) => c.ring),
+]) {
+  noHedge.add(ring);
+}
 const hedges = osmHedges.elements.flatMap((e) => {
   const line = (e.geometry ?? []).flatMap((p) => toLocal(p.lon, p.lat));
   return AREA.flatMap((rect) => clipLine(line, rect))
+    .flatMap((piece) => uncoveredPieces(piece, (x, z) => noHedge.contains(x, z)))
     .filter((piece) => piece.length >= 4)
     .map((piece) => new Float32Array(piece));
 });
@@ -731,7 +740,7 @@ console.log(
     `woods ${city.woods.length}, pitches ${city.pitches.length} (${fields.length} with lines: ${FIELD_SPORTS.map((s) => `${fields.filter((f) => f.sport === s).length} ${s}`).join(', ')}), parking ${city.parking.length}`,
     `paths ${shownPaths.length} (${shownPaths.filter((p) => !PAVED.has(p.surface)).length} unpaved), ${(pathLength(shownPaths) / 1000).toFixed(0)} of ${(pathLength(paths) / 1000).toFixed(0)} km not under a road or square`,
     `rails ${rails.length} (${rails.filter((r) => r.bridge).length} on bridges, ${rails.reduce((sum, r) => sum + r.line.length / 2 - 1, 0)} segments), platforms ${city.platforms.length}, railway land ${railLand.length}, platform roofs ${canopies.length}`,
-    `trees ${trees.heights.length} (${osmTrees.length / 2} mapped)`,
+    `trees ${trees.heights.length} (${mappedTrees} mapped)`,
     `sheds under trees capped ${shedsCapped}, retail ${buildings.filter((b) => b.kind === 'retail').length} (${shopFronts} by their shop fronts)`,
     `shop fronts ${shops.fronts.length} on ${new Set(shops.fronts.map((f) => f.building)).size} buildings, ${terraces} with a terrace: ${reasons(shops.placed)} (skipped ${reasons(shops.skipped)}); main fronts ${Object.entries(
       Object.groupBy(

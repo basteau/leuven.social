@@ -1560,6 +1560,7 @@ export function createViewer(options: ViewerOptions): Viewer {
       });
       gradientMap.dispose();
       lampField.map.value.dispose();
+      puffDepth.dispose();
       renderer.dispose();
     },
   };

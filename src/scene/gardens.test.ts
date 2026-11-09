@@ -79,26 +79,13 @@ test('shrubs keep off what is already there', () => {
   }
 });
 
-test('a hedge grows along its line, and not through a house, the water or a road', () => {
-  const hedge = Float32Array.from([0, 10, 20, 10]);
-  const whole = grown(cellWith({}, { hedges: [hedge] }));
+test('a hedge grows along its line', () => {
+  const whole = grown(cellWith({}, { hedges: [Float32Array.from([0, 10, 20, 10])] }));
   expect(whole.count).toBeGreaterThan(16);
   for (let i = 0; i < whole.count; i++) {
     expect(whole.spots[i * 4 + 2]).toBeCloseTo(10);
     expect(whole.spots[i * 4 + 1]!).toBeGreaterThan(3.5);
   }
-  const half = ring(10, 0, 30, 0, 30, 30, 10, 30);
-  const cut = (over: Partial<Cell>, ground: Partial<Cell['ground']> = {}) =>
-    grown(cellWith(ground, { hedges: [hedge], ...over })).count;
-  expect(cut({ buildings: [{ ring: half }] as Cell['buildings'] })).toBeLessThan(whole.count * 0.6);
-  expect(cut({}, { water: [half] })).toBeLessThan(whole.count * 0.6);
-  expect(
-    cut({}, { carriageways: [{ kind: 'street', surface: 'asphalt', ring: half }] }),
-  ).toBeLessThan(whole.count * 0.6);
-  // A cycle track doesn't stop one: it's beside it as often as not.
-  expect(cut({}, { carriageways: [{ kind: 'cycleway', surface: 'asphalt', ring: half }] })).toBe(
-    whole.count,
-  );
 });
 
 test('a flower bed is planted, in its own colour or two', () => {

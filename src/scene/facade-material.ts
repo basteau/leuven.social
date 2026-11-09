@@ -283,7 +283,7 @@ export function createPuffMaterial(
         vPuff = position.xy;
         vWorld = transformed;
         vRadius = puff.w;
-        vLeaf = max(0.18, uPixel * 2.6) / puff.w;
+        vLeaf = min(0.7, max(0.18, uPixel * 2.6) / puff.w);
         vSeed = fract(puff.x * 3.17 + puff.z * 7.31);`,
       )
       // A tree's puffs cast its shadow and would each shade the next: look up the shadow from

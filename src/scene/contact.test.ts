@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import type { Building } from '../data/city.ts';
-import { CONTACT, SHORE, addContacts, addShores } from './contact.ts';
+import { CONTACT, PIT, SHORE, addContacts, addShores, addTreePits } from './contact.ts';
 import { MeshBuilder, unindexed } from './mesh-builder.ts';
 
 const house = (ring: number[], tier = 'core') =>
@@ -51,9 +51,9 @@ test('a bank has a lip of stone and a shade on the water, but not where a cell c
   const [dark, stone] = [new MeshBuilder(), new MeshBuilder()];
   addShores(dark, stone, [river], within, () => 1);
   const [d, s] = [unindexed(dark.build({ facade: true })), unindexed(stone.build())];
-  // The two long banks: the two ends lie along the cell's edge, so the water runs on.
-  expect(s.getAttribute('position').count / 6).toBe(2);
-  expect(d.getAttribute('position').count / 6).toBe(2);
+  // The two long banks, in two pieces each: the ends lie along the cell's edge, so the water runs on.
+  expect(s.getAttribute('position').count / 6).toBe(4);
+  expect(d.getAttribute('position').count / 6).toBe(4);
   const p = s.getAttribute('position');
   for (let i = 0; i < p.count; i++) {
     expect(p.getY(i)).toBeCloseTo(1 + SHORE.y);
@@ -68,5 +68,39 @@ test('a bank has a lip of stone and a shade on the water, but not where a cell c
   for (let i = 0; i < q.count; i++) {
     expect(q.getZ(i)).toBeGreaterThanOrEqual(5 - 1e-6);
     expect(q.getZ(i)).toBeLessThanOrEqual(15 + 1e-6);
+  }
+});
+
+test('where two stretches of water touch there is no bank between them', () => {
+  const within = { minX: -100, minZ: -100, maxX: 100, maxZ: 100 };
+  const north = new Float32Array([0, 0, 20, 0, 20, 10, 0, 10]);
+  const south = new Float32Array([0, 10, 20, 10, 20, 20, 0, 20]);
+  const stone = new MeshBuilder();
+  addShores(new MeshBuilder(), stone, [north, south], within, () => 0);
+  const p = unindexed(stone.build()).getAttribute('position');
+  for (let i = 0; i < p.count; i++) {
+    // Nothing along z = 10, where they meet; a lip reaches 0.4 m from a real bank at most.
+    expect(Math.abs(p.getZ(i) - 10) > 0.5 || p.getX(i) <= 1 || p.getX(i) >= 19).toBe(true);
+  }
+});
+
+test('a tree on paving stands in a square of soil, a tree on grass does not', () => {
+  const trees = [0, 0, 1, 8, 0, 50, 0, 2, 8, 0];
+  const mesh = new MeshBuilder();
+  // Only the first stands on paving (a layer 0.15 m up); the other is on a lawn.
+  addTreePits(
+    mesh,
+    trees,
+    5,
+    0.149,
+    () => 2,
+    (x) => (x < 10 ? 0.15 : 0.05),
+  );
+  const g = unindexed(mesh.build());
+  expect(g.getAttribute('position').count / 6).toBe(2); // the edge, and the soil on it
+  const p = g.getAttribute('position');
+  for (let i = 0; i < p.count; i++) {
+    expect(p.getY(i)).toBeGreaterThan(2);
+    expect(Math.abs(p.getX(i))).toBeLessThanOrEqual(PIT.half + PIT.edge + 1e-6);
   }
 });

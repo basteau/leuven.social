@@ -81,23 +81,12 @@ function takenIn(cell: Cell): (x: number, z: number) => boolean {
   };
 }
 
-/** Along a hedge's line, but for where it's mapped into a house, the water or a road. */
+/** Along each hedge's line: the bake keeps only the stretches clear of houses, water and roads. */
 function addHedges(
   push: (x: number, y: number, z: number, r: number, c: number) => void,
   cell: Cell,
   terrain: Pick<Terrain, 'height'>,
 ): void {
-  const solid = [
-    ...cell.buildings.map((b) => b.ring),
-    ...cell.ground.water,
-    ...cell.ground.carriageways.filter((c) => c.kind !== 'cycleway').map((c) => c.ring),
-  ];
-  const boxes = solid.map(boxOf);
-  const inHouse = (x: number, z: number) =>
-    boxes.some(
-      (b, i) =>
-        x >= b.minX && x <= b.maxX && z >= b.minZ && z <= b.maxZ && pointInRing(solid[i]!, x, z),
-    );
   for (const line of cell.hedges) {
     for (let i = 0; i + 3 < line.length; i += 2) {
       const [ax, az, bx, bz] = [line[i]!, line[i + 1]!, line[i + 2]!, line[i + 3]!];
@@ -106,7 +95,6 @@ function addHedges(
       for (let k = 0; k < steps; k++) {
         const t = (k + 0.5) / steps;
         const [x, z] = [ax + (bx - ax) * t, az + (bz - az) * t];
-        if (inHouse(x, z)) continue;
         const seed = Math.round(x * 7 + z * 13);
         const r = HEDGE.radius * (0.9 + 0.2 * roll(seed));
         push(x, terrain.height(x, z) + HEDGE.high, z, r, pick(GARDEN.shrubs, seed));

@@ -1,5 +1,5 @@
 import type { Bounds, Building } from '../data/city.ts';
-import { signedArea } from '../data/geometry.ts';
+import { pointInRing, signedArea } from '../data/geometry.ts';
 import type { MeshBuilder, V3 } from './mesh-builder.ts';
 
 /**
@@ -85,7 +85,8 @@ export function addShores(
     (Math.abs(az - bz) < 1e-3 &&
       (Math.abs(az - within.minZ) < 1e-3 || Math.abs(az - within.maxZ) < 1e-3));
   const at = (x: number, z: number): V3 => [x, ground(x, z) + SHORE.y, z];
-  for (const ring of water) {
+  const up: V3 = [0, 1, 0];
+  for (const [r, ring] of water.entries()) {
     const inward = signedArea(ring) > 0 ? -1 : 1;
     for (let i = 0; i < ring.length; i += 2) {
       const j = (i + 2) % ring.length;
@@ -93,24 +94,71 @@ export function addShores(
       const length = Math.hypot(bx - ax, bz - az);
       if (length < 0.5 || onCut(ax, az, bx, bz)) continue;
       const [ux, uz] = [((bz - az) / length) * inward, (-(bx - ax) / length) * inward];
-      const up: V3 = [0, 1, 0];
-      stone.quad(
-        at(ax, az),
-        at(bx, bz),
-        at(bx + ux * SHORE.lip, bz + uz * SHORE.lip),
-        at(ax + ux * SHORE.lip, az + uz * SHORE.lip),
-        SHORE.stone,
-        up,
-      );
-      dark.quad(
-        at(ax + ux * SHORE.lip, az + uz * SHORE.lip),
-        at(bx + ux * SHORE.lip, bz + uz * SHORE.lip),
-        at(bx + ux * SHORE.reach, bz + uz * SHORE.reach),
-        at(ax + ux * SHORE.reach, az + uz * SHORE.reach),
-        0,
-        up,
-        [0.8, 0.8, 0, 0],
-      );
+      // Water that touches other water has no bank there.
+      const [mx, mz] = [(ax + bx) / 2 - ux * 0.3, (az + bz) / 2 - uz * 0.3];
+      if (water.some((other, o) => o !== r && pointInRing(other, mx, mz))) continue;
+      const pieces = Math.max(1, Math.ceil(length / CONTACT.piece));
+      for (let k = 0; k < pieces; k++) {
+        const [t0, t1] = [k / pieces, (k + 1) / pieces];
+        const [x0, z0, x1, z1] = [
+          ax + (bx - ax) * t0,
+          az + (bz - az) * t0,
+          ax + (bx - ax) * t1,
+          az + (bz - az) * t1,
+        ];
+        stone.quad(
+          at(x0, z0),
+          at(x1, z1),
+          at(x1 + ux * SHORE.lip, z1 + uz * SHORE.lip),
+          at(x0 + ux * SHORE.lip, z0 + uz * SHORE.lip),
+          SHORE.stone,
+          up,
+        );
+        dark.quad(
+          at(x0 + ux * SHORE.lip, z0 + uz * SHORE.lip),
+          at(x1 + ux * SHORE.lip, z1 + uz * SHORE.lip),
+          at(x1 + ux * SHORE.reach, z1 + uz * SHORE.reach),
+          at(x0 + ux * SHORE.reach, z0 + uz * SHORE.reach),
+          0,
+          up,
+          [0.8, 0.8, 0, 0],
+        );
+      }
     }
+  }
+}
+
+/** A tree pit: its half width, how wide its stone edge is, and how far it lies over the paving. */
+export const PIT = { half: 0.8, edge: 0.13, lift: 0.014, soil: 0x5a4432, stone: 0x9a9a95 } as const;
+
+/**
+ * A square of soil with a stone edge round a street tree's foot, wherever the ground under it is
+ * paved (a pavement, a square, a road's edge): a tree is planted in something, not stood on the
+ * asphalt. `ground` is the ground as drawn, and `layer` how high its top layer lies.
+ */
+export function addTreePits(
+  mesh: MeshBuilder,
+  trees: ArrayLike<number>,
+  stride: number,
+  hard: number,
+  ground: (x: number, z: number) => number,
+  layer: (x: number, z: number) => number,
+): void {
+  const up: V3 = [0, 1, 0];
+  for (let i = 0; i < trees.length; i += stride) {
+    const [x, z] = [trees[i]!, trees[i + 1]!];
+    if (layer(x, z) < hard) continue;
+    const y = ground(x, z) + PIT.lift;
+    const square = (half: number, color: number, over = 0) =>
+      mesh.quad(
+        [x - half, y + over, z - half],
+        [x + half, y + over, z - half],
+        [x + half, y + over, z + half],
+        [x - half, y + over, z + half],
+        color,
+        up,
+      );
+    square(PIT.half + PIT.edge, PIT.stone);
+    square(PIT.half, PIT.soil, 0.004);
   }
 }

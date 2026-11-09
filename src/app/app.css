@@ -1250,6 +1250,13 @@ kbd {
   text-overflow: ellipsis;
 }
 
+/* A guest's name won't fit beside Join on a phone: it says who you are in the sheet instead. */
+@media (max-width: 30rem) {
+  .you.primary .you-name {
+    display: none;
+  }
+}
+
 .you-join {
   flex: none;
   padding-inline-start: var(--space-s);
