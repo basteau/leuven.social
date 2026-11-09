@@ -251,9 +251,11 @@ function hipRoof(
 type At = (u: number, v: number, y: number) => V3;
 
 /**
- * A stepped gable at u = `end`: a thin wall whose steps climb above the roof slopes, so it
- * reads from the street side and from behind. Replaces the plain gable triangle. Only its two
- * faces: treads and risers are a third of a metre, less than a game pixel.
+ * A stepped gable at u = `end`: its steps climb above the roof slopes, so it reads from the street
+ * side and from behind. Replaces the plain gable triangle. Its two faces lie on one plane, the
+ * one its ink is drawn on: with the far face set back into the house, the line floated beside
+ * the fill wherever the gable was seen from the roof, and closing the gap with treads and risers
+ * costs more vertices than it gives anything back at these sizes.
  */
 function steppedGable(
   mesh: MeshBuilder,
@@ -268,7 +270,6 @@ function steppedGable(
   const W = plan.rect.halfWidth;
   const steps = Math.min(4, Math.max(2, Math.round(W / 1.3)));
   const rise = (ridge - eave) / steps;
-  const back = end - Math.sign(end) * 0.35;
   const inward: V3 = [-out[0], 0, -out[2]];
   for (const side of [1, -1]) {
     let below = eave;
@@ -277,24 +278,14 @@ function steppedGable(
       const q1 = side * W * (1 - (i + 1) / steps);
       // Each step stands a little proud of the roof line at its inner edge.
       const top = eave + rise * (i + 1.35);
-      mesh.quad(
+      const corners = [
         at(end, q0, eave),
         at(end, q1, eave),
         at(end, q1, top),
         at(end, q0, top),
-        wall,
-        out,
-        WALL_PLAIN,
-      );
-      mesh.quad(
-        at(back, q0, eave),
-        at(back, q1, eave),
-        at(back, q1, top),
-        at(back, q0, top),
-        wall,
-        inward,
-        WALL_PLAIN,
-      );
+      ] as const;
+      mesh.quad(...corners, wall, out, WALL_PLAIN);
+      mesh.quad(...corners, wall, inward, WALL_PLAIN);
       lines.segment(at(end, q0, below), at(end, q0, top));
       lines.segment(at(end, q0, top), at(end, q1, top));
       below = top;

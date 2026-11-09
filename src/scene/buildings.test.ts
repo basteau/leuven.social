@@ -9,6 +9,7 @@ import {
   partyWalls,
   planRoof,
 } from './buildings.ts';
+import type { RoofPlan } from './buildings.ts';
 import { LANCET_BAY, bayTarget, fitBays, fitRun } from './facade-bays.ts';
 import { LANDMARK_MODELS } from './landmark-models.ts';
 import { LANCETS, ORNATE, shopFront, ROOF_FLAT, WALL_PLAIN, pitchedRoof } from './facade-codes.ts';
@@ -314,6 +315,21 @@ describe('stepped gables', () => {
     expect(surfaces.getAttribute('position').count).toBe((4 * 2 + 2 * 2 + 2 * 2 * 3 * 2 * 2) * 3);
     // Wall tops, corners, two eaves, ridge, then a riser and a tread per step.
     expect(outlines.getAttribute('position').count / 2).toBe(8 + 2 + 1 + 2 * 2 * 3 * 2);
+  });
+
+  test('both faces lie on the plane its outline is drawn on, none set back into the house', () => {
+    const b = wide({ id: steppedId, tier: 'hero', kind: 'other' });
+    const { rect } = planRoof(b) as Extract<RoofPlan, { type: 'gable' }>;
+    const { surfaces } = buildingsGeometry([b]);
+    const p = surfaces.getAttribute('position');
+    const n = surfaces.getAttribute('normal');
+    // Every vertex of a face across the ridge axis (the two gable ends) is on the end plane.
+    for (let i = 0; i < p.count; i++) {
+      const along = (p.getX(i) - rect.cx) * rect.ux + (p.getZ(i) - rect.cz) * rect.uz;
+      if (Math.abs(n.getX(i) * rect.ux + n.getZ(i) * rect.uz) > 0.99) {
+        expect(Math.abs(along)).toBeCloseTo(rect.halfLength, 3);
+      }
+    }
   });
 });
 
