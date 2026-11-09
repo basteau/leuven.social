@@ -1,4 +1,5 @@
 import type { TreeKind } from './city.ts';
+import { pushTo } from './geometry.ts';
 
 /**
  * Merges the two tree sources: OpenStreetMap's mapped street trees and the crowns found in the
@@ -48,10 +49,7 @@ export function mergeTrees(
   osmKinds: ArrayLike<number> = [],
 ): Trees {
   const grid = new Map<string, number[]>();
-  for (const [i, [x, z]] of crowns.entries()) {
-    const key = cell(x, z);
-    grid.set(key, [...(grid.get(key) ?? []), i]);
-  }
+  for (const [i, [x, z]] of crowns.entries()) pushTo(grid, cell(x, z), i);
   const used = new Set<number>();
   const positions: number[] = [];
   const heights: number[] = [];

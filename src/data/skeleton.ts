@@ -7,6 +7,8 @@
  * defeats it, so the caller can fall back to a flat one.
  */
 
+import { pushTo } from './geometry.ts';
+
 /** One roof face: the polygon over one footprint edge, as flat [x, z, t, …] triples. */
 export interface SkeletonFace {
   /** Index of its footprint edge, counting the outer ring first, then each hole. */
@@ -353,6 +355,11 @@ function skeletonOf(rings: readonly ArrayLike<number>[]): Skeleton | null {
 
   // Each face is bounded by its edge and the arcs on either side of it: walk them end to start.
   const faces: SkeletonFace[] = [];
+  const arcsOf = new Map<number, (typeof arcs)[number][]>();
+  for (const arc of arcs) {
+    pushTo(arcsOf, arc.left, arc);
+    if (arc.right !== arc.left) pushTo(arcsOf, arc.right, arc);
+  }
   for (const [r, ring] of rings.entries()) {
     const n = ring.length / 2;
     for (let i = 0; i < n; i++) {
@@ -360,11 +367,9 @@ function skeletonOf(rings: readonly ArrayLike<number>[]): Skeleton | null {
       const startNode = starts[r]! + i;
       const endNode = starts[r]! + ((i + 1) % n);
       const links = new Map<number, number[]>();
-      const link = (a: number, b: number) => links.set(a, [...(links.get(a) ?? []), b]);
-      for (const arc of arcs) {
-        if (arc.left !== edge && arc.right !== edge) continue;
-        link(arc.from, arc.to);
-        link(arc.to, arc.from);
+      for (const arc of arcsOf.get(edge) ?? []) {
+        pushTo(links, arc.from, arc.to);
+        pushTo(links, arc.to, arc.from);
       }
       // Breadth-first: the shortest chain of arcs, which skips any zero-length detours.
       const from = new Map<number, number>([[endNode, -1]]);

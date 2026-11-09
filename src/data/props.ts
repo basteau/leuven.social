@@ -10,7 +10,7 @@
 
 import { isMonument } from './city.ts';
 import type { Material, Prop, PropKind, RackStyle } from './city.ts';
-import { pointInRing } from './geometry.ts';
+import { pointInRing, pushTo } from './geometry.ts';
 import { monumentFromOsm, plinthOf } from './monuments.ts';
 
 type Tags = Record<string, string | undefined>;
@@ -236,10 +236,17 @@ export function rackFill(
   racks: readonly RackSite[],
   station: readonly [number, number] | null,
 ): { class: FillClass; bikes: number }[] {
+  // Filed by cells of the reach: a rack's neighbours are in the nine cells round it.
+  const grid = new Map<number, RackSite[]>();
+  for (const q of racks) {
+    pushTo(grid, key(Math.floor(q.x / NEAR_REACH), Math.floor(q.z / NEAR_REACH)), q);
+  }
   return racks.map((r) => {
     let near = 0;
-    for (const q of racks) {
-      if (Math.hypot(q.x - r.x, q.z - r.z) <= NEAR_REACH) near += q.size;
+    for (const k of cellsAround(NEAR_REACH, r.x, r.z, NEAR_REACH)) {
+      for (const q of grid.get(k) ?? []) {
+        if (Math.hypot(q.x - r.x, q.z - r.z) <= NEAR_REACH) near += q.size;
+      }
     }
     const kind: FillClass =
       station && Math.hypot(r.x - station[0], r.z - station[1]) <= STATION_REACH
@@ -505,10 +512,7 @@ export class RingIndex {
     const s = this.#size;
     for (let i = Math.floor(minX / s); i <= Math.floor(maxX / s); i++) {
       for (let j = Math.floor(minZ / s); j <= Math.floor(maxZ / s); j++) {
-        const k = key(i, j);
-        const list = this.#cells.get(k);
-        if (list) list.push(ring);
-        else this.#cells.set(k, [ring]);
+        pushTo(this.#cells, key(i, j), ring);
       }
     }
   }
@@ -526,15 +530,11 @@ export class Shapes {
 
   ring(points: ArrayLike<number>): void {
     this.#rings.add(points);
-    this.#add(points, true);
+    this.edges.add(points, true);
   }
 
   line(points: ArrayLike<number>): void {
-    this.#add(points, false);
-  }
-
-  #add(points: ArrayLike<number>, closed: boolean): void {
-    this.edges.add(points, closed);
+    this.edges.add(points, false);
   }
 
   contains(x: number, z: number): boolean {
@@ -708,15 +708,24 @@ export function placeProps(points: readonly PropPoint[], around: Surroundings): 
   const trunks = new Map<number, (readonly [number, number, number])[]>();
   const TRUNK_CELL = 8;
   for (const t of around.trunks) {
-    const k = key(Math.floor(t[0] / TRUNK_CELL), Math.floor(t[1] / TRUNK_CELL));
-    trunks.set(k, [...(trunks.get(k) ?? []), t]);
+    pushTo(trunks, key(Math.floor(t[0] / TRUNK_CELL), Math.floor(t[1] / TRUNK_CELL)), t);
   }
   const PROP_CELL = 16;
   const placed = new Map<number, { kind: PropKind; f: Footprint }[]>();
   /** The furthest any placed footprint reaches from its centre. */
   let widest = 0;
-  const near = function* <T>(grid: Map<number, T[]>, size: number, f: Footprint, reach: number) {
-    for (const k of cellsAround(size, f.x, f.z, reach)) yield* grid.get(k) ?? [];
+  /** Whether anything filed in `grid` within `reach` of a footprint passes `test`. */
+  const anyNear = <T>(
+    grid: Map<number, T[]>,
+    size: number,
+    f: Footprint,
+    reach: number,
+    test: (item: T) => boolean,
+  ) => {
+    for (const k of cellsAround(size, f.x, f.z, reach)) {
+      if (grid.get(k)?.some(test)) return true;
+    }
+    return false;
   };
 
   const result: PlacedProps = {
@@ -738,7 +747,11 @@ export function placeProps(points: readonly PropPoint[], around: Surroundings): 
     // Monuments are twins whatever their kind: one sculpture mapped twice, at a pump and as it.
     const monument = isMonument(c.kind);
     // A twin's footprint, grown by the clearance, reaches its corner that much further out.
-    const twin = [...near(placed, PROP_CELL, body.f, widest + CLEARANCE * Math.SQRT2)].some(
+    const twin = anyNear(
+      placed,
+      PROP_CELL,
+      body.f,
+      widest + CLEARANCE * Math.SQRT2,
       (other) =>
         (other.kind === c.kind || (monument && isMonument(other.kind))) &&
         discInFootprint(grow(other.f, CLEARANCE), c.x, c.z, 0),
@@ -773,15 +786,18 @@ export function placeProps(points: readonly PropPoint[], around: Surroundings): 
       }
       const room = grow(f, CLEARANCE);
       const reach = radius(room);
-      if (
-        [...near(placed, PROP_CELL, room, reach + widest)].some((o) => footprintsOverlap(room, o.f))
-      )
+      if (anyNear(placed, PROP_CELL, room, reach + widest, (o) => footprintsOverlap(room, o.f))) {
         return false;
+      }
       if (around.solid.touches(room)) return false;
       if (corners(room).some(([x, z]) => !around.inArea(x, z))) return false;
       if (!monument) {
-        for (const [x, z, r] of near(trunks, TRUNK_CELL, room, reach + 3)) {
-          if (discInFootprint(room, x, z, r)) return false;
+        if (
+          anyNear(trunks, TRUNK_CELL, room, reach + 3, ([x, z, r]) =>
+            discInFootprint(room, x, z, r),
+          )
+        ) {
+          return false;
         }
         if (around.water.touches(room)) return false;
       }
@@ -822,8 +838,10 @@ export function placeProps(points: readonly PropPoint[], around: Surroundings): 
     }
     Object.assign(prop, { x: spot.x, z: spot.z });
     const f = { ...shape, x: spot.x, z: spot.z };
-    const k = key(Math.floor(f.x / PROP_CELL), Math.floor(f.z / PROP_CELL));
-    placed.set(k, [...(placed.get(k) ?? []), { kind: c.kind, f }]);
+    pushTo(placed, key(Math.floor(f.x / PROP_CELL), Math.floor(f.z / PROP_CELL)), {
+      kind: c.kind,
+      f,
+    });
     widest = Math.max(widest, radius(f));
     result.props.push(prop);
     result.tags.push(c.tags);

@@ -6,7 +6,7 @@
  * could be. Real towers and chimneys have no crown beside them and keep theirs.
  */
 
-import { signedArea } from './geometry.ts';
+import { pushTo, signedArea } from './geometry.ts';
 
 /** Footprints below this area (m²) can be sheds. */
 export const SHED_AREA = 60;
@@ -38,8 +38,7 @@ export function capShedsUnderTrees(
   const grid = new Map<string, number[]>();
   for (const [i, { ring }] of buildings.entries()) {
     for (let k = 0; k < ring.length; k += 2) {
-      const at = key(ring[k]!, ring[k + 1]!);
-      grid.set(at, [...(grid.get(at) ?? []), i]);
+      pushTo(grid, key(ring[k]!, ring[k + 1]!), i);
     }
   }
   const touches = (i: number): boolean => {
