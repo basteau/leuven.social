@@ -59,8 +59,7 @@ void groundSurface(inout vec3 albedo) {
     float clump = noise2(p / 3.0);
     shade = 0.95 + 0.1 * clump + (pebble - 0.5) * (surface == ${f(SURFACE.earth)} ? 0.14 : 0.26) * (1.0 - smoothstep(0.05, 0.12, pixel));
   } else if (surface == ${f(SURFACE.water)}) {
-    // Water: slow bands of deeper and paler blue along the stream, ripples close in, faint
-    // streaks of sky.
+    // Water: slow bands of deeper and paler blue along the stream, ripples close in.
     vec2 w = vec2(p.x * 0.62 + p.y * 0.32, p.y * 0.62 - p.x * 0.32);
     float swell = noise2(w * vec2(0.12, 0.42)) + 0.45 * noise2(w * vec2(0.4, 1.3));
     float bands = floor(swell * 5.0) / 5.0;
@@ -68,8 +67,6 @@ void groundSurface(inout vec3 albedo) {
     float fine = 1.0 - smoothstep(0.06, 0.16, pixel);
     float ripple = noise2(w * vec2(1.2, 6.0));
     albedo *= 1.0 + (step(0.72, ripple) * 0.12 - step(ripple, 0.28) * 0.1) * fine;
-    float streak = step(0.8, noise2(w * vec2(0.5, 3.4))) * step(0.5, noise2(w * vec2(0.09, 0.28)));
-    albedo = mix(albedo, vec3(0.86, 0.95, 1.0), streak * 0.16 * (1.0 - smoothstep(0.08, 0.2, pixel)));
     shade = 1.0;
   } else if (surface == ${f(SURFACE.woods)}) {
     // A wood's floor: dappled, with fallen leaves up close.
