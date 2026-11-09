@@ -4,11 +4,21 @@
 
 /* Round buttons on the map: the same stack of paper, ink and a hard shadow as the menu button. */
 .map-btn {
-  pointer-events: auto;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  min-inline-size: var(--control);
+  block-size: var(--control);
+  padding-inline: 9px;
   border: var(--border) solid var(--ink);
+  border-radius: 999px;
   background: var(--paper);
   color: var(--ink);
+  font: inherit;
   box-shadow: var(--shadow-hard);
+  pointer-events: auto;
   cursor: pointer;
 }
 
@@ -172,19 +182,6 @@
   padding: var(--space-s);
 }
 
-.map-btn {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-xs);
-  min-inline-size: var(--control);
-  block-size: var(--control);
-  padding-inline: 9px;
-  border-radius: 999px;
-  font: inherit;
-}
-
 .map-btn kbd {
   opacity: 0.75;
 }
@@ -264,8 +261,13 @@
   inset-block-end: calc(var(--gutter) + env(safe-area-inset-bottom, 0px));
   max-inline-size: 26rem;
   margin-inline: auto;
-  max-block-size: 50dvh;
+  /* Half the map on a tall screen; on a phone on its side, enough under the search for its buttons. */
+  max-block-size: max(
+    50dvh,
+    min(18rem, 100dvh - 2 * var(--gutter) - var(--control) - var(--space-s))
+  );
   overflow-y: auto;
+  overscroll-behavior: contain;
   display: grid;
   gap: var(--space-m);
   padding: var(--space-m);

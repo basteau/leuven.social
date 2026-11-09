@@ -200,9 +200,11 @@ export function MapOverlay(props: Props) {
           const [x, y] = at(p.x, p.z);
           taken.push([x - 14, y - 14, x + 14, y + 14]);
         }
-        // A spot just picked keeps its pin clear too, or its own name would run under it.
-        if (state.selection?.kind === 'spot') {
-          const [x, y] = at(state.selection.x, state.selection.z);
+        // A spot just picked and the marks keep their pins clear, or a name would run under them.
+        for (const pin of state.selection?.kind === 'spot'
+          ? [state.selection, ...state.marks]
+          : state.marks) {
+          const [x, y] = at(pin.x, pin.z);
           taken.push([x - 10, y - 10, x + 10, y + 10]);
         }
         ctx.fillStyle = '#2b2420';
@@ -613,7 +615,10 @@ export function MapOverlay(props: Props) {
       )}
 
       {(picked || spot || listing) && (
-        <section className="bigmap-sheet" aria-label={listing ? 'Marks' : 'Picked spot'}>
+        <section
+          className="bigmap-sheet"
+          aria-label={listing ? 'Marks' : picked ? 'Your mark' : 'Picked spot'}
+        >
           {listing ? (
             marks.length ? (
               <ul className="mark-list">
@@ -639,14 +644,6 @@ export function MapOverlay(props: Props) {
                     >
                       <WalkIcon />
                     </button>
-                    <button
-                      type="button"
-                      className="map-btn"
-                      aria-label={`Remove ${m.name || 'Mark'}`}
-                      onClick={() => commit(removeWaypoint(marks, m.id))}
-                    >
-                      <CloseIcon />
-                    </button>
                   </li>
                 ))}
               </ul>
@@ -658,10 +655,6 @@ export function MapOverlay(props: Props) {
             )
           ) : picked ? (
             <>
-              <h3 className="sheet-title">
-                <span className="mark-dot" style={{ background: picked.colour }} />
-                {picked.name || 'Mark'}
-              </h3>
               <label className="sheet-field">
                 <span>Name</span>
                 <input
