@@ -97,6 +97,46 @@ export const MAX_TRUNK = 0.35;
 export const trunkRadius = (height: number): number =>
   Math.min(0.55 * treeScale(height) ** 0.8, MAX_TRUNK);
 
+/** A trunk stands this far (m, its widest radius and a bit) clear of the water. */
+const TRUNK_WATER_ROOM = MAX_TRUNK + 0.1;
+/** How far a mapped tree in or at the water may move to its bank (m), and the rings it tries. */
+const BANK_REACH = 8;
+const BANK_STEP = 0.5;
+const BANK_DIRECTIONS = 16;
+
+type Probe = (x: number, z: number) => boolean;
+
+/** Whether a trunk at (x, z) stands in the water or against it (`wet`). */
+export function atWater(x: number, z: number, wet: Probe): boolean {
+  if (wet(x, z)) return true;
+  for (let k = 0; k < BANK_DIRECTIONS; k++) {
+    const t = (k / BANK_DIRECTIONS) * Math.PI * 2;
+    if (wet(x + Math.cos(t) * TRUNK_WATER_ROOM, z + Math.sin(t) * TRUNK_WATER_ROOM)) return true;
+  }
+  return false;
+}
+
+/**
+ * Where a mapped tree stands, off the water: where it is, or the nearest ground within
+ * `BANK_REACH` that isn't water and isn't `blocked`, or null if there is none.
+ */
+export function onBank(
+  x: number,
+  z: number,
+  wet: Probe,
+  blocked: Probe,
+): readonly [number, number] | null {
+  if (!atWater(x, z, wet)) return [x, z];
+  for (let r = BANK_STEP; r <= BANK_REACH; r += BANK_STEP) {
+    for (let k = 0; k < BANK_DIRECTIONS; k++) {
+      const t = (k / BANK_DIRECTIONS) * Math.PI * 2;
+      const [nx, nz] = [x + Math.cos(t) * r, z + Math.sin(t) * r];
+      if (!atWater(nx, nz, wet) && !blocked(nx, nz)) return [nx, nz];
+    }
+  }
+  return null;
+}
+
 /**
  * Drops the LiDAR crowns (every tree after the first `mapped`) whose trunk would stand in
  * something mapped, such as a bench or a statue: the survey took it for a crown, or the crown

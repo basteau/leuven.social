@@ -67,7 +67,14 @@ import { PLACES, placeKind } from '../src/data/shop-kinds.ts';
 import { bridgeParapets, tankOutline } from '../src/data/structures.ts';
 import { joinLines, nameTable, streetName } from '../src/data/streets.ts';
 import { TREE_KINDS } from '../src/data/city.ts';
-import { clearCrowns, mergeTrees, treeKindOf, trunkRadius } from '../src/data/trees.ts';
+import {
+  atWater,
+  clearCrowns,
+  mergeTrees,
+  onBank,
+  treeKindOf,
+  trunkRadius,
+} from '../src/data/trees.ts';
 import { DATA } from './data-files.ts';
 
 const OUT = new URL('../public/data/city.bin', import.meta.url).pathname;
@@ -423,34 +430,6 @@ const footprints = new RingIndex();
 for (const b of buildings) footprints.add(b.ring);
 const carriagewayGround = new RingIndex();
 for (const c of carriageways) carriagewayGround.add(c.ring);
-// A mapped tree inside a footprint is in the wrong place: the house is surveyed, the tree typed.
-const riverForTrees = new RingIndex();
-for (const ring of [...layer(wtz.features, () => true), ...coverLayer('water')]) {
-  riverForTrees.add(ring);
-}
-/** A mapped tree in the water is on its bank, typed a little off: moved to the nearest dry ground. */
-function onBank([x, z, kind]: readonly [number, number, number]): readonly [
-  number,
-  number,
-  number,
-] {
-  if (!riverForTrees.contains(x, z)) return [x, z, kind];
-  for (let r = 1; r <= 8; r++) {
-    for (let k = 0; k < 16; k++) {
-      const t = (k / 16) * Math.PI * 2;
-      const [nx, nz] = [x + Math.cos(t) * r, z + Math.sin(t) * r];
-      if (!riverForTrees.contains(nx, nz)) return [nx, nz, kind];
-    }
-  }
-  return [x, z, kind];
-}
-const standing = osmTrees.map(onBank).filter(([x, z]) => !footprints.contains(x, z));
-const allTrees = mergeTrees(
-  standing.flatMap(([x, z]) => [x, z]),
-  crowns.trees.filter(([x, z]) => areaIndex(AREA, x, z) >= 0 && !underRoof(x, z)),
-  standing.map(([, , kind]) => kind),
-);
-
 const roads = layer(wbn.features, () => true);
 const squareRings = [
   ...coverRings('plazas'),
@@ -499,6 +478,25 @@ const parapets = knw.structures
   .flatMap((s) => bridgeParapets(normalizeRing(s.ring.flat()), river))
   .flatMap((line) => AREA.flatMap((rect) => clipLine(line, rect)))
   .map((line) => new Float32Array(line));
+
+// Whether a point is water as drawn: roads, squares and bridges are drawn over it. A mapped tree
+// that stands in that is on its bank, typed a little off: moved to the nearest dry ground, and
+// gone if there is none. (A trunk on a road over the water is on the road, as it is drawn.)
+const overWater = new RingIndex();
+for (const ring of [...roads, ...plazas, ...bridges]) overWater.add(ring);
+const wet = (x: number, z: number) => river.contains(x, z) && !overWater.contains(x, z);
+// A mapped tree inside a footprint is in the wrong place: the house is surveyed, the tree typed.
+const standing = osmTrees
+  .flatMap(([x, z, kind]) => {
+    const spot = onBank(x, z, wet, (px, pz) => carriagewayGround.contains(px, pz));
+    return spot ? [[spot[0], spot[1], kind] as const] : [];
+  })
+  .filter(([x, z]) => !footprints.contains(x, z));
+const allTrees = mergeTrees(
+  standing.flatMap(([x, z]) => [x, z]),
+  crowns.trees.filter(([x, z]) => areaIndex(AREA, x, z) >= 0 && !underRoof(x, z)),
+  standing.map(([, , kind]) => kind),
+);
 
 // Street furniture by rule (src/data/props.ts): turned to its kerb, kept off walls, water, tanks,
 // trunks and each other, and off the carriageway unless mapped there (never a rack).
@@ -609,7 +607,7 @@ const trees = clearCrowns(
   (x, z, r) =>
     carriagewayGround.contains(x, z) ||
     footprints.contains(x, z) ||
-    river.contains(x, z) ||
+    atWater(x, z, wet) ||
     [-1, 0, 1].some((i) =>
       [-1, 0, 1].some((j) =>
         (near.get(`${Math.round(x / 16) + i},${Math.round(z / 16) + j}`) ?? []).some((f) =>

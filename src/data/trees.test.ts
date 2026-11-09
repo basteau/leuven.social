@@ -3,8 +3,10 @@ import { expect, test } from 'bun:test';
 import {
   DEFAULT_TREE_HEIGHT,
   MAX_TRUNK,
+  atWater,
   clearCrowns,
   mergeTrees,
+  onBank,
   treeScale,
   trunkRadius,
   treeKindOf,
@@ -59,4 +61,22 @@ test('a tree is what OSM says it is, and broad where it says nothing', () => {
   expect(treeKindOf({ 'species:nl': 'Wilg' })).toBe('willow');
   // A copper beech is no colour of its own: every crown on the map is a green.
   expect(treeKindOf({ species: 'Fagus sylvatica atropunicea' })).toBe('broad');
+});
+
+/** A river where x < 0, and a carriageway just past its bank. */
+const wet = (x: number) => x < 0;
+const road = (x: number) => x > 0 && x < 3;
+
+test('a trunk at the water goes to its bank; with no bank in reach it goes', () => {
+  expect(atWater(5, 0, wet)).toBe(false);
+  expect(atWater(-1, 0, wet)).toBe(true);
+  expect(atWater(0.2, 0, wet)).toBe(true); // its radius reaches the water
+  expect(onBank(5, 0, wet, () => false)).toEqual([5, 0]);
+  const [x] = onBank(-1, 0, wet, () => false)!;
+  expect(x).toBeGreaterThan(0);
+  // Blocked just past the bank (a carriageway): further along, not onto it.
+  const [roadX] = onBank(-1, 0, wet, road)!;
+  expect(roadX).toBeGreaterThanOrEqual(3);
+  // The middle of a lake: no dry ground within reach.
+  expect(onBank(-100, 0, wet, () => false)).toBeNull();
 });
