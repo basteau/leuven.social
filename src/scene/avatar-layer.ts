@@ -72,10 +72,11 @@ import { STEP, followRoute, runBlend } from './walker.ts';
  * One way to move, on foot or on a bike: W A S D by the screen (Shift runs or sprints), or a tap
  * on the ground within ROUTE_REACH, which walks or rides it there along a route. The one thing
  * that puts it anywhere at once is a building's door: beside a building with a room inside, from
- * any side, Enter takes it in, and Enter again back out to its door. The camera is pinned to it, gliding after it, until the person drags the map;
- * then the view is theirs until Space (or W A S D, or the edge diamond) brings it back. Animates
- * only while something moves; otherwise the viewer renders on demand. The logic is pure and
- * tested elsewhere (avatar.ts, follow.ts, walker.ts, the grids and routes); this is the glue.
+ * any side, Enter takes it in, and Enter again back out to its door. The camera is pinned to it,
+ * gliding after it, until the person drags the map; then the view is theirs until Space (or
+ * W A S D, or the edge diamond) brings it back. Animates only while something moves; otherwise
+ * the viewer renders on demand. The logic is pure and tested elsewhere (avatar.ts, follow.ts,
+ * walker.ts, the grids and routes); this is the glue.
  */
 
 /** How far the open ground a tap means may lie from where it lands (m), and how many places
@@ -791,6 +792,8 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     }
     return found;
   }
+  /** How far a spot is from where the avatar stands (m). */
+  const away = (x: number, z: number) => Math.hypot(x - avatar.walker.x, z - avatar.walker.z);
   /** Where to go on from a room's door, for a tap outside the room; dropped by any other. */
   let onward: [number, number] | null = null;
   /** Going further than one route reaches: the spot at the end, and where this leg stops. */
@@ -806,10 +809,9 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     pickAround(clientX - rect.left, clientY - rect.top, rect.width, rect.height);
     const mid = ((PICK_SIDE * PICK_SIDE - 1) / 2) * 3;
     const [tx, ty, tz] = [points[mid]!, points[mid + 1]!, points[mid + 2]!];
-    const w = avatar.walker;
     // On the avatar itself: stop where it is.
-    if (Math.hypot(tx - w.x, tz - w.z) < ON_AVATAR && ty > feet[1] + 0.3 && ty < feet[1] + 3) {
-      w.route = null;
+    if (away(tx, tz) < ON_AVATAR && ty > feet[1] + 0.3 && ty < feet[1] + 3) {
+      avatar.walker.route = null;
       clearRoute();
       syncRoute();
       return;
@@ -826,8 +828,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       if (!Number.isNaN(tx)) refuse(tx, tz, 'closed');
       return;
     }
-    const far = Math.hypot(at[0] - w.x, at[1] - w.z);
-    if (far > ROUTE_REACH) refuse(...at, 'far');
+    if (away(...at) > ROUTE_REACH) refuse(...at, 'far');
     else if (room) leaveFor(at);
     else routeOrRefuse(...at);
   }
@@ -837,8 +838,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
    * way round: too far, not nowhere, and not worth another search (a failed one fills its window).
    */
   function routeOrRefuse(x: number, z: number): boolean {
-    const w = avatar.walker;
-    const far = Math.hypot(x - w.x, z - w.z) > DETOUR;
+    const far = away(x, z) > DETOUR;
     if (walkTo(x, z, TAP_REACH, far ? 1 : TRIES)) return true;
     refuse(x, z, far ? 'far' : 'closed');
     return false;
@@ -867,8 +867,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     if (!trip || avatar.walker.route) return;
     const { to, leg, legs } = trip;
     trip = null;
-    const w = avatar.walker;
-    if (Math.hypot(w.x - leg[0], w.z - leg[1]) >= LEG_ARRIVED) return;
+    if (away(...leg) >= LEG_ARRIVED) return;
     if (legs < MAX_LEGS) headFor(...to, legs + 1);
     else refuse(...to, 'far');
   }
