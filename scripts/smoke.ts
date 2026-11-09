@@ -12,14 +12,17 @@ import { pointInRing } from '../src/data/geometry.ts';
 import { bikesIn } from '../src/data/props.ts';
 import { startBot } from './smoke-bot.ts';
 
+async function freePort(): Promise<number> {
+  const probe = Bun.serve({ port: 0, fetch: () => new Response() });
+  const { port } = probe;
+  await probe.stop(true);
+  return port!;
+}
+
 // A free port and a browser session of our own, so parallel runs (worktrees, agents) never meet.
-const probe = Bun.serve({ port: 0, fetch: () => new Response() });
-const PORT = probe.port;
-await probe.stop(true);
+const PORT = await freePort();
 // The multiplayer server, on a free port of its own, with a database in memory.
-const apiProbe = Bun.serve({ port: 0, fetch: () => new Response() });
-const API = `http://127.0.0.1:${apiProbe.port}`;
-await apiProbe.stop(true);
+const API = `http://127.0.0.1:${await freePort()}`;
 const SESSION = `leuven-smoke-${PORT}`;
 const BASE = `http://localhost:${PORT}/`;
 const ARTIFACTS = Bun.fileURLToPath(new URL('../.artifacts/', import.meta.url));
@@ -301,9 +304,7 @@ async function expectViewControls(): Promise<void> {
  * is one Go here away.
  */
 async function expectFinding(): Promise<void> {
-  const stop = `[...document.querySelectorAll('button')].some((b) => b.textContent.includes('Stop'))`;
-  await browser('press', 'm');
-  await browser('wait', '--fn', `!!document.querySelector('dialog.bigmap')?.open`);
+  await openBigMap();
   await browser('fill', '.map-search-box input', 'oude markt');
   await browser('wait', '--fn', `!!document.querySelector('.map-results button')`);
   await browser('screenshot', `${ARTIFACTS}smoke-map-search.png`);
@@ -318,25 +319,37 @@ async function expectFinding(): Promise<void> {
   await browser('wait', '--fn', `!document.querySelector('dialog.bigmap') && !!${pill}`);
   await expectNoCovering('desktop 1280×800 with the Go to pill');
   await browser('eval', `${pill}.click()`);
-  await browser('wait', '--fn', stop);
+  await browser('wait', '--fn', STOP);
   await holdKeys(['Escape'], 0);
-  await browser('wait', '--fn', `!(${stop})`);
+  await browser('wait', '--fn', `!(${STOP})`);
   console.log('ok  found a square on the full map, saw it, walked there, let go of the walk');
 
   // A mark further off than one route reaches.
-  await browser('press', 'm');
-  await browser('wait', '--fn', `!!document.querySelector('dialog.bigmap')?.open`);
+  await openBigMap();
   await browser('click', 'dialog.bigmap .rail-btn[aria-label^="Marks"]');
   await browser('click', '[aria-label="Go to Far"]');
-  await browser('wait', '--fn', `!document.querySelector('dialog.bigmap') && ${stop}`);
+  await browser('wait', '--fn', `!document.querySelector('dialog.bigmap') && ${STOP}`);
   const hint = await evalJson<string>(
     `JSON.stringify(document.querySelector('.hint')?.textContent)`,
   );
   if (hint.includes('Too far')) throw new Error(`Go here to a far mark said "${hint}"`);
   await holdKeys(['Escape'], 0);
-  await browser('wait', '--fn', `!(${stop})`);
+  await browser('wait', '--fn', `!(${STOP})`);
   console.log('ok  Go here to a mark across town sets off, in legs');
 }
+
+/** Waits until the hint says exactly `text`. */
+const hintSays = (text: string) =>
+  browser('wait', '--fn', `document.querySelector('.hint')?.textContent === '${text}'`);
+
+/** Opens the full map with M and waits for its dialog. */
+async function openBigMap(): Promise<void> {
+  await browser('press', 'm');
+  await browser('wait', '--fn', `!!document.querySelector('dialog.bigmap')?.open`);
+}
+
+/** Whether a Stop pill is on the map, which means a route is being walked. */
+const STOP = `[...document.querySelectorAll('button')].some((b) => b.textContent.includes('Stop'))`;
 
 const menu = {
   open: `!!document.querySelector('dialog.menu:not(.account)')?.open`,
@@ -375,9 +388,9 @@ async function expectMenu(): Promise<void> {
   await browser('wait', '--fn', menu.closed);
   // Running a command: Mute, which says so, and the menu then offers Unmute.
   await runFromMenu('mute', 'Mute');
-  await browser('wait', '--fn', `document.querySelector('.hint')?.textContent === 'Sound off'`);
+  await hintSays('Sound off');
   await runFromMenu('unmute', 'Unmute');
-  await browser('wait', '--fn', `document.querySelector('.hint')?.textContent === 'Sound on'`);
+  await hintSays('Sound on');
   // ? opens the controls, every key and gesture.
   await browser('press', '?');
   await browser(
@@ -399,41 +412,35 @@ async function expectMenu(): Promise<void> {
   );
 }
 
+/** The time of day the app publishes on <html>, as the menu names it. */
+const time = () => evalJson<string>('JSON.stringify(document.documentElement.dataset.time)');
+
+/** Steps round the times of day with T until it is `wanted`. */
+async function turnTimeTo(wanted: string): Promise<void> {
+  for (let i = 0; i < 6 && (await time()) !== wanted; i++) {
+    await browser('press', 't');
+    await browser('wait', '300');
+  }
+}
+
 /**
  * The time of day: T steps round to night, where windows and lamps are lit and the lamps'
  * light shows at every zoom; P lets the day pass (a frame loop) and holds it again.
  */
-/** The time of day the app publishes on <html>, as the menu names it. */
-const time = () => evalJson<string>('JSON.stringify(document.documentElement.dataset.time)');
-
 async function expectNight(): Promise<void> {
-  for (let i = 0; i < 6 && (await time()) !== 'night'; i++) {
-    await browser('press', 't');
-    await browser('wait', '300');
-  }
+  await turnTimeTo('night');
   if ((await time()) !== 'night') throw new Error('T did not bring the night round');
   await browser('wait', '600');
   await expectHealthyPage('desktop at night');
   await browser('screenshot', `${ARTIFACTS}smoke-night.png`);
   await browser('press', 'p');
-  await browser(
-    'wait',
-    '--fn',
-    `document.querySelector('.hint')?.textContent === 'The day passes'`,
-  );
+  await hintSays('The day passes');
   await browser('wait', '1500');
   await browser('press', 'p');
-  await browser(
-    'wait',
-    '--fn',
-    `document.querySelector('.hint')?.textContent === 'The day stands still'`,
-  );
+  await hintSays('The day stands still');
   await expectHealthyPage('desktop after the day passed a while');
   // Back to golden hour, the look the rest of the test is measured in.
-  for (let i = 0; i < 6 && (await time()) !== 'golden'; i++) {
-    await browser('press', 't');
-    await browser('wait', '300');
-  }
+  await turnTimeTo('golden');
   console.log(
     'ok  night: lit windows and lamps, the day passed and stood still, golden hour again',
   );
@@ -560,8 +567,7 @@ async function expectMap(): Promise<void> {
     'eval',
     `localStorage.setItem('leuven-waypoints', '[{"id":"smoke","x":64,"z":50,"name":"Smoke","colour":"#d2553f"},{"id":"far","x":700,"z":-500,"name":"Far","colour":"#4a77a8"}]')`,
   );
-  await browser('press', 'm');
-  await browser('wait', '--fn', `!!document.querySelector('dialog.bigmap')?.open`);
+  await openBigMap();
   await browser('wait', '800'); // its first paint
   await browser('screenshot', `${ARTIFACTS}smoke-bigmap.png`);
   const parts = await evalJson<string[]>(
@@ -577,16 +583,14 @@ async function expectMap(): Promise<void> {
   console.log('ok  full map: M opens it with its tools, Escape shuts it');
 
   // A mark's Navigate walks there; the Stop pill shows while it does, and Escape lets go of it.
-  const stop = `[...document.querySelectorAll('button')].some((b) => b.textContent.includes('Stop'))`;
-  await browser('press', 'm');
-  await browser('wait', '--fn', `!!document.querySelector('dialog.bigmap')?.open`);
+  await openBigMap();
   await browser('click', 'dialog.bigmap .rail-btn[aria-label^="Marks"]');
   await browser('click', '[aria-label="Go to Smoke"]');
-  await browser('wait', '--fn', `!document.querySelector('dialog.bigmap') && ${stop}`);
-  await expectNothingDrawnUnderMap(stop);
+  await browser('wait', '--fn', `!document.querySelector('dialog.bigmap') && ${STOP}`);
+  await expectNothingDrawnUnderMap();
   // Dispatched, not pressed: agent-browser's Escape hides the page, which stops its frames.
   await holdKeys(['Escape'], 0);
-  await browser('wait', '--fn', `!(${stop})`);
+  await browser('wait', '--fn', `!(${STOP})`);
   console.log('ok  a mark: Navigate walks there, Stop shows, Escape lets go of the route');
 }
 
@@ -594,11 +598,10 @@ async function expectMap(): Promise<void> {
  * The map over the city while the avatar walks: not one WebGL draw call under it, and the city
  * drawn again once it shuts. Counted on the context itself, where every draw has to pass.
  */
-async function expectNothingDrawnUnderMap(walking: string): Promise<void> {
+async function expectNothingDrawnUnderMap(): Promise<void> {
   const names = `['drawElements', 'drawArrays', 'drawElementsInstanced', 'drawArraysInstanced']`;
   const gl = `document.querySelector('canvas').getContext('webgl2')`;
-  await browser('press', 'm');
-  await browser('wait', '--fn', `!!document.querySelector('dialog.bigmap')?.open`);
+  await openBigMap();
   await browser(
     'eval',
     `(() => { const gl = ${gl}; window.smokeDraws = 0; for (const name of ${names}) { const real = gl[name].bind(gl); gl[name] = (...args) => { window.smokeDraws++; return real(...args); }; } })()`,
@@ -606,7 +609,7 @@ async function expectNothingDrawnUnderMap(walking: string): Promise<void> {
   await browser('wait', '1000');
   const under = await evalJson<number>('JSON.stringify(window.smokeDraws)');
   if (under !== 0) throw new Error(`${under} draw calls under the open map`);
-  if (!(await evalJson<boolean>(`JSON.stringify(${walking})`))) {
+  if (!(await evalJson<boolean>(`JSON.stringify(${STOP})`))) {
     throw new Error('the walk ended before the map was shown to stop the drawing');
   }
   await browser('press', 'm');
@@ -624,6 +627,10 @@ async function expectNothingDrawnUnderMap(walking: string): Promise<void> {
   );
 }
 
+/** A key event on the map, as a script has to send it (agent-browser only taps keys). */
+const keyEvent = (type: string, key: string, code: string) =>
+  `document.querySelector('.map').dispatchEvent(new KeyboardEvent('${type}', { key: '${key}', code: '${code}', bubbles: true }))`;
+
 /** Where the keys the smoke test holds sit on the keyboard: walking reads `code`, not `key`. */
 const CODES: Record<string, string> = {
   w: 'KeyW',
@@ -636,15 +643,7 @@ const CODES: Record<string, string> = {
 /** Holds keys down for a while, as a person walking would (agent-browser only taps keys). */
 async function holdKeys(keys: string[], ms: number): Promise<void> {
   const send = (type: string) =>
-    browser(
-      'eval',
-      keys
-        .map(
-          (key) =>
-            `document.querySelector('.map').dispatchEvent(new KeyboardEvent('${type}', { key: '${key}', code: '${CODES[key] ?? key}', bubbles: true }))`,
-        )
-        .join(';'),
-    );
+    browser('eval', keys.map((key) => keyEvent(type, key, CODES[key] ?? key)).join(';'));
   await send('keydown');
   await browser('wait', String(ms));
   await send('keyup');
@@ -758,10 +757,19 @@ async function openRack(): Promise<[number, number]> {
   return [rack.x, rack.z];
 }
 
-const key = (type: string, code: string) =>
-  `document.querySelector('.map').dispatchEvent(new KeyboardEvent('${type}', { key: '${code.slice(3).toLowerCase()}', code: '${code}', bubbles: true }))`;
+const key = (type: string, code: string) => keyEvent(type, code.slice(3).toLowerCase(), code);
 const canvasNumber = async (name: string) =>
   Number(await evalJson<string>(`JSON.stringify(${canvasData(name)} ?? '')`));
+
+/**
+ * How far on screen (px) a spot `dx`, `dz` metres from the view's middle is, the map turned a
+ * quarter from north: 800 px show 560 m at zoom 1, and the isometric pitch foreshortens the depth.
+ */
+function screenOffset(dx: number, dz: number, zoom: number): [number, number] {
+  const k = (800 * zoom) / 560;
+  const [rx, rz] = [dx * Math.SQRT1_2, dz * Math.SQRT1_2];
+  return [(rx - rz) * k, (rx + rz) * k * Math.sqrt(1 / 3)];
+}
 
 /**
  * Walks to within F's reach of a spot, a tap at a time: the first tap is aimed from afar and a tall
@@ -777,9 +785,7 @@ async function walkUpTo(x: number, z: number): Promise<void> {
     if (Math.hypot(ax - x, az - z) < REACH) return;
     await browser('press', 'Space');
     await browser('wait', '1200');
-    const k = (800 * (await canvasNumber('zoom'))) / 560;
-    const [rx, rz] = [(x - ax) * Math.SQRT1_2, (z - az) * Math.SQRT1_2];
-    const [sx, sy] = [(rx - rz) * k, (rx + rz) * k * Math.sqrt(1 / 3)];
+    const [sx, sy] = screenOffset(x - ax, z - az, await canvasNumber('zoom'));
     await tapAt(Math.round(640 + sx), Math.round(400 + sy));
   }
   throw new Error(`the avatar never got within ${REACH} m of the rack at ${x} ${z}`);
@@ -800,25 +806,10 @@ async function expectRiding(): Promise<void> {
   await browser('wait', '1500');
   const before = await walker();
   const [ax, az] = before.split(' ').map(Number);
-  const zoom = await canvasNumber('zoom');
-  // The map turned a quarter from north: 800 px show 560 m at zoom 1, and the view is on the
-  // avatar. A drag keeps the ground under the pointer: across by its screen width, along
-  // foreshortened by the isometric pitch.
-  const k = (800 * zoom) / 560;
-  const s = Math.SQRT1_2;
-  const [rx, rz] = [x - ax!, z - az!];
-  const [dx, dy] = [-(rx * s - rz * s) * k, (-rx * s - rz * s) * k * Math.sqrt(1 / 3)];
-  await browser('mouse', 'move', '640', '400');
-  await browser('mouse', 'down');
-  for (let i = 1; i <= 4; i++) {
-    await browser(
-      'mouse',
-      'move',
-      String(Math.round(640 + (dx * i) / 4)),
-      String(Math.round(400 + (dy * i) / 4)),
-    );
-  }
-  await browser('mouse', 'up');
+  // The view is on the avatar, and a drag keeps the ground under the pointer.
+  const [sx, sy] = screenOffset(x - ax!, z - az!, await canvasNumber('zoom'));
+  const [dx, dy] = [-sx, -sy];
+  await drag(dx, dy);
   await browser('wait', '400');
   await expectStill('dragging the map', before);
   // A tap in the middle of the view, where the drag brought the rack, walks the avatar there.
@@ -877,15 +868,7 @@ const tasksSince = (since: number) =>
 
 /** Presses a key on the map as a person would (agent-browser's Escape hides the page). */
 const press = (name: string, code = name) =>
-  browser(
-    'eval',
-    ['keydown', 'keyup']
-      .map(
-        (type) =>
-          `document.querySelector('.map').dispatchEvent(new KeyboardEvent('${type}', { key: '${name}', code: '${code}', bubbles: true }))`,
-      )
-      .join(';'),
-  );
+  browser('eval', ['keydown', 'keyup'].map((type) => keyEvent(type, name, code)).join(';'));
 
 /**
  * A room: the menu takes the view to Sint-Pieterskerk, a tap on the church walks the avatar to
@@ -1017,17 +1000,11 @@ try {
   await browser('screenshot', `${ARTIFACTS}smoke-overview.png`);
   // At night the lamps' glow is a draw call more per cell in view, at every zoom: the most
   // calls a frame ever has.
-  for (let i = 0; i < 6 && (await time()) !== 'night'; i++) {
-    await browser('press', 't');
-    await browser('wait', '300');
-  }
+  await turnTimeTo('night');
   await browser('wait', '600');
   await expectHealthyPage('desktop zoomed out at night');
   await browser('screenshot', `${ARTIFACTS}smoke-overview-night.png`);
-  for (let i = 0; i < 6 && (await time()) !== 'golden'; i++) {
-    await browser('press', 't');
-    await browser('wait', '300');
-  }
+  await turnTimeTo('golden');
   // Panning out there redraws the shadow map for the most city at once: the heaviest frames.
   for (const [dx, dy] of [
     [-500, -250],

@@ -73,11 +73,6 @@ export const PARTS: readonly { part: Part; label: string; swatches: readonly Swa
   },
 ];
 
-/** The look every player starts with until they choose: the avatar's own. */
-export const FIRST_OUTFIT: Outfit = Object.fromEntries(
-  PARTS.map(({ part, swatches }) => [part, swatches[0]!.colour]),
-) as unknown as Outfit;
-
 /** A random look from the swatches, never the same as `not` (when given). */
 export function surprise(random: () => number = Math.random, not?: Outfit): Outfit {
   for (;;) {
@@ -90,6 +85,3 @@ export function surprise(random: () => number = Math.random, not?: Outfit): Outf
     if (!not || PARTS.some(({ part }) => outfit[part] !== not[part])) return outfit;
   }
 }
-
-/** A colour as CSS. */
-export const css = (colour: number) => `#${colour.toString(16).padStart(6, '0')}`;

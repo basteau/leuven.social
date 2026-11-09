@@ -8,13 +8,12 @@ import {
   useRef,
   useState,
 } from 'react';
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties, ReactNode, RefObject } from 'react';
 import { createPortal } from 'react-dom';
 
 import { sound } from '../audio/sound.ts';
 import type { City } from '../data/city.ts';
 import { CITY_URL, loadCity } from '../data/load.ts';
-import type { Place } from '../data/places.ts';
 import { presetAt } from '../scene/daylight.ts';
 import type { Daylight, PresetId } from '../scene/daylight.ts';
 import type { PlayerPose, Refusal, RideState, RoomPlace, Viewer } from '../scene/viewer.ts';
@@ -23,6 +22,7 @@ import type { ActionId, CommandState } from './commands.ts';
 import type { MenuPage } from './command-menu.tsx';
 import type { Multiplayer } from './multiplayer.ts';
 import { coachStep } from './coach.ts';
+import { css } from './colours.ts';
 import { ActionButton } from './controls.tsx';
 import { Credits } from './credits.tsx';
 import {
@@ -44,9 +44,10 @@ import { createStore } from './store.ts';
 import type { Waypoint } from '../data/waypoints.ts';
 import type { LoadState } from './loading.ts';
 import { EDGE_INSET, pointerFor } from './pointer.ts';
+import type { Inset } from './pointer.ts';
 import { useShortcuts } from './shortcuts.ts';
 import { StreetSign } from './street-sign.tsx';
-import { ViewControls } from './view-controls.tsx';
+import { ViewControls, focusQuietly } from './view-controls.tsx';
 
 type Status = { state: 'loading' } | { state: 'ready' } | { state: 'error'; message: string };
 
@@ -65,8 +66,6 @@ const lazyMinimap = () =>
 /** The account sheet: its own chunk, fetched the first time it opens. */
 const lazySheet = () =>
   lazy(() => import('./account-sheet.tsx').then((m) => ({ default: m.AccountSheet })));
-/** Whether the minimap shows is remembered on this device. */
-const MINIMAP_KEY = 'leuven-minimap';
 /** React keeps a failed lazy component failed: each try after a failure gets a fresh one. */
 const lazyMenu = () => lazy(() => loadMenu().then((m) => ({ default: m.CommandMenu })));
 
@@ -74,11 +73,14 @@ const lazyMenu = () => lazy(() => loadMenu().then((m) => ({ default: m.CommandMe
 const loadMap = () => import('./map-overlay.tsx');
 const lazyMap = () => lazy(() => loadMap().then((m) => ({ default: m.MapOverlay })));
 
+/** Whether the minimap shows is remembered on this device. */
+const MINIMAP_KEY = 'leuven-minimap';
+
 /**
- * The menu's chunk can fail to download (a flaky link). Without this, React would take the whole
- * app down with it, map and all; instead the menu stays shut and the shell says so.
+ * A lazy chunk can fail to download (a flaky link). Without this, React would take the whole app
+ * down with it, map and all; instead its corner stays shut and the shell says so.
  */
-class MenuGuard extends Component<{ onError: () => void; children: ReactNode }> {
+class ChunkGuard extends Component<{ onError: () => void; children: ReactNode }> {
   override state = { failed: false };
   static getDerivedStateFromError() {
     return { failed: true };
@@ -87,7 +89,7 @@ class MenuGuard extends Component<{ onError: () => void; children: ReactNode }> 
     this.props.onError();
   }
   override render() {
-    return this.state.failed ? null : this.props.children;
+    return this.state.failed ? null : <Suspense fallback={null}>{this.props.children}</Suspense>;
   }
 }
 
@@ -121,9 +123,6 @@ const TIME_SAID: Record<PresetId, string> = {
   dusk: 'Dusk',
   night: 'Night',
 };
-/** A colour as CSS, for the sky tokens. */
-const hex = (colour: number) => `#${colour.toString(16).padStart(6, '0')}`;
-
 const reducedMotion = () => globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 /** The platform, for the menu's chord: ⌘ on Apple's, Ctrl elsewhere. */
@@ -131,19 +130,19 @@ const platform = () =>
   (navigator as Navigator & { userAgentData?: { platform: string } }).userAgentData?.platform ??
   navigator.platform;
 
-/** Storage can throw (private windows, blocked site data); the coach then shows each time. */
-function coached(key = COACHED_KEY): boolean {
+/** Storage can throw (private windows, blocked site data): then nothing is remembered. */
+function recalled(key: string): string | null {
   try {
-    return localStorage.getItem(key) === '1';
+    return localStorage.getItem(key);
   } catch {
-    return false;
+    return null;
   }
 }
-function rememberCoached(key = COACHED_KEY): void {
+function remember(key: string, value: string): void {
   try {
-    localStorage.setItem(key, '1');
+    localStorage.setItem(key, value);
   } catch {
-    // Shown again next time: harmless.
+    // Asked again next time: harmless.
   }
 }
 
@@ -170,6 +169,41 @@ function cacheForOffline(): void {
   navigator.serviceWorker?.ready
     .then((registration) => registration.active?.postMessage({ type: 'cache', urls }))
     .catch(() => {});
+}
+
+/** Written for each frame that pans, so one object does for all of them. */
+const diamondInset: Inset = { ...EDGE_INSET };
+
+/** Puts the diamond by hand: it moves with every frame that pans, without a render for each. */
+function placeDiamond(
+  diamond: HTMLElement,
+  map: HTMLElement,
+  header: HTMLElement | null,
+  x: number,
+  y: number,
+  figure: boolean,
+): void {
+  diamondInset.top = EDGE_INSET.top + (header?.offsetHeight ?? 0);
+  const p = pointerFor(x, y, map.clientWidth, map.clientHeight, figure, diamondInset);
+  diamond.hidden = !p;
+  if (!p) return;
+  diamond.dataset.edge = p.edge ? 'true' : 'false';
+  diamond.tabIndex = p.edge ? 0 : -1;
+  diamond.style.translate = `${p.x}px ${p.y}px`;
+  diamond.style.setProperty('--turn', `${p.angle}rad`);
+}
+
+/**
+ * Once a dialog over the map has shut, the keys are the map's again: focus goes there rather than
+ * back to the button that opened it, where Space would open it again. In an effect, so the dialog
+ * has let go of focus by then.
+ */
+function useFocusWhenShut(open: boolean, target: RefObject<HTMLElement | null>): void {
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (wasOpen.current && !open) focusQuietly(target.current);
+    wasOpen.current = open;
+  }, [open, target]);
 }
 
 export function App() {
@@ -217,13 +251,7 @@ export function App() {
   const [time, setTime] = useState<PresetId>('golden');
   const [passing, setPassing] = useState(false);
   const passingRef = useRef(false);
-  const [minimap, setMinimap] = useState(() => {
-    try {
-      return localStorage.getItem(MINIMAP_KEY) !== '0';
-    } catch {
-      return true;
-    }
-  });
+  const [minimap, setMinimap] = useState(() => recalled(MINIMAP_KEY) !== '0');
   const minimapRef = useRef(minimap);
   const [said, setSaid] = useState<{ text: string; at: number } | null>(null);
   const say = useCallback((text: string) => setSaid({ text, at: performance.now() }), []);
@@ -232,22 +260,15 @@ export function App() {
     const timer = setTimeout(() => setSaid(null), SAID_MS);
     return () => clearTimeout(timer);
   }, [said]);
-  /** Sound coming back is heard (rising); muting is silent, and says so. */
-  const toggleSoundRef = useRef(() => {
-    sound.setOn(!sound.on);
-    setSoundOn(sound.on);
-    sound.toggle(true);
-    say(sound.on ? 'Sound on' : 'Sound off');
-  });
   useEffect(() => sound.attach(), []);
-  // Marks and the route being walked: each shown by the part
-  // that needs it, so the shell renders only for a route starting or ending and the map opening.
+  // Marks and the route being walked: each shown by the part that needs it, so the shell renders
+  // only for a route starting or ending and the map opening.
   const [marks] = useState(() => createStore<Waypoint[]>([]));
   const [routing, setRouting] = useState(false);
   const routingRef = useRef(routing);
   const [mapOpen, setMapOpen] = useState(false);
   const [coach, setCoach] = useState(() => ({
-    done: coached(),
+    done: recalled(COACHED_KEY) === '1',
     street: false,
     stepped: false,
     settled: false,
@@ -260,13 +281,13 @@ export function App() {
   const rideRef = useRef(ride);
   /** The city, for finding places by name, once it's on screen. */
   const [placeCity, setPlaceCity] = useState<City | null>(null);
-  const [rideCoach, setRideCoach] = useState(() => !coached(RIDE_COACHED_KEY));
+  const [rideCoach, setRideCoach] = useState(() => recalled(RIDE_COACHED_KEY) !== '1');
   const riding = ride === 'riding';
   useEffect(() => {
     if (!riding || !rideCoach) return;
     const timer = setTimeout(() => {
       setRideCoach(false);
-      rememberCoached(RIDE_COACHED_KEY);
+      remember(RIDE_COACHED_KEY, '1');
     }, RIDE_COACH_MS);
     return () => clearTimeout(timer);
   }, [riding, rideCoach]);
@@ -315,15 +336,7 @@ export function App() {
     setAccountSheet({ open: true, used: true });
   }, []);
   const closeAccount = useCallback(() => setAccountSheet((a) => ({ ...a, open: false })), []);
-  // Closed, the sheet gives focus to the map, as the menu does: after the dialog has closed, or
-  // it would hand focus back to the chip, where Space opens the sheet again.
-  const wasAccountOpen = useRef(false);
-  useEffect(() => {
-    if (wasAccountOpen.current && !accountSheet.open) {
-      mapRef.current?.focus({ focusVisible: false } as FocusOptions);
-    }
-    wasAccountOpen.current = accountSheet.open;
-  }, [accountSheet.open]);
+  useFocusWhenShut(accountSheet.open, mapRef);
   // A chunk that didn't download (a flaky link) leaves its corner shut, not the map blank: the
   // next try gets a fresh download.
   const [AccountSheet, setAccountSheetChunk] = useState(lazySheet);
@@ -353,15 +366,7 @@ export function App() {
     menuOpenRef.current = false;
     setMenu((m) => ({ ...m, open: false }));
   }, []);
-  // Closed, however it closed, the menu gives focus to the map, not back to its button (where the
-  // dialog would put it), so the arrows pan and Enter walks at once.
-  const wasOpen = useRef(false);
-  useEffect(() => {
-    if (wasOpen.current && !menu.open) {
-      mapRef.current?.focus({ focusVisible: false } as FocusOptions);
-    }
-    wasOpen.current = menu.open;
-  }, [menu.open]);
+  useFocusWhenShut(menu.open, mapRef);
   const takeTyped = useCallback(() => {
     const typed = typedRef.current;
     typedRef.current = '';
@@ -383,7 +388,7 @@ export function App() {
     if (coach.done || !coach.settled) return;
     const finish = () => {
       setCoach((c) => ({ ...c, done: true }));
-      rememberCoached();
+      remember(COACHED_KEY, '1');
     };
     if (away) return finish();
     const timer = setTimeout(finish, COACH_LOOK_MS);
@@ -437,6 +442,7 @@ export function App() {
         // Both are here; building the first frame is the device's work, not the network's.
         watch.stop();
         if (abort.signal.aborted) return;
+        let streetSeen = false;
         const viewer = createViewer({
           canvas,
           city: loaded,
@@ -449,18 +455,13 @@ export function App() {
             const off = viewerRef.current?.pinned() === false;
             setAway(off);
             if (!off) setLooking(null);
-            if (figure) setCoach((c) => (c.street ? c : { ...c, street: true }));
-            const diamond = diamondRef.current;
-            const top = EDGE_INSET.top + (headerRef.current?.offsetHeight ?? 0);
-            const inset = { ...EDGE_INSET, top };
-            const p = diamond && pointerFor(x, y, map.clientWidth, map.clientHeight, figure, inset);
-            if (!diamond) return;
-            diamond.hidden = !p;
-            if (!p) return;
-            diamond.dataset.edge = p.edge ? 'true' : 'false';
-            diamond.tabIndex = p.edge ? 0 : -1;
-            diamond.style.translate = `${p.x}px ${p.y}px`;
-            diamond.style.setProperty('--turn', `${p.angle}rad`);
+            if (figure && !streetSeen) {
+              streetSeen = true;
+              setCoach((c) => (c.street ? c : { ...c, street: true }));
+            }
+            if (diamondRef.current) {
+              placeDiamond(diamondRef.current, map, headerRef.current, x, y, figure);
+            }
           },
           onStreetChange: setStreet,
           onRoute: (target) => {
@@ -476,8 +477,8 @@ export function App() {
           onDaylight: (light: Daylight) => {
             const app = appRef.current;
             if (app) {
-              app.style.setProperty('--sky-top', hex(light.top));
-              app.style.setProperty('--sky-horizon', hex(light.horizon));
+              app.style.setProperty('--sky-top', css(light.top));
+              app.style.setProperty('--sky-horizon', css(light.horizon));
             }
             document.documentElement.dataset.night = light.night > 0.5 ? '1' : '0';
             const preset = presetAt(light.hour);
@@ -509,7 +510,7 @@ export function App() {
           progress.built = true;
           report();
           // Keyboard users can pan and use shortcuts at once, without a focus ring flashing up.
-          map.focus({ focusVisible: false } as FocusOptions);
+          focusQuietly(map);
           setStatus({ state: 'ready' });
           setPlaceCity(loaded);
           publish({ state: 'ready' }, viewer);
@@ -564,18 +565,71 @@ export function App() {
     if (ready) return removeIntro();
   }, [ready]);
 
+  /**
+   * What each command does, for the menu and the keys alike: thin calls into the viewer and the
+   * shell's state, made once, so the shortcuts can bind them once.
+   */
+  const [actions] = useState((): Record<Exclude<ActionId, 'help' | 'about'>, () => void> => ({
+    recentre: () => viewerRef.current?.recentre(),
+    door: () => viewerRef.current?.door(),
+    'zoom-in': () => viewerRef.current?.zoomBy(1.25),
+    'zoom-out': () => viewerRef.current?.zoomBy(0.8),
+    'turn-left': () => viewerRef.current?.rotate(-1),
+    'turn-right': () => viewerRef.current?.rotate(1),
+    reset: () => viewerRef.current?.resetView(),
+    run: () => {
+      runningRef.current = !runningRef.current;
+      setRunning(runningRef.current);
+      viewerRef.current?.run(runningRef.current);
+      const sprint = rideRef.current === 'riding';
+      say(runningRef.current ? (sprint ? 'Sprinting' : 'Running') : sprint ? 'Riding' : 'Walking');
+    },
+    ride: () => viewerRef.current?.ride('toggle'),
+    bell: () => viewerRef.current?.ride('bell'),
+    // Sound coming back is heard (rising); muting is silent, and says so.
+    sound: () => {
+      sound.setOn(!sound.on);
+      setSoundOn(sound.on);
+      sound.toggle(true);
+      say(sound.on ? 'Sound on' : 'Sound off');
+    },
+    time: () => {
+      const next = viewerRef.current?.nextTimeOfDay();
+      if (next) say(TIME_SAID[next]);
+    },
+    'pass-time': () => {
+      passingRef.current = !passingRef.current;
+      setPassing(passingRef.current);
+      viewerRef.current?.passTime(passingRef.current);
+      say(passingRef.current ? 'The day passes' : 'The day stands still');
+    },
+    minimap: () => {
+      minimapRef.current = !minimapRef.current;
+      setMinimap(minimapRef.current);
+      remember(MINIMAP_KEY, minimapRef.current ? '1' : '0');
+      say(minimapRef.current ? 'Minimap on' : 'Minimap off');
+    },
+    account: () => openAccount(),
+    'open-map': () => {
+      menuOpenRef.current = false;
+      setMenu((m) => ({ ...m, open: false }));
+      setMapOpen(true);
+    },
+    'stop-route': () => viewerRef.current?.cancelRoute(),
+  }));
+
   useShortcuts({
     app: appRef,
     viewer: viewerRef,
     running: runningRef,
-    openMap: () => openMapRef.current(),
+    openMap: actions['open-map'],
     routing: routingRef,
     onWalkKey: () => steppedRef.current(),
-    toggleSound: () => toggleSoundRef.current(),
-    toggleMinimap: () => toggleMinimapRef.current(),
+    toggleSound: actions.sound,
+    toggleMinimap: actions.minimap,
     openAccount,
-    nextTime: () => nextTimeRef.current(),
-    togglePassing: () => togglePassingRef.current(),
+    nextTime: actions.time,
+    togglePassing: actions['pass-time'],
     turnHold,
     openMenu,
     menuOpen: menuOpenRef,
@@ -583,34 +637,6 @@ export function App() {
     typeAhead: (key) => (typedRef.current += key),
   });
 
-  /** The next time of day, said by name; the day passing or standing still, said too. */
-  const nextTimeRef = useRef(() => {
-    const next = viewerRef.current?.nextTimeOfDay();
-    if (next) say(TIME_SAID[next]);
-  });
-  const togglePassingRef = useRef(() => {
-    passingRef.current = !passingRef.current;
-    setPassing(passingRef.current);
-    viewerRef.current?.passTime(passingRef.current);
-    say(passingRef.current ? 'The day passes' : 'The day stands still');
-  });
-
-  const toggleMinimapRef = useRef(() => {
-    minimapRef.current = !minimapRef.current;
-    setMinimap(minimapRef.current);
-    try {
-      localStorage.setItem(MINIMAP_KEY, minimapRef.current ? '1' : '0');
-    } catch {
-      // Shown again next time: harmless.
-    }
-    say(minimapRef.current ? 'Minimap on' : 'Minimap off');
-  });
-
-  const openMapRef = useRef(() => {
-    menuOpenRef.current = false;
-    setMenu((m) => ({ ...m, open: false }));
-    setMapOpen(true);
-  });
   const closeMap = useCallback(() => setMapOpen(false), []);
   const [MapOverlay, setMapChunk] = useState(lazyMap);
   /** Its chunk didn't come: shut, said so, and a fresh download on the next try. */
@@ -619,21 +645,7 @@ export function App() {
     setMapChunk(() => lazyMap());
     say('The map didn’t load. Try again.');
   }, [say]);
-  // Shut, the map gives its keys back to the map, once its dialog has let go of focus.
-  const wasMapOpen = useRef(false);
-  useEffect(() => {
-    if (wasMapOpen.current && !mapOpen)
-      mapRef.current?.focus({ focusVisible: false } as FocusOptions);
-    wasMapOpen.current = mapOpen;
-  }, [mapOpen]);
-
-  const toggleRunRef = useRef(() => {
-    runningRef.current = !runningRef.current;
-    setRunning(runningRef.current);
-    viewerRef.current?.run(runningRef.current);
-    const sprint = rideRef.current === 'riding';
-    say(runningRef.current ? (sprint ? 'Sprinting' : 'Running') : sprint ? 'Riding' : 'Walking');
-  });
+  useFocusWhenShut(mapOpen, mapRef);
 
   // "Can't go there" stays until the next try, so nobody misses it.
   useEffect(() => {
@@ -644,7 +656,6 @@ export function App() {
     return () => map.removeEventListener('pointerdown', clear);
   }, [blocked]);
 
-  const viewer = () => viewerRef.current;
   /** The other players' chunk, or why there's no joining yet. */
   const multiplayer = () => {
     const loaded = multiplayerRef.current;
@@ -656,26 +667,15 @@ export function App() {
     setLooking({ name, x, z });
     viewerRef.current?.lookAt(x, z);
   }, []);
-  /** What each of the menu's commands does: thin calls into the viewer and the shell's state. */
-  const [actions] = useState((): Record<Exclude<ActionId, 'help' | 'about'>, () => void> => ({
-    recentre: () => viewerRef.current?.recentre(),
-    door: () => viewerRef.current?.door(),
-    'zoom-in': () => viewerRef.current?.zoomBy(1.25),
-    'zoom-out': () => viewerRef.current?.zoomBy(0.8),
-    'turn-left': () => viewerRef.current?.rotate(-1),
-    'turn-right': () => viewerRef.current?.rotate(1),
-    reset: () => viewerRef.current?.resetView(),
-    run: () => toggleRunRef.current(),
-    ride: () => viewerRef.current?.ride('toggle'),
-    bell: () => viewerRef.current?.ride('bell'),
-    sound: () => toggleSoundRef.current(),
-    time: () => nextTimeRef.current(),
-    'pass-time': () => togglePassingRef.current(),
-    minimap: () => toggleMinimapRef.current(),
-    account: () => openAccount(),
-    'open-map': () => openMapRef.current(),
-    'stop-route': () => viewerRef.current?.cancelRoute(),
-  }));
+  /** A place or room chosen in the menu: the menu shuts and the view goes there. */
+  const seeFromMenu = useCallback(
+    ({ name, x, z }: { name: string; x: number; z: number }) => {
+      closeMenu();
+      sound.tap();
+      see(name, x, z);
+    },
+    [closeMenu, see],
+  );
   /** A command from the menu: the menu closes first, and focus goes to the map for its keys. */
   const run = useCallback(
     (action: ActionId) => {
@@ -696,17 +696,8 @@ export function App() {
       .then(setRooms)
       .catch(() => {});
   }, [menu.open]);
-  const roomPlaces = useMemo(
-    () => ({
-      list: rooms,
-      go: (room: RoomPlace) => {
-        closeMenu();
-        sound.tap();
-        see(room.name, room.x, room.z);
-      },
-    }),
-    [rooms, closeMenu, see],
-  );
+  const roomPlaces = useMemo(() => ({ list: rooms, go: seeFromMenu }), [rooms, seeFromMenu]);
+  const mailOff = !account.signedIn && account.mailOff === true;
   const commandState: CommandState = useMemo(
     () => ({
       ride,
@@ -718,26 +709,29 @@ export function App() {
       passing,
       minimap,
       signedIn: account.signedIn,
-      mailOff: !account.signedIn && account.mailOff === true,
+      mailOff,
       keys,
       mod,
     }),
-    [ride, door, running, routing, soundOn, time, passing, minimap, account, keys, mod],
+    [
+      ride,
+      door,
+      running,
+      routing,
+      soundOn,
+      time,
+      passing,
+      minimap,
+      account.signedIn,
+      mailOff,
+      keys,
+      mod,
+    ],
   );
   // Places by name: choosing one takes the view there, down to the street; you walk there.
   const places = useMemo(
-    () =>
-      placeCity
-        ? {
-            city: placeCity,
-            go: (place: Place) => {
-              closeMenu();
-              sound.tap();
-              see(place.name, place.x, place.z);
-            },
-          }
-        : undefined,
-    [placeCity, closeMenu, see],
+    () => (placeCity ? { city: placeCity, go: seeFromMenu } : undefined),
+    [placeCity, seeFromMenu],
   );
 
   // A pill goes once its bike, building or route does, the minimap when it's hidden. Pressed or
@@ -748,7 +742,7 @@ export function App() {
   const hadControls = useRef(0);
   useEffect(() => {
     if (shownControls < hadControls.current && document.activeElement === document.body) {
-      mapRef.current?.focus({ focusVisible: false } as FocusOptions);
+      focusQuietly(mapRef.current);
     }
     hadControls.current = shownControls;
   }, [shownControls]);
@@ -796,7 +790,7 @@ export function App() {
             viewerRef.current?.recentre();
             // Back on screen, the avatar needs no diamond: it hides, and its focus would fall to the
             // page and take the map's keys with it.
-            mapRef.current?.focus({ focusVisible: false } as FocusOptions);
+            focusQuietly(mapRef.current);
           }}
         >
           <DiamondIcon />
@@ -821,7 +815,7 @@ export function App() {
               <>
                 <span
                   className="you-dot"
-                  style={{ '--shirt': hex(account.outfit.shirt) } as CSSProperties}
+                  style={{ '--shirt': css(account.outfit.shirt) } as CSSProperties}
                 />
                 <span className="you-name">
                   <span className="sr-only">You: </span>
@@ -906,18 +900,16 @@ export function App() {
 
       <footer className="hud hud-bottom">
         {ready && placeCity && minimap && (
-          <MenuGuard onError={onMinimapError}>
-            <Suspense fallback={null}>
-              <Minimap
-                city={placeCity}
-                onOpen={() => {
-                  sound.tap();
-                  openMapRef.current();
-                }}
-                onReach={() => void loadMap().catch(() => {})}
-              />
-            </Suspense>
-          </MenuGuard>
+          <ChunkGuard onError={onMinimapError}>
+            <Minimap
+              city={placeCity}
+              onOpen={() => {
+                sound.tap();
+                actions['open-map']();
+              }}
+              onReach={() => void loadMap().catch(() => {})}
+            />
+          </ChunkGuard>
         )}
         {/*
           By a bike or a building you can go into: what the moment offers, where a thumb finds it.
@@ -928,7 +920,7 @@ export function App() {
               label={`Go to ${looking.name}`}
               primary
               onPress={() => {
-                viewer()?.navigateTo(looking.x, looking.z);
+                viewerRef.current?.navigateTo(looking.x, looking.z);
                 setLooking(null);
               }}
             >
@@ -940,7 +932,7 @@ export function App() {
               label="Stop"
               shortcut="Esc"
               keys="Escape"
-              onPress={() => viewer()?.cancelRoute()}
+              onPress={() => viewerRef.current?.cancelRoute()}
             >
               <StopIcon />
             </ActionButton>
@@ -951,7 +943,7 @@ export function App() {
               shortcut="↵"
               keys="Enter"
               primary={!door.inside && !(looking && !routing)}
-              onPress={() => viewer()?.door()}
+              onPress={() => viewerRef.current?.door()}
             >
               <DoorIcon />
             </ActionButton>
@@ -961,7 +953,7 @@ export function App() {
               label={riding ? 'Get off' : 'Ride'}
               shortcut="F"
               primary={!riding && !door && !(looking && !routing)}
-              onPress={() => viewer()?.ride('toggle')}
+              onPress={() => viewerRef.current?.ride('toggle')}
             >
               <BikeIcon />
             </ActionButton>
@@ -977,7 +969,7 @@ export function App() {
             aria-keyshortcuts="M"
             onClick={() => {
               sound.tap();
-              openMapRef.current();
+              actions['open-map']();
             }}
             onPointerEnter={() => void loadMap().catch(() => {})}
           >
@@ -1020,60 +1012,54 @@ export function App() {
       </footer>
 
       {mapOpen && placeCity && (
-        <MenuGuard onError={onMapError}>
-          <Suspense fallback={null}>
-            <MapOverlay
-              city={placeCity}
-              viewer={viewerRef}
-              marks={marks}
-              onClose={closeMap}
-              onSee={see}
-            />
-          </Suspense>
-        </MenuGuard>
+        <ChunkGuard onError={onMapError}>
+          <MapOverlay
+            city={placeCity}
+            viewer={viewerRef}
+            marks={marks}
+            onClose={closeMap}
+            onSee={see}
+          />
+        </ChunkGuard>
       )}
 
       {errorSlot ? createPortal(errorNotice, errorSlot) : errorNotice}
 
       {accountSheet.used && (
-        <MenuGuard onError={onSheetError}>
-          <Suspense fallback={null}>
-            <AccountSheet
-              open={accountSheet.open}
-              onClose={closeAccount}
-              account={account}
-              online={online}
-              sendCode={(email) => multiplayer().sendCode(email)}
-              verifyCode={(email, code) => multiplayer().verifyCode(email, code)}
-              rename={(name) => multiplayer().rename(name)}
-              nameFree={(name) => multiplayer().nameFree(name)}
-              signOut={() =>
-                multiplayer()
-                  .signOut()
-                  .then(() => say('Signed out'))
-              }
-              dress={(outfit) => multiplayerRef.current?.dress(outfit)}
-            />
-          </Suspense>
-        </MenuGuard>
+        <ChunkGuard onError={onSheetError}>
+          <AccountSheet
+            open={accountSheet.open}
+            onClose={closeAccount}
+            account={account}
+            online={online}
+            sendCode={(email) => multiplayer().sendCode(email)}
+            verifyCode={(email, code) => multiplayer().verifyCode(email, code)}
+            rename={(name) => multiplayer().rename(name)}
+            nameFree={(name) => multiplayer().nameFree(name)}
+            signOut={() =>
+              multiplayer()
+                .signOut()
+                .then(() => say('Signed out'))
+            }
+            dress={(outfit) => multiplayerRef.current?.dress(outfit)}
+          />
+        </ChunkGuard>
       )}
 
       {menu.used && (
-        <MenuGuard onError={onMenuError}>
-          <Suspense fallback={null}>
-            <CommandMenu
-              open={menu.open}
-              page={menu.page}
-              onPage={onPage}
-              onClose={closeMenu}
-              takeTyped={takeTyped}
-              state={commandState}
-              run={run}
-              places={places}
-              rooms={roomPlaces}
-            />
-          </Suspense>
-        </MenuGuard>
+        <ChunkGuard onError={onMenuError}>
+          <CommandMenu
+            open={menu.open}
+            page={menu.page}
+            onPage={onPage}
+            onClose={closeMenu}
+            takeTyped={takeTyped}
+            state={commandState}
+            run={run}
+            places={places}
+            rooms={roomPlaces}
+          />
+        </ChunkGuard>
       )}
     </main>
   );

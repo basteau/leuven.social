@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { Building } from '../data/city.ts';
-import { MAP_COLOURS, YOU, covers, drawCity, drawMinimap, indexCity } from './minimap.ts';
+import { YOU } from './colours.ts';
+import { MAP_COLOURS, covers, drawCity, drawMinimap, indexCity } from './minimap.ts';
 import type { Pen } from './minimap.ts';
 
 const square = (x: number, z: number, half: number) =>

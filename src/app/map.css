@@ -1,5 +1,6 @@
 /*
- * The full map's own styles. They load with its chunk, not with the first page. Same look as the HUD's buttons: paper, ink border, hard shadow.
+ * The full map's own styles. They load with its chunk, not with the first page. Same look as the
+ * HUD's buttons: paper, ink border, hard shadow.
  */
 
 /* Round buttons on the map: the same stack of paper, ink and a hard shadow as the menu button. */
@@ -217,7 +218,7 @@
   gap: var(--space-s);
 }
 
-/* The sheet: what was picked, or the list of marks, at the bottom, where a thumb reaches. */
+/* What the map is for, until something on it is picked. */
 .bigmap-note {
   position: absolute;
   inset-inline: max(var(--gutter), env(safe-area-inset-left, 0px))
@@ -254,6 +255,7 @@
   opacity: 0.75;
 }
 
+/* The sheet: what was picked, or the list of marks, at the bottom, where a thumb reaches. */
 .bigmap-sheet {
   position: absolute;
   inset-inline: max(var(--gutter), env(safe-area-inset-left, 0px))

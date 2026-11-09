@@ -413,7 +413,7 @@ describe('connectPresence', () => {
       onRenamed: (id, name, o) => renames.push([id, name, o]),
     });
     socket().deliver({ type: 'welcome', you: 5 });
-    const identity = { guest: true, unseen: false, name: 'Guest Sunny Otter', outfit };
+    const identity = { guest: true, unseen: false, name: 'Sunny Otter', outfit };
     socket().deliver({ type: 'identity', ...identity });
     await flush();
     expect(identities).toEqual([{ type: 'identity', ...identity }] as never);

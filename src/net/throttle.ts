@@ -13,7 +13,7 @@ export const SEND_INTERVAL = 100;
 /** How often an unchanged state is sent again (ms). */
 export const HEARTBEAT = 3000;
 /** A move further than this (m) since the last send is a jump, sent at once. */
-export const JUMP = 4;
+const JUMP = 4;
 
 export interface Sent {
   state: PlayerState;

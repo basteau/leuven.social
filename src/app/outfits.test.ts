@@ -1,7 +1,13 @@
 import { expect, test } from 'bun:test';
 
 import { WALKER } from '../scene/palette.ts';
-import { FIRST_OUTFIT, PARTS, css, surprise } from './outfits.ts';
+import type { Outfit } from '../scene/viewer.ts';
+import { css } from './colours.ts';
+import { PARTS, surprise } from './outfits.ts';
+
+const FIRST_OUTFIT = Object.fromEntries(
+  PARTS.map(({ part, swatches }) => [part, swatches[0]!.colour]),
+) as unknown as Outfit;
 
 test('the first look is the avatar’s own, and every part has a few named colours', () => {
   expect(FIRST_OUTFIT).toEqual({

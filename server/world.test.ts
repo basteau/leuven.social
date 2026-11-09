@@ -56,7 +56,7 @@ function setup(options: WorldOptions = {}) {
     const connection = new FakeConnection();
     const account: Account = userId
       ? { userId, name: userId.toUpperCase(), outfit }
-      : { userId: `guest:${++guests}`, name: `Guest ${guests}`, outfit, guest: true };
+      : { userId: `guest:${++guests}`, name: `Otter ${guests}`, outfit, guest: true };
     const id = world.connect(connection, account, connectOptions);
     const welcome = connection.messages[0];
     return { id, you: welcome?.type === 'welcome' ? welcome.you : 0, connection, account };
@@ -684,7 +684,7 @@ describe('createWorld', () => {
       await move(guest.id);
       world.tick();
       const joins = ofType(watcher.connection.take(), 'joins');
-      expect(joins[0]?.players).toEqual([{ id: guest.you, name: 'Guest 1', outfit, state: here }]);
+      expect(joins[0]?.players).toEqual([{ id: guest.you, name: 'Otter 1', outfit, state: here }]);
     });
 
     test('two guests with the same name are told apart, and the name comes free', () => {

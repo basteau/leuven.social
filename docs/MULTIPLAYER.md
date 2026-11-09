@@ -73,7 +73,7 @@ Not signed in, you are on the map all the same, as a guest. A guest is a signed 
 - **The name and look are worked out from the id**, so the page can neither pick nor change them and the same browser is the same guest across reloads and tabs. The name is two words, "Sunny Otter", and has a space, which no account's name can (`isUsername` in `src/net/rules.ts`), so a guest can't pass for an account. Two guests online can draw the same two words: the hub adds a number to the later one ("Sunny Otter 2").
 - **Nothing is stored.** No account row, no table, nothing to clean up: a guest ends when their cookie does, 30 days after their last visit (every visit renews it). Where one last stood is kept in the hub's memory for 10 minutes, for a reload or a short break, 2048 of them at most; a server restart forgets it.
 - A guest's look and name can't be changed: choosing them is what an account is for (`PUT /api/me` answers 401).
-- **Abuse:** each address (an IPv6 one by its /64, as for sign-ups) has at most 12 guests on the map, on top of nginx's 16 sockets an address ([DEPLOY.md](DEPLOY.md)). Over that, a guest is admitted and sees everyone but isn't placed: `identity` says `unseen` and the sheet tells them; joining puts them on the map. The cap is off when `rateLimit` is false, as in tests.
+- **Abuse:** each address (an IPv6 one by its /64, as for new accounts) has at most 12 guests on the map, on top of nginx's 16 sockets an address ([DEPLOY.md](DEPLOY.md)). Over that, a guest is admitted and sees everyone but isn't placed: `identity` says `unseen` and the sheet tells them; joining puts them on the map. The cap is off when `rateLimit` is false, as in tests.
 
 ### Tabs and devices
 

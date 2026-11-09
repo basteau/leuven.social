@@ -11,7 +11,8 @@ import {
   isUsername,
 } from '../net/rules.ts';
 import type { Outfit } from '../scene/viewer.ts';
-import { PARTS, css, surprise } from './outfits.ts';
+import { css } from './colours.ts';
+import { PARTS, surprise } from './outfits.ts';
 import './account-sheet.css';
 
 /**
@@ -67,6 +68,14 @@ function Preview({ outfit }: { outfit: Outfit }) {
     </svg>
   );
 }
+
+/** What went wrong, said at once to a screen reader; nothing while all is well. */
+const Problem = ({ text }: { text: string | null }) =>
+  text && (
+    <p className="account-error" role="alert">
+      {text}
+    </p>
+  );
 
 const nameRules = `${MIN_NAME} to ${MAX_NAME} letters, digits, dots, dashes or underscores.`;
 
@@ -158,11 +167,7 @@ function NameForm({ current, fresh, fieldRef, save, nameFree, onSaved }: NameFor
           {hint}
         </small>
       </div>
-      {error && (
-        <p className="account-error" role="alert">
-          {error}
-        </p>
-      )}
+      <Problem text={error} />
       {fresh && (
         <button type="submit" className="action primary" disabled={busy || free === false}>
           {busy ? 'Saving…' : 'Use this name'}
@@ -430,11 +435,7 @@ export function AccountSheet(props: AccountSheetProps) {
                   Sign out
                 </button>
               </div>
-              {error && (
-                <p className="account-error" role="alert">
-                  {error}
-                </p>
-              )}
+              <Problem text={error} />
             </>
           )}
           {!account.signedIn && account.mailOff && (
@@ -488,11 +489,7 @@ export function AccountSheet(props: AccountSheetProps) {
                   onChange={(event) => setEmail(event.target.value)}
                 />
               </label>
-              {error && (
-                <p className="account-error" role="alert">
-                  {error}
-                </p>
-              )}
+              <Problem text={error} />
               <button type="submit" className="action primary" disabled={busy}>
                 {busy ? 'Sending…' : 'Send code'}
               </button>
@@ -533,11 +530,7 @@ export function AccountSheet(props: AccountSheetProps) {
                   }}
                 />
               </label>
-              {error && (
-                <p className="account-error" role="alert">
-                  {error}
-                </p>
-              )}
+              <Problem text={error} />
               <button type="submit" className="action primary" disabled={busy}>
                 {busy ? 'Checking…' : 'Continue'}
               </button>

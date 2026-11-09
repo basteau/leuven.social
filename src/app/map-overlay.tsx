@@ -10,6 +10,7 @@ import type { Place } from '../data/places.ts';
 import { selfOf } from '../data/presence.ts';
 import {
   addWaypoint,
+  loadWaypoints,
   removeWaypoint,
   saveWaypoints,
   updateWaypoint,
@@ -20,17 +21,17 @@ import type { Waypoint } from '../data/waypoints.ts';
 import type { RoomPlace, Viewer } from '../scene/viewer.ts';
 import { MapIcon, MinusIcon, PlusIcon, TargetIcon, WalkIcon } from './icons.tsx';
 import { CloseIcon, PinIcon, SearchIcon } from './menu-icons.tsx';
-import { ACCENT, drawDoor, drawMark, drawPlayer, drawTarget, ensureMarks } from './map-draw.ts';
+import { ACCENT, INK, drawDoor, drawMark, drawPlayer, drawTarget } from './map-draw.ts';
 import { dpr, paintRaster, rasterOf } from './map-raster.ts';
 import { search } from './search.ts';
 import type { Store } from './store.ts';
-import { RailButton } from './view-controls.tsx';
+import { RailButton, focusQuietly } from './view-controls.tsx';
 
 /**
- * The full map: the whole city drawn from one raster, panned and
- * zoomed with a drag, a pinch, the wheel or the keys, with the player's place and heading, the
- * named squares, the end of an active route and the marks someone keeps. A click or tap picks a
- * spot to mark or walk to; a long press drops a mark at once. Marks live in localStorage.
+ * The full map: the whole city drawn from one raster, panned and zoomed with a drag, a pinch, the
+ * wheel or the keys, with the player's place and heading, the named squares, the end of an active
+ * route and the marks someone keeps. A click or tap picks a spot to mark or walk to; a long press
+ * drops a mark at once. Marks live in localStorage.
  */
 
 /** What the mark colours are called, in the order of `WAYPOINT_COLOURS`. */
@@ -51,6 +52,12 @@ const QUERY_FROM = 2;
 /** What it opens at: the city's heart as the player's own part of it, in px per metre. */
 const START_SCALE = 0.35;
 const KEY_PAN = 80;
+const ARROW_PANS: Record<string, [number, number]> = {
+  ArrowUp: [0, KEY_PAN],
+  ArrowDown: [0, -KEY_PAN],
+  ArrowLeft: [KEY_PAN, 0],
+  ArrowRight: [-KEY_PAN, 0],
+};
 
 interface Props {
   city: City;
@@ -63,6 +70,14 @@ interface Props {
 
 type Selection =
   { kind: 'spot'; x: number; z: number; name?: string } | { kind: 'mark'; id: string } | null;
+
+const loaded = new WeakSet<Store<Waypoint[]>>();
+/** Fills the marks once a session: the store outlives this overlay, which closes and reopens. */
+function ensureMarks(store: Store<Waypoint[]>): void {
+  if (loaded.has(store)) return;
+  loaded.add(store);
+  store.set(loadWaypoints());
+}
 
 let counter = 0;
 const newId = () => `w${Date.now().toString(36)}${(counter++).toString(36)}`;
@@ -129,7 +144,7 @@ export function MapOverlay(props: Props) {
       if (input) input.disabled = true;
       dialog.showModal();
       if (input) input.disabled = false;
-      dialog.focus({ focusVisible: false } as FocusOptions);
+      focusQuietly(dialog);
     }
     void viewer.current?.rooms().then(
       (list) => {
@@ -207,7 +222,7 @@ export function MapOverlay(props: Props) {
           const [x, y] = at(pin.x, pin.z);
           taken.push([x - 10, y - 10, x + 10, y + 10]);
         }
-        ctx.fillStyle = '#2b2420';
+        ctx.fillStyle = INK;
         for (const place of state.labels) {
           if (place.kind === 'street' && frame.scale < STREETS_FROM) break;
           ctx.font = place.kind === 'street' ? streetFont : labelFont;
@@ -221,7 +236,7 @@ export function MapOverlay(props: Props) {
       }
       if (picked?.kind === 'spot') {
         const [x, y] = at(picked.x, picked.z);
-        drawMark(ctx, x, y, '#2b2420', 6);
+        drawMark(ctx, x, y, INK, 6);
       }
       const route = viewer.current?.routeTarget();
       if (route) drawTarget(ctx, ...at(route[0], route[1]), 10);
@@ -255,9 +270,7 @@ export function MapOverlay(props: Props) {
   // What had focus can go with the sheet: the dialog keeps it, or the keys would stop here.
   useEffect(() => {
     const dialog = dialogRef.current;
-    if (dialog?.open && !dialog.contains(document.activeElement)) {
-      dialog.focus({ focusVisible: false } as FocusOptions);
-    }
+    if (dialog?.open && !dialog.contains(document.activeElement)) focusQuietly(dialog);
   }, [marks, selection, listing, query]);
   useEffect(() => {
     live.current.marks = marks;
@@ -405,13 +418,7 @@ export function MapOverlay(props: Props) {
       searchRef.current?.focus();
       return;
     }
-    const arrows: Record<string, [number, number]> = {
-      ArrowUp: [0, KEY_PAN],
-      ArrowDown: [0, -KEY_PAN],
-      ArrowLeft: [KEY_PAN, 0],
-      ArrowRight: [-KEY_PAN, 0],
-    };
-    const step = arrows[e.key];
+    const step = ARROW_PANS[e.key];
     if (step) panBy(...step);
     else if (e.key === '+' || e.key === '=') zoomAt(0, 0, 1.4);
     else if (e.key === '-') zoomAt(0, 0, 1 / 1.4);

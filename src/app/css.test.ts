@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
+import { YOU } from './colours.ts';
+
 const FILES = ['app.css', 'map.css', 'account-sheet.css'];
 
 /** The classes a file styles on their own, in rules that start with just that class. */
@@ -11,6 +13,11 @@ describe('the lazy chunks’ styles', () => {
     const named = sheets.flatMap((css) => Array.from(new Set(bareClasses(css))));
     expect(named.filter((name, i) => named.indexOf(name) !== i)).toEqual([]);
   });
+});
+
+test('the stylesheet’s coral is the one the maps draw', async () => {
+  const html = await (await fetch(new URL('../../index.html', import.meta.url))).text();
+  expect(html).toContain(`--you: ${YOU};`);
 });
 
 async function readCss(file: string): Promise<string> {

@@ -153,6 +153,18 @@ async function readJson(request: Request): Promise<Record<string, unknown> | nul
   return typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : null;
 }
 
+/** A body's address as we compare them, or '' for one that has none. */
+const emailIn = (body: Record<string, unknown> | null) =>
+  typeof body?.email === 'string' ? normaliseEmail(body.email) : '';
+
+/** Whether nothing is left under `key`: a `take` of cost 0 is always "allowed", and only reads. */
+const spent = async (limiter: RateLimit.Limiter, key: string, now: Date) =>
+  (await limiter.take(key, { cost: 0, now })).remaining < 1;
+
+/** Hands back what a `take` cost, for something that turned out not to count. */
+const giveBack = (limiter: RateLimit.Limiter, key: string, now: Date) =>
+  limiter.take(key, { cost: -1, now });
+
 /** The same request with another body: only what we checked gets through to better-auth. */
 function withBody(request: Request, body: unknown): Request {
   const headers = new Headers(request.headers);
@@ -172,22 +184,22 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
     trustedOrigins: config.trustedOrigins,
     rateLimit: config.rateLimit,
     quiet: config.quiet,
-    newUser: (headers) => newUser(headers),
+    newUser,
   };
   await migrateAuth(authConfig);
   const auth = createAuth(authConfig);
   const store = createStore(db);
   const mailer = config.mailer ?? noMailer;
   const limited = config.rateLimit !== false;
+  const base = new URL(config.baseURL);
   const ownerOf = db.query<{ id: string }, [string]>('SELECT id FROM "user" WHERE username = ?');
   const world = createWorld({
     save: (saves) => store.savePositions(saves),
     saveEvery: config.saveEvery,
     slices: SLICES,
-    guestsPerAddress: config.rateLimit === false ? undefined : GUESTS_PER_ADDRESS,
+    guestsPerAddress: limited ? GUESTS_PER_ADDRESS : undefined,
   });
-  const guests = createGuests(config.secret, new URL(config.baseURL).protocol === 'https:');
-  // (A `take` of cost 0 reads what's left: it is always "allowed", so `remaining` is the test.)
+  const guests = createGuests(config.secret, base.protocol === 'https:');
   // Only accounts made count against an address: a campus shares a handful.
   const newAccounts = RateLimit.create({ limit: config.accountsPerHour ?? 30, period: HOUR });
   // A mail for every address costs us and annoys them: at most one every half a minute, five an
@@ -200,11 +212,11 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
   const wrongCodes = RateLimit.create(WRONG_CODES);
   const renames = RateLimit.create({ limit: 10, period: 60 * 1000 });
   const at = () => new Date((config.now ?? Date.now)());
-  const origins = [new URL(config.baseURL).origin, ...(config.trustedOrigins ?? [])];
+  const origins = [base.origin, ...(config.trustedOrigins ?? [])];
 
   /**
    * Anything that hands out a name goes through one at a time: checking it's free and taking it
-   * are separate steps, and two sign-ups a millisecond apart mustn't both find the same one free.
+   * are separate steps, and two new accounts a millisecond apart mustn't both find the same one free.
    */
   let claiming: Promise<unknown> = Promise.resolve();
   function inTurn<T>(run: () => Promise<T>): Promise<T> {
@@ -241,6 +253,13 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
 
   const session = (request: Request) => auth.api.getSession({ headers: request.headers });
 
+  /** better-auth's answer, which no browser or proxy should keep. */
+  async function authAnswer(request: Request): Promise<Response> {
+    const response = await auth.handler(request);
+    response.headers.set('cache-control', 'no-store');
+    return response;
+  }
+
   /**
    * A guest's tabs carry on as the account they just signed into or made: their figure and sockets
    * stay, with the new name. A new account wears the look the guest had.
@@ -259,29 +278,14 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
     );
   }
 
-  /**
-   * Mails a sign-in code. The same answer whether or not the address has an account, and the same
-   * steps too: nothing looks it up. better-auth's own endpoint for this swallows a failed send, and
-   * a mail that didn't go must say so, so the code is made here and sent here.
-   */
-  async function sendCode(request: Request): Promise<Response> {
-    if (!mailer.ready) return problem(503, 'MAIL_OFF', 'Joining isn’t switched on yet.');
-    const body = await readJson(request);
-    const email = typeof body?.email === 'string' ? normaliseEmail(body.email) : '';
-    if (!isEmail(email)) return problem(400, 'INVALID_EMAIL', 'Enter an email address.');
-    // Accounts from before email have no mailbox behind them; docs/MULTIPLAYER.md says what next.
-    if (email.endsWith('.invalid')) {
-      return problem(400, 'EMAIL_UNDELIVERABLE', 'That address can’t receive mail.');
-    }
-    const ip = clientKey(request.headers.get('x-real-ip'));
-    const now = at();
-    if (limited && (await codesFromAddress.take(ip, { cost: 0, now })).remaining < 1) {
+  /** Takes what a code costs from every limit on it, or answers with the one that refuses it. */
+  async function spendOnCode(ip: string, box: string, now: Date): Promise<Response | null> {
+    if (limited && (await spent(codesFromAddress, ip, now))) {
       return problem(429, 'TOO_MANY_REQUESTS', 'Too many codes from here. Try again later.');
     }
-    if (limited && (await codesEverywhere.take('all', { cost: 0, now })).remaining < 1) {
+    if (limited && (await spent(codesEverywhere, 'all', now))) {
       return problem(429, 'TOO_MANY_REQUESTS', 'Too many codes just now. Try again later.');
     }
-    const box = mailbox(email);
     const wait = await codeWait.take(box, { now });
     if (!wait.allowed) {
       return json(
@@ -294,21 +298,41 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
       );
     }
     if (!(await codesAnHour.take(box, { now })).allowed) {
-      await codeWait.take(box, { cost: -1, now });
+      await giveBack(codeWait, box, now);
       return problem(429, 'TOO_MANY_REQUESTS', 'Too many codes for this address. Try again later.');
     }
     if (limited) {
       await codesFromAddress.take(ip, { now });
       await codesEverywhere.take('all', { now });
     }
+    return null;
+  }
+
+  /**
+   * Mails a sign-in code. The same answer whether or not the address has an account, and the same
+   * steps too: nothing looks it up. better-auth's own endpoint for this swallows a failed send, and
+   * a mail that didn't go must say so, so the code is made here and sent here.
+   */
+  async function sendCode(request: Request): Promise<Response> {
+    if (!mailer.ready) return problem(503, 'MAIL_OFF', 'Joining isn’t switched on yet.');
+    const email = emailIn(await readJson(request));
+    if (!isEmail(email)) return problem(400, 'INVALID_EMAIL', 'Enter an email address.');
+    // Accounts from before email have no mailbox behind them; docs/MULTIPLAYER.md says what next.
+    if (email.endsWith('.invalid')) {
+      return problem(400, 'EMAIL_UNDELIVERABLE', 'That address can’t receive mail.');
+    }
+    const box = mailbox(email);
+    const now = at();
+    const refused = await spendOnCode(clientKey(request.headers.get('x-real-ip')), box, now);
+    if (refused) return refused;
     const code = await auth.api.createVerificationOTP({ body: { email, type: 'sign-in' } });
     try {
       await mailer.send(email, code);
     } catch (error) {
       // Our failure, not theirs: it doesn't count against the mailbox. The sender's and the
       // server's limits stay spent, or a refused address would be an unlimited call to the provider.
-      await codeWait.take(box, { cost: -1, now });
-      await codesAnHour.take(box, { cost: -1, now });
+      await giveBack(codeWait, box, now);
+      await giveBack(codesAnHour, box, now);
       log.warn('a sign-in code didn’t go out: %s', error instanceof Error ? error.message : error);
       return problem(502, 'MAIL_FAILED', 'Couldn’t send the email.');
     }
@@ -318,7 +342,7 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
   /** Signs in with a code, making the account if this address has none. */
   async function signInWithCode(request: Request): Promise<Response> {
     const body = await readJson(request);
-    const email = typeof body?.email === 'string' ? normaliseEmail(body.email) : '';
+    const email = emailIn(body);
     const otp = typeof body?.otp === 'string' ? body.otp : '';
     if (!isEmail(email) || otp.length !== CODE_LENGTH || /\D/.test(otp)) {
       return problem(400, 'INVALID_OTP', 'That code isn’t right.');
@@ -328,13 +352,12 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
     // a few wrong guesses. Guessing across addresses stays bounded by the five tries a code gets
     // and the codes a mailbox can be sent.
     const guesser = `${email}|${clientKey(request.headers.get('x-real-ip'))}`;
-    if ((await wrongCodes.take(guesser, { cost: 0, now: at() })).remaining < 1) {
+    if (await spent(wrongCodes, guesser, at())) {
       return problem(429, 'TOO_MANY_REQUESTS', 'Too many tries. Wait a while, then try again.');
     }
     const before = await session(request);
     const guestId = await guests.read(request);
-    const response = await inTurn(() => auth.handler(withBody(request, { email, otp })));
-    response.headers.set('cache-control', 'no-store');
+    const response = await inTurn(() => authAnswer(withBody(request, { email, otp })));
     if (!response.ok) {
       if (response.status === 400 || response.status === 403) {
         await wrongCodes.take(guesser, { now: at() });
@@ -356,8 +379,7 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
     if (path === SIGN_IN_PATH) return signInWithCode(request);
     const before = path === '/sign-out' ? await session(request) : null;
     const guestId = await guests.read(request);
-    const response = await auth.handler(request);
-    response.headers.set('cache-control', 'no-store');
+    const response = await authAnswer(request);
     if (!response.ok || !before) return response;
     const id = guestId ?? guests.mint();
     if (!guestId) response.headers.append('set-cookie', await guests.cookie(id));
@@ -365,34 +387,41 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
     return response;
   }
 
+  /** A guest's own view of themselves; every visit renews the cookie, so one ends a month on. */
+  async function guestMe(request: Request): Promise<Response> {
+    const id = (await guests.read(request)) ?? guests.mint();
+    const guest = guestAccount(id);
+    const reply = json({
+      guest: true,
+      name: world.who(guest.userId)?.name ?? guest.name,
+      outfit: guest.outfit,
+      at: world.stateOf(guest.userId),
+      mail: mailer.ready,
+    });
+    reply.headers.append('set-cookie', await guests.cookie(id));
+    return reply;
+  }
+
+  /** A signed-in player keeps a new name or look, and everyone online hears of it. */
+  async function changeMe(userId: string, request: Request): Promise<Response> {
+    const body = await readJson(request);
+    if (typeof body?.name === 'string') return rename(userId, body.name);
+    const outfit = body?.outfit;
+    if (!isOutfit(outfit)) return problem(400, 'INVALID_OUTFIT', 'Send four 24-bit colours.');
+    store.player(userId, () => outfit);
+    store.saveOutfit(userId, outfit);
+    world.setOutfit(userId, outfit);
+    return json({ outfit });
+  }
+
   async function me(request: Request): Promise<Response> {
     const current = await session(request);
     if (!current) {
       if (request.method !== 'GET') return problem(401, 'UNAUTHORIZED', 'Not signed in');
-      const id = (await guests.read(request)) ?? guests.mint();
-      const guest = guestAccount(id);
-      const reply = json({
-        guest: true,
-        name: world.who(guest.userId)?.name ?? guest.name,
-        outfit: guest.outfit,
-        at: world.stateOf(guest.userId),
-        mail: mailer.ready,
-      });
-      // Every visit renews it: a guest ends a month after their last.
-      reply.headers.append('set-cookie', await guests.cookie(id));
-      return reply;
+      return guestMe(request);
     }
     const userId = current.user.id;
-    if (request.method === 'PUT') {
-      const body = await readJson(request);
-      if (typeof body?.name === 'string') return rename(userId, body.name);
-      const outfit = body?.outfit;
-      if (!isOutfit(outfit)) return problem(400, 'INVALID_OUTFIT', 'Send four 24-bit colours.');
-      store.player(userId, () => outfit);
-      store.saveOutfit(userId, outfit);
-      world.setOutfit(userId, outfit);
-      return json({ outfit });
-    }
+    if (request.method === 'PUT') return changeMe(userId, request);
     const record = store.player(userId, randomOutfit);
     return json({
       guest: false,
@@ -428,43 +457,50 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
     return json({ name });
   }
 
+  /**
+   * Upgrades to the presence socket: the session cookie says which account it speaks for, and
+   * without one it is this browser's guest, made here if new.
+   */
+  async function openSocket(
+    request: Request,
+    server: Bun.Server<SocketData>,
+  ): Promise<Response | undefined> {
+    if (!fromUs(request)) return new Response('Forbidden', { status: 403 });
+    const current = await session(request);
+    const address = clientKey(
+      request.headers.get('x-real-ip') ?? server.requestIP(request)?.address ?? null,
+    );
+    const headers = new Headers();
+    let account: Account;
+    if (current) {
+      account = {
+        userId: current.user.id,
+        name: current.user.name,
+        outfit: store.player(current.user.id, randomOutfit).outfit,
+      };
+    } else {
+      let guestId = await guests.read(request);
+      if (!guestId) {
+        guestId = guests.mint();
+        headers.append('set-cookie', await guests.cookie(guestId));
+      }
+      account = guestAccount(guestId);
+    }
+    const data = { account, session: current?.session.token ?? null, address, id: 0 };
+    // Bun answers an upgraded request itself.
+    if (server.upgrade(request, { data, headers })) return undefined;
+    return new Response('Expected a WebSocket', { status: 426 });
+  }
+
   async function route(
     original: Request,
     server: Bun.Server<SocketData>,
   ): Promise<Response | undefined> {
     const { pathname } = new URL(original.url);
     // Only the request Bun handed us can be upgraded, so the copy is for the API alone.
-    const request = pathname === '/ws' ? original : withClientIp(original, server);
+    if (pathname === '/ws') return openSocket(original, server);
+    const request = withClientIp(original, server);
     const method = request.method;
-
-    if (pathname === '/ws') {
-      if (!fromUs(request)) return new Response('Forbidden', { status: 403 });
-      const current = await session(request);
-      const address = clientKey(
-        request.headers.get('x-real-ip') ?? server.requestIP(request)?.address ?? null,
-      );
-      if (current) {
-        const account: Account = {
-          userId: current.user.id,
-          name: current.user.name,
-          outfit: store.player(current.user.id, randomOutfit).outfit,
-        };
-        const data = { account, session: current.session.token, address, id: 0 };
-        if (server.upgrade(request, { data })) return undefined;
-        return new Response('Expected a WebSocket', { status: 426 });
-      }
-      // No account: a guest, from this browser's cookie or a new one made here.
-      let guestId = await guests.read(request);
-      const headers = new Headers();
-      if (!guestId) {
-        guestId = guests.mint();
-        headers.append('set-cookie', await guests.cookie(guestId));
-      }
-      const data = { account: guestAccount(guestId), session: null, address, id: 0 };
-      // Bun answers an upgraded request itself.
-      if (server.upgrade(request, { data, headers })) return undefined;
-      return new Response('Expected a WebSocket', { status: 426 });
-    }
 
     if (!pathname.startsWith('/api/')) return new Response('Not Found', { status: 404 });
     if (method !== 'GET' && method !== 'HEAD' && !fromUs(request)) {
@@ -472,10 +508,9 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
     }
 
     if (pathname.startsWith('/api/auth/')) {
-      if (!PUBLIC_AUTH_PATHS.has(pathname.slice('/api/auth'.length))) {
-        return problem(404, 'NOT_FOUND', 'Not found');
-      }
-      return authRoute(pathname.slice('/api/auth'.length), request);
+      const path = pathname.slice('/api/auth'.length);
+      if (!PUBLIC_AUTH_PATHS.has(path)) return problem(404, 'NOT_FOUND', 'Not found');
+      return authRoute(path, request);
     }
     if (pathname === '/api/health' && method === 'GET') return json({ ok: true, ...world.stats() });
     if (pathname === '/api/me' && (method === 'GET' || method === 'PUT')) return me(request);

@@ -25,7 +25,7 @@ const BUDGETS: {
     // map, and one press for a held key. It had 7 KB of slack nothing asked for.
     // 85: the time of day (1.5 KB): its keyframes and clock (daylight.ts, which the shell and
     // the engine share, so the bundler keeps it with the shell), the sky tokens, T and P.
-    // 85.5: the arrow that shows where you are, over your head far out and at the edge of the
+    // 85.5: the mark that shows where you are, over your head far out and at the edge of the
     // screen when you're off it (0.4 KB), asked for. 87: other people (1.3 KB), asked for: who
     // you are in the corner (Join, or your name and how many are here), the account sheet and
     // the other players' chunk loaded once the map is up, the minimap's place and its key.
