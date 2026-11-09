@@ -24,7 +24,7 @@ export const LAYER_Y = {
   railLand: 0.04,
   green: 0.05,
   woods: 0.06,
-  flowerbeds: 0.061,
+  flowerbeds: 0.205,
   track: 0.062,
   pitch: 0.066,
   parking: 0.08,
@@ -248,7 +248,6 @@ export function addGround(
   for (const ring of layers.green)
     addRing(mesh, ring, LAYER_Y.green, GROUND.green, SURFACE.flowers);
   addRings(mesh, layers.woods, LAYER_Y.woods, GROUND.woods, SURFACE.woods);
-  addRings(mesh, layers.flowerbeds, LAYER_Y.flowerbeds, GROUND.earth, SURFACE.earth);
   for (const { surface, ring } of layers.pitches) {
     addRing(
       mesh,
@@ -278,6 +277,8 @@ export function addGround(
   for (const ring of layers.islands) {
     addRing(mesh, ring, LAYER_Y.plazas, GROUND.pavement, SURFACE.paving);
   }
+  // Flower beds, mapped in lawns and on squares alike: soil, on top of whatever they're cut into.
+  addRings(mesh, layers.flowerbeds, LAYER_Y.flowerbeds, GROUND.earth, SURFACE.earth);
 }
 
 /** How wide a kerbstone is drawn (m): a little over life, so it stays a line when zoomed in. */
