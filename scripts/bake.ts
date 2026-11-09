@@ -66,7 +66,9 @@ import { correctRoofColours } from '../src/data/roof-colours.ts';
 import { capShedsUnderTrees } from '../src/data/sheds.ts';
 import { fitTerraces, markShopFronts, placeFronts, placePoints } from '../src/data/shops.ts';
 import { PLACES, placeKind } from '../src/data/shop-kinds.ts';
+import { raiseOnSlope } from '../src/data/slopes.ts';
 import { planSpans } from '../src/data/spans.ts';
+import { Terrain } from '../src/data/terrain.ts';
 import type { SpanWay } from '../src/data/spans.ts';
 import { bridgeParapets, tankOutline } from '../src/data/structures.ts';
 import { joinLines, nameTable, streetName } from '../src/data/streets.ts';
@@ -298,6 +300,19 @@ for (const [i, b] of buildings.entries()) b.roofColor = roofSamples[i]!.roofColo
 
 // Garden sheds whose LiDAR height is the tree over them (src/data/sheds.ts).
 const shedsCapped = capShedsUnderTrees(buildings, crowns.trees);
+
+// On a slope, a building's walls rise so its uphill side isn't buried (src/data/slopes.ts). The
+// landmark models keep their own heights, fitted by hand.
+const slopes = new Terrain(terrainOver(landform, VIEW_AREA));
+let raisedOnSlope = 0;
+for (const b of buildings) {
+  if (LANDMARK_FOOTPRINTS.includes(b.id)) continue;
+  const raised = raiseOnSlope(b.ring, b.roof === 'flat' ? b.height : b.eave, slopes);
+  if (raised <= 0) continue;
+  raisedOnSlope++;
+  b.height += raised;
+  b.eave += raised;
+}
 
 const closedPedestrianArea = (p: Props) =>
   (p.highway === 'pedestrian' || p.highway === 'footway') && p.area === 'yes';
@@ -902,7 +917,7 @@ console.log(
     `bikes ${fills.reduce((sum, f) => sum + f.bikes, 0)} in ${racks.length} racks: ${[...byFill]
       .map(([kind, n]) => `${kind} ${n.bikes} of ${n.stands} stands in ${n.racks} racks`)
       .join(', ')}`,
-    `tanks ${tanks.length}, at-grade bridge rings ${bridges.length}, decks ${decks.length}, ramps ${ramps.length}, tunnels ${tunnels.length}, parapets ${parapets.length}`,
+    `buildings raised on a slope ${raisedOnSlope}, tanks ${tanks.length}, at-grade bridge rings ${bridges.length}, decks ${decks.length}, ramps ${ramps.length}, tunnels ${tunnels.length}, parapets ${parapets.length}`,
     `church towers ${buildings.filter((b) => b.tower).length}`,
     `terrain ${city.terrain.cols} × ${city.terrain.rows} nodes every ${city.terrain.step} m, ${Math.min(...city.terrain.heights).toFixed(1)} to ${Math.max(...city.terrain.heights).toFixed(1)} m about Grote Markt`,
     `street names ${names.table.length}: ${streets.length} streets (${streets.reduce((sum, s) => sum + s.line.length / 2, 0)} points), ${plazaNames.filter((n) => n >= 0).length} of ${plazas.length} squares named`,
