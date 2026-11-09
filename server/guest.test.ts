@@ -50,9 +50,9 @@ describe('who a guest is', () => {
     expect(guestAccount(id).userId).toBe(`guest:${id}`);
   });
 
-  test('reads as a guest, and can never be an account’s name', () => {
+  test('is two words, and can never be an account’s name', () => {
     const name = guestName(id);
-    expect(name).toMatch(/^Guest [A-Z][a-z]+ [A-Z][a-z]+$/);
+    expect(name).toMatch(/^[A-Z][a-z]+ [A-Z][a-z]+$/);
     expect(isUsername(name)).toBe(false);
   });
 

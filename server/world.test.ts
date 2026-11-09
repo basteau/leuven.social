@@ -180,7 +180,7 @@ const drive = (world: ReturnType<typeof setup>['world'], id: number) =>
 const named = (c: FakeConnection) => ofType(c.messages, 'identity')[0]?.name;
 const guestAccount = (n: number): Account => ({
   userId: `guest:g${n}`,
-  name: 'Guest Sunny Otter',
+  name: 'Sunny Otter',
   outfit,
   guest: true,
 });
@@ -695,11 +695,11 @@ describe('createWorld', () => {
       };
       const first = connect(1);
       const second = connect(2);
-      expect(named(first.connection)).toBe('Guest Sunny Otter');
-      expect(named(second.connection)).toBe('Guest Sunny Otter 2');
-      expect(world.who('guest:g2')?.name).toBe('Guest Sunny Otter 2');
+      expect(named(first.connection)).toBe('Sunny Otter');
+      expect(named(second.connection)).toBe('Sunny Otter 2');
+      expect(world.who('guest:g2')?.name).toBe('Sunny Otter 2');
       world.disconnect(first.id);
-      expect(named(connect(3).connection)).toBe('Guest Sunny Otter');
+      expect(named(connect(3).connection)).toBe('Sunny Otter');
     });
 
     test('nobody saves a guest, but where one left is remembered for a while', async () => {
@@ -849,15 +849,15 @@ describe('createWorld', () => {
       await move(ana.id, { x: 5 });
       world.tick();
       watcher.connection.take();
-      const guest: Account = { userId: 'guest:g', name: 'Guest Sunny Otter', outfit, guest: true };
+      const guest: Account = { userId: 'guest:g', name: 'Sunny Otter', outfit, guest: true };
       world.signedOut('ana', 's', guest);
       expect(watcher.connection.take()).toEqual([
-        { type: 'renamed', id: ana.you, name: 'Guest Sunny Otter', outfit },
+        { type: 'renamed', id: ana.you, name: 'Sunny Otter', outfit },
       ]);
       world.tick();
       expect(saved).toEqual([['ana', { ...here, x: 5 }]]);
       expect(leftIds(watcher.connection.take())).toEqual([]);
-      expect(world.who('guest:g')?.name).toBe('Guest Sunny Otter');
+      expect(world.who('guest:g')?.name).toBe('Sunny Otter');
       expect(ofType(ana.connection.messages, 'identity').at(-1)).toMatchObject({ guest: true });
       expect(world.who('ana')).toBeNull();
     });
@@ -871,7 +871,7 @@ describe('createWorld', () => {
       world.tick();
       watcher.connection.take();
       laptop.connection.take();
-      const guest: Account = { userId: 'guest:g', name: 'Guest Sunny Otter', outfit, guest: true };
+      const guest: Account = { userId: 'guest:g', name: 'Sunny Otter', outfit, guest: true };
       world.signedOut('ana', 'laptop', guest);
       // The laptop is a guest somewhere new; the phone still drives Ana.
       expect(ofType(laptop.connection.messages, 'welcome').at(-1)?.you).not.toBe(phone.you);

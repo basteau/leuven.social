@@ -106,11 +106,11 @@ function seeded(seed: number): () => number {
 const part = (id: string, from: number) => Number.parseInt(id.slice(from, from + 8), 16);
 
 /**
- * "Guest Sunny Otter": the word says what it is, and the spaces mean it can never be an account's
- * name (`isUsername` in src/net/rules.ts has none).
+ * "Sunny Otter": the space means it can never be an account's name (`isUsername` in
+ * src/net/rules.ts has none), so a guest and an account can't be mistaken for each other.
  */
 export function guestName(id: string): string {
-  return `Guest ${ADJECTIVES[part(id, 0) % ADJECTIVES.length]} ${ANIMALS[part(id, 8) % ANIMALS.length]}`;
+  return `${ADJECTIVES[part(id, 0) % ADJECTIVES.length]} ${ANIMALS[part(id, 8) % ANIMALS.length]}`;
 }
 
 /** Who a guest id is, for the hub. */

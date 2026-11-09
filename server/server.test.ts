@@ -158,7 +158,11 @@ describe('accounts', () => {
   test('a guest is someone: the same one on every visit, with a cookie to prove it', async () => {
     const jar = new Jar();
     const me = await as(jar, () => account.me());
-    expect(me).toMatchObject({ guest: true, name: expect.stringMatching(/^Guest /), at: null });
+    expect(me).toMatchObject({
+      guest: true,
+      name: expect.stringMatching(/^[A-Z][a-z]+ [A-Z][a-z]+$/),
+      at: null,
+    });
     expect(await as(jar, () => account.me())).toEqual(me);
     expect(await as(new Jar(), () => account.me())).not.toEqual(me);
     const cookie = (await call(jar, '/api/me')).headers.getSetCookie().join();
@@ -328,7 +332,7 @@ describe('presence', () => {
     expect(youGuest).toBeGreaterThan(0);
     const identity = await guest.next('identity');
     expect(identity).toMatchObject({ guest: true, unseen: false });
-    expect(identity.name).toMatch(/^Guest /);
+    expect(identity.name).toMatch(/^[A-Z][a-z]+ [A-Z][a-z]+$/);
 
     a.send();
     const joined = await b.next('joins', (m) => m.players.some((p) => p.id === youA));

@@ -97,12 +97,12 @@ describe('account', () => {
   });
 
   test('a guest is someone', async () => {
-    answer(json({ guest: true, name: 'Guest Sunny Otter', outfit, at: null }));
-    expect(await me()).toEqual({ guest: true, name: 'Guest Sunny Otter', outfit, at: null });
+    answer(json({ guest: true, name: 'Sunny Otter', outfit, at: null }));
+    expect(await me()).toEqual({ guest: true, name: 'Sunny Otter', outfit, at: null });
   });
 
   test('a guest after signing in is the server’s failure', async () => {
-    answer(json({}), json({ guest: true, name: 'Guest Sunny Otter', outfit, at: null }));
+    answer(json({}), json({ guest: true, name: 'Sunny Otter', outfit, at: null }));
     expect(await reason(signIn('bram', 'password1'))).toMatchObject({ code: 'server' });
   });
 

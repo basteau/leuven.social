@@ -455,7 +455,7 @@ const html = (name: string) => `document.documentElement.dataset.${name}`;
  * protocol (smoke-bot.ts).
  */
 async function expectPlayers(): Promise<void> {
-  await browser('wait', '--fn', `${html('guest')}?.startsWith('Guest ')`);
+  await browser('wait', '--fn', `${html('guest')}?.includes(' ')`);
   await browser('wait', '--fn', `${html('online')} === '1'`);
   const guestName = await evalJson<string>(`JSON.stringify(${html('guest')})`);
   const [x, z] = (await walker()).split(' ').map(Number) as [number, number];
