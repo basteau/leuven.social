@@ -320,7 +320,7 @@
   padding-inline: var(--space-s);
 }
 
-.swatch {
+.mark-dot {
   flex: none;
   inline-size: 0.875rem;
   block-size: 0.875rem;
@@ -328,7 +328,7 @@
   border-radius: 50%;
 }
 
-.swatches {
+.mark-colours {
   display: flex;
   margin: 0;
   padding: 0;

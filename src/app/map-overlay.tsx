@@ -628,7 +628,7 @@ export function MapOverlay(props: Props) {
                         setListing(false);
                       }}
                     >
-                      <span className="swatch" style={{ background: m.colour }} />
+                      <span className="mark-dot" style={{ background: m.colour }} />
                       {m.name || 'Mark'}
                     </button>
                     <button
@@ -659,7 +659,7 @@ export function MapOverlay(props: Props) {
           ) : picked ? (
             <>
               <h3 className="sheet-title">
-                <span className="swatch" style={{ background: picked.colour }} />
+                <span className="mark-dot" style={{ background: picked.colour }} />
                 {picked.name || 'Mark'}
               </h3>
               <label className="sheet-field">
@@ -674,7 +674,7 @@ export function MapOverlay(props: Props) {
                   }
                 />
               </label>
-              <fieldset className="swatches">
+              <fieldset className="mark-colours">
                 <legend className="sr-only">Colour</legend>
                 {WAYPOINT_COLOURS.map((c, i) => (
                   <button
