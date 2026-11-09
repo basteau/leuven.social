@@ -186,7 +186,9 @@ export function createSound(env: SoundEnv = browserEnv): Sound {
         // Waking without a gesture is allowed once there has been one, and only then is there a context.
         else if (ctx) wake();
       };
-      const gestures = ['pointerdown', 'keydown', 'touchend'] as const;
+      // On release, not on the press: making the context takes the main thread some 70 ms, which
+      // a press would spend on the first frames of a drag.
+      const gestures = ['pointerup', 'keydown', 'touchend'] as const;
       for (const type of gestures) target.addEventListener(type, wake, { capture: true });
       page.addEventListener('visibilitychange', onVisibility);
       return () => {

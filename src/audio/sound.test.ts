@@ -31,7 +31,7 @@ function setup(stored?: string, state?: AudioContextState, broken = false, autom
   const target = new EventTarget();
   const page = Object.assign(new EventTarget(), { hidden: false });
   const detach = sound.attach(target, page);
-  const gesture = () => target.dispatchEvent(new Event('pointerdown'));
+  const gesture = () => target.dispatchEvent(new Event('pointerup'));
   const hide = (hidden: boolean) => {
     page.hidden = hidden;
     page.dispatchEvent(new Event('visibilitychange'));
