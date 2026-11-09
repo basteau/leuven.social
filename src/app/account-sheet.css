@@ -58,8 +58,15 @@
   outline-offset: 0;
 }
 
-.field input:user-invalid {
+.field input:user-invalid,
+.field input[aria-invalid='true'] {
   border-color: oklch(52% 0.17 28);
+}
+
+/* Said while typing: that name is taken. In words, and in the error's colour. */
+.field:has(input[aria-invalid='true']) small {
+  color: oklch(52% 0.17 28);
+  font-weight: 650;
 }
 
 /* Six digits in the middle, tabular so a typed code doesn't shuffle as it fills. */
