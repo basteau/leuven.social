@@ -75,10 +75,13 @@ export function buildFurniture(cell: Cell, kit: FurnitureKit): Furniture {
   let tall: MeshBuilder | null = null;
   let glow: MeshBuilder | null = null;
   const open = (x: number, z: number) => !cell.buildings.some((b) => pointInRing(b.ring, x, z));
+  // Bike racks stand in the street: mapped inside a deck's outline, they're under it, not on it.
+  const street = (x: number, z: number) => terrain.height(x, z) + drawn.layer(x, z);
   for (const p of cell.props) {
     const mesh = isLarge(p) ? (tall ??= new MeshBuilder()) : near;
-    mesh.lift = propBase(drawn, p);
-    addProp(mesh, p, mesh === near ? bikes : undefined, drawn.height, open);
+    const ground = p.kind === 'bikes' ? street : drawn.height;
+    mesh.lift = propBase({ height: ground }, p);
+    addProp(mesh, p, mesh === near ? bikes : undefined, ground, open);
     if (p.kind === 'lamp') {
       glow ??= new MeshBuilder();
       glow.lift = mesh.lift;

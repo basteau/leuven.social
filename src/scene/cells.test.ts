@@ -10,7 +10,8 @@ import { LAYER_Y, slabBottom } from './ground.ts';
 import { MeshBuilder, unindexed } from './mesh-builder.ts';
 import { LANDMARK_MODELS } from './landmark-models.ts';
 import { PARKED } from './props.ts';
-import { FLAT, FLAT_GRID, Terrain } from '../data/terrain.ts';
+import { FLAT, FLAT_GRID, Terrain, landform } from '../data/terrain.ts';
+import { deckStrip } from '../data/structures.ts';
 
 const S = CELL_SIZE;
 const kit = {
@@ -455,6 +456,26 @@ test('a cell guesses its height from its own ground, down to the slab at the edg
   expect(groundRange(east!, wide, slope, 10)).toEqual([0, 20]);
   // The area's edge runs through: the slab hangs to its flat underside.
   expect(groundRange(west!, city.area, slope, 0)).toEqual([slabBottom(slope), 10]);
+});
+
+test("a bike rack inside a deck's outline stands under it, a lamp on it", () => {
+  const [west] = partition(city);
+  const deck = {
+    carries: 'road' as const,
+    ring: Float32Array.of(20, 30, 50, 30, 50, 50, 20, 50),
+    axis: Float32Array.of(18, 40, 52, 40),
+    rise: Float32Array.of(6, 6),
+    piers: new Float32Array(0),
+    lanes: [],
+  };
+  const terrain = landform(FLAT_GRID, [], [deckStrip(deck)]);
+  const at = { ...west!, nearDecks: [deck], trees: [] };
+  const rack = { kind: 'bikes' as const, x: 30, z: 40, angle: 0.3, size: 12, fill: 0.5 };
+  const lamp = { kind: 'lamp' as const, x: 30, z: 40, angle: 0, size: 5 };
+  const under = buildFurniture({ ...at, props: [rack] }, { ...kit, terrain });
+  expect(height(under.near)).toBeLessThan(3);
+  const on = buildFurniture({ ...at, props: [lamp] }, { ...kit, terrain });
+  expect(height(on.near)).toBeGreaterThan(6);
 });
 
 test('a prop stands on the lowest ground under its footprint', () => {
