@@ -27,12 +27,10 @@ interface Wall {
   nz: number;
 }
 
-/** Where a band's edge meets the next wall's, measured from their shared corner. */
+/** Where a band's edge meets the next wall's, from their shared corner; short at a sharp fold. */
 function miter(a: Wall, b: Wall): readonly [number, number] {
   const [mx, mz] = [a.nx + b.nx, a.nz + b.nz];
-  const len = Math.hypot(mx, mz);
-  // Walls folding back on each other have no corner to go round.
-  if (len < 0.3) return [a.nx * CONTACT.reach, a.nz * CONTACT.reach];
+  const len = Math.hypot(mx, mz) || 1;
   const out = (Math.min(CONTACT.miter, 2 / len) * CONTACT.reach) / len;
   return [mx * out, mz * out];
 }
@@ -42,31 +40,29 @@ export function addContacts(
   buildings: readonly Pick<Building, 'ring' | 'tier'>[],
   ground: (x: number, z: number) => number,
 ): void {
-  const edges = new Set<string>();
   const near = buildings.filter((b) => b.tier !== 'fringe');
-  for (const { ring } of near) {
-    for (let i = 0; i < ring.length; i += 2) {
-      const j = (i + 2) % ring.length;
-      edges.add(`${key(ring[i]!, ring[i + 1]!)}>${key(ring[j]!, ring[j + 1]!)}`);
+  const eachEdge = (visit: (ax: number, az: number, bx: number, bz: number) => void) => {
+    for (const { ring } of near) {
+      for (let i = 0; i < ring.length; i += 2) {
+        const j = (i + 2) % ring.length;
+        visit(ring[i]!, ring[i + 1]!, ring[j]!, ring[j + 1]!);
+      }
     }
-  }
+  };
+  const edges = new Set<string>();
+  eachEdge((ax, az, bx, bz) => edges.add(`${key(ax, az)}>${key(bx, bz)}`));
   const walls: Wall[] = [];
   const startingAt = new Map<string, Wall>();
   const endingAt = new Map<string, Wall>();
-  for (const { ring } of near) {
-    for (let i = 0; i < ring.length; i += 2) {
-      const j = (i + 2) % ring.length;
-      const [ax, az, bx, bz] = [ring[i]!, ring[i + 1]!, ring[j]!, ring[j + 1]!];
-      const length = Math.hypot(bx - ax, bz - az);
-      if (length < CONTACT.shortest) continue;
-      // Its neighbour walks this edge the other way round: a party wall has nothing to darken.
-      if (edges.has(`${key(bx, bz)}>${key(ax, az)}`)) continue;
-      const wall = { ax, az, bx, bz, length, nx: (bz - az) / length, nz: -(bx - ax) / length };
-      walls.push(wall);
-      startingAt.set(key(ax, az), wall);
-      endingAt.set(key(bx, bz), wall);
-    }
-  }
+  eachEdge((ax, az, bx, bz) => {
+    const length = Math.hypot(bx - ax, bz - az);
+    // Its neighbour walks this edge the other way round: a party wall has nothing to darken.
+    if (length < CONTACT.shortest || edges.has(`${key(bx, bz)}>${key(ax, az)}`)) return;
+    const wall = { ax, az, bx, bz, length, nx: (bz - az) / length, nz: -(bx - ax) / length };
+    walls.push(wall);
+    startingAt.set(key(ax, az), wall);
+    endingAt.set(key(bx, bz), wall);
+  });
   const lifted = (x: number, z: number): V3 => [x, ground(x, z) + CONTACT.lift, z];
   const up: V3 = [0, 1, 0];
   for (const w of walls) {
@@ -76,16 +72,14 @@ export function addContacts(
     const [startX, startZ] = before ? miter(before, w) : square;
     const [endX, endZ] = after ? miter(w, after) : square;
     const taper = Math.min(CONTACT.reach, w.length / 3);
-    const [capStart, capEnd] = [before ? 0 : taper, after ? 0 : taper];
-    const span = w.length - capStart - capEnd;
-    const [dx, dz] = [(w.bx - w.ax) / w.length, (w.bz - w.az) / w.length];
+    const first = before ? 0 : taper;
+    const last = w.length - (after ? 0 : taper);
     // The wall's foot at `s` metres along it, and the band's outer edge there.
     const at = (s: number) => {
-      const u = Math.min(1, Math.max(0, (s - capStart) / span));
-      let scale = 1;
-      if (s < capStart) scale = s / capStart;
-      else if (s > w.length - capEnd) scale = (w.length - s) / capEnd;
-      const [x, z] = [w.ax + dx * s, w.az + dz * s];
+      const u = Math.min(1, Math.max(0, (s - first) / (last - first)));
+      const scale = Math.min(1, before ? 1 : s / taper, after ? 1 : (w.length - s) / taper);
+      const x = w.ax + ((w.bx - w.ax) * s) / w.length;
+      const z = w.az + ((w.bz - w.az) * s) / w.length;
       return [
         x,
         z,
@@ -94,15 +88,13 @@ export function addContacts(
       ] as const;
     };
     // In pieces, so a long wall's band follows the ground rather than cutting under a rise.
-    const pieces = Math.max(1, Math.ceil(span / CONTACT.piece));
-    const stops = [0, capStart];
-    for (let k = 1; k < pieces; k++) stops.push(capStart + (k / pieces) * span);
-    stops.push(w.length - capEnd, w.length);
+    const pieces = Math.max(1, Math.ceil((last - first) / CONTACT.piece));
+    const stops = before ? [] : [0];
+    for (let k = 0; k <= pieces; k++) stops.push(first + (k / pieces) * (last - first));
+    if (!after) stops.push(w.length);
     for (let k = 0; k + 1 < stops.length; k++) {
-      const [s0, s1] = [stops[k]!, stops[k + 1]!];
-      if (s1 - s0 < 1e-3) continue;
-      const [x0, z0, ox0, oz0] = at(s0);
-      const [x1, z1, ox1, oz1] = at(s1);
+      const [x0, z0, ox0, oz0] = at(stops[k]!);
+      const [x1, z1, ox1, oz1] = at(stops[k + 1]!);
       mesh.quad(
         lifted(x0, z0),
         lifted(x1, z1),

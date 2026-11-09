@@ -138,8 +138,9 @@ export function bakeLight(
       lit ? FRONT_RAY.warm : FRONT_RAY.cool,
     );
   }
+  // Most of the map is dark, and an exponential a channel would be most of the bake.
   for (let i = 0; i < width * height; i++) {
-    for (let c = 0; c < 3; c++) data[i * 4 + c] = fill(light[i * 3 + c]!);
+    if (light[i * 3]) for (let c = 0; c < 3; c++) data[i * 4 + c] = fill(light[i * 3 + c]!);
   }
   return { data, width, height, minX, minZ, texel: LIGHT_TEXEL, low, high };
 }

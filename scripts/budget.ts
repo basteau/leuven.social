@@ -190,7 +190,10 @@ const BUDGETS: {
     // on a slim post, a public place's door, medallion and flag, the dark at the foot of the walls
     // and the baked light (2.4 KB), asked for.
     // 14.25: the banks of the water and the street trees' pits (0.2 KB).
-    limit: 14.25 * KB,
+    // 14.5: contact bands mitred round corners and tapered at their ends, in place of a square
+    // block at every building corner, and the lamps' light summed before it is flattened, asked
+    // for (0.4 KB, after trimming).
+    limit: 14.5 * KB,
     gzip: true,
   },
   // The rooms inside the landmarks, authored by hand, fetched near one.
