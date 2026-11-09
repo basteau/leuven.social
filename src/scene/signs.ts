@@ -386,12 +386,26 @@ const SYMBOLS: Partial<Record<ShopKind, Symbol>> = {
     bar(mesh, f, 0.05, [MID, y + 0.15], [MID, y + 0.26], 0.05, DARK_GOLD);
     bar(mesh, f, 0.1, [MID - 0.32, y - 0.22], [MID + 0.32, y - 0.22], 0.1, PROPS.iron);
   },
-  // A wrapped box: ribbon round it both ways, and a bow on top.
-  gift: (mesh, f, y, canvas) => {
-    rect(mesh, f, 0.08, MID - 0.27, MID + 0.27, y - 0.33, y + 0.08, PAPER);
-    bar(mesh, f, 0.09, [MID, y - 0.33], [MID, y + 0.08], 0.1, canvas);
-    bar(mesh, f, 0.09, [MID - 0.27, y - 0.13], [MID + 0.27, y - 0.13], 0.1, canvas);
-    for (const s of [-1, 1]) disc(mesh, f, 0.08, [MID + s * 0.1, y + 0.2], 0.11, 6, canvas);
+  // A wrapped present: a box under its lid, a ribbon down it and a big bow on top. The ribbon and
+  // the bow in gold, not the shop's own colour, which is what the board behind them already is.
+  gift: (mesh, f, y) => {
+    rect(mesh, f, 0.08, MID - 0.26, MID + 0.26, y - 0.34, y + 0.06, PAPER);
+    rect(mesh, f, 0.09, MID - 0.31, MID + 0.31, y + 0.06, y + 0.17, PAPER);
+    bar(mesh, f, 0.1, [MID, y - 0.34], [MID, y + 0.17], 0.12, DARK_GOLD);
+    for (const s of [-1, 1]) {
+      slab(
+        mesh,
+        f,
+        [-0.09, 0.09],
+        [
+          [MID, y + 0.26],
+          [MID + s * 0.3, y + 0.4],
+          [MID + s * 0.3, y + 0.14],
+        ],
+        GOLD,
+      );
+    }
+    disc(mesh, f, 0.1, [MID, y + 0.26], 0.07, 6, DARK_GOLD);
   },
   // A gilt frame round a little landscape.
   art: (mesh, f, y) => {
