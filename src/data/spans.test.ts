@@ -63,6 +63,59 @@ describe('a road bridge over a railway', () => {
   });
 });
 
+const carriageway = (z: number) => [
+  road([-200, z, 0, z]),
+  bridge([0, z, 30, z]),
+  road([30, z, 230, z]),
+];
+
+describe('a road bridge with two carriageways over the same outline', () => {
+  const tracks = [rail([15, -100, 15, 100])];
+  const narrow = { ...open, roadHalf: () => 3 };
+  const outline = [ring(0, -14, 30, 14)];
+
+  test('brings each up to the deck, not only the longest', () => {
+    const plan = planSpans([...carriageway(-9), ...carriageway(9)], tracks, outline, narrow);
+    expect(plan.decks).toHaveLength(1);
+    expect(plan.ramps).toHaveLength(4);
+    for (const z of [-9, 9]) {
+      expect(plan.ramps.filter((r) => Math.abs(r.line[1]! - z) < 1)).toHaveLength(2);
+    }
+  });
+
+  test('gives one a ramp already carries no second', () => {
+    const plan = planSpans([...carriageway(-1), ...carriageway(1)], tracks, outline, open);
+    expect(plan.ramps).toHaveLength(2);
+  });
+
+  test('gives none where there is no room to climb at any grade', () => {
+    const stub = [road([-20, 9, 0, 9]), bridge([0, 9, 30, 9]), road([30, 9, 50, 9])];
+    const plan = planSpans([...carriageway(-9), ...stub], tracks, outline, narrow);
+    expect(plan.ramps).toHaveLength(2);
+  });
+
+  test('reads a way that runs on past the outline from where it leaves it', () => {
+    const long = bridge([-10, 9, 40, 9]);
+    const plan = planSpans([...carriageway(-9), long], tracks, outline, narrow);
+    expect(plan.decks).toHaveLength(1);
+  });
+});
+
+describe('how wide a ramp is', () => {
+  const roads = [road([-200, 0, 0, 0]), bridge([0, 0, 30, 0]), road([30, 0, 230, 0])];
+  const tracks = [rail([15, -100, 15, 100])];
+  const halfOf = (roadHalf: SpanGround['roadHalf']) =>
+    planSpans(roads, tracks, [ring(0, -10, 30, 10)], { ...open, roadHalf }).ramps[0]!.half;
+
+  test('is the road it runs on, whatever a junction along the way measures', () => {
+    expect(halfOf((x) => (Math.abs(x + 60) < 6 ? 14 : 3))).toBeCloseTo(3.2);
+  });
+
+  test('is what the way says where no road surface was surveyed', () => {
+    expect(halfOf(() => 0)).toBeCloseTo(5.2);
+  });
+});
+
 describe('a bridge over water', () => {
   test('arches, its ends at the ground, with no ramp', () => {
     const wet: SpanGround = { ...open, water: () => true };
@@ -116,6 +169,11 @@ describe('a railway bridge over a road', () => {
       expect(ramp.rise[0]).toBeLessThan(0);
       expect(ramp.rail).toBe(false);
     }
+  });
+
+  test('sinks it no deeper or longer than a street needs', () => {
+    for (const ramp of plan.ramps) expect(ramp.rise[0]).toBeCloseTo(-4.2, 1);
+    expect(lineLength(plan.ramps.at(-1)!.line)).toBeLessThan(60);
   });
 });
 

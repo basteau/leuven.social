@@ -46,6 +46,11 @@ const DEPTH = { road: 5.4, path: 3.4, rail: 6.8 } as const;
 /** Steepest a ramp is (rise per metre) when it has the room, and when it hasn't. */
 const GRADE = { road: 0.06, path: 0.08, rail: 0.025 } as const;
 const STEEPEST = 0.12;
+/**
+ * A road dipping under a railway bridge: only as deep as a person walking it needs, and as steep
+ * as a street gets, as the rails stay where they are and all the height is a trench in the town.
+ */
+const UNDER_RAILS = { depth: 4.2, grade: 0.08 } as const;
 /** How far past its end an approach is followed in a straight-ish line (m). */
 const MOST_APPROACH = 170;
 /** How much of a turn an approach follows (degrees). */
@@ -73,6 +78,9 @@ const PIER_SPACING = 14;
 const AXIS_RUN = 1.5;
 /** Grade separation over a road under this far from a rail bridge is the same span of it (m). */
 const SAME_SPAN = 5;
+/** How often a ramp's width is read along it (m), and which of the readings counts, of 0 to 1. */
+const WIDTH_STEP = 4;
+const TYPICAL_WIDTH = 0.6;
 
 const off = (value: string | undefined) => value === undefined || value === 'no';
 const key = (x: number, z: number) => `${Math.round(x * 5)},${Math.round(z * 5)}`;
@@ -472,15 +480,16 @@ export function planSpans(
     if (carries === 'path') return Math.max(1.4, pathHalf);
     const fallback = lanesWidth(way.tags) / 2 + 2;
     const run = lineLength(line);
-    let widest = 0;
-    for (const t of [0.15, 0.5, 0.85]) {
-      const [x, z, ux, uz] = pointAlong(line, run * t);
-      widest = Math.max(
-        widest,
-        Math.max(ground.roadHalf(x, z, uz, -ux, 14), ground.roadHalf(x, z, -uz, ux, 14)),
-      );
+    // Along its length, as a junction it passes is much wider than the road and mustn't count.
+    const halves: number[] = [];
+    for (let at = 0; at <= run; at += WIDTH_STEP) {
+      const [x, z, ux, uz] = pointAlong(line, at);
+      const half = Math.max(ground.roadHalf(x, z, uz, -ux, 14), ground.roadHalf(x, z, -uz, ux, 14));
+      if (half > 0) halves.push(half);
     }
-    return Math.min(fallback + 2.5, Math.max(1.8, widest > 0 ? widest + 0.2 : fallback));
+    if (!halves.length) return Math.min(fallback + 2.5, Math.max(1.8, fallback));
+    const typical = halves.toSorted((a, b) => a - b)[Math.floor(halves.length * TYPICAL_WIDTH)]!;
+    return Math.min(fallback + 2.5, Math.max(1.8, typical + 0.2));
   };
 
   /** A ramp from `tip` outward along the road, falling or rising to the ground, if it can. */
@@ -492,8 +501,10 @@ export function planSpans(
     carries: Carries,
     overlap = OVERLAP,
     leadIn: readonly number[] = [],
+    onlyIfRoom = false,
+    grade: number = GRADE[carries],
   ) => {
-    const need = Math.abs(peak) / GRADE[carries];
+    const need = Math.abs(peak) / grade;
     const lead = leadIn.length ? [...tip, ...leadIn] : [tip[0], tip[1]];
     const [lastX, lastZ] = [lead[lead.length - 2]!, lead[lead.length - 1]!];
     const [fromX, fromZ] = leadIn.length
@@ -504,7 +515,7 @@ export function planSpans(
       ...approach(lastX, lastZ, lastX - fromX, lastZ - fromZ, carries, MOST_APPROACH).slice(2),
     ];
     const room = lineLength(available);
-    if (room < 3) return 0;
+    if (room < 3 || (onlyIfRoom && room < Math.abs(peak) / STEEPEST)) return 0;
     const length = Math.min(room, Math.max(need, Math.abs(peak) / STEEPEST));
     const line = simplifyLine(truncate(available, length), TIDY);
     const rise = fallingRise(line, peak);
@@ -651,6 +662,36 @@ export function planSpans(
         rise = Math.min(clearance, Math.max(2.4, limit));
         addRamp(start, before, rise, longest, carries, OVERLAP, wayRun(start, true));
         addRamp(stop, after, rise, longest, carries, OVERLAP, wayRun(stop, false));
+        // The other carriageway over the same outline, and the cycle track beside it: each comes
+        // up to the deck too, or it runs into the abutment. One a ramp already carries needs none.
+        const ramped = (x: number, z: number) =>
+          ramps.some(({ line, half }) => nearLine(x, z, [line], half));
+        for (const way of ways) {
+          if (way === longest || !carriesOf(way.tags)) continue;
+          const stretches = outline
+            ? uncoveredPieces(way.line, (x, z) => !pointInRing(outline, x, z))
+            : [Array.from(way.line)];
+          const over = stretches.reduce((a, b) => (lineLength(b) > lineLength(a) ? b : a), []);
+          if (lineLength(over) < 2) continue;
+          const whole = lineLength(over);
+          for (const atStart of [true, false]) {
+            const [tx, tz, ux, uz] = pointAlong(over, atStart ? 0 : whole);
+            if (ramped(tx, tz)) continue;
+            const inward = atStart ? 1 : -1;
+            const line = atStart ? reversed(way.line) : Array.from(way.line);
+            const lead = sliceLine(line, nearestAlong(line, tx, tz), lineLength(line)).slice(2);
+            addRamp(
+              [tx, tz],
+              [tx + ux * inward, tz + uz * inward],
+              rise,
+              way,
+              carriesOf(way.tags)!,
+              OVERLAP,
+              lineLength([tx, tz, ...lead]) < 0.01 ? [] : lead,
+              true,
+            );
+          }
+        }
       }
     } else if (overWater) {
       crown = Math.min(CROWN.most, CROWN.base + length * CROWN.perMetre);
@@ -800,7 +841,8 @@ export function planSpans(
     if (!hits.length) continue;
     hits.sort((a, b) => a - b);
     const carries = carriesOf(way.tags)!;
-    const depth = carries === 'path' ? DEPTH.path : DEPTH.road;
+    const depth = carries === 'path' ? DEPTH.path : UNDER_RAILS.depth;
+    const grade = carries === 'path' ? GRADE.path : UNDER_RAILS.grade;
     const from = Math.max(0, hits[0]! - SAME_SPAN);
     const to = Math.min(lineLength(way.line), hits.at(-1)! + SAME_SPAN);
     const run = lineLength(way.line);
@@ -815,6 +857,8 @@ export function planSpans(
       carries,
       to - from,
       reversed(sliceLine(way.line, 0, from)).slice(2),
+      false,
+      grade,
     );
     addRamp(
       [ex, ez],
@@ -824,6 +868,8 @@ export function planSpans(
       carries,
       0,
       sliceLine(way.line, to, run).slice(2),
+      false,
+      grade,
     );
   }
 
