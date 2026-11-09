@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react';
-import type { MouseEvent, ReactNode, RefObject } from 'react';
+import type { MouseEvent, PointerEvent, ReactNode, RefObject } from 'react';
 
 import { sound } from '../audio/sound.ts';
+import { TAP_SLOP } from '../scene/tap.ts';
 import type { Viewer } from '../scene/viewer.ts';
 import {
   MinusIcon,
@@ -30,7 +31,8 @@ export function RailButton(props: {
   on?: boolean;
   expanded?: boolean;
   onClick?: (event: MouseEvent) => void;
-  onPointerDown?: () => void;
+  onPointerDown?: (event: PointerEvent<HTMLButtonElement>) => void;
+  onPointerMove?: (event: PointerEvent<HTMLButtonElement>) => void;
   onPointerUp?: () => void;
   children: ReactNode;
 }) {
@@ -44,9 +46,12 @@ export function RailButton(props: {
       data-on={props.on}
       onClick={props.onClick}
       onPointerDown={props.onPointerDown}
+      onPointerMove={props.onPointerMove}
       onPointerUp={props.onPointerUp}
       onPointerCancel={props.onPointerUp}
       onPointerLeave={props.onPointerUp}
+      // No browser menu: on a Mac it opens on press and takes the release, and a turn would stick.
+      onContextMenu={(event) => event.preventDefault()}
     >
       {props.children}
       <span className="tip" aria-hidden="true">
@@ -57,8 +62,8 @@ export function RailButton(props: {
 }
 
 /**
- * What a map needs at hand, down the end edge: a compass with the two quarter turns round it,
- * zoom, and the way back to you. Same paper and ink as everything else on the map.
+ * What a map needs at hand, down the end edge: a compass with a turn either side of it, zoom,
+ * and the way back to you. Same paper and ink as everything else on the map.
  */
 export function ViewControls(props: {
   viewer: RefObject<Viewer | null>;
@@ -74,6 +79,8 @@ export function ViewControls(props: {
 }) {
   const { viewer, turnHold, keys } = props;
   const needleRef = useRef<HTMLSpanElement>(null);
+  /** Where a pointer has the compass, once it's down; `turned` once it has moved past a tap. */
+  const compass = useRef({ id: -1, x: 0, x0: 0, y0: 0, turned: false });
 
   // The needle follows the view on its own, without a render for each turn.
   useEffect(() => {
@@ -115,7 +122,7 @@ export function ViewControls(props: {
     requestAnimationFrame(step);
   };
 
-  /** A quarter turn: a pointer held keeps turning, as Q and E do; a key presses it once. */
+  /** A turn: as long as a pointer holds it, as Q and E do; a key presses it once. */
   const turner = (direction: 1 | -1, source: string) => ({
     onPointerDown: () => turnHold.press(source, direction, viewer.current),
     onPointerUp: () => turnHold.release(source),
@@ -145,10 +152,35 @@ export function ViewControls(props: {
           keys="R"
           hint={
             <>
-              North up <kbd>R</kbd>
+              Drag to turn, or north up <kbd>R</kbd>
             </>
           }
+          onPointerDown={(event) => {
+            event.currentTarget.setPointerCapture(event.pointerId);
+            const [x, y] = [event.clientX, event.clientY];
+            compass.current = { id: event.pointerId, x, x0: x, y0: y, turned: false };
+          }}
+          onPointerMove={(event) => {
+            const held = compass.current;
+            if (event.pointerId !== held.id) return;
+            const [x, y] = [event.clientX, event.clientY];
+            if (!held.turned && Math.hypot(x - held.x0, y - held.y0) < TAP_SLOP) return;
+            if (held.turned) viewer.current?.turnDrag(x - held.x);
+            held.turned = true;
+            held.x = x;
+          }}
+          onPointerUp={() => {
+            compass.current.id = -1;
+          }}
           onClick={(event) => {
+            // The end of a drag round the compass is no press of it, and leaves the keys to the
+            // map all the same. A key's press is one, whatever went before.
+            const dragged = compass.current.turned && event.detail > 0;
+            compass.current.turned = false;
+            if (dragged) {
+              focusQuietly(props.map.current);
+              return;
+            }
             pressed(event);
             viewer.current?.resetView();
           }}

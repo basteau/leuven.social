@@ -44,7 +44,7 @@ describe('commandsFor', () => {
 
   test('Back to you brings the view back, as Space does', () => {
     expect(byId(state(), 'recentre')).toMatchObject({ action: 'recentre', keys: [['Space']] });
-    expect(byId(state(), 'turn-left')?.detail).toContain('quarter');
+    expect(byId(state(), 'turn-left')?.detail).toContain('45°');
   });
 
   test('beside a building you can go into, Enter goes in; inside, it goes out', () => {

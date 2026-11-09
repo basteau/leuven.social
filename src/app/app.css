@@ -255,7 +255,7 @@ kbd {
 }
 
 /*
- * The view's controls: a compass between its two quarter turns, zoom, and the way back to you.
+ * The view's controls: a compass between its two turns, zoom, and the way back to you.
  * Down the end edge, over the menu, where a thumb is. Out of the page's flow, so they don't push
  * the pills up; on a short window the less-needed go first.
  */
@@ -307,15 +307,13 @@ kbd {
 .rail-btn:active {
   background: var(--paper-press);
 }
+/* Held or dragged: a thumb's drift mustn't let the browser cancel the press and stop the turn. */
+.rail-turn .rail-btn {
+  touch-action: none;
+}
 
 .compass-needle {
   display: block;
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  .compass-needle {
-    transition: rotate 280ms var(--ease-out);
-  }
 }
 
 /* The view is on someone else's street: the way back says so, in words too (its tip and label). */

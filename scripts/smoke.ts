@@ -696,6 +696,36 @@ async function zoomToStreet(): Promise<void> {
   await browser('wait', '--fn', `${canvasData('avatar')} === 'true'`);
 }
 
+/** Which way the compass's needle points (rad). */
+const needle = () =>
+  evalJson<number>(
+    `JSON.stringify(parseFloat(document.querySelector('.compass-needle').style.rotate) || 0)`,
+  );
+
+/** Every way of turning the map a script can reach: each turns it, none lets go of the avatar. */
+async function expectTurning(): Promise<void> {
+  const turns = async (what: string, act: () => Promise<unknown>) => {
+    const before = await needle();
+    await act();
+    await browser('wait', '900');
+    if (Math.abs((await needle()) - before) < 0.1) throw new Error(`${what} didn't turn the map`);
+    if (await evalJson<boolean>(`!!document.querySelector('.rail-find[data-away]')`)) {
+      throw new Error(`${what} let go of the avatar`);
+    }
+  };
+  await turns('a held E', () => holdKeys(['e'], 400));
+  await browser('mouse', 'move', '640', '400');
+  await turns('a drag with the right button', async () => {
+    await browser('mouse', 'down', 'right');
+    for (const x of [660, 700, 760]) await browser('mouse', 'move', String(x), '400');
+    await browser('mouse', 'up', 'right');
+  });
+  await turns('a sideways scroll', () => browser('mouse', 'wheel', '0', '240'));
+  await browser('press', 'r');
+  await browser('wait', '500');
+  console.log('ok  a held key, a right-button drag and a sideways scroll turned the map');
+}
+
 /**
  * The avatar, there from the start: zoom down to the street, walk and run it with the keys,
  * tap somewhere for it to walk to, and check the street sign.
@@ -946,6 +976,7 @@ async function expectRoom(): Promise<void> {
 async function expectDesktopTour(): Promise<void> {
   await expectMenu();
   await expectMap();
+  await expectTurning();
   // Exercise every control once, then check nothing broke.
   await browser('press', 'e');
   await browser('press', 'r');

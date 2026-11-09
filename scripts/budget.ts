@@ -40,6 +40,8 @@ const BUDGETS: {
   {
     label: '3D engine JS (three.js)',
     pattern: 'assets/{viewer,palette}-*.js',
+    // 179.5: turning by hand, asked for (0.9 KB): a twist, a turning drag, a sideways scroll,
+    // Safari's trackpad gesture and the glide after a flick.
     // 169: the map's presence list, routes and zoom limit (0.4 KB). 168: livelier facades asked for (1.4 KB): frames, sills and flower boxes on ordinary
     // windows, the Stadhuis's tiers of niches with their statues, tracery in the churches'
     // lancets, the parasols' valances and the café guests' colours.
@@ -64,7 +66,7 @@ const BUDGETS: {
     // the wall shader, 1.3 KB), so no window is cut by a corner or the house next door.
     // 178.25: given back after the code clean-up took 3.2 KB off (no comments in shipped GLSL).
     // 178.5: the slab's edges (0.1 KB), for the larger map: ribbons cut along it, its sides shadowless.
-    limit: 178.5 * KB,
+    limit: 179.5 * KB,
     gzip: true,
   },
   // 3.5: just above 3.1 KB. 3.75: the minimap, the other players' name tags and who you are in
@@ -142,7 +144,9 @@ const BUDGETS: {
   {
     label: 'Avatar JS (after first frame)',
     pattern: 'assets/avatar-layer-*.js',
-    limit: 26 * KB,
+    // 26.25: no new code; the chunk had no room left, and turning by hand renamed the engine's
+    // exports it imports, which moves its gzip by a few bytes either way.
+    limit: 26.25 * KB,
     gzip: true,
   },
   // The street-name lookup for the sign, a chunk beside the avatar's that loads with it.
@@ -233,6 +237,7 @@ const BUDGETS: {
   {
     label: 'First-load JS',
     pattern: 'assets/{index,viewer}-*.js',
+    // 270: turning by hand, in the engine and the compass (1.1 KB), asked for.
     // 260: the engine's and the shell's additions above (1 KB). 260.5: dynamic resolution (0.4 KB).
     // 264.75: the look of the city (3.9 KB), asked for; the engine's own note says what.
     // 267.5: the engine's additions above, and the city format's new layers (0.3 KB).
@@ -244,7 +249,7 @@ const BUDGETS: {
     // 271.5: the second round of the light and water hardly taking a shadow (under 0.1 KB, after
     // deleting the water's glints and streaks to pay for most of it), asked for.
     // 268.5: the engine's clean-up above.
-    limit: 268.5 * KB,
+    limit: 270 * KB,
     gzip: true,
     closure: true,
   },

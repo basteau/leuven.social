@@ -2,7 +2,6 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   createTurnHold,
-  HOLD_MS,
   idleRepeat,
   KEYCAPS,
   layoutKeycaps,
@@ -126,88 +125,43 @@ describe('strayPress', () => {
   });
 });
 
-/** A turn hold with its timer in hand: `later()` runs what waits, as if HOLD_MS went by. */
-function setup() {
-  const calls: string[] = [];
-  const turner: Turner = {
-    rotate: (direction) => calls.push(`rotate ${direction}`),
-    spin: (direction) => calls.push(`spin ${direction}`),
-  };
-  let waiting: (() => void) | undefined;
-  const waits: number[] = [];
-  const hold = createTurnHold((then, ms) => {
-    waiting = then;
-    waits.push(ms);
-    return () => {
-      waiting = undefined;
-    };
-  });
-  const later = () => waiting?.();
-  const press = (source: string, direction: 1 | -1) => hold.press(source, direction, turner);
-  return { hold, press, calls, waits, later };
+/** A turn hold and what it told the map to do, in order. */
+function held() {
+  const calls: number[] = [];
+  const turner: Turner = { spin: (direction) => calls.push(direction) };
+  return { hold: createTurnHold(), calls, turner };
 }
 
 describe('createTurnHold', () => {
-  test('a tap is one step', () => {
-    const { hold, press, calls, later } = setup();
-    press('KeyQ', -1);
-    hold.release('KeyQ');
-    later();
-    expect(calls).toEqual(['rotate -1']);
-  });
-
-  test('held, it steps at once, keeps turning after HOLD_MS and stops when let go', () => {
-    const { hold, press, calls, waits, later } = setup();
-    press('right', 1);
-    expect(waits).toEqual([HOLD_MS]);
-    later();
-    expect(calls).toEqual(['rotate 1', 'spin 1']);
-    hold.release('right');
-    hold.release('right');
-    expect(calls).toEqual(['rotate 1', 'spin 1', 'spin 0']);
-  });
-
-  test('only what started the hold ends it', () => {
-    const { hold, press, calls, later } = setup();
-    press('left', -1);
-    later();
-    hold.release('KeyE');
-    expect(calls).toEqual(['rotate -1', 'spin -1']);
-    hold.release();
-    expect(calls).toEqual(['rotate -1', 'spin -1', 'spin 0']);
-  });
-
-  test('a new press takes over from the one held', () => {
-    const { hold, press, calls, later } = setup();
-    press('left', -1);
-    later();
-    press('KeyE', 1);
-    hold.release('left');
-    later();
-    expect(calls).toEqual(['rotate -1', 'spin -1', 'spin 0', 'rotate 1', 'spin 1']);
-  });
-
-  test('waits for the viewer without failing', () => {
-    let waiting: (() => void) | undefined;
-    const hold = createTurnHold((then) => {
-      waiting = then;
-      return () => {};
-    });
-    hold.press('KeyQ', -1, null);
-    waiting?.();
-    hold.release();
-    expect(waiting).toBeDefined();
-  });
-
-  test('times the hold with a real timer by default', async () => {
-    const calls: number[] = [];
-    const turner: Turner = { rotate: () => {}, spin: (d) => calls.push(d) };
-    const hold = createTurnHold();
+  test('turns from the press until it is let go, in one motion', () => {
+    const { hold, calls, turner } = held();
     hold.press('KeyE', 1, turner);
-    hold.release('KeyE');
-    hold.press('KeyE', 1, turner);
-    await new Promise((resolve) => setTimeout(resolve, HOLD_MS + 20));
+    expect(calls).toEqual([1]);
     hold.release('KeyE');
     expect(calls).toEqual([1, 0]);
+  });
+
+  test('a new press takes over from the one before', () => {
+    const { hold, calls, turner } = held();
+    hold.press('KeyE', 1, turner);
+    hold.press('KeyQ', -1, turner);
+    expect(calls).toEqual([1, 0, -1]);
+  });
+
+  test('only what started a hold ends it', () => {
+    const { hold, calls, turner } = held();
+    hold.press('rail-left', -1, turner);
+    hold.release('KeyQ');
+    expect(calls).toEqual([-1]);
+    hold.release();
+    expect(calls).toEqual([-1, 0]);
+    hold.release();
+    expect(calls).toEqual([-1, 0]);
+  });
+
+  test('with no map yet a press does nothing and nothing breaks', () => {
+    const hold = createTurnHold();
+    hold.press('KeyQ', -1, null);
+    hold.release('KeyQ');
   });
 });

@@ -1,7 +1,7 @@
 /**
  * One camera, and one number for what's worth drawing: the height of the view in metres where it
  * looks (`span`, VIEW_HEIGHT / zoom). The map is an orthographic camera at the true isometric
- * pitch that only ever pans, turns in quarters and zooms, from the whole city down to a street,
+ * pitch that only ever pans, turns and zooms, from the whole city down to a street,
  * so every level-of-detail rule is a threshold on the span, read here, and nothing depends on a
  * mode. Pure, so the table is tested rather than read off the viewer.
  */

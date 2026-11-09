@@ -62,7 +62,7 @@ import {
   wrapHour,
 } from './daylight.ts';
 import type { Daylight, PresetId } from './daylight.ts';
-import { MapControls } from './map-controls.ts';
+import { DRAG_TURN, MapControls } from './map-controls.ts';
 import { LAYER_Y, slabBottom } from './ground.ts';
 import { LINE_LOD } from './paint.ts';
 import { LineBuilder, MeshBuilder, corners, geometryBytes } from './mesh-builder.ts';
@@ -79,11 +79,10 @@ import {
 } from './shadow-fit.ts';
 import type { ShadowSquare } from './shadow-fit.ts';
 import { applyShadowChunks } from './shadow-filter.ts';
-import { SPIN_EASE, spinStep } from './spin.ts';
+import { NUDGE, coastSpin, newSpin, pressSpin, spinStep, spinning, stopSpin } from './spin.ts';
 import { minZoomFor } from './zoom-limit.ts';
 import type { Presence } from '../data/presence.ts';
 import { isTap } from './tap.ts';
-import type { Spin } from './spin.ts';
 import { terraceParasols } from './terraces.ts';
 import type { AvatarLayer, Refusal, RoomPlace } from './avatar-layer.ts';
 import type { Outfit } from './character.ts';
@@ -152,12 +151,12 @@ export interface ViewerStats {
 }
 
 export interface Viewer {
+  /** One press of a turn control: an eighth of the way round, smoothly. */
   rotate(direction: 1 | -1): void;
-  /**
-   * Keeps turning while a turn control is held: -1 left, 1 right, 0 lets go. The map then
-   * settles on the next quarter view.
-   */
+  /** Turns while a turn control is held: -1 left, 1 right; 0 lets go, and it brakes to a stop. */
   spin(direction: number): void;
+  /** Turns as a sideways drag of `pixels` does: for the compass, dragged. */
+  turnDrag(pixels: number): void;
   /** Multiplies the zoom, within the controls' limits. */
   zoomBy(factor: number): void;
   resetView(): void;
@@ -212,7 +211,10 @@ export interface Viewer {
   dispose(): void;
 }
 
-const ROTATE_MS = 280;
+/** Back to north up, the short way round. */
+const NORTH_MS = 360;
+/** With reduced motion a press steps at once, and only held this long does it keep turning. */
+const STILL_HOLD_MS = 300;
 /** The avatar's diamond points this far over its feet (m): just over its head, drawn 1.3× life. */
 const OVER_HEAD = 2.7;
 /** Street furniture is made ahead for cells this near the view's middle (m). */
@@ -699,6 +701,10 @@ export function createViewer(options: ViewerOptions): Viewer {
     canvas,
     () => onChange(),
     () => avatar?.letGo(),
+    (radians) => turnBy(radians),
+    (rate) => {
+      if (!reducedMotion && coastSpin(turning, rate)) runTurn();
+    },
   );
   [controls.minZoom, controls.maxZoom] = [MIN_ZOOM, MAX_ZOOM];
 
@@ -1243,58 +1249,63 @@ export function createViewer(options: ViewerOptions): Viewer {
     if (furnishing && !idleHandle) idleHandle = idle(buildInBackground);
   }
 
-  let spin = 0;
-  function rotate(direction: 1 | -1): void {
-    const from = yaw;
-    const to =
-      Math.round((yaw - Math.PI / 4) / (Math.PI / 2)) * (Math.PI / 2) +
-      Math.PI / 4 +
-      direction * (Math.PI / 2);
-    stopTurning();
-    if (reducedMotion) {
-      yaw = to;
-      placeCamera();
-      return;
-    }
-    const start = performance.now();
-    const step = (now: number) => {
-      const t = Math.min(1, (now - start) / ROTATE_MS);
-      yaw = from + (to - from) * (1 - (1 - t) ** 3);
-      placeCamera();
-      // Already inside a frame: don't wait for the next one, unless the avatar's loop draws it.
-      if (!avatar?.animating) loopFrame(now);
-      spin = t < 1 ? requestAnimationFrame(step) : 0;
-    };
-    spin = requestAnimationFrame(step);
-  }
-
-  // A held turn control: a spin of its own, settling on the next quarter view.
-  const turning: Spin = { held: 0, rate: 0, to: Number.NaN };
+  /** The turn animating by itself (spin.ts) or back to north; 0 when none is. */
+  let turnFrame = 0;
+  const turning = newSpin();
+  let stillHold: ReturnType<typeof setTimeout> | undefined;
+  /** Whatever is turning the map by itself stops here. */
   function stopTurning(): void {
-    cancelAnimationFrame(spin);
-    turning.rate = 0;
+    cancelAnimationFrame(turnFrame);
+    turnFrame = 0;
+    clearTimeout(stillHold);
+    stopSpin(turning);
   }
-  function spinMap(direction: number): void {
-    turning.held = direction;
-    // Let go, a spin under way settles by itself.
-    if (!direction) return;
-    stopTurning();
-    turning.to = Number.NaN;
+  function runTurn(): void {
+    if (turnFrame) return;
     let last = performance.now();
     const step = (now: number) => {
       // Reduced motion: no easing in or out, though the turn itself is what was asked for.
-      yaw = spinStep(
-        turning,
-        yaw,
-        Math.min(0.1, (now - last) / 1000),
-        reducedMotion ? 1e9 : SPIN_EASE,
-      );
+      // A frame's stamp can be from before this began, the page having been idle: never negative.
+      const dt = Math.max(0, Math.min(0.1, (now - last) / 1000));
+      yaw = spinStep(turning, yaw, dt, reducedMotion ? 1e9 : undefined);
       last = now;
       placeCamera();
       if (!avatar?.animating) loopFrame(now);
-      spin = turning.held || turning.rate ? requestAnimationFrame(step) : 0;
+      turnFrame = spinning(turning) ? requestAnimationFrame(step) : 0;
     };
-    spin = requestAnimationFrame(step);
+    turnFrame = requestAnimationFrame(step);
+  }
+  /** A hand on the map or the compass: it takes the turn over, whatever it was doing. */
+  function turnBy(radians: number): void {
+    stopTurning();
+    yaw += radians;
+    placeCamera();
+  }
+  function spinMap(direction: number): void {
+    if (!direction) {
+      clearTimeout(stillHold);
+      turning.held = 0;
+      if (spinning(turning)) runTurn();
+      return;
+    }
+    if (reducedMotion) {
+      stopTurning();
+      yaw += direction * NUDGE;
+      placeCamera();
+      stillHold = setTimeout(() => {
+        turning.held = direction;
+        runTurn();
+      }, STILL_HOLD_MS);
+      return;
+    }
+    // A turn back to north gives way; one still under way goes on into this.
+    if (!spinning(turning)) stopTurning();
+    pressSpin(turning, yaw, direction);
+    runTurn();
+  }
+  function rotate(direction: 1 | -1): void {
+    spinMap(direction);
+    spinMap(0);
   }
 
   function zoomBy(factor: number): void {
@@ -1308,9 +1319,23 @@ export function createViewer(options: ViewerOptions): Viewer {
   /** North at the top again, and the camera back on the avatar (over Grote Markt before it loads). */
   function resetView(): void {
     stopTurning();
-    yaw = Math.PI / 4;
+    const north = Math.PI / 4;
+    // The same view, within half a turn of north, so it goes the short way round and ends exact.
+    const from = north + Math.atan2(Math.sin(yaw - north), Math.cos(yaw - north));
+    yaw = reducedMotion ? north : from;
     placeCamera();
     avatar?.recentre();
+    if (reducedMotion) return;
+    const start = performance.now();
+    const step = (now: number) => {
+      const t = Math.max(0, Math.min(1, (now - start) / NORTH_MS));
+      yaw = from + (north - from) * (1 - (1 - t) ** 3);
+      placeCamera();
+      // Already inside a frame: don't wait for the next one, unless the avatar's loop draws it.
+      if (!avatar?.animating) loopFrame(now);
+      turnFrame = t < 1 ? requestAnimationFrame(step) : 0;
+    };
+    turnFrame = requestAnimationFrame(step);
   }
 
   // A tap on the map (not a pan, not a pinch) sends the avatar there: the one pointer handler
@@ -1327,7 +1352,13 @@ export function createViewer(options: ViewerOptions): Viewer {
       timed ? event.timeStamp - press.timeStamp : 0,
     );
   // A second finger down makes it a pinch, which no tap ends.
-  listen('pointerdown', (event) => (press = event.isPrimary && !event.button ? event : null));
+  listen('pointerdown', (event) => {
+    // A hand on the map catches a glide: it stops where it is, as anything flicked does, and
+    // that's all the tap was for. Ctrl and a click is the Mac's right click, which walks nowhere.
+    const caught = !turning.held && spinning(turning);
+    press = event.isPrimary && !event.button && !event.ctrlKey && !caught ? event : null;
+    if (!turning.held) stopTurning();
+  });
   // Moved past the slop, it's a pan however it ends.
   listen('pointermove', (event) => {
     if (!still(event) && event.pointerId === press?.pointerId) press = null;
@@ -1543,6 +1574,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     routeTarget: () => routeTo,
     cover,
     spin: spinMap,
+    turnDrag: (pixels) => turnBy(-pixels * DRAG_TURN),
     timeOfDay: () => ({ preset: presetAt(hour), passing }),
     nextTimeOfDay,
     passTime,
@@ -1556,7 +1588,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     }),
     dispose() {
       cancelAnimationFrame(frame);
-      cancelAnimationFrame(spin);
+      stopTurning();
       cancelAnimationFrame(liveFrame);
       cancelIdle(idleHandle);
       disposed = true;

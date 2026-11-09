@@ -95,7 +95,7 @@ class ChunkGuard extends Component<{ onError: () => void; children: ReactNode }>
 
 /** The map's description, naming the keys as this keyboard types them. */
 const mapLabel = (k: Keycaps, mod: string) =>
-  `Map of Leuven’s centre around Grote Markt, Oude Markt and Ladeuzeplein, with you on it. Drag to look around; scroll, pinch or press plus and minus to zoom, down to the street; ${k.KeyQ} and ${k.KeyE} turn the map. ${k.KeyW}, ${k.KeyA}, ${k.KeyS} and ${k.KeyD} walk, and hold Shift to run; click or tap a street nearby to walk there; F rides the nearest bike; Enter goes into a building beside you, or out; Space brings the view back to you. M opens the full map. ${mod} K or slash opens the menu, with every command and key.`;
+  `Map of Leuven’s centre around Grote Markt, Oude Markt and Ladeuzeplein, with you on it. Drag to look around; scroll, pinch or press plus and minus to zoom, down to the street; ${k.KeyQ}, ${k.KeyE} and the turn buttons turn the map. ${k.KeyW}, ${k.KeyA}, ${k.KeyS} and ${k.KeyD} walk, and hold Shift to run; click or tap a street nearby to walk there; F rides the nearest bike; Enter goes into a building beside you, or out; Space brings the view back to you. M opens the full map. ${mod} K or slash opens the menu, with every command and key.`;
 /** Riding, the map says how. */
 const rideLabel = (k: Keycaps, mod: string) =>
   `Riding a bike in Leuven. ${k.KeyW}, ${k.KeyA}, ${k.KeyS} and ${k.KeyD} ride, Shift sprints, B rings the bell and F gets off; click or tap a street nearby to ride there. Space brings the view back to you. ${mod} K or slash opens the menu.`;
@@ -213,7 +213,7 @@ export function App() {
   /** Where the other players' names float over the map. */
   const tagsRef = useRef<HTMLDivElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
-  // Q and E: a tap is a step; held, they keep turning.
+  // Q and E and the buttons: the map turns for as long as they're held.
   const [turnHold] = useState(createTurnHold);
   const [status, setStatus] = useState<Status>({ state: 'loading' });
   const [attempt, setAttempt] = useState(0);
@@ -872,11 +872,11 @@ export function App() {
           ) : coaching === 'look' ? (
             <>
               <span className="hint-keys">
-                Drag to look around, and <kbd>Space</kbd> comes back to you. The map finds any
-                street.
+                Drag to look around, hold <kbd>{keys.KeyQ}</kbd> or swipe two fingers sideways to
+                turn, and <kbd>Space</kbd> comes back to you.
               </span>
               <span className="hint-touch">
-                Drag to look around. The map finds any street and takes you there.
+                Drag to look around, and twist two fingers to turn. The map finds any street.
               </span>
             </>
           ) : null}

@@ -39,7 +39,7 @@ export interface ShortcutTarget {
   /** T steps to the next time of day; P lets the day pass, or holds it. */
   nextTime: () => void;
   togglePassing: () => void;
-  /** Q and E: a tap turns the map a quarter; held, they keep turning. */
+  /** Q and E: the map turns for as long as they're held, a tap an eighth of the way. */
   turnHold: TurnHold;
   /** ⌘K, Ctrl+K, ⌘P, Ctrl+P and `/` open the menu at its list; `?` at the controls. */
   openMenu: (page: 'list' | 'help') => void;

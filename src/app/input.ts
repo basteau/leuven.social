@@ -82,54 +82,35 @@ export function strayPress(detail: number, sinceMount: number): boolean {
   return detail > 1 || (detail > 0 && sinceMount < SETTLE_MS);
 }
 
-/**
- * A turn control or key held this long keeps turning; let go sooner, it was a tap: one step,
- * as ever. Just past the map's 280 ms quarter turn, so a tap's turn has landed first.
- */
-export const HOLD_MS = 300;
-
 export interface Turner {
-  /** One step: a quarter of the way round. */
-  rotate(direction: 1 | -1): void;
-  /** Keeps turning while held: -1 left, 1 right, 0 lets go. */
+  /** Turns while held, -1 left or 1 right; 0 lets go. */
   spin(direction: number): void;
 }
 
 export interface TurnHold {
-  /** A turn control or key went down: a step at once, then turning on while it's held. */
+  /** A turn control or key went down: the map turns from now until it's let go. */
   press(source: string, direction: 1 | -1, turner: Turner | null): void;
   /** That control or key came up (another's hold is left be); with none named, any let go. */
   release(source?: string): void;
 }
 
-/** Runs `then` after `ms`, and returns what cancels it. */
-const after = (then: () => void, ms: number) => clearTimeout.bind(null, setTimeout(then, ms));
-
 /**
  * Press and hold for the turn controls and keys. One hold at a time: a new press takes over, and
  * only what started a hold ends it, so a key let go doesn't stop a held button.
  */
-export function createTurnHold(wait = after): TurnHold {
+export function createTurnHold(): TurnHold {
   let holder: string | undefined;
   let turner: Turner | null = null;
-  let spinning = false;
-  let cancel: (() => void) | undefined;
   const release = (source?: string) => {
     if (holder === undefined || (source !== undefined && source !== holder)) return;
-    cancel?.();
     holder = undefined;
-    if (spinning) turner?.spin(0);
-    spinning = false;
+    turner?.spin(0);
   };
   return {
     press(source, direction, to) {
       release();
       [holder, turner] = [source, to];
-      to?.rotate(direction);
-      cancel = wait(() => {
-        spinning = true;
-        to?.spin(direction);
-      }, HOLD_MS);
+      to?.spin(direction);
     },
     release,
   };
