@@ -285,6 +285,32 @@ async function expectNoCovering(where: string): Promise<void> {
   console.log(`ok  ${where}: nothing on the map covers anything else`);
 }
 
+/** Where the pill and the menu button end on screen. */
+const lines = () =>
+  evalJson<number[]>(
+    `JSON.stringify(['.bar .action', '.hud-end .menu-trigger'].map((s) => document.querySelector(s).getBoundingClientRect().bottom))`,
+  );
+
+/** In a narrow window a lone Stop is level with the corners' buttons; narrower, it's over them. */
+async function expectStopOnTheLine(): Promise<void> {
+  await tapAt(235, 362);
+  await browser('wait', '--fn', STOP);
+  // This browser has a mouse, so keycaps show and it takes this much width (touch: 352 px).
+  await browser('set', 'viewport', '500', '844');
+  await browser('wait', '300');
+  const [stop, menu] = await lines();
+  if (stop !== menu) throw new Error(`Stop ends at ${stop}, the menu button at ${menu}`);
+  await expectNoCovering('narrow 500×844 with Stop');
+  await browser('set', 'viewport', '320', '568');
+  await browser('wait', '300');
+  const [lifted, under] = await lines();
+  if (!(lifted! < under! - 40)) throw new Error(`phone 320: Stop isn't over the corners' buttons`);
+  await expectNoCovering('phone 320×568 with Stop');
+  await holdKeys(['Escape'], 0);
+  await browser('wait', '--fn', `!(${STOP})`);
+  console.log('ok  Stop stays level with the corners, and goes over them when too narrow');
+}
+
 /** The first minute: the coach starts by asking you down to the street, and its ring is on +. */
 async function expectFirstMinute(): Promise<void> {
   const said = await evalJson<string>(
@@ -1108,6 +1134,7 @@ try {
   await browser('click', 'dialog.menu:not(.account) button.menu-close');
   await browser('wait', '--fn', menu.closed);
   console.log('ok  phone: the menu button opens the menu; its close button shuts it, to the map');
+  await expectStopOnTheLine();
   await browser('set', 'viewport', '320', '568');
   await browser('wait', '600');
   await expectNoCovering('phone 320×568');

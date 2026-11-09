@@ -899,7 +899,7 @@ export function App() {
         {/*
           By a bike or a building you can go into: what the moment offers, where a thumb finds it.
         */}
-        <div className="bar">
+        <div className="bar" data-long={(ready && looking && !routing) || undefined}>
           {ready && looking && !routing && (
             <ActionButton
               label={`Go to ${looking.name}`}

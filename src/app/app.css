@@ -539,7 +539,10 @@ kbd {
   }
 }
 
-/* On a phone the moment's pill sits over the minimap and the menu button, not squeezed between. */
+/*
+ * On a phone the moment's pills go over the minimap and the menu button rather than be squeezed
+ * between them, unless it's one short pill and there's room (below).
+ */
 @media (max-width: 42rem) {
   /* Kept off the rail, which stands over the end corner, and as far off the start, to centre. */
   .bar {
@@ -557,6 +560,20 @@ kbd {
   .map-trigger,
   .hud-end {
     grid-row: 2;
+  }
+
+  /*
+   * Stop, Ride, Get off, Go in or Go out, alone: down on the corners' line. The widths are where
+   * the widest of them, Get off, still clears the minimap and the menu button, with its keycap
+   * and a wider button beside it where those show. A place's name, or two pills, stay up.
+   */
+  @media (min-width: 28rem), (min-width: 22rem) and (pointer: coarse) {
+    .bar:not([data-long], :has(> :nth-child(2))) {
+      grid-column: 2;
+      grid-row: 2;
+      inline-size: auto;
+      padding-inline: 0;
+    }
   }
 }
 

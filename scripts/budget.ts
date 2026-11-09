@@ -74,7 +74,12 @@ const BUDGETS: {
   // 4.1: the rail of view controls, the minimap's tab and the Go to pill (0.3 KB), asked for so
   // the map can be learnt without knowing the menu's keys.
   // 4.125: one selector, so the Map pill sits on the Menu's row on a phone with the minimap hidden.
-  { label: 'CSS', pattern: 'assets/index-*.css', limit: 4.125 * KB, gzip: true },
+  {
+    label: 'CSS',
+    pattern: 'assets/index-*.css', // 4.25: a lone pill level with the corners on a phone, asked for (0.03 KB over).
+    limit: 4.25 * KB,
+    gzip: true,
+  },
   // 1.6: the search field and its results on the full map (0.1 KB), asked for so a street can be
   // found from there.
   { label: 'Map CSS (with the map)', pattern: 'assets/map-*.css', limit: 1.6 * KB, gzip: true },
