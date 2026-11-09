@@ -374,7 +374,6 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
     },
     dispose() {
       disposed = true;
-      clearTimeout(goneFor);
       clearTimeout(rebinding);
       for (const event of CLAIMS) globalThis.removeEventListener(event, claim, CAPTURE);
       document.removeEventListener('visibilitychange', shown);
@@ -382,6 +381,8 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
       document.removeEventListener('visibilitychange', leave);
       globalThis.removeEventListener('pagehide', leave);
       presence?.close();
+      // After the close, whose own status report would start this timer again.
+      clearTimeout(goneFor);
       viewer.others(null);
       live.others = [];
       live.changed();
