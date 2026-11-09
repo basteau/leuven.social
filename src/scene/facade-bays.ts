@@ -42,10 +42,15 @@ export function bayTargetFor(windows: boolean | 'lancet' | 'ornate', top: number
   return windows === 'lancet' ? LANCET_BAY : windows === 'ornate' ? NICHE_BAY : bayTarget(top);
 }
 
+/** The whole bays a wall of `length` holds, spaced as one wall is; none if too short for one. */
+function holds(length: number, target: number): number {
+  if (length < Math.max(SHORTEST_WALL, target * SHORT_WALL)) return 0;
+  return Math.max(1, Math.round(length / target));
+}
+
 /** The whole number of bays a wall of `length` takes, none if it is too short for a window. */
 export function fitBays(length: number, target: number): number {
-  if (length < Math.max(SHORTEST_WALL, target * SHORT_WALL)) return 0;
-  return Math.min(MOST_BAYS, Math.max(1, Math.round(length / target)));
+  return Math.min(MOST_BAYS, holds(length, target));
 }
 
 /**
@@ -62,11 +67,7 @@ export function fitRun(lengths: readonly number[], target: number): number[] {
     const due = Math.round(along / target);
     // Never more bays than this wall could hold spaced as one, or what a corner's short facets
     // carried on would be crammed in at under a metre each.
-    const fits = Math.max(1, Math.round(length / target));
-    const bays =
-      length < Math.max(SHORTEST_WALL, target * SHORT_WALL)
-        ? 0
-        : Math.max(0, Math.min(due - placed, fits));
+    const bays = Math.max(0, Math.min(due - placed, holds(length, target)));
     placed += bays;
     return Math.min(bays, MOST_BAYS);
   });
