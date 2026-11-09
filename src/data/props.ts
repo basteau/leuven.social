@@ -595,6 +595,8 @@ export interface Surroundings {
   solid: Shapes;
   /** Rivers, ponds and basins: only monuments stand in them (Fonske, Fiere Margriet). */
   water: Shapes;
+  /** Whether a point lies on the map: nothing stands over the edge of the slab. */
+  inArea: (x: number, z: number) => boolean;
   /** Edges to line up with where no kerb is near: paths, walls, squares, the road's edge. */
   edges: EdgeIndex;
   /** Squares: a bench on one faces into it. */
@@ -776,6 +778,7 @@ export function placeProps(points: readonly PropPoint[], around: Surroundings): 
       )
         return false;
       if (around.solid.touches(room)) return false;
+      if (corners(room).some(([x, z]) => !around.inArea(x, z))) return false;
       if (!monument) {
         for (const [x, z, r] of near(trunks, TRUNK_CELL, room, reach + 3)) {
           if (discInFootprint(room, x, z, r)) return false;

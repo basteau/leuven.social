@@ -542,6 +542,7 @@ const placed = placeProps(
   {
     roads: kerbs,
     cyclePaths,
+    inArea: (x, z) => areaIndex(AREA, x, z) >= 0,
     solid,
     water: pools,
     edges,

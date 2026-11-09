@@ -321,6 +321,7 @@ function street(): Surroundings {
     edges,
     squares,
     trunks: [[-40, -4, 0.5]],
+    inArea: () => true,
   };
 }
 
@@ -589,4 +590,19 @@ test('a rack keeps off a cycle path OSM alone maps, and on its side of it', () =
 
 test('a path strip is a rectangle over each stretch, none for a repeated point', () => {
   expect(pathStrip([0, 0, 10, 0, 10, 0], 2)).toEqual([[0, 1, 10, 1, 10, -1, 0, -1]]);
+});
+
+test('nothing stands over the edge of the map', () => {
+  const s = street();
+  s.inArea = (x) => x < 50;
+  const inside = placeProps([point(49.7, -4, { ...RACK, capacity: '2' })], s);
+  const rack = propFootprint(inside.props[0]!);
+  // Its footprint keeps clear of the edge, however near it was mapped.
+  expect(rack.x).toBeLessThan(50 + rack.u0);
+  // Nowhere to go past it: a rack squeezed against the edge goes.
+  const squeezed = placeProps([point(49.7, -4, { ...RACK, capacity: '2' })], {
+    ...s,
+    inArea: () => false,
+  });
+  expect(squeezed.props).toEqual([]);
 });
