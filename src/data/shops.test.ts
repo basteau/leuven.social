@@ -112,6 +112,12 @@ test('placePoints finds places by their building or the site they stand on', () 
     { x: 25, z: 5, tags: {}, kind: 'university', building: 1 },
     { x: 45, z: 5, tags: {}, kind: 'university', building: 2 },
   ]);
+  // A building's own amenity says it too, before the site round it.
+  const doctor = placePoints(
+    [{ ring: big(20), kind: 'other', tag: 'yes', amenity: 'doctors' }],
+    [{ kind: 'university', ring: rect(15, -5, 40, 40) }],
+  );
+  expect(doctor[0]!.kind).toBe('clinic');
 });
 
 test('a building with a front shows its main one and becomes a shop, unless a church', () => {

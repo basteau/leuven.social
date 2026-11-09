@@ -14,6 +14,7 @@ import {
   addFlags,
   addHangings,
   addMarquee,
+  addMedallion,
   addSign,
   bar,
   disc,
@@ -101,8 +102,8 @@ test('a bar runs between its ends, as wide as asked; a disc is a ring of corners
   for (const [, y, z] of d) expect(Math.hypot(-z - 1, y - 2)).toBeCloseTo(0.5);
 });
 
-test('every shop but a counter has a sign; a greengrocer’s and a florist’s goods say it', () => {
-  const none = new Set<ShopKind>(['service', 'greengrocer', 'florist', 'hairdresser']);
+test('every shop has a sign but those whose goods or pole say it', () => {
+  const none = new Set<ShopKind>(['greengrocer', 'florist', 'hairdresser']);
   for (const kind of SHOP_KINDS) {
     if (PLACES.has(kind)) continue;
     const mesh = new MeshBuilder();
@@ -145,6 +146,20 @@ test('the signs are a few dozen to a few hundred vertices each', () => {
     restaurant: 112,
     school: 20 + 30 + 24 + 24 + 24 + 12 + 6,
   });
+});
+
+test('every kind’s symbol is cheap: about 110 vertices on average', () => {
+  const sizes = SHOP_KINDS.filter((k) => !PLACES.has(k)).map(
+    (kind) => built((m) => addSign(m, f, kind, 3.6)).length,
+  );
+  const drawn = sizes.filter((n) => n > 0);
+  expect(drawn.reduce((a, b) => a + b, 0) / drawn.length).toBeLessThan(200);
+});
+
+test('a public place without a door of its own has a medallion, and no flag', () => {
+  const quiet = built((m) => addMedallion(m, f, 'dorm', 3.6));
+  expect(quiet.length).toBeGreaterThan(150);
+  expect(span(quiet, 1)[1]).toBeLessThan(6);
 });
 
 test('a barber’s pole stands by the wall, its bands winding, its foot over the walker', () => {

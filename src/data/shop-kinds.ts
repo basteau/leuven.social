@@ -48,13 +48,62 @@ export const SHOP_KINDS = [
   'hospital',
   /** Sports halls and centres. */
   'sports',
+  // More shops, each with a sign of its own instead of the catch-all's (`PLACES` names the rest).
+  /** Gifts, souvenirs and second-hand knick-knacks. */
+  'gift',
+  /** Galleries, antiques, picture framers. */
+  'art',
+  /** Furniture and things for the home. */
+  'home',
+  /** Beauty salons, cosmetics, massage, tattoos. */
+  'beauty',
+  'optician',
+  'laundry',
+  /** Mobile phones and their contracts. */
+  'phone',
+  /** Electronics, computers, photo. */
+  'electronics',
+  'travel',
+  /** DIY, keys, repairs, what a handyman buys. */
+  'hardware',
+  'copyshop',
+  'music',
+  /** Toys, games, hobbies, babies' things. */
+  'toys',
+  /** Sports gear and outdoor clothes (the place `sports` is a hall). */
+  'sportshop',
+  /** A drugstore or medical supplier, not a pharmacy. */
+  'drugstore',
+  /** Kiosks, tobacco, tickets, lottery. */
+  'kiosk',
+  // And more public places.
+  /** Doctors and dentists: a sign, no flag. */
+  'clinic',
+  /** Churches and chapels: a sign, no flag. */
+  'worship',
+  /** The town hall, the courthouse, community centres, public buildings. */
+  'civic',
+  /** Student residences, the kots. A sign, no flag. */
+  'dorm',
 ] as const;
 export type ShopKind = (typeof SHOP_KINDS)[number];
 
 /** The public places among the kinds: a sign by the door, no shop window, no awning. */
-export const PLACES: ReadonlySet<ShopKind> = new Set(
-  SHOP_KINDS.slice(SHOP_KINDS.indexOf('university')),
-);
+export const PLACES: ReadonlySet<ShopKind> = new Set<ShopKind>([
+  'university',
+  'school',
+  'hotel',
+  'museum',
+  'library',
+  'cinema',
+  'theatre',
+  'hospital',
+  'sports',
+  'clinic',
+  'worship',
+  'civic',
+  'dorm',
+]);
 
 /** A frituur's `cuisine`: one of these among its `;`-separated values. */
 const FRIES = /(^|;)\s*(friture|fries|frieten|frites)\s*(;|$)/i;
@@ -94,7 +143,9 @@ const BY_SHOP: Record<string, ShopKind> = {
   seafood: 'food',
   farm: 'greengrocer',
   // A drugstore (Kruidvat), not a pharmacy: no green cross.
-  chemist: 'shop',
+  chemist: 'drugstore',
+  medical_supply: 'drugstore',
+  hearing_aids: 'drugstore',
   books: 'books',
   stationery: 'books',
   comics: 'books',
@@ -108,16 +159,76 @@ const BY_SHOP: Record<string, ShopKind> = {
   bicycle: 'bicycle',
   hairdresser: 'hairdresser',
   barber: 'hairdresser',
-  beauty: 'service',
-  optician: 'service',
-  mobile_phone: 'service',
-  telecommunication: 'service',
-  travel_agency: 'service',
-  laundry: 'service',
-  dry_cleaning: 'service',
-  tattoo: 'service',
-  massage: 'service',
-  copyshop: 'service',
+  beauty: 'beauty',
+  cosmetics: 'beauty',
+  perfumery: 'beauty',
+  massage: 'beauty',
+  tattoo: 'beauty',
+  piercing: 'beauty',
+  optician: 'optician',
+  laundry: 'laundry',
+  dry_cleaning: 'laundry',
+  ironingshop: 'laundry',
+  mobile_phone: 'phone',
+  telecommunication: 'phone',
+  gps_and_communication: 'phone',
+  electronics: 'electronics',
+  computer: 'electronics',
+  hifi: 'electronics',
+  photo: 'electronics',
+  travel_agency: 'travel',
+  copyshop: 'copyshop',
+  printing: 'copyshop',
+  gift: 'gift',
+  craft: 'gift',
+  charity: 'gift',
+  second_hand: 'gift',
+  art: 'art',
+  antiques: 'art',
+  frame: 'art',
+  furniture: 'home',
+  interior_decoration: 'home',
+  houseware: 'home',
+  household: 'home',
+  kitchen: 'home',
+  bathroom_furnishing: 'home',
+  bed: 'home',
+  curtain: 'home',
+  lighting: 'home',
+  home_decoration: 'home',
+  flooring: 'hardware',
+  doityourself: 'hardware',
+  hardware: 'hardware',
+  locksmith: 'hardware',
+  keys: 'hardware',
+  glaziery: 'hardware',
+  glass_design: 'hardware',
+  repair: 'hardware',
+  shoe_repair: 'hardware',
+  tool_hire: 'hardware',
+  car: 'hardware',
+  car_repair: 'hardware',
+  motorcycle: 'hardware',
+  music: 'music',
+  musical_instrument: 'music',
+  toys: 'toys',
+  games: 'toys',
+  hobby: 'toys',
+  baby_goods: 'toys',
+  sports: 'sportshop',
+  outdoor: 'sportshop',
+  kiosk: 'kiosk',
+  tobacco: 'kiosk',
+  ticket: 'kiosk',
+  lottery: 'kiosk',
+  bookmaker: 'kiosk',
+  'e-cigarette': 'kiosk',
+  fabric: 'fashion',
+  sewing: 'fashion',
+  tailor: 'fashion',
+  leather: 'fashion',
+  estate_agent: 'service',
+  funeral_directors: 'service',
 };
 
 /** `shop` values that mean no shop is open there. */
@@ -140,13 +251,36 @@ export function shopKind(tags: Tags): ShopKind | null {
   }
   const kind = lookup(BY_AMENITY, amenity);
   if (kind) return kind;
-  if (shop !== undefined && !CLOSED.has(shop)) return lookup(BY_SHOP, shop) ?? 'shop';
+  // A `shop` listing several (`home_decoration;linen`) is its first.
+  const value = shop?.split(';')[0]?.trim();
+  if (value !== undefined && !CLOSED.has(value)) return lookup(BY_SHOP, value) ?? 'shop';
   if (craft === 'bakery' || craft === 'confectionery') return 'bakery';
   return null;
 }
 
 /** Public places by OSM's `amenity`, `tourism`, `leisure` or `building` value. */
 const BY_PLACE: Record<string, ShopKind> = {
+  place_of_worship: 'worship',
+  church: 'worship',
+  chapel: 'worship',
+  townhall: 'civic',
+  courthouse: 'civic',
+  public_building: 'civic',
+  public: 'civic',
+  civic: 'civic',
+  government: 'civic',
+  government_office: 'civic',
+  community_centre: 'civic',
+  events_venue: 'civic',
+  arts_centre: 'civic',
+  social_facility: 'civic',
+  police: 'civic',
+  fire_station: 'civic',
+  post_office: 'civic',
+  dormitory: 'dorm',
+  doctors: 'clinic',
+  dentist: 'clinic',
+  clinic: 'clinic',
   university: 'university',
   college: 'university',
   school: 'school',
@@ -169,7 +303,11 @@ const BY_PLACE: Record<string, ShopKind> = {
  * `amenity` first, then `tourism`, `leisure`, and the `building` value. Null for none.
  */
 export function placeKind(tags: Tags): ShopKind | null {
-  for (const key of ['amenity', 'tourism', 'leisure', 'building']) {
+  // Worship with a religion of its own has no sign of ours to say so: a cross would be wrong.
+  if (tags.amenity === 'place_of_worship' && (tags.religion ?? 'christian') !== 'christian') {
+    return null;
+  }
+  for (const key of ['amenity', 'tourism', 'leisure', 'building', 'office']) {
     const kind = lookup(BY_PLACE, tags[key]);
     if (kind) return kind;
   }
@@ -196,6 +334,22 @@ const PRIORITY: readonly ShopKind[] = [
   'bank',
   'greengrocer',
   'florist',
+  'drugstore',
+  'optician',
+  'beauty',
+  'phone',
+  'electronics',
+  'laundry',
+  'hardware',
+  'music',
+  'toys',
+  'gift',
+  'art',
+  'sportshop',
+  'home',
+  'travel',
+  'copyshop',
+  'kiosk',
   'hairdresser',
   'service',
   'shop',
@@ -203,12 +357,16 @@ const PRIORITY: readonly ShopKind[] = [
   'university',
   'school',
   'hospital',
+  'clinic',
   'library',
   'museum',
   'theatre',
   'cinema',
   'hotel',
   'sports',
+  'civic',
+  'worship',
+  'dorm',
 ];
 
 /** Where a kind stands in that order: a building's main front is the one ranked first. */

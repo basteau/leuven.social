@@ -162,8 +162,25 @@ const BOARDED = new Set<ShopKind>([
   'food',
   'restaurant',
   'shop',
+  'service',
   'library',
   'hospital',
+  'gift',
+  'art',
+  'home',
+  'beauty',
+  'optician',
+  'laundry',
+  'phone',
+  'electronics',
+  'travel',
+  'hardware',
+  'copyshop',
+  'music',
+  'toys',
+  'sportshop',
+  'drugstore',
+  'kiosk',
 ]);
 
 /** A book lying open, its pages over its cover, in the sign's plane. 96 vertices. */
@@ -179,6 +196,38 @@ const cross: Symbol = (mesh, f, y, _canvas, stripe) => {
   box(mesh, f, [-0.06, 0.06], [MID - 0.12, MID + 0.12], [y - 0.36, y + 0.36], stripe);
   box(mesh, f, [-0.06, 0.06], [MID - 0.36, MID + 0.36], [y - 0.12, y + 0.12], stripe);
 };
+
+/** A ball in `canvas`, its seams in `stripe`: a sports hall's, or a sports shop's. */
+const ball: Symbol = (mesh, f, y, canvas, stripe) => {
+  disc(mesh, f, 0.08, [MID, y], 0.3, 8, canvas);
+  bar(mesh, f, 0.09, [MID - 0.3, y], [MID + 0.3, y], 0.03, stripe);
+  bar(mesh, f, 0.09, [MID, y - 0.3], [MID, y + 0.3], 0.03, stripe);
+};
+
+/** A rectangle in the sign's plane. 24 vertices. */
+function rect(
+  mesh: MeshBuilder,
+  f: Frame,
+  half: number,
+  v0: number,
+  v1: number,
+  y0: number,
+  y1: number,
+  color: number,
+): void {
+  slab(
+    mesh,
+    f,
+    [-half, half],
+    [
+      [v0, y0],
+      [v1, y0],
+      [v1, y1],
+      [v0, y1],
+    ],
+    color,
+  );
+}
 
 const SYMBOLS: Partial<Record<ShopKind, Symbol>> = {
   // A paper cone of fries, three standing out of it.
@@ -298,19 +347,282 @@ const SYMBOLS: Partial<Record<ShopKind, Symbol>> = {
     layer(y - 0.05, y, 0.25, LETTUCE);
     layer(y, y + 0.16, 0.23, WAFFLE, 0.6);
   },
-  // A paper shopping bag with its handle.
-  shop: (mesh, f, y) => {
-    box(mesh, f, [-0.07, 0.07], [MID - 0.16, MID + 0.16], [y - 0.28, y + 0.08], PAPER);
+  // A shopping bag: wider at the top than a paper square, a band of the shop's colour across
+  // it, and a tall dark handle over it, so the catch-all doesn't read as a blank board.
+  shop: (mesh, f, y, canvas) => {
+    slab(
+      mesh,
+      f,
+      [-0.08, 0.08],
+      [
+        [MID - 0.24, y + 0.04],
+        [MID + 0.24, y + 0.04],
+        [MID + 0.18, y - 0.34],
+        [MID - 0.18, y - 0.34],
+      ],
+      PAPER,
+    );
+    bar(mesh, f, 0.09, [MID - 0.2, y - 0.14], [MID + 0.2, y - 0.14], 0.11, canvas);
     for (const s of [-1, 1]) {
-      bar(mesh, f, 0.03, [MID + s * 0.09, y + 0.08], [MID + s * 0.07, y + 0.2], 0.03, PROPS.iron);
+      bar(mesh, f, 0.04, [MID + s * 0.14, y + 0.04], [MID + s * 0.14, y + 0.29], 0.05, PROPS.iron);
     }
-    bar(mesh, f, 0.03, [MID - 0.08, y + 0.19], [MID + 0.08, y + 0.19], 0.03, PROPS.iron);
+    bar(mesh, f, 0.04, [MID - 0.14, y + 0.27], [MID + 0.14, y + 0.27], 0.05, PROPS.iron);
   },
-  // A yellow pencil, hanging point down: its eraser, the band and the sharpened wood.
-  school: (mesh, f, y, canvas) => {
+  // A desk bell for a counter (an estate agent, an undertaker): a dome, its button and a base.
+  service: (mesh, f, y) => {
+    slab(
+      mesh,
+      f,
+      [-0.09, 0.09],
+      [
+        [MID - 0.28, y - 0.17],
+        [MID + 0.28, y - 0.17],
+        [MID + 0.2, y + 0.05],
+        [MID, y + 0.15],
+        [MID - 0.2, y + 0.05],
+      ],
+      GOLD,
+    );
+    bar(mesh, f, 0.05, [MID, y + 0.15], [MID, y + 0.26], 0.05, DARK_GOLD);
+    bar(mesh, f, 0.1, [MID - 0.32, y - 0.22], [MID + 0.32, y - 0.22], 0.1, PROPS.iron);
+  },
+  // A wrapped box: ribbon round it both ways, and a bow on top.
+  gift: (mesh, f, y, canvas) => {
+    rect(mesh, f, 0.08, MID - 0.27, MID + 0.27, y - 0.33, y + 0.08, PAPER);
+    bar(mesh, f, 0.09, [MID, y - 0.33], [MID, y + 0.08], 0.1, canvas);
+    bar(mesh, f, 0.09, [MID - 0.27, y - 0.13], [MID + 0.27, y - 0.13], 0.1, canvas);
+    for (const s of [-1, 1]) disc(mesh, f, 0.08, [MID + s * 0.1, y + 0.2], 0.11, 6, canvas);
+  },
+  // A gilt frame round a little landscape.
+  art: (mesh, f, y) => {
+    rect(mesh, f, 0.08, MID - 0.32, MID + 0.32, y - 0.3, y + 0.3, DARK_GOLD);
+    rect(mesh, f, 0.09, MID - 0.25, MID + 0.25, y - 0.23, y + 0.23, PAPER);
+    slab(
+      mesh,
+      f,
+      [-0.1, 0.1],
+      [
+        [MID - 0.25, y - 0.23],
+        [MID + 0.25, y - 0.23],
+        [MID + 0.06, y + 0.08],
+      ],
+      LETTUCE,
+    );
+    disc(mesh, f, 0.1, [MID - 0.12, y + 0.1], 0.07, 6, ORANGE);
+  },
+  // A table lamp: its shade, a stem and a foot.
+  home: (mesh, f, y) => {
+    slab(
+      mesh,
+      f,
+      [-0.09, 0.09],
+      [
+        [MID - 0.28, y - 0.06],
+        [MID + 0.28, y - 0.06],
+        [MID + 0.17, y + 0.34],
+        [MID - 0.17, y + 0.34],
+      ],
+      PAPER,
+    );
+    bar(mesh, f, 0.05, [MID, y - 0.06], [MID, y - 0.3], 0.07, GOLD);
+    bar(mesh, f, 0.09, [MID - 0.17, y - 0.33], [MID + 0.17, y - 0.33], 0.08, GOLD);
+  },
+  // A lipstick: its dark case, a gold band and the bullet, cut at an angle.
+  beauty: (mesh, f, y) => {
+    rect(mesh, f, 0.09, MID - 0.12, MID + 0.12, y - 0.4, y - 0.08, GRAPHITE);
+    rect(mesh, f, 0.08, MID - 0.09, MID + 0.09, y - 0.08, y + 0.02, GOLD);
+    slab(
+      mesh,
+      f,
+      [-0.07, 0.07],
+      [
+        [MID - 0.07, y + 0.02],
+        [MID + 0.07, y + 0.02],
+        [MID + 0.07, y + 0.3],
+        [MID - 0.07, y + 0.36],
+      ],
+      KETCHUP,
+    );
+  },
+  // Round glasses: two rings and the bridge between them, seen from the front.
+  optician: (mesh, f, y, canvas) => {
+    for (const s of [-1, 1]) {
+      disc(mesh, f, 0.07, [MID + s * 0.2, y], 0.17, 8, PAPER);
+      disc(mesh, f, 0.09, [MID + s * 0.2, y], 0.1, 8, canvas);
+    }
+    bar(mesh, f, 0.07, [MID - 0.06, y + 0.06], [MID + 0.06, y + 0.06], 0.05, PAPER);
+  },
+  // A washing machine: its white body, the door a dark ring with water in it, a drawer on top.
+  laundry: (mesh, f, y, canvas) => {
+    rect(mesh, f, 0.08, MID - 0.27, MID + 0.27, y - 0.35, y + 0.32, PAPER);
+    disc(mesh, f, 0.09, [MID, y - 0.07], 0.2, 8, GRAPHITE);
+    disc(mesh, f, 0.1, [MID, y - 0.07], 0.13, 8, canvas);
+    bar(mesh, f, 0.09, [MID - 0.2, y + 0.23], [MID + 0.03, y + 0.23], 0.06, STEEL);
+  },
+  // A mobile phone: dark body, a bright screen and a home button.
+  phone: (mesh, f, y) => {
+    rect(mesh, f, 0.08, MID - 0.18, MID + 0.18, y - 0.39, y + 0.39, GRAPHITE);
+    rect(mesh, f, 0.09, MID - 0.14, MID + 0.14, y - 0.25, y + 0.31, STEEL);
+    disc(mesh, f, 0.09, [MID, y - 0.32], 0.05, 4, PAPER);
+  },
+  // A lightning bolt.
+  electronics: (mesh, f, y) => {
+    slab(
+      mesh,
+      f,
+      [-0.09, 0.09],
+      [
+        [MID + 0.12, y + 0.42],
+        [MID - 0.2, y - 0.04],
+        [MID + 0.02, y + 0.06],
+      ],
+      GOLD,
+    );
+    slab(
+      mesh,
+      f,
+      [-0.09, 0.09],
+      [
+        [MID - 0.12, y - 0.42],
+        [MID + 0.2, y + 0.04],
+        [MID - 0.02, y - 0.06],
+      ],
+      GOLD,
+    );
+  },
+  // An aeroplane from above: fuselage, swept wings and a tail, heading up the street.
+  travel: (mesh, f, y) => {
+    bar(mesh, f, 0.09, [MID - 0.41, y], [MID + 0.39, y], 0.11, PAPER);
+    for (const s of [-1, 1]) {
+      slab(
+        mesh,
+        f,
+        [-0.08, 0.08],
+        [
+          [MID - 0.08, y],
+          [MID + 0.13, y],
+          [MID - 0.06, y + s * 0.42],
+          [MID - 0.2, y + s * 0.42],
+        ],
+        PAPER,
+      );
+      slab(
+        mesh,
+        f,
+        [-0.08, 0.08],
+        [
+          [MID - 0.4, y],
+          [MID - 0.3, y],
+          [MID - 0.4, y + s * 0.2],
+        ],
+        PAPER,
+      );
+    }
+  },
+  // A hammer: its head and a wooden handle.
+  hardware: (mesh, f, y) => {
+    bar(mesh, f, 0.06, [MID - 0.24, y - 0.32], [MID + 0.2, y + 0.2], 0.09, PATTY);
+    bar(mesh, f, 0.1, [MID + 0.08, y + 0.37], [MID + 0.34, y + 0.08], 0.17, STEEL);
+  },
+  // A sheet copied onto another: its ghost behind it, and lines of type.
+  copyshop: (mesh, f, y) => {
+    rect(mesh, f, 0.07, MID - 0.2, MID + 0.14, y - 0.3, y + 0.34, STEEL);
+    rect(mesh, f, 0.09, MID - 0.13, MID + 0.21, y - 0.36, y + 0.28, PAPER);
+    for (const dy of [0.12, -0.04, -0.2]) {
+      bar(mesh, f, 0.1, [MID - 0.08, y + dy], [MID + 0.16, y + dy], 0.04, GRAPHITE);
+    }
+  },
+  // A quaver: its head, stem and a flag.
+  music: (mesh, f, y) => {
+    disc(mesh, f, 0.08, [MID - 0.1, y - 0.23], 0.13, 6, PAPER);
+    bar(mesh, f, 0.06, [MID + 0.02, y - 0.2], [MID + 0.02, y + 0.36], 0.06, PAPER);
+    slab(
+      mesh,
+      f,
+      [-0.06, 0.06],
+      [
+        [MID + 0.04, y + 0.36],
+        [MID + 0.26, y + 0.2],
+        [MID + 0.04, y + 0.12],
+      ],
+      PAPER,
+    );
+  },
+  // A teddy's face: two ears, a snout and two eyes.
+  toys: (mesh, f, y) => {
+    for (const s of [-1, 1]) disc(mesh, f, 0.07, [MID + s * 0.2, y + 0.24], 0.11, 5, PATTY);
+    disc(mesh, f, 0.08, [MID, y], 0.27, 6, PATTY);
+    disc(mesh, f, 0.09, [MID, y - 0.09], 0.12, 5, PAPER);
+    for (const s of [-1, 1]) disc(mesh, f, 0.1, [MID + s * 0.1, y + 0.1], 0.04, 3, GRAPHITE);
+  },
+  // A white ball with dark seams on the shop's green.
+  sportshop: (mesh, f, y) => ball(mesh, f, y, PAPER, GRAPHITE),
+  // A capsule, half red and half white, turned across the board.
+  drugstore: (mesh, f, y) => {
+    bar(mesh, f, 0.1, [MID - 0.14, y - 0.12], [MID, y], 0.2, KETCHUP);
+    bar(mesh, f, 0.1, [MID, y], [MID + 0.14, y + 0.12], 0.2, PAPER);
+    disc(mesh, f, 0.1, [MID - 0.2, y - 0.18], 0.1, 6, KETCHUP);
+    disc(mesh, f, 0.1, [MID + 0.2, y + 0.18], 0.1, 6, PAPER);
+  },
+  // A folded newspaper: its headline and columns.
+  kiosk: (mesh, f, y) => {
+    rect(mesh, f, 0.08, MID - 0.27, MID + 0.27, y - 0.34, y + 0.32, PAPER);
+    bar(mesh, f, 0.09, [MID - 0.22, y + 0.2], [MID + 0.22, y + 0.2], 0.09, KETCHUP);
+    for (const dy of [0.04, -0.09, -0.22]) {
+      bar(mesh, f, 0.09, [MID - 0.22, y + dy], [MID + 0.22, y + dy], 0.05, GRAPHITE);
+    }
+  },
+  // A heart: two lobes and its point, in the clinic's red on white.
+  clinic: (mesh, f, y, _canvas, stripe) => {
+    for (const s of [-1, 1]) disc(mesh, f, 0.08, [MID + s * 0.13, y + 0.1], 0.16, 6, stripe);
+    slab(
+      mesh,
+      f,
+      [-0.08, 0.08],
+      [
+        [MID - 0.28, y + 0.03],
+        [MID + 0.28, y + 0.03],
+        [MID, y - 0.34],
+      ],
+      stripe,
+    );
+  },
+  // A gilt cross.
+  worship: (mesh, f, y, _canvas, stripe) => {
+    bar(mesh, f, 0.08, [MID, y - 0.42], [MID, y + 0.42], 0.13, stripe);
+    bar(mesh, f, 0.08, [MID - 0.28, y + 0.14], [MID + 0.28, y + 0.14], 0.13, stripe);
+  },
+  // Leuven's shield, red with a white band across it: the city's own.
+  civic: (mesh, f, y, canvas, stripe) => {
+    slab(
+      mesh,
+      f,
+      [-0.09, 0.09],
+      [
+        [MID - 0.3, y + 0.34],
+        [MID + 0.3, y + 0.34],
+        [MID + 0.3, y - 0.06],
+        [MID, y - 0.38],
+        [MID - 0.3, y - 0.06],
+      ],
+      stripe,
+    );
+    bar(mesh, f, 0.1, [MID - 0.28, y + 0.06], [MID + 0.28, y + 0.06], 0.18, canvas);
+  },
+  // A key, as a kot's: its bow, shank and two teeth.
+  dorm: (mesh, f, y, canvas, stripe) => {
+    disc(mesh, f, 0.08, [MID - 0.2, y + 0.16], 0.16, 8, stripe);
+    disc(mesh, f, 0.1, [MID - 0.2, y + 0.16], 0.08, 6, canvas);
+    bar(mesh, f, 0.09, [MID - 0.1, y + 0.05], [MID + 0.26, y - 0.31], 0.08, stripe);
+    bar(mesh, f, 0.09, [MID + 0.09, y - 0.14], [MID + 0.2, y - 0.03], 0.06, stripe);
+    bar(mesh, f, 0.09, [MID + 0.19, y - 0.24], [MID + 0.3, y - 0.13], 0.06, stripe);
+  },
+  // A pencil, hanging point down, red on the school's yellow: its eraser, the band and the
+  // sharpened wood.
+  school: (mesh, f, y, _canvas, stripe) => {
     prism(mesh, f, [0, MID], [0.08, 0.08], [y + 0.32, y + 0.42], ERASER, 1, 6);
     prism(mesh, f, [0, MID], [0.08, 0.08], [y + 0.25, y + 0.32], STEEL, 1, 6, false);
-    prism(mesh, f, [0, MID], [0.08, 0.08], [y - 0.2, y + 0.25], canvas, 1, 6, false);
+    prism(mesh, f, [0, MID], [0.08, 0.08], [y - 0.2, y + 0.25], stripe, 1, 6, false);
     prism(mesh, f, [0, MID], [0.08, 0.08], [y - 0.2, y - 0.36], LOAF, 0.3, 6, false);
     prism(mesh, f, [0, MID], [0.024, 0.024], [y - 0.36, y - 0.42], GRAPHITE, 0, 6);
   },
@@ -393,12 +705,8 @@ const SYMBOLS: Partial<Record<ShopKind, Symbol>> = {
     bar(mesh, f, 0.13, [MID - 0.14, y - 0.12], [MID, y - 0.22], 0.05, stripe);
     bar(mesh, f, 0.13, [MID, y - 0.22], [MID + 0.14, y - 0.12], 0.05, stripe);
   },
-  // A ball in the sports hall's orange, its seams dark.
-  sports: (mesh, f, y, canvas, stripe) => {
-    disc(mesh, f, 0.08, [MID, y], 0.3, 8, canvas);
-    bar(mesh, f, 0.09, [MID - 0.3, y], [MID + 0.3, y], 0.03, stripe);
-    bar(mesh, f, 0.09, [MID, y - 0.3], [MID, y + 0.3], 0.03, stripe);
-  },
+  // A dark ball on the hall's orange, its seams orange.
+  sports: (mesh, f, y, canvas, stripe) => ball(mesh, f, y, stripe, canvas),
 };
 
 /** A wheel: a ring of six spokeless pieces of dark tyre round its hub. 144 vertices. */
@@ -493,7 +801,8 @@ export function addMedallion(mesh: MeshBuilder, f: Frame, kind: ShopKind, middle
   bar(mesh, g, 0.03, [c - r * 0.4, y + r + 0.1], [c - r * 0.4, y + r * 0.7], 0.05, PROPS.iron);
   const { canvas, stripe = canvas } = FRONTS[kind];
   disc(mesh, g, 0.05, [c, y], r, 16, BRASS);
-  disc(mesh, g, 0.075, [c, y], r * 0.86, 16, canvas);
+  // Thinner than any symbol on it, or a slim one (a cross, a pencil, a book) sinks into the enamel.
+  disc(mesh, g, 0.055, [c, y], r * 0.86, 16, canvas);
   // Each symbol is drawn round the middle of a shop's board, so stand it in the medallion's.
   symbol(mesh, { ...g, ...slide(g, c - MID) }, y, canvas, stripe);
 }

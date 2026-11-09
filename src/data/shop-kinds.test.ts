@@ -29,16 +29,22 @@ test('amenities, shops and crafts map to their kind', () => {
   expect(shopKind({ shop: 'clothes' })).toBe('fashion');
   expect(shopKind({ shop: 'bicycle' })).toBe('bicycle');
   expect(shopKind({ shop: 'hairdresser' })).toBe('hairdresser');
-  expect(shopKind({ shop: 'beauty' })).toBe('service');
+  expect(shopKind({ shop: 'beauty' })).toBe('beauty');
   expect(shopKind({ shop: 'greengrocer' })).toBe('greengrocer');
   expect(shopKind({ shop: 'florist' })).toBe('florist');
   expect(shopKind({ shop: 'books' })).toBe('books');
-  expect(shopKind({ shop: 'gift' })).toBe('shop');
+  expect(shopKind({ shop: 'gift' })).toBe('gift');
+  expect(shopKind({ shop: 'optician' })).toBe('optician');
+  expect(shopKind({ shop: 'mobile_phone' })).toBe('phone');
+  expect(shopKind({ shop: 'doityourself' })).toBe('hardware');
+  // A value listing several is its first; what's unknown is the catch-all's.
+  expect(shopKind({ shop: 'home_decoration;linen' })).toBe('home');
   expect(shopKind({ shop: 'yes' })).toBe('shop');
+  expect(shopKind({ shop: 'something_new' })).toBe('shop');
 });
 
 test('a chemist is not a pharmacy, and vacant shops and other points are none', () => {
-  expect(shopKind({ shop: 'chemist', name: 'Kruidvat' })).toBe('shop');
+  expect(shopKind({ shop: 'chemist', name: 'Kruidvat' })).toBe('drugstore');
   expect(shopKind({ shop: 'vacant' })).toBeNull();
   expect(shopKind({ shop: 'no' })).toBeNull();
   expect(shopKind({ amenity: 'bench' })).toBeNull();
@@ -68,10 +74,24 @@ test('public places by their amenity, tourism, leisure or building value', () =>
   expect(placeKind({})).toBeNull();
 });
 
-test('places come after every shop, and rank after them too', () => {
-  const first = SHOP_KINDS.findIndex((k) => PLACES.has(k));
-  expect(SHOP_KINDS.slice(first).every((k) => PLACES.has(k))).toBe(true);
+test('public places say what they are, a cross only on a church', () => {
+  expect(placeKind({ amenity: 'place_of_worship' })).toBe('worship');
+  expect(placeKind({ amenity: 'place_of_worship', religion: 'christian' })).toBe('worship');
+  expect(placeKind({ building: 'chapel' })).toBe('worship');
+  expect(placeKind({ amenity: 'place_of_worship', religion: 'muslim' })).toBeNull();
+  expect(placeKind({ amenity: 'townhall' })).toBe('civic');
+  expect(placeKind({ office: 'government' })).toBe('civic');
+  expect(placeKind({ amenity: 'doctors' })).toBe('clinic');
+  expect(placeKind({ building: 'dormitory' })).toBe('dorm');
+});
+
+test('places rank after every shop; kinds only ever get added at the end', () => {
   expect(PLACES.has('shop')).toBe(false);
+  expect(PLACES.has('clinic')).toBe(true);
   expect(main(['university', 'service'])).toBe('service');
+  expect(main(['dorm', 'kiosk'])).toBe('kiosk');
   expect(SHOP_KINDS.every((k) => rank(k) >= 0)).toBe(true);
+  // The file stores a kind's place in this list, so the first ones may never move.
+  expect(SHOP_KINDS.slice(0, 5)).toEqual(['frituur', 'cafe', 'bar', 'restaurant', 'snack']);
+  expect(SHOP_KINDS.indexOf('sports')).toBe(26);
 });

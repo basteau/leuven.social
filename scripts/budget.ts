@@ -190,7 +190,9 @@ const BUDGETS: {
     // on a slim post, a public place's door, medallion and flag, the dark at the foot of the walls
     // and the baked light (2.4 KB), asked for.
     // 14.25: the banks of the water and the street trees' pits (0.2 KB).
-    limit: 14.25 * KB,
+    // 15.5: a symbol of its own for 20 more kinds of shop and public place (1 KB), asked for, so
+    // a shop stops reading as a blank board.
+    limit: 15.5 * KB,
     gzip: true,
   },
   // The rooms inside the landmarks, authored by hand, fetched near one.
@@ -219,7 +221,9 @@ const BUDGETS: {
     // 267.5: the engine's additions above, and the city format's new layers (0.3 KB).
     // 269.5: the view's controls on the map, the first minute's coaching and the Go to pill in
     // the shell (1.7 KB), asked for so the map can be learnt without knowing its keys.
-    limit: 269.5 * KB,
+    // 269.75: those 20 kinds' names and colours, which the facade shader needs from the first
+    // frame (0.1 KB).
+    limit: 269.75 * KB,
     gzip: true,
     closure: true,
   },

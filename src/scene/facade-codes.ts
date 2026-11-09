@@ -21,13 +21,15 @@
 
 export const LANCETS = 400;
 export const ORNATE = 600;
+// A shop front's kind is its place in SHOP_KINDS, a hundred per kind: room for 70 kinds between
+// here and AWNING. Places have no front of glass, but they share the numbering.
 export const SHOP_FRONT = 1000;
-export const AWNING = 3000;
-export const ROOF = 5000;
-export const ROOF_FLAT = 5600;
-export const CROWN = 5700;
-export const WALL_PLAIN = 5750;
-export const PANE = 5800;
+export const AWNING = 8000;
+export const ROOF = 10000;
+export const ROOF_FLAT = 10600;
+export const CROWN = 10700;
+export const WALL_PLAIN = 10750;
+export const PANE = 10800;
 
 /** A wall `top` metres high over a shop front of the kind at `kind` in SHOP_KINDS. */
 export const shopFront = (kind: number, top: number): number => SHOP_FRONT + 100 * kind + top;

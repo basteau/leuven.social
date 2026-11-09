@@ -104,3 +104,18 @@ test('a tree on paving stands in a square of soil, a tree on grass does not', ()
     expect(Math.abs(p.getX(i))).toBeLessThanOrEqual(PIT.half + PIT.edge + 1e-6);
   }
 });
+
+test('a tree pit stays off a kerb: laid over the edge of the paving it would hide the line', () => {
+  const trees = [0, 0, 1, 8, 0];
+  const mesh = new MeshBuilder();
+  // A carriageway begins half a metre to the east, inside the pit's square.
+  addTreePits(
+    mesh,
+    trees,
+    5,
+    0.149,
+    () => 0,
+    (x) => (x < 0.5 ? 0.15 : 0.16),
+  );
+  expect(mesh.build().getIndex()?.count ?? 0).toBe(0);
+});

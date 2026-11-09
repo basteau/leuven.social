@@ -134,7 +134,8 @@ export const PIT = { half: 0.8, edge: 0.13, lift: 0.014, soil: 0x5a4432, stone: 
 /**
  * A square of soil with a stone edge round a street tree's foot, wherever the ground under it is
  * paved (a pavement, a square, a road's edge): a tree is planted in something, not stood on the
- * asphalt. `ground` is the ground as drawn, and `layer` how high its top layer lies.
+ * asphalt. `ground` is the ground as drawn, and `layer` how high its top layer lies. Only where
+ * all of it lies on that one layer: a square laid across a kerb would hide it.
  */
 export function addTreePits(
   mesh: MeshBuilder,
@@ -147,7 +148,10 @@ export function addTreePits(
   const up: V3 = [0, 1, 0];
   for (let i = 0; i < trees.length; i += stride) {
     const [x, z] = [trees[i]!, trees[i + 1]!];
-    if (layer(x, z) < hard) continue;
+    const under = layer(x, z);
+    if (under < hard) continue;
+    const r = PIT.half + PIT.edge;
+    if (![-r, r].every((dx) => [-r, r].every((dz) => layer(x + dx, z + dz) === under))) continue;
     const y = ground(x, z) + PIT.lift;
     const square = (half: number, color: number, over = 0) =>
       mesh.quad(

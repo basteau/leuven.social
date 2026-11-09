@@ -10,6 +10,7 @@ import { MeshBuilder } from './mesh-builder.ts';
 import { CAFE_TABLE } from '../data/shops.ts';
 import { groundFloor } from './signs.ts';
 import {
+  QUIET_PLACES,
   addAwning,
   addBarrel,
   addBuckets,
@@ -180,8 +181,18 @@ test("a cell's fronts: awnings stop short of each other and the corners, signs h
   expect([mesh.lift, awnings.lift]).toEqual([7, 0]);
 });
 
+test('a doctor’s, a church or a student residence has its medallion, no flag', () => {
+  for (const kind of QUIET_PLACES) {
+    const { points } = built((m) =>
+      addStorefronts(m, new MeshBuilder(), [{ building, front: front(kind) }], kit, ground),
+    );
+    expect(points.length).toBeGreaterThan(100);
+    expect([kind, Math.max(...points.map(([, y]) => y!)) < 15]).toEqual([kind, true]);
+  }
+});
+
 test('a public place says what it is: its door, its medallion, a flag over its eaves', () => {
-  for (const kind of PLACES) {
+  for (const kind of [...PLACES].filter((k) => !QUIET_PLACES.has(k))) {
     const { points } = built((m) =>
       addStorefronts(m, new MeshBuilder(), [{ building, front: front(kind) }], kit, ground),
     );

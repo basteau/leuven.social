@@ -9,6 +9,7 @@
 
 import { pointInRing } from '../src/data/geometry.ts';
 import { unpackCity } from '../src/data/format.ts';
+import { RingIndex, Shapes, onDrawnRoad, propFootprint } from '../src/data/props.ts';
 import { frontPoint } from '../src/data/shops.ts';
 import { PLACES } from '../src/data/shop-kinds.ts';
 
@@ -50,6 +51,11 @@ const roads = new Index(
   city.carriageways.filter((c) => c.kind === 'main' || c.kind === 'street').map((c) => c.ring),
 );
 const bridges = new Index(city.bridges);
+// What the map draws as road: not the ground under a square, which is drawn over it.
+const carriageways = new Shapes();
+for (const c of city.carriageways) if (c.kind !== 'pedestrian') carriageways.ring(c.ring);
+const squares = new RingIndex();
+for (const ring of city.plazas) squares.add(ring);
 
 interface Row {
   what: string;
@@ -102,10 +108,18 @@ check(
   (p) => (roads.at(p.x, p.z) >= 0 ? at(p.x, p.z) : null),
 );
 check(
-  'a bike rack on a carriageway',
+  'a bike rack on a carriageway or cycle track, or across a kerb',
   city.props.filter((p) => p.kind === 'bikes'),
-  (p) => (roads.at(p.x, p.z) >= 0 ? at(p.x, p.z) : null),
+  (p) =>
+    onDrawnRoad(propFootprint(p), carriageways, squares) ? `${p.size} ${at(p.x, p.z)}` : null,
 );
+for (const kind of ['bench', 'shelter', 'busstop'] as const) {
+  check(
+    `a ${kind} on a carriageway or cycle track`,
+    city.props.filter((p) => p.kind === kind),
+    (p) => (onDrawnRoad(propFootprint(p), carriageways, squares) ? at(p.x, p.z) : null),
+  );
+}
 
 const trees = Array.from({ length: city.treeHeights.length }, (_, i) => ({
   x: city.trees[i * 2]!,
