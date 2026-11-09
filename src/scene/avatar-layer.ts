@@ -87,7 +87,7 @@ const DETOUR = 80;
 /** A spot picked on the full map goes to the street within this of it (m). */
 const NAVIGATE_SNAP = 30;
 /** A walk across town is at most this many legs, and a leg ends within this of its end (m). */
-const MAX_LEGS = 16;
+const MAX_LEGS = 40;
 const LEG_ARRIVED = 4;
 /** A tap that touches the avatar within this of its feet (m) stops it where it is. */
 const ON_AVATAR = 1;
@@ -868,9 +868,9 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     const { to, leg, legs } = trip;
     trip = null;
     const w = avatar.walker;
-    if (legs < MAX_LEGS && Math.hypot(w.x - leg[0], w.z - leg[1]) < LEG_ARRIVED) {
-      headFor(...to, legs + 1);
-    }
+    if (Math.hypot(w.x - leg[0], w.z - leg[1]) >= LEG_ARRIVED) return;
+    if (legs < MAX_LEGS) headFor(...to, legs + 1);
+    else refuse(...to, 'far');
   }
 
   /** In a room: out through its door, and on to `at` once outside. */
