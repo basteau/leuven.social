@@ -251,7 +251,9 @@ void wallSurface(inout vec3 albedo, vec3 base, inout vec3 glowEmit) {
   // Where this house starts against the one next door: a zinc downpipe down the join, strapped
   // to the wall every 2.4 m, and a line of its shade beside it, so the change of house reads as
   // something built, not a seam in the paint. Gone before it is thinner than a pixel.
-  float fromJoin = mod(vBay, ${f(BAYS_PER_PAGE)}) * size.x;
+  // Metres along the wall from the join: vJoin runs 1 to 0 over the wall as vBay runs over its
+  // bays, so their rates give the bays' count without wrapping at a page of bay numbers.
+  float fromJoin = (1.0 - vJoin) * fwidth(vBay) / max(fwidth(vJoin), 1e-6) * size.x;
   float pipe = step(0.5, vJoin) * step(0.0, p.y);
   float pipeFine = 1.0 - smoothstep(0.045, 0.08, pixel);
   albedo *= 1.0 - 0.22 * pipe * step(0.09, fromJoin) * step(fromJoin, 0.16) * pipeFine;
