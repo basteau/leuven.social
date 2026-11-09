@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import { normalizeRing } from './geometry.ts';
 import { RingIndex } from './props.ts';
-import { LEG, Router, clearLine, legsToward } from './route.ts';
+import { LEG, ROUTE_REACH, Router, TAP_REACH, clearLine, legsToward } from './route.ts';
 import { bridgeParapets } from './structures.ts';
 import { WalkGrid } from './walkable.ts';
 import { town } from './walkable.fixture.ts';
@@ -79,19 +79,20 @@ describe('Router', () => {
     expect(Array.from(router.route(15.1, 45.1, 15.6, 45.6)!)).toHaveLength(4);
   });
 
-  test('refuses routes longer than a view', () => {
+  test('reaches as far as a tap goes, and no further', () => {
     const long = new WalkGrid({
-      area: [{ minX: 0, minZ: 0, maxX: 700, maxZ: 20 }],
-      bounds: { minX: 0, minZ: 0, maxX: 700, maxZ: 20 },
-      roads: [Float32Array.of(0, 5, 700, 5, 700, 15, 0, 15)],
+      area: [{ minX: 0, minZ: 0, maxX: 1000, maxZ: 20 }],
+      bounds: { minX: 0, minZ: 0, maxX: 1000, maxZ: 20 },
+      roads: [Float32Array.of(0, 5, 1000, 5, 1000, 15, 0, 15)],
       plazas: [],
       paths: [],
       buildings: [],
       tanks: [],
     });
     const far = new Router(long);
-    expect(far.route(5, 10, 695, 10)).toBeNull();
-    expect(far.route(5, 10, 300, 10)).not.toBeNull();
+    const furthest = 100 + ROUTE_REACH + TAP_REACH;
+    expect(far.route(100, 10, furthest, 10)).not.toBeNull();
+    expect(far.route(100, 10, 900, 10)).toBeNull();
   });
 });
 

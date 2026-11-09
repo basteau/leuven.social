@@ -1,6 +1,6 @@
 /**
- * Routes across the walk grid: A* over its cells, kept to a window around both ends so a
- * click costs a few milliseconds, then pulled taut into a handful of straight legs.
+ * Routes across the walk grid: A* over its cells, kept to a window around both ends so even the
+ * furthest click costs tens of milliseconds, then pulled taut into a handful of straight legs.
  */
 
 import { WALK_CELL } from './walkable.ts';
@@ -12,10 +12,14 @@ export type RouteGrid = Pick<
   'cols' | 'rows' | 'cellAt' | 'centre' | 'open' | 'walkable' | 'nearest' | 'around'
 >;
 
+/** The furthest a tap sends the avatar (m): it walks there, never jumps. */
+export const ROUTE_REACH = 625;
+/** How far the open ground a tap means may lie from where it lands (m). */
+export const TAP_REACH = 8;
 /** How far past the box around both ends a route may wander (m). */
 const MARGIN = 60;
-/** Largest window side, in cells: routes stay within what a view at walking zoom shows. */
-const MAX_WINDOW = 480;
+/** Largest window side, in cells: the furthest tap, either end a little off, and the margins. */
+const MAX_WINDOW = Math.ceil((ROUTE_REACH + 2 * TAP_REACH + 2 * MARGIN) / WALK_CELL);
 /** Extra cost of a step next to a wall or kerb, so routes keep off the facades. */
 const EDGE_COST = 0.7;
 /** How far a straight leg must stay clear of closed cells on either side (m). */

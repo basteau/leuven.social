@@ -23,7 +23,7 @@ import type { City } from '../data/city.ts';
 import { DOOR_HALF } from '../data/room-grid.ts';
 import type { Room } from '../data/rooms.ts';
 import type { Presence } from '../data/presence.ts';
-import { Router, legsToward } from '../data/route.ts';
+import { ROUTE_REACH, Router, TAP_REACH, legsToward } from '../data/route.ts';
 import type { Terrain } from '../data/terrain.ts';
 import { WalkGrid } from '../data/walkable.ts';
 import { avatarState, createAvatar, stepAvatar } from './avatar.ts';
@@ -79,9 +79,7 @@ import { STEP, followRoute, runBlend } from './walker.ts';
  * walker.ts, the grids and routes); this is the glue.
  */
 
-/** How far the open ground a tap means may lie from where it lands (m), and how many places
- * round it are tried before it's refused. */
-const TAP_REACH = 8;
+/** How many places round a tap's spot are tried before it's refused. */
 const TRIES = 8;
 /** A tap this far off (m) that no route reaches is a long way round: too far, not nowhere. */
 const DETOUR = 80;
@@ -105,8 +103,6 @@ const BESIDE_REACH = 60;
 const ON_GROUND = 0.4;
 /** Everyone starts on Grote Markt within this of its middle (m), so nobody stands on anyone. */
 const SPAWN_SPREAD = 9;
-/** A tap further than this from the avatar (m) is too far to go to: it walks, never jumps. */
-const ROUTE_REACH = 250;
 /** A place chosen from the menu brings the camera at least this close (zoom). */
 const PLACE_ZOOM = 8;
 /** A refused spot: its greyed marker shakes and goes over this long (s). */
