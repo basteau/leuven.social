@@ -298,7 +298,10 @@ export class MeshBuilder {
     facade: number | V3 = 0,
     bays: V3 = NO_BAYS,
   ): void {
-    const [fa, fb, fc] = typeof facade === 'number' ? [facade, facade, facade] : facade;
+    const one = typeof facade === 'number';
+    const fa = one ? facade : facade[0];
+    const fb = one ? facade : facade[1];
+    const fc = one ? facade : facade[2];
     if (this.drape) {
       const ring = [
         [...a, fa],
@@ -311,8 +314,12 @@ export class MeshBuilder {
     const flip = this.#face(a, b, c, hint);
     if (!flip) return;
     this.#color = color;
-    const [ba, bb, bc] = bays;
-    this.#triangle(this.#vertex(a, fa, ba), this.#vertex(b, fb, bb), this.#vertex(c, fc, bc), flip);
+    this.#triangle(
+      this.#vertex(a, fa, bays[0]),
+      this.#vertex(b, fb, bays[1]),
+      this.#vertex(c, fc, bays[2]),
+      flip,
+    );
   }
 
   /**
@@ -329,7 +336,11 @@ export class MeshBuilder {
     facade: number | readonly [number, number, number, number] = 0,
     bays: readonly [number, number, number, number] = NO_QUAD_BAYS,
   ): void {
-    const [fa, fb, fc, fd] = typeof facade === 'number' ? [facade, facade, facade, facade] : facade;
+    const one = typeof facade === 'number';
+    const fa = one ? facade : facade[0];
+    const fb = one ? facade : facade[1];
+    const fc = one ? facade : facade[2];
+    const fd = one ? facade : facade[3];
     if (this.drape) {
       const ring = [
         [...a, fa],
@@ -352,11 +363,10 @@ export class MeshBuilder {
       return;
     }
     this.#color = color;
-    const [ba, bb, bc, bd] = bays;
-    const i = this.#vertex(a, fa, ba);
-    const j = this.#vertex(b, fb, bb);
-    const k = this.#vertex(c, fc, bc);
-    const l = this.#vertex(d, fd, bd);
+    const i = this.#vertex(a, fa, bays[0]);
+    const j = this.#vertex(b, fb, bays[1]);
+    const k = this.#vertex(c, fc, bays[2]);
+    const l = this.#vertex(d, fd, bays[3]);
     this.#triangle(i, j, k, first);
     this.#triangle(i, k, l, second);
   }
