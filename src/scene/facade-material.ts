@@ -206,10 +206,12 @@ export function createFacadeMaterial(
         '#include <lights_fragment_end>',
         `#include <lights_fragment_end>
         #if NUM_DIR_LIGHTS > 0
-        if (abs(vFacade + ${f(SURFACE.water)}) < 0.5) {
+        float inSun = abs(vFacade + ${f(SURFACE.water)}) < 0.5 ? ${f(WATER_SUN)}
+          : abs(vFacade + ${f(SURFACE.slab)}) < 0.5 ? 1.0 : 0.0;
+        if (inSun > 0.0) {
           reflectedLight.directDiffuse = mix(reflectedLight.directDiffuse,
             getGradientIrradiance(geometryNormal, directionalLights[0].direction) *
-            directionalLights[0].color * BRDF_Lambert(material.diffuseColor), ${f(WATER_SUN)});
+            directionalLights[0].color * BRDF_Lambert(material.diffuseColor), inSun);
         }
         #endif`,
       )
@@ -226,7 +228,7 @@ export function createFacadeMaterial(
         #include <opaque_fragment>`,
       );
   };
-  material.customProgramCacheKey = () => 'facade-v16';
+  material.customProgramCacheKey = () => 'facade-v17';
   return material;
 }
 

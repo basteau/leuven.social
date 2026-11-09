@@ -17,7 +17,7 @@ import type { Terrain } from '../data/terrain.ts';
 import { addBuilding, footing } from './buildings.ts';
 import type { PartyWalls } from './buildings.ts';
 import { LANDMARK_MODELS } from './landmark-models.ts';
-import { LAYER_Y, addGround, addKerbs, addSlabInk, slabBottom } from './ground.ts';
+import { LAYER_Y, addGround, addKerbs, addSlabInk, onTheSlab, slabBottom } from './ground.ts';
 import type { Pitch } from './ground.ts';
 import { GROUND_RINGS } from './ground.ts';
 import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
@@ -323,7 +323,7 @@ export function buildCell(
   mesh.drape = lines.drape = terrain;
   addGround(mesh, area, cell.bounds, cell.ground);
   // Track beds are flat ground too, so they join it before the shadow pass's start.
-  addTracks(mesh, cell.rails);
+  onTheSlab(mesh, area, cell.bounds, () => addTracks(mesh, cell.rails));
   mesh.drape = null;
   const trunksFrom = mesh.indices;
   for (let i = 0; i < trees.length; i += TREE_STRIDE) tree(i, ['trunk']);
@@ -369,7 +369,9 @@ export function buildCell(
   mesh.drape = terrain;
   addFinePaint(mesh, cell.ground.markings);
   addFieldLines(mesh, cell.ground.fields);
-  addKerbs(mesh, cell.ground.carriageways, cell.bounds);
+  onTheSlab(mesh, area, cell.bounds, () =>
+    addKerbs(mesh, cell.ground.carriageways, cell.bounds, area),
+  );
   // Last, past what casts shadows: a crown is only what a tap hits now, the leaves drawing the
   // tree and casting its shadow.
   mesh.drape = null;

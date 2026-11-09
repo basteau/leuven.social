@@ -23,6 +23,8 @@ export const SURFACE = {
   water: 7,
   gravel: 8,
   earth: 9,
+  /** The earth sides of the slab: no shadow falls on them, nothing stands against them. */
+  slab: 10,
 } as const;
 
 /**

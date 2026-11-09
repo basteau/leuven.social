@@ -117,6 +117,21 @@ const PITCH_TEXTURE: Record<PitchSurface, number> = {
 };
 
 /**
+ * Runs `add`, what it draws running on past its ends kept on the slab where this cell meets the
+ * edge of the area: a path or a track bed ends square, and would hang over the earth.
+ */
+export function onTheSlab(
+  mesh: MeshBuilder,
+  area: readonly Bounds[],
+  within: Bounds,
+  add: () => void,
+): void {
+  mesh.clipTo = areaOutline(area).some((e) => edgeIn(e, within)) ? area : null;
+  add();
+  mesh.clipTo = null;
+}
+
+/**
  * Paths as flat ribbons along their centre lines. Each segment runs on by half a width at both
  * ends, so bends need no join geometry: the overlaps share a colour and a height.
  */
@@ -207,7 +222,7 @@ function addSide(mesh: MeshBuilder, [x0, z0, x1, z1]: readonly number[], hint: V
     [i * 2, i * 2 + 3, i * 2 + 1],
   ]);
   mesh.drape = null;
-  mesh.polygon(points, faces, GROUND.earth, hint);
+  mesh.polygon(points, faces, GROUND.earth, hint, -SURFACE.slab);
   mesh.drape = terrain;
 }
 
@@ -260,7 +275,7 @@ export function addGround(
   addRings(mesh, layers.parking, LAYER_Y.parking, GROUND.parking, SURFACE.asphalt);
   addRings(mesh, layers.water, LAYER_Y.water, GROUND.water, SURFACE.water);
   // Above the water (footbridges), under the road surfaces that already cover their crossings.
-  addPaths(mesh, layers.paths, LAYER_Y.paths);
+  onTheSlab(mesh, area, within, () => addPaths(mesh, layers.paths, LAYER_Y.paths));
   // Bridge decks: stone slabs over the water, under any road surface that crosses them.
   for (const ring of layers.bridges)
     addRing(mesh, ring, LAYER_Y.bridges, GROUND.bridge, SURFACE.paving);
@@ -270,7 +285,7 @@ export function addGround(
   for (const { kind, surface, ring } of layers.carriageways) {
     addRing(mesh, ring, LAYER_Y.carriageways, carriagewayColor(kind, surface), SURFACE_OF[surface]);
   }
-  addPaint(mesh, layers.markings);
+  onTheSlab(mesh, area, within, () => addPaint(mesh, layers.markings));
   // Squares are paved in setts, like the old streets round them.
   for (const ring of layers.plazas) addRing(mesh, ring, LAYER_Y.plazas, GROUND.plaza, SURFACE.sett);
   // Traffic islands and footway areas in the road: pale slabs, like the pavement.
@@ -284,20 +299,25 @@ export function addGround(
 /** How wide a kerbstone is drawn (m): a little over life, so it stays a line when zoomed in. */
 export const KERB = 0.28;
 
+/** Whether both coordinates lie on this side of a rectangle. */
+const onSide = (a: number, b: number, side: number) =>
+  Math.abs(a - side) < 1e-3 && Math.abs(b - side) < 1e-3;
+
 /** A point's key to the centimetre, so faces that share an edge are seen to. */
 const cm = (x: number, z: number) => `${Math.round(x * 100)},${Math.round(z * 100)}`;
 
 /**
  * The kerbs: a pale stone along every edge of a carriageway, on the pavement's side of it, where
  * the carriageway meets the pavement and not another carriageway (a junction's face, a cycle
- * track's) or the cut of the cell (`within`), so the kerb runs on unbroken from cell to cell
- * and never across the road. Fine detail, drawn after the paint: the viewer leaves it out when
+ * track's), the cut of the cell (`within`) or a side of the area's rectangles, so the kerb runs
+ * on unbroken from cell to cell and never across the road or along the edge of the slab. Fine detail, drawn after the paint: the viewer leaves it out when
  * a pixel is wider than a kerb.
  */
 export function addKerbs(
   mesh: MeshBuilder,
   carriageways: readonly Carriageway[],
   within: Bounds,
+  area: readonly Bounds[] = [],
   y: number = LAYER_Y.kerbs,
 ): void {
   const shared = new Map<string, number>();
@@ -314,6 +334,15 @@ export function addKerbs(
     x >= within.maxX - 1e-3 ||
     z <= within.minZ + 1e-3 ||
     z >= within.maxZ - 1e-3;
+  // Both ends on one side of a rectangle: an edge the clipping to the area made, not a kerb.
+  const onSeam = (ax: number, az: number, bx: number, bz: number) =>
+    area.some(
+      (r) =>
+        onSide(ax, bx, r.minX) ||
+        onSide(ax, bx, r.maxX) ||
+        onSide(az, bz, r.minZ) ||
+        onSide(az, bz, r.maxZ),
+    );
   const straight = Math.sin((4 * Math.PI) / 180);
   for (const { ring } of carriageways) {
     // Which side of its edges the carriageway is on: right of the heading in (x east, z south)
@@ -358,7 +387,8 @@ export function addKerbs(
       const [a, b] = [cm(ax, az), cm(bx, bz)];
       const kerbed =
         (shared.get(a < b ? `${a}>${b}` : `${b}>${a}`) ?? 0) <= 1 &&
-        !(onCut(ax, az) && onCut(bx, bz));
+        !(onCut(ax, az) && onCut(bx, bz)) &&
+        !onSeam(ax, az, bx, bz);
       if (!kerbed) {
         flush();
         continue;

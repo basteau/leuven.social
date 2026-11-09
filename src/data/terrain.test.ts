@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { FLAT, Terrain } from './terrain.ts';
+import { FLAT, Terrain, clipPolygon } from './terrain.ts';
 import type { Corner } from './terrain.ts';
 
 // A 3 × 3 grid of 10 m squares anchored at (-10, -10): a slope up to the east and a bump at
@@ -60,6 +60,20 @@ describe('Terrain', () => {
     expect(hill.range({ minX: -100, minZ: -100, maxX: 100, maxZ: 100 })).toEqual([0, 4]);
     expect(FLAT.range({ minX: 5, minZ: 5, maxX: 6, maxZ: 6 })).toEqual([0, 0]);
   });
+});
+
+test('clipPolygon keeps what is inside a rectangle, each value interpolated', () => {
+  const quad = [
+    [-10, 0, 0, 0],
+    [10, 0, 0, 20],
+    [10, 0, 4, 20],
+    [-10, 0, 4, 0],
+  ];
+  const b = { minX: 0, minZ: -5, maxX: 100, maxZ: 5 };
+  const out = clipPolygon(quad, b);
+  expect(Math.min(...out.map((p) => p[0]!))).toBe(0);
+  expect(out.find((p) => p[0] === 0)?.[3]).toBe(10);
+  expect(clipPolygon(quad, { minX: 50, minZ: 0, maxX: 60, maxZ: 5 })).toHaveLength(0);
 });
 
 describe('clip', () => {

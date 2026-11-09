@@ -10,6 +10,8 @@ import {
   Vector3,
 } from 'three';
 
+import type { Bounds as Rectangle } from '../data/city.ts';
+import { clipPolygon } from '../data/terrain.ts';
 import type { Corner, Polygon, Terrain } from '../data/terrain.ts';
 
 export type V3 = readonly [number, number, number];
@@ -160,6 +162,11 @@ export class MeshBuilder {
    * rigid thing, such as a house, standing at one height.
    */
   drape: Terrain | null = null;
+  /**
+   * With `drape`, the rectangles a convex piece of ground is cut to: for what is drawn running on
+   * past its ends, which would otherwise hang over the edge of the slab.
+   */
+  clipTo: readonly Rectangle[] | null = null;
   #lift = 0;
   /** The lift in LIFT_UNITs, as written into each normal's fourth byte. */
   #liftCode = 0;
@@ -412,7 +419,9 @@ export class MeshBuilder {
     const onGround = (p: Corner): V3 => [p[0]!, p[1]! + terrain.height(p[0]!, p[2]!), p[2]!];
     [this.drape, this.lift] = [null, 0];
     this.#up = hint[0] === 0 && hint[2] === 0 && hint[1] > 0;
-    const pieces = terrain.clip(polygon);
+    const pieces = (
+      this.clipTo?.map((b) => clipPolygon(polygon, b)).filter((p) => p.length > 2) ?? [polygon]
+    ).flatMap((p) => terrain.clip(p));
     if (facade === undefined) {
       for (const piece of pieces) {
         const [p, ...rest] = piece;

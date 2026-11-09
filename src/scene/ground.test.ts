@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { bridgeHoles } from '../data/landcover.ts';
-import { Terrain } from '../data/terrain.ts';
+import { FLAT, Terrain } from '../data/terrain.ts';
 import {
   KERB,
   LAYER_Y,
@@ -9,9 +9,11 @@ import {
   addGround,
   addKerbs,
   addSlabInk,
+  onTheSlab,
   slabBottom,
 } from './ground.ts';
 import { LineBuilder, MeshBuilder, unindexed } from './mesh-builder.ts';
+import { SURFACE } from './paint.ts';
 
 const square = new Float32Array([0, 0, 10, 0, 10, 10, 0, 10]);
 const layers = {
@@ -73,6 +75,26 @@ test('paths are ribbons of their width, running on past their ends', () => {
   );
   expect(Math.min(...xs)).toBeCloseTo(-1);
   expect(Math.max(...xs)).toBeCloseTo(11);
+});
+
+test('a path running off the slab stops at its edge, and only where the cell meets it', () => {
+  const line = new Float32Array([-49, 0, -70, 12]);
+  const paths = [{ width: 4, surface: 'paving' as const, line }];
+  const xsAt = (within: (typeof area)[number]) => {
+    const mesh = new MeshBuilder();
+    mesh.drape = FLAT;
+    addGround(mesh, area, within, { ...layers, plazas: [], paths });
+    const p = unindexed(mesh.build()).getAttribute('position');
+    return Array.from({ length: p.count }, (_, i) => p.getX(i));
+  };
+  expect(Math.min(...xsAt({ minX: -100, minZ: -100, maxX: 100, maxZ: 100 }))).toBeCloseTo(-50);
+  // Well inside the area the ribbon is left as it is, running on past its end.
+  const inner = new MeshBuilder();
+  inner.drape = FLAT;
+  onTheSlab(inner, area, { minX: -10, minZ: -10, maxX: 10, maxZ: 10 }, () =>
+    expect(inner.clipTo).toBeNull(),
+  );
+  expect(inner.clipTo).toBeNull();
 });
 
 test('the road surface carries texture codes, and coarse paint lands on top', () => {
@@ -173,6 +195,16 @@ const slope = new Terrain({
   heights: Float32Array.from({ length: 13 * 17 }, (_, k) => (k % 13) - 6),
 });
 
+test('the sides of the slab carry their own code, so the shader keeps shadows off them', () => {
+  const mesh = new MeshBuilder();
+  addGround(mesh, area, { minX: -100, minZ: -100, maxX: 100, maxZ: 100 }, layers);
+  const g = unindexed(mesh.build({ facade: true }));
+  const [p, f] = [g.getAttribute('position'), g.getAttribute('facade')];
+  const low = Array.from({ length: p.count }, (_, i) => i).filter((i) => p.getY(i) < -1);
+  expect(low.length).toBeGreaterThan(0);
+  for (const i of low) expect(f.getX(i)).toBe(-SURFACE.slab);
+});
+
 test('on the terrain, layers drape over it and the sides hang to a flat underside', () => {
   const mesh = new MeshBuilder();
   mesh.drape = slope;
@@ -256,6 +288,13 @@ test('kerbs run along a carriageway on the pavement side, not across junctions o
     within,
   );
   expect(unindexed(pieces.build()).getAttribute('position').count / 6).toBe(4);
+  // A carriageway clipped to the area has no kerb along the rectangle that cut it: of these four
+  // edges, only the east end lies on no side of it.
+  const seam = new MeshBuilder();
+  addKerbs(seam, [{ ...street, ring: new Float32Array([0, 0, 20, 0, 20, 6, 0, 6]) }], within, [
+    { minX: 0, minZ: 0, maxX: 500, maxZ: 6 },
+  ]);
+  expect(unindexed(seam.build()).getAttribute('position').count / 6).toBe(1);
   // A sliver with no inside gets none.
   const flat = new MeshBuilder();
   addKerbs(flat, [{ ...street, ring: new Float32Array([0, 0, 10, 0, 20, 0]) }], within);

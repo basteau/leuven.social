@@ -179,6 +179,27 @@ function crossing(p: Corner, q: Corner, cp: number, cq: number): Corner {
   return s.map((v, k) => v + (e[k]! - v) * t);
 }
 
+/** `clipRing` for corners that carry values: the part of a flat, convex polygon inside a rectangle. */
+export function clipPolygon(polygon: Polygon, b: Bounds): Polygon {
+  let out = polygon;
+  for (const inside of [
+    (p: Corner) => p[0]! - b.minX,
+    (p: Corner) => b.maxX - p[0]!,
+    (p: Corner) => p[2]! - b.minZ,
+    (p: Corner) => b.maxZ - p[2]!,
+  ]) {
+    const kept: Corner[] = [];
+    for (const [i, p] of out.entries()) {
+      const q = out[(i + 1) % out.length]!;
+      const [dp, dq] = [inside(p), inside(q)];
+      if (dp >= 0) kept.push(p);
+      if (dp >= 0 !== dq >= 0) kept.push(crossing(p, q, dp, dq));
+    }
+    out = kept;
+  }
+  return out;
+}
+
 /**
  * Cuts a polygon along every line where `across` (in steps) is a whole number, adding the pieces
  * to `out`, lowest first: a sweep that keeps what lies below each line and carries the rest on.
