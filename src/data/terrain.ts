@@ -91,11 +91,14 @@ export class Terrain {
     return steepest / this.step;
   }
 
-  /** The lowest ground under a ring's corners (flat [x0, z0, x1, z1, …]): where a rigid thing stands. */
+  /**
+   * The lowest ground under a ring's corners (flat [x0, z0, x1, z1, …]): where a rigid thing stands.
+   * The landform's, never a ramp's: a house beside a cutting doesn't go down into it.
+   */
   base(ring: ArrayLike<number>): number {
     let lowest = Infinity;
     for (let i = 0; i + 1 < ring.length; i += 2) {
-      lowest = Math.min(lowest, this.height(ring[i]!, ring[i + 1]!));
+      lowest = Math.min(lowest, this.plain(ring[i]!, ring[i + 1]!));
     }
     return lowest;
   }

@@ -206,6 +206,13 @@ describe('landform', () => {
     expect(ground.plain(20, 0)).toBe(0);
   });
 
+  test('a building beside a cutting stands on the landform, not down in it', () => {
+    const cutting = { line: Float32Array.of(10, 0, 30, 0), rise: Float32Array.of(-5, -5), half: 3 };
+    const sunk = landform(FLAT_GRID, [cutting], []);
+    expect(sunk.height(20, 0)).toBe(-5);
+    expect(sunk.base([18, 0, 22, 0, 22, 8, 18, 8])).toBe(0);
+  });
+
   test('cuts what lies across a strip along its edges', () => {
     const pieces = ground.clip([
       [15, 0, -10],
