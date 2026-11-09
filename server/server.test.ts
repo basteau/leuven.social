@@ -1,14 +1,39 @@
-import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, setSystemTime, test } from 'bun:test';
 
+import { Database } from 'bun:sqlite';
 import * as account from '../src/net/account.ts';
 import { AccountError } from '../src/net/account.ts';
 import { decodeServerMessage, encodeClientMessage, quantise } from '../src/net/protocol.ts';
 import type { PlayerState, ServerMessage } from '../src/net/protocol.ts';
+import { MailError } from './mail.ts';
+import type { Mailer } from './mail.ts';
 import { clientKey, originMatches, startServer } from './server.ts';
 import { CLOSE_SIGNED_OUT } from './world.ts';
 import type { RunningServer } from './server.ts';
 
 const ORIGIN = 'http://localhost:5173';
+/** Instead of a mail provider: the last code each address got. */
+const inbox = new Map<string, string>();
+const fakeMailer: Mailer = {
+  ready: true,
+  send(to, code) {
+    inbox.set(to, code);
+    return Promise.resolve();
+  },
+};
+const lastCode = (email: string) => {
+  const code = inbox.get(email);
+  if (!code) throw new Error(`no code went to ${email}`);
+  return code;
+};
+/** How far the rate limits' clock is ahead of the real one (ms). */
+let ahead = 0;
+const passTime = (ms: number) => (ahead += ms);
+const SEND_CODE = '/api/auth/email-otp/send-verification-otp';
+const SIGN_IN = '/api/auth/sign-in/email-otp';
+let mailboxes = 0;
+const anAddress = () => `person${++mailboxes}@example.com`;
+
 const here: PlayerState = quantise({
   x: 12,
   z: 34,
@@ -32,6 +57,8 @@ beforeAll(async () => {
     quiet: true,
     tick: 20,
     saveEvery: 50,
+    mailer: fakeMailer,
+    now: () => Date.now() + ahead,
   });
   realFetch = globalThis.fetch;
 });
@@ -140,6 +167,484 @@ class Client {
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Signs the jar in through its email: a new account unless `email` already has one. */
+async function codeIn(jar: Jar, email = anAddress()) {
+  await as(jar, () => account.sendCode(email));
+  return as(jar, () => account.verifyCode(email, lastCode(email)));
+}
+
+describe('signing in with a code', () => {
+  test('a new address gets an account named after its guest, fresh until it says so', async () => {
+    const jar = new Jar();
+    const guest = await as(jar, () => account.me());
+    expect(guest).toMatchObject({ guest: true, mail: true });
+    const me = await codeIn(jar);
+    expect(me.guest).toBe(false);
+    expect(me.fresh).toBe(true);
+    expect(me.name).toBe(guest!.name.replace(' ', ''));
+    const kept = await as(jar, () => account.rename(me.name));
+    expect(kept).toMatchObject({ name: me.name, fresh: false });
+    expect((await as(jar, () => account.me()))?.fresh).toBe(false);
+  });
+
+  test('an address that has an account gets back into it, not fresh', async () => {
+    const email = anAddress();
+    const first = new Jar();
+    const name = (await codeIn(first, email)).name;
+    await as(first, () => account.rename(name));
+    passTime(31_000);
+    const second = new Jar();
+    const me = await codeIn(second, email);
+    expect(me).toMatchObject({ name, fresh: false, guest: false });
+  });
+
+  test('the same address however it is typed', async () => {
+    const jar = new Jar();
+    await postJson(jar, SEND_CODE, { email: '  Case@Example.COM ' });
+    const code = lastCode('case@example.com');
+    const response = await postJson(jar, SIGN_IN, { email: 'CASE@example.com', otp: code });
+    expect(response.status).toBe(200);
+  });
+
+  test('no difference between an address with an account and one without', async () => {
+    const taken = anAddress();
+    await codeIn(new Jar(), taken);
+    passTime(31_000);
+    const known = await postJson(new Jar(), SEND_CODE, { email: taken });
+    const unknown = await postJson(new Jar(), SEND_CODE, { email: anAddress() });
+    expect([known.status, unknown.status]).toEqual([200, 200]);
+    expect(await known.text()).toBe(await unknown.text());
+  });
+
+  test('a body with other fields can’t set the name or the type', async () => {
+    const jar = new Jar();
+    const email = anAddress();
+    await postJson(jar, SEND_CODE, { email, type: 'forget-password' });
+    const response = await postJson(jar, SIGN_IN, {
+      email,
+      otp: lastCode(email),
+      name: 'Chosen',
+      username: 'chosen',
+      image: 'http://evil.example/me.png',
+      fresh: false,
+    });
+    expect(response.status).toBe(200);
+    const me = (await as(jar, () => account.me()))!;
+    expect(me.name).not.toBe('Chosen');
+    expect(me.fresh).toBe(true);
+  });
+
+  test('a wrong code is refused, and the right one still works', async () => {
+    const email = anAddress();
+    const jar = new Jar();
+    await as(jar, () => account.sendCode(email));
+    const right = lastCode(email);
+    const wrong = right === '000000' ? '000001' : '000000';
+    expect(as(jar, () => account.verifyCode(email, wrong))).rejects.toMatchObject({
+      code: 'code',
+      message: 'That code isn’t right. Check the digits, or send a new one.',
+    });
+    await wait(10);
+    const me = await as(jar, () => account.verifyCode(email, right));
+    expect(me.guest).toBe(false);
+  });
+
+  test('a code that isn’t six digits never reaches the check', async () => {
+    const email = anAddress();
+    await postJson(new Jar(), SEND_CODE, { email });
+    for (const otp of ['12345', '1234567', 'abcdef', 123456]) {
+      // oxlint-disable-next-line no-await-in-loop
+      const response = await postJson(new Jar(), SIGN_IN, { email, otp });
+      expect(response.status).toBe(400);
+    }
+    // None of them counted against the real code.
+    expect((await postJson(new Jar(), SIGN_IN, { email, otp: lastCode(email) })).status).toBe(200);
+  });
+
+  test('five wrong tries spend a code; a new one works', async () => {
+    const email = anAddress();
+    await postJson(new Jar(), SEND_CODE, { email });
+    const right = lastCode(email);
+    const wrong = right === '000000' ? '000001' : '000000';
+    for (let i = 0; i < 5; i++) {
+      // oxlint-disable-next-line no-await-in-loop
+      const response = await postJson(new Jar(), SIGN_IN, { email, otp: wrong });
+      expect(response.status).toBe(400);
+    }
+    const spent = await postJson(new Jar(), SIGN_IN, { email, otp: right });
+    expect(spent.status).toBe(403);
+    expect(await spent.json()).toMatchObject({ code: 'TOO_MANY_ATTEMPTS' });
+    passTime(31_000);
+    await postJson(new Jar(), SEND_CODE, { email });
+    expect((await postJson(new Jar(), SIGN_IN, { email, otp: lastCode(email) })).status).toBe(200);
+  });
+
+  test('a code runs out after ten minutes', async () => {
+    const email = anAddress();
+    await postJson(new Jar(), SEND_CODE, { email });
+    const code = lastCode(email);
+    setSystemTime(new Date(Date.now() + 11 * 60 * 1000));
+    try {
+      const late = await postJson(new Jar(), SIGN_IN, { email, otp: code });
+      expect(late.status).toBe(400);
+      expect(await late.json()).toMatchObject({ code: 'OTP_EXPIRED' });
+    } finally {
+      setSystemTime();
+    }
+  });
+
+  test('a new code replaces the last one', async () => {
+    const email = anAddress();
+    await postJson(new Jar(), SEND_CODE, { email });
+    const before = lastCode(email);
+    passTime(31_000);
+    // The newest row wins; in life they're half a minute apart, here a timestamp could tie.
+    await wait(5);
+    await postJson(new Jar(), SEND_CODE, { email });
+    const after = lastCode(email);
+    if (before !== after) {
+      expect((await postJson(new Jar(), SIGN_IN, { email, otp: before })).status).toBe(400);
+    }
+    expect((await postJson(new Jar(), SIGN_IN, { email, otp: after })).status).toBe(200);
+  });
+
+  test('a code is good only once', async () => {
+    const email = anAddress();
+    await postJson(new Jar(), SEND_CODE, { email });
+    const code = lastCode(email);
+    expect((await postJson(new Jar(), SIGN_IN, { email, otp: code })).status).toBe(200);
+    expect((await postJson(new Jar(), SIGN_IN, { email, otp: code })).status).toBe(400);
+  });
+
+  test('an address gets a code every half a minute at most, and says so', async () => {
+    const email = anAddress();
+    expect((await postJson(new Jar(), SEND_CODE, { email })).status).toBe(200);
+    const soon = await postJson(new Jar(), SEND_CODE, { email });
+    expect(soon.status).toBe(429);
+    const body = (await soon.json()) as { code: string; retryAfter: number };
+    expect(body.code).toBe('CODE_ALREADY_SENT');
+    expect(body.retryAfter).toBeGreaterThan(0);
+    expect(body.retryAfter).toBeLessThanOrEqual(30);
+    passTime(31_000);
+    expect((await postJson(new Jar(), SEND_CODE, { email })).status).toBe(200);
+  });
+
+  test('an address gets five codes an hour at most, however many ask', async () => {
+    const email = anAddress();
+    for (let i = 0; i < 5; i++) {
+      // oxlint-disable-next-line no-await-in-loop
+      expect((await postJson(new Jar(), SEND_CODE, { email })).status).toBe(200);
+      passTime(31_000);
+    }
+    const over = await postJson(new Jar(), SEND_CODE, { email });
+    expect(over.status).toBe(429);
+    expect(await over.json()).toMatchObject({ code: 'TOO_MANY_REQUESTS' });
+  });
+
+  test('wrong codes are capped for one address, from anywhere', async () => {
+    const email = anAddress();
+    let last = new Response();
+    for (let i = 0; i < 11; i++) {
+      // oxlint-disable-next-line no-await-in-loop
+      last = await postJson(new Jar(), SIGN_IN, { email, otp: '999999' });
+    }
+    expect(last.status).toBe(429);
+    expect(((await last.json()) as { message: string }).message).toContain('Too many tries');
+    expect((await postJson(new Jar(), SIGN_IN, { email: anAddress(), otp: '999999' })).status).toBe(
+      400,
+    );
+  });
+
+  test('addresses that couldn’t get mail or aren’t addresses are refused plainly', async () => {
+    const refused = await postJson(new Jar(), SEND_CODE, { email: 'old@players.invalid' });
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toMatchObject({ code: 'EMAIL_UNDELIVERABLE' });
+    for (const email of ['not-an-address', `${'a'.repeat(260)}@b.co`, 4, null]) {
+      // oxlint-disable-next-line no-await-in-loop
+      const bad = await postJson(new Jar(), SEND_CODE, { email });
+      expect(bad.status).toBe(400);
+      // oxlint-disable-next-line no-await-in-loop
+      expect(await bad.json()).toMatchObject({ code: 'INVALID_EMAIL' });
+    }
+  });
+
+  test('another site can’t ask for a code', async () => {
+    const response = await realFetch(new URL(SEND_CODE, server.url), {
+      method: 'POST',
+      headers: { origin: 'https://evil.example', 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'x@example.com' }),
+    });
+    expect(response.status).toBe(403);
+  });
+
+  test('the other OTP routes stay closed', async () => {
+    const paths = [
+      'forget-password/email-otp',
+      'email-otp/verify-email',
+      'email-otp/reset-password',
+    ];
+    const answers = await Promise.all(
+      paths.map((p) => postJson(new Jar(), `/api/auth/${p}`, { email: 'a@b.co' })),
+    );
+    expect(answers.map((a) => a.status)).toEqual([404, 404, 404]);
+  });
+
+  test('a taken name gets a number, one at a time however close together', async () => {
+    const jar = new Jar();
+    await as(jar, () => account.me());
+    const cookie = jar.cookies.get('leuven_guest')!;
+    const emails = [anAddress(), anAddress(), anAddress()];
+    const jars = emails.map(() => {
+      const copy = new Jar();
+      copy.cookies.set('leuven_guest', cookie);
+      return copy;
+    });
+    await Promise.all(emails.map((email, i) => postJson(jars[i]!, SEND_CODE, { email })));
+    const answers = await Promise.all(
+      emails.map((email, i) => postJson(jars[i]!, SIGN_IN, { email, otp: lastCode(email) })),
+    );
+    const bodies = (await Promise.all(answers.map((a) => a.json()))) as {
+      user: { name: string };
+    }[];
+    const names = bodies.map((b) => b.user.name).toSorted();
+    const stem = (await as(jar, () => account.me()))!.name.replace(' ', '');
+    expect(names).toEqual([stem, `${stem}2`, `${stem}3`]);
+  });
+
+  test('without a guest cookie the words are random, and the name is valid', async () => {
+    const me = await codeIn(new Jar());
+    expect(me.name).toMatch(/^[A-Z][a-z]+[A-Z][a-z]+\d*$/);
+  });
+});
+
+describe('choosing a name', () => {
+  test('a rename is heard by everyone, in place', async () => {
+    const watcher = new Jar();
+    await codeIn(watcher);
+    const jar = new Jar();
+    const me = await codeIn(jar);
+    const seer = new Client(watcher);
+    const socket = new Client(jar);
+    await Promise.all([seer.opened, socket.opened]);
+    const you = (await socket.next('welcome')).you;
+    socket.send({ x: 18 });
+    await seer.next('joins', (m) => m.players.some((p) => p.id === you));
+    const renamed = await as(jar, () => account.rename('Marie'));
+    expect(renamed).toMatchObject({ name: 'Marie', fresh: false });
+    expect(me.name).not.toBe('Marie');
+    expect(await seer.next('renamed', (m) => m.name === 'Marie')).toMatchObject({ id: you });
+    await socket.next('identity', (m) => m.name === 'Marie');
+    await Promise.all([seer.close(), socket.close()]);
+  });
+
+  test('a name is unique whatever its case, and your own can change case', async () => {
+    const owner = new Jar();
+    await codeIn(owner);
+    await as(owner, () => account.rename('Marie2'));
+    const other = new Jar();
+    await codeIn(other);
+    expect(as(other, () => account.rename('marie2'))).rejects.toMatchObject({
+      code: 'taken',
+      message: 'That name is taken.',
+    });
+    await wait(10);
+    expect(await as(owner, () => account.rename('MARIE2'))).toMatchObject({ name: 'MARIE2' });
+  });
+
+  test('a name must be a name, and a guest can’t take one', async () => {
+    const jar = new Jar();
+    await codeIn(jar);
+    const bad = await call(jar, '/api/me', {
+      method: 'PUT',
+      body: JSON.stringify({ name: 'no spaces allowed' }),
+    });
+    expect(bad.status).toBe(400);
+    expect(await bad.json()).toMatchObject({ code: 'INVALID_USERNAME' });
+    const guest = new Jar();
+    await as(guest, () => account.me());
+    const denied = await call(guest, '/api/me', {
+      method: 'PUT',
+      body: JSON.stringify({ name: 'Someone' }),
+    });
+    expect(denied.status).toBe(401);
+  });
+});
+
+describe('the code routes under limits', () => {
+  const started: RunningServer[] = [];
+  afterAll(() => Promise.all(started.map((s) => s.stop())));
+  const start = async (options: Partial<Parameters<typeof startServer>[0]>) => {
+    const running = await startServer({
+      port: 0,
+      databasePath: ':memory:',
+      secret: 'test-secret-test-secret-test-secret',
+      baseURL: ORIGIN,
+      quiet: true,
+      ...options,
+    });
+    started.push(running);
+    return {
+      running,
+      post: (path: string, body: unknown, address = '203.0.113.9', cookie = '') =>
+        realFetch(new URL(path, running.url), {
+          method: 'POST',
+          headers: {
+            origin: ORIGIN,
+            'content-type': 'application/json',
+            'x-real-ip': address,
+            cookie,
+          },
+          body: JSON.stringify(body),
+        }),
+    };
+  };
+
+  test('with no mail set up, a code answers 503 and the page is told up front', async () => {
+    const { running, post } = await start({ rateLimit: false });
+    const refused = await post(SEND_CODE, { email: 'a@example.com' });
+    expect(refused.status).toBe(503);
+    expect(await refused.json()).toMatchObject({ code: 'MAIL_OFF' });
+    const me = await realFetch(new URL('/api/me', running.url));
+    expect(await me.json()).toMatchObject({ guest: true, mail: false });
+    // Guests still play.
+    expect(me.headers.getSetCookie().join()).toContain('leuven_guest=');
+  });
+
+  test('a provider that refuses is a sentence, and doesn’t count against them', async () => {
+    let fail = true;
+    const { post } = await start({
+      rateLimit: false,
+      mailer: {
+        ready: true,
+        send(to, code) {
+          if (fail) return Promise.reject(new MailError('Resend said 403: not verified'));
+          inbox.set(to, code);
+          return Promise.resolve();
+        },
+      },
+    });
+    const email = anAddress();
+    const failed = await post(SEND_CODE, { email });
+    expect(failed.status).toBe(502);
+    expect(await failed.json()).toMatchObject({ code: 'MAIL_FAILED' });
+    fail = false;
+    expect((await post(SEND_CODE, { email })).status).toBe(200);
+  });
+
+  test('an unexpected failure from a mailer is still a sentence', async () => {
+    const { post } = await start({
+      rateLimit: false,
+      mailer: { ready: true, send: () => Promise.reject(new Error('boom')) },
+    });
+    expect((await post(SEND_CODE, { email: anAddress() })).status).toBe(502);
+  });
+
+  test('an address sends so many codes an hour, whoever they’re for', async () => {
+    const { post } = await start({ mailer: fakeMailer });
+    const first = await Promise.all(
+      Array.from({ length: 30 }, () => post(SEND_CODE, { email: anAddress() })),
+    );
+    expect(first.map((r) => r.status)).toEqual(Array(30).fill(200));
+    const over = await post(SEND_CODE, { email: anAddress() });
+    expect(over.status).toBe(429);
+    expect(await over.json()).toMatchObject({ code: 'TOO_MANY_REQUESTS' });
+    // Another address isn't touched, the check and the codes are limited by themselves.
+    expect((await post(SEND_CODE, { email: anAddress() }, '203.0.113.10')).status).toBe(200);
+  });
+
+  test('new accounts from one address are limited, and signing back in is not', async () => {
+    const { post } = await start({ mailer: fakeMailer, accountsPerHour: 1 });
+    const email = anAddress();
+    await post(SEND_CODE, { email });
+    expect((await post(SIGN_IN, { email, otp: lastCode(email) })).status).toBe(200);
+    const second = anAddress();
+    await post(SEND_CODE, { email: second });
+    const refused = await post(SIGN_IN, { email: second, otp: lastCode(second) });
+    expect(refused.status).toBe(429);
+    expect(await refused.json()).toMatchObject({ code: 'TOO_MANY_REQUESTS' });
+  });
+
+  test('renames are limited', async () => {
+    const { running, post } = await start({ mailer: fakeMailer });
+    const email = anAddress();
+    await post(SEND_CODE, { email });
+    const response = await post(SIGN_IN, { email, otp: lastCode(email) });
+    const cookie = response.headers
+      .getSetCookie()
+      .map((c) => c.split(';')[0])
+      .join('; ');
+    const put = (name: string) =>
+      realFetch(new URL('/api/me', running.url), {
+        method: 'PUT',
+        headers: { origin: ORIGIN, cookie },
+        body: JSON.stringify({ name }),
+      });
+    let last = new Response();
+    for (let i = 0; i < 11; i++) {
+      // oxlint-disable-next-line no-await-in-loop
+      last = await put(`Name${i}`);
+    }
+    expect(last.status).toBe(429);
+  });
+});
+
+describe('accounts from before email', () => {
+  const path = `${Bun.env.TMPDIR ?? '/tmp'}/leuven-${crypto.randomUUID()}.sqlite`;
+  const open = (mailer?: Mailer) =>
+    startServer({
+      port: 0,
+      databasePath: path,
+      secret: 'test-secret-test-secret-test-secret',
+      baseURL: ORIGIN,
+      rateLimit: false,
+      quiet: true,
+      mailer,
+    });
+  afterAll(async () => {
+    await Promise.all(
+      ['', '-wal', '-shm'].map((suffix) =>
+        Bun.file(`${path}${suffix}`)
+          .delete()
+          .catch(() => {}),
+      ),
+    );
+  });
+
+  test('stay, keep their names reserved, and can’t be sent a code', async () => {
+    const running = await open(fakeMailer);
+    await running.stop();
+    const old = new Database(path);
+    old.run('ALTER TABLE "user" DROP COLUMN fresh');
+    old.run(
+      `INSERT INTO "user" (id, name, email, emailVerified, createdAt, updatedAt, username)
+       VALUES ('legacy1', 'Oldie', 'oldie@players.invalid', 1, 0, 0, 'oldie')`,
+    );
+    old.close();
+
+    const after = await open(fakeMailer);
+    try {
+      const row = new Database(path)
+        .query('SELECT name, fresh FROM "user" WHERE id = ?')
+        .get('legacy1') as { name: string; fresh: unknown };
+      expect(row.name).toBe('Oldie');
+      expect(row.fresh === null || row.fresh === 0).toBe(true);
+      const post = (route: string, body: unknown) =>
+        realFetch(new URL(route, after.url), {
+          method: 'POST',
+          headers: { origin: ORIGIN, 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+      const code = await post(SEND_CODE, { email: 'oldie@players.invalid' });
+      expect(code.status).toBe(400);
+      expect(await code.json()).toMatchObject({ code: 'EMAIL_UNDELIVERABLE' });
+      const free = await post('/api/auth/is-username-available', { username: 'OLDIE' });
+      expect(await free.json()).toEqual({ available: false });
+    } finally {
+      await after.stop();
+    }
+  });
+});
+
 describe('accounts', () => {
   const bram = new Jar();
 
@@ -183,7 +688,14 @@ describe('accounts', () => {
 
   test('signing up signs in, with an outfit and no position yet', async () => {
     const me = await as(bram, () => account.signUp('Bram', 'stadhuis1'));
-    expect(me).toEqual({ guest: false, name: 'Bram', outfit: expect.any(Object), at: null });
+    expect(me).toEqual({
+      guest: false,
+      name: 'Bram',
+      outfit: expect.any(Object),
+      at: null,
+      fresh: false,
+      mail: true,
+    });
     expect(await as(bram, () => account.me())).toEqual(me);
   });
 

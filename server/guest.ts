@@ -127,7 +127,7 @@ export const guestKey = (id: string): string => `guest:${id}`;
 
 export interface Guests {
   /** The guest id in a request's valid cookie, or null: one never signed by us counts as none. */
-  read(request: Request): Promise<string | null>;
+  read(request: { headers: Headers }): Promise<string | null>;
   /** A new guest id. */
   mint(): string;
   /** The `Set-Cookie` value for a guest id. */

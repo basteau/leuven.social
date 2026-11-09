@@ -1,30 +1,53 @@
 /**
- * Accounts with better-auth: a username and a password, sessions in a cookie, everything in our
- * own SQLite file. better-auth wants an email for each account; players have none, so each one
- * is filed under `<name>@players.invalid` (a domain that can never receive mail) and signs in
- * by name through the username plugin.
+ * Accounts with better-auth: an email address and a code sent to it, sessions in a cookie,
+ * everything in our own SQLite file. Every account always has a valid, unique username: when
+ * better-auth creates a user the `newUser` hook gives it one, and the player can change it.
  */
 
 import type { Database } from 'bun:sqlite';
 import { betterAuth } from 'better-auth';
 import type { BetterAuthOptions } from 'better-auth';
 import { getMigrations } from 'better-auth/db/migration';
+import { emailOTP } from 'better-auth/plugins/email-otp';
 import { username } from 'better-auth/plugins/username';
 
-import { MAX_NAME, MAX_PASSWORD, MIN_NAME, MIN_PASSWORD, isUsername } from '../src/net/rules.ts';
+import {
+  CODE_LENGTH,
+  CODE_MINUTES,
+  MAX_NAME,
+  MAX_PASSWORD,
+  MIN_NAME,
+  MIN_PASSWORD,
+  isUsername,
+} from '../src/net/rules.ts';
 
 /** Signed in for 60 days, renewed once a day of play: a game, not a bank. */
 const DAY = 60 * 60 * 24;
 const SESSION = { expiresIn: 60 * DAY, updateAge: DAY };
 
+/** Where the browser asks for a code, and where it gives one back. */
+export const SEND_CODE_PATH = '/email-otp/send-verification-otp';
+export const SIGN_IN_PATH = '/sign-in/email-otp';
+
 /** The few endpoints the browser may call; the rest of better-auth stays server-side. */
 export const PUBLIC_AUTH_PATHS: ReadonlySet<string> = new Set([
+  SEND_CODE_PATH,
+  SIGN_IN_PATH,
   '/sign-in/username',
   '/sign-out',
   '/get-session',
   '/change-password',
   '/is-username-available',
 ]);
+
+export interface NewUser {
+  /** As typed: what everyone sees. */
+  name: string;
+  /** Lowercased: what must be unique. */
+  username: string;
+  /** Not confirmed yet: the sheet asks them to keep or change it. */
+  fresh: boolean;
+}
 
 export interface AuthConfig {
   db: Database;
@@ -33,10 +56,12 @@ export interface AuthConfig {
   baseURL: string;
   /** Origins allowed to post with the cookie, beyond `baseURL`'s. */
   trustedOrigins?: string[];
-  /** better-auth's per-IP limits on sign-in and sign-up. Off only in tests. */
+  /** better-auth's per-IP limits on sign-in. Off only in tests. */
   rateLimit?: boolean;
   /** Logs only better-auth's errors, not its warnings. */
   quiet?: boolean;
+  /** Who a new account is, from its request's headers (the guest cookie, the address). */
+  newUser?(headers: Headers | undefined): Promise<NewUser>;
 }
 
 export const syntheticEmail = (name: string): string => `${name.toLowerCase()}@players.invalid`;
@@ -55,6 +80,23 @@ export function authOptions(config: AuthConfig) {
       maxPasswordLength: MAX_PASSWORD,
     },
     session: SESSION,
+    user: {
+      additionalFields: {
+        /** Set when an account is made, cleared once its name was chosen or kept. */
+        fresh: { type: 'boolean', required: false, defaultValue: false, input: false },
+      },
+    },
+    databaseHooks: {
+      user: {
+        create: {
+          async before(user, context) {
+            const given = (user as { username?: unknown }).username;
+            if (given || !config.newUser) return { data: user };
+            return { data: { ...user, ...(await config.newUser(context?.headers)) } };
+          },
+        },
+      },
+    },
     rateLimit: {
       enabled: config.rateLimit ?? true,
       window: 60,
@@ -74,6 +116,16 @@ export function authOptions(config: AuthConfig) {
         maxUsernameLength: MAX_NAME,
         usernameValidator: isUsername,
         displayUsername: false,
+      }),
+      emailOTP({
+        otpLength: CODE_LENGTH,
+        expiresIn: CODE_MINUTES * 60,
+        allowedAttempts: 5,
+        storeOTP: 'hashed',
+        rateLimit: { window: 60, max: 10 },
+        // server.ts mails the code itself: this hook's failures are swallowed by better-auth,
+        // and a sentence for a failed send is half the point. See `sendCode` there.
+        sendVerificationOTP: () => Promise.resolve(),
       }),
     ],
   } satisfies BetterAuthOptions;
