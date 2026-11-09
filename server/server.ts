@@ -30,6 +30,7 @@ import {
 import {
   PUBLIC_AUTH_PATHS,
   SEND_CODE_PATH,
+  NAME_FREE_PATH,
   SIGN_IN_PATH,
   createAuth,
   migrateAuth,
@@ -171,6 +172,12 @@ function withBody(request: Request, body: unknown): Request {
   headers.set('content-type', 'application/json');
   headers.delete('content-length');
   return new Request(request.url, { method: 'POST', headers, body: JSON.stringify(body) });
+}
+
+/** better-auth knows who holds a name, not which are kept back: the sheet must say so too. */
+async function asksForReservedName(request: Request): Promise<boolean> {
+  const name = (await readJson(request.clone()))?.username;
+  return typeof name === 'string' && isReservedName(name);
 }
 
 export async function startServer(config: ServerConfig): Promise<RunningServer> {
@@ -325,8 +332,8 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
     const now = at();
     const refused = await spendOnCode(clientKey(request.headers.get('x-real-ip')), box, now);
     if (refused) return refused;
-    const code = await auth.api.createVerificationOTP({ body: { email, type: 'sign-in' } });
     try {
+      const code = await auth.api.createVerificationOTP({ body: { email, type: 'sign-in' } });
       await mailer.send(email, code);
     } catch (error) {
       // Our failure, not theirs: it doesn't count against the mailbox. The sender's and the
@@ -377,6 +384,9 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
   async function authRoute(path: string, request: Request): Promise<Response> {
     if (path === SEND_CODE_PATH) return sendCode(request);
     if (path === SIGN_IN_PATH) return signInWithCode(request);
+    if (path === NAME_FREE_PATH && (await asksForReservedName(request))) {
+      return json({ available: false });
+    }
     const before = path === '/sign-out' ? await session(request) : null;
     const guestId = await guests.read(request);
     const response = await authAnswer(request);

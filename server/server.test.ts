@@ -603,6 +603,12 @@ describe('the code routes under limits', () => {
     expect(await over.json()).toMatchObject({ code: 'TOO_MANY_REQUESTS' });
   });
 
+  test('a reserved name doesn’t read as free before it is refused', async () => {
+    const { post } = await start({ mailer: fakeMailer });
+    const free = await post('/api/auth/is-username-available', { username: 'Admin' });
+    expect(await free.json()).toEqual({ available: false });
+  });
+
   test('a plus-tag shares its mailbox’s wait', async () => {
     const { post } = await start({ mailer: fakeMailer });
     const email = anAddress();

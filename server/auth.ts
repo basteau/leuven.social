@@ -20,6 +20,7 @@ const SESSION = { expiresIn: 60 * DAY, updateAge: DAY };
 /** Where the browser asks for a code, and where it gives one back. */
 export const SEND_CODE_PATH = '/email-otp/send-verification-otp';
 export const SIGN_IN_PATH = '/sign-in/email-otp';
+export const NAME_FREE_PATH = '/is-username-available';
 
 /** The few endpoints the browser may call; the rest of better-auth stays server-side. */
 export const PUBLIC_AUTH_PATHS: ReadonlySet<string> = new Set([
@@ -27,7 +28,7 @@ export const PUBLIC_AUTH_PATHS: ReadonlySet<string> = new Set([
   SIGN_IN_PATH,
   '/sign-out',
   '/get-session',
-  '/is-username-available',
+  NAME_FREE_PATH,
 ]);
 
 export interface NewUser {
