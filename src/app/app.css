@@ -117,6 +117,22 @@ kbd {
   transition: opacity 80ms linear;
 }
 
+/* The end of a route, from far out. It marks a spot and takes no press: a tap there still walks. */
+.route-pin {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  transition: opacity 80ms linear;
+  pointer-events: none;
+}
+
+.route-pin svg {
+  display: block;
+  translate: -50% -100%;
+  transform-origin: 50% 100%;
+  filter: drop-shadow(0 2px 0 color-mix(in oklch, var(--ink) 35%, transparent));
+}
+
 .avatar-diamond svg {
   translate: -50% calc(-100% - 6px);
   filter: drop-shadow(0 2px 0 color-mix(in oklch, var(--ink) 35%, transparent));

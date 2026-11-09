@@ -127,6 +127,19 @@ export const DiamondIcon = () => (
   </svg>
 );
 
+/**
+ * Where a route ends, from far out: the target on the ground stood up on a stem, its tip on the
+ * spot, so it never covers what it marks. Not the shape of any map's pin: paper and ink, as the
+ * HUD is, with the accent at its middle.
+ */
+export const RoutePinIcon = () => (
+  <svg width="22" height="32" viewBox="0 0 22 32" aria-hidden="true">
+    <path d="M9.2 17H12.8L11 32Z" fill="var(--ink)" />
+    <circle cx="11" cy="11" r="9" fill="var(--paper)" stroke="var(--ink)" strokeWidth="2.4" />
+    <circle cx="11" cy="11" r="4.6" fill="var(--accent)" />
+  </svg>
+);
+
 /** Two people, a head and shoulders each: how many are here. */
 export const PeopleIcon = () => (
   <svg {...iconBase} width="16" height="16" aria-hidden="true">

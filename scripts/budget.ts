@@ -81,7 +81,8 @@ const BUDGETS: {
   {
     label: 'CSS',
     pattern: 'assets/index-*.css', // 4.25: a lone pill level with the corners on a phone, asked for (0.03 KB over).
-    limit: 4.25 * KB,
+    // 4.5: the pin over the end of a walk, far out (0.1 KB), asked for.
+    limit: 4.5 * KB,
     gzip: true,
   },
   // 1.6: the search field and its results on the full map (0.1 KB), asked for so a street can be
@@ -186,7 +187,8 @@ const BUDGETS: {
   {
     label: 'Minimap JS (once the map is up)',
     pattern: 'assets/minimap-view-*.js',
-    limit: 2.5 * KB,
+    // 2.75: the end of a walk on the minimap, docked on its rim (0.3 KB), asked for.
+    limit: 2.75 * KB,
     gzip: true,
   },
   // The rider (rider.ts) and the bike's rig: the avatar's and the other players' bikes, loaded
@@ -265,7 +267,8 @@ const BUDGETS: {
     // 268.5: the engine's clean-up above.
     // 273.5: the 3 KB of bridges and tunnels in the engine.
     // 273.75: the engine's share of working out everyone's level of detail (lod.ts, 0.1 KB).
-    limit: 273.75 * KB,
+    // 274.25: that pin in the shell and its place from the engine (0.5 KB), asked for.
+    limit: 274.25 * KB,
     gzip: true,
     closure: true,
   },

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { pointerFor } from './pointer.ts';
+import { pinOpacity, pointerFor } from './pointer.ts';
 
 const inset = { top: 30, right: 20, bottom: 40, left: 10 };
 
@@ -60,5 +60,35 @@ describe('the diamond over the avatar', () => {
 
   test('nowhere for a point that isn’t one', () => {
     expect(pointerFor(Number.NaN, 0, 800, 600, true)).toBeNull();
+  });
+});
+
+const pinAt = (far: number, x: number, y: number, ax = 0, ay = 0) =>
+  pinOpacity(far, x, y, ax, ay, 800, 600);
+
+describe('pinOpacity', () => {
+  test('as much as the zoom asks for, while you are a way off', () => {
+    expect(pinAt(1, 400, 300)).toBe(1);
+    expect(pinAt(0.5, 400, 300)).toBe(0.5);
+    expect(pinAt(0, 400, 300)).toBe(0);
+  });
+
+  test('it gives way as you get there, so it never stands on your diamond', () => {
+    expect(pinAt(1, 400, 300, 400, 310)).toBe(0);
+    expect(pinAt(1, 400, 300, 400, 335)).toBeCloseTo(0.5, 5);
+    expect(pinAt(1, 400, 300, 400, 360)).toBe(1);
+  });
+
+  test('none off the map, but its head may show from just past an edge', () => {
+    expect(pinAt(1, -40, 300)).toBe(0);
+    expect(pinAt(1, 840, 300)).toBe(0);
+    expect(pinAt(1, 400, -1)).toBe(0);
+    expect(pinAt(1, 400, 670)).toBe(0);
+    expect(pinAt(1, 820, 300)).toBe(1);
+    expect(pinAt(1, 400, 640)).toBe(1);
+  });
+
+  test('with no diamond placed yet it is whole', () => {
+    expect(pinAt(1, 400, 300, Infinity, Infinity)).toBe(1);
   });
 });

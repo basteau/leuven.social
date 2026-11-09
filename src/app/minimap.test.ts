@@ -12,6 +12,7 @@ import {
   drawCity,
   drawMinimap,
   indexCity,
+  routeEnd,
 } from './minimap.ts';
 import type { Pen } from './minimap.ts';
 
@@ -227,5 +228,37 @@ describe('the minimap crowd', () => {
     const clump = createMinimapCrowd(() => 0);
     const first = clump(crowd(spots), view2);
     expect(first.count).toBeGreaterThan(0);
+  });
+});
+
+describe('the end of a walk on the minimap', () => {
+  test('inside the rim it is at its spot', () => {
+    expect(routeEnd(20, -30, 150)).toEqual([20, -30]);
+  });
+
+  test('beyond it, on the rim in its direction', () => {
+    const [x, y] = routeEnd(300, -400, 150);
+    expect(Math.hypot(x, y)).toBeCloseTo(66.5, 5);
+    expect(x / y).toBeCloseTo(300 / -400, 5);
+  });
+
+  test('never under the Map tab', () => {
+    expect(routeEnd(0, 500, 150)[1]).toBe(150 / 2 - 27 - 4.5);
+    // Even on a phone's small minimap.
+    expect(routeEnd(0, 500, 88)[1]).toBe(88 / 2 - 27 - 4.5);
+  });
+
+  test('right where you are it stays there', () => {
+    expect(routeEnd(0, 0, 150)).toEqual([0, 0]);
+  });
+
+  test('drawn over the marks, under you, only on a walk', () => {
+    const count = (target: readonly [number, number] | null) => {
+      const { pen, calls } = recorder();
+      drawMinimap(pen, cityImage, { ...view, target }, oneMark(5, 5));
+      return calls.filter((c) => c.startsWith('arc')).length;
+    };
+    expect(count(null)).toBe(0);
+    expect(count([view.x + 5000, view.z])).toBe(3);
   });
 });

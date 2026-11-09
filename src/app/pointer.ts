@@ -51,3 +51,28 @@ export function pointerFor(
   );
   return { x: cx + dx * reach, y: cy + dy * reach, angle: Math.atan2(-dx, dy), edge: true };
 }
+
+/** The pin over the end of a route is gone with the avatar this near it, whole this far (px). */
+const PIN_ARRIVED = 18;
+const PIN_APART = 52;
+/** How far past the map's edge the pin's spot may be and its head still show (px). */
+const PIN_MARGIN = 32;
+
+/**
+ * How much of the pin to draw for a route ending at (x, y) on a map `width` by `height` (px), for
+ * `far`, how much the zoom asks for one: none off the map, and fading as the avatar at (ax, ay)
+ * gets there, or it would stand on top of the diamond that marks you.
+ */
+export function pinOpacity(
+  far: number,
+  x: number,
+  y: number,
+  ax: number,
+  ay: number,
+  width: number,
+  height: number,
+): number {
+  if (x < -PIN_MARGIN || y < 0 || x > width + PIN_MARGIN || y > height + PIN_MARGIN * 2) return 0;
+  const apart = (Math.hypot(x - ax, y - ay) - PIN_ARRIVED) / (PIN_APART - PIN_ARRIVED);
+  return far * Math.min(1, Math.max(0, apart));
+}

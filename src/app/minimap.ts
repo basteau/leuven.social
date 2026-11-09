@@ -3,7 +3,7 @@ import type { People } from '../net/people.ts';
 import { createClumper } from '../scene/clumps.ts';
 import type { Marks } from '../scene/clumps.ts';
 import { drawMarks } from '../scene/marks.ts';
-import { GROUND } from '../scene/palette.ts';
+import { GROUND, ROUTE } from '../scene/palette.ts';
 import { YOU, css } from './colours.ts';
 
 /**
@@ -96,6 +96,8 @@ export function indexCity(
 }
 
 export interface MinimapView {
+  /** Where the walk you set off on ends (m), if you're on one. */
+  target?: readonly [number, number] | null;
   /** The middle: where you are (m). */
   x: number;
   z: number;
@@ -225,6 +227,38 @@ export function drawCity(
   pen.restore();
 }
 
+/** The radius of the mark for the end of a walk, and what it keeps clear of the rim (CSS px). */
+const END_RADIUS = 4.5;
+const END_CLEAR = 4;
+/** How much of the minimap's foot the Map tab covers (CSS px). */
+const TAB_COVERS = 27;
+
+/**
+ * Where the end of a walk at (x, y) from the middle of a minimap `width` across goes: at its spot
+ * within the rim, else on the rim in its direction, which says the way to go, and above the Map
+ * tab, which would hide it.
+ */
+export function routeEnd(x: number, y: number, width: number): readonly [number, number] {
+  const rim = width / 2 - END_RADIUS - END_CLEAR;
+  const held = Math.min(1, rim / Math.hypot(x, y));
+  return [x * held, Math.min(y * held, width / 2 - TAB_COVERS - END_RADIUS)];
+}
+
+function drawRouteEnd(pen: Pen, x: number, y: number, middle: number, width: number): void {
+  const [ex, ey] = routeEnd(x, y, width);
+  // The target on the street, small: ink, paper and the accent.
+  for (const [radius, colour] of [
+    [END_RADIUS + 1.5, MAP_COLOURS.ink],
+    [END_RADIUS, MAP_COLOURS.paper],
+    [END_RADIUS * 0.55, css(ROUTE.goal)],
+  ] as const) {
+    pen.fillStyle = colour;
+    pen.beginPath();
+    pen.arc(middle + ex, middle + ey, radius, 0, Math.PI * 2);
+    pen.fill();
+  }
+}
+
 /**
  * The minimap for a frame: the city image turned so the view's way is up and moved so you are in
  * the middle, then the marks of everyone round you, then you, the coral diamond with its long
@@ -267,6 +301,10 @@ export function drawMinimap(pen: Pen, city: CityImage, view: MinimapView, marks:
     },
     dpr,
   );
+  if (view.target) {
+    const [tx, tz] = [view.target[0] - view.x, view.target[1] - view.z];
+    drawRouteEnd(pen, cos * tx + sin * tz, cos * tz - sin * tx, middle, width);
+  }
   // You on top of every crowd: the diamond over your head on the street, its long point the way
   // you face, with a rim of paper so it stands clear of whatever shirts are round it.
   const dot = (width / 40) * 1.25;

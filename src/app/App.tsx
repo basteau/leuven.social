@@ -28,6 +28,7 @@ import { Credits } from './credits.tsx';
 import {
   BikeIcon,
   DiamondIcon,
+  RoutePinIcon,
   DoorIcon,
   MapIcon,
   MenuIcon,
@@ -43,7 +44,7 @@ import { loadStep, stallWatch, unlessAborted } from './loading.ts';
 import { createStore } from './store.ts';
 import type { Waypoint } from '../data/waypoints.ts';
 import type { LoadState } from './loading.ts';
-import { EDGE_INSET, pointerFor } from './pointer.ts';
+import { EDGE_INSET, pinOpacity, pointerFor } from './pointer.ts';
 import type { Inset } from './pointer.ts';
 import { useShortcuts } from './shortcuts.ts';
 import { StreetSign } from './street-sign.tsx';
@@ -195,6 +196,13 @@ function placeDiamond(
   diamond.style.setProperty('--turn', `${p.angle}rad`);
 }
 
+/** How the pin lands where a walk was just set: from higher up, settling on its tip. */
+const PIN_LANDS: Keyframe[] = [
+  { scale: 0.3, opacity: 0, easing: 'cubic-bezier(0.2, 1.5, 0.4, 1)' },
+  { scale: 1, opacity: 1 },
+];
+const PIN_LANDS_MS = 220;
+
 /**
  * Once a dialog over the map has shut, the keys are the map's again: focus goes there rather than
  * back to the button that opened it, where Space would open it again. In an effect, so the dialog
@@ -226,6 +234,12 @@ export function App() {
   const [blocked, setBlocked] = useState<Refusal | null>(null);
   /** The diamond that marks the avatar, placed by hand: it moves with every frame that pans. */
   const diamondRef = useRef<HTMLButtonElement>(null);
+  /** The pin over the end of a route, far out: placed by hand, as the diamond is. */
+  const pinRef = useRef<HTMLDivElement>(null);
+  /** The diamond's spot, for the pin to give way as you get there. */
+  const avatarAtRef = useRef<readonly [number, number]>([Infinity, Infinity]);
+  /** A walk just set, to a spot not yet marked: its pin lands, once it can be seen. */
+  const pinLandsRef = useRef(false);
   /** The top row: what the diamond at the edge stays below. */
   const headerRef = useRef<HTMLElement>(null);
   const [running, setRunning] = useState(false);
@@ -464,13 +478,36 @@ export function App() {
               streetSeen = true;
               setCoach((c) => (c.street ? c : { ...c, street: true }));
             }
+            avatarAtRef.current = [x, y];
             if (diamondRef.current) {
               placeDiamond(diamondRef.current, map, headerRef.current, x, y, diamond);
+            }
+          },
+          onRouteAt: (x, y, far) => {
+            const pin = pinRef.current;
+            if (!pin) return;
+            const [ax, ay] = avatarAtRef.current;
+            const opacity = pinOpacity(far, x, y, ax, ay, map.clientWidth, map.clientHeight);
+            pin.hidden = opacity === 0;
+            if (pin.hidden) return;
+            pin.style.opacity = String(opacity);
+            pin.style.translate = `${x}px ${y}px`;
+            if (pinLandsRef.current) {
+              pinLandsRef.current = false;
+              if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {
+                pin.firstElementChild?.animate(PIN_LANDS, PIN_LANDS_MS);
+              }
             }
           },
           onStreetChange: setStreet,
           onRoute: (target) => {
             if (target) steppedRef.current();
+            // A walk in legs says each leg: only a new end is a new pin.
+            const [was, now] = [live.routeTo, target];
+            pinLandsRef.current = now !== null && (was?.[0] !== now[0] || was?.[1] !== now[1]);
+            live.routeTo = target;
+            live.changed();
+            if (!target && pinRef.current) pinRef.current.hidden = true;
             routingRef.current = target !== null;
             setRouting(target !== null);
           },
@@ -794,6 +831,9 @@ export function App() {
         >
           <DiamondIcon />
         </button>
+        <div ref={pinRef} className="route-pin" aria-hidden="true" hidden>
+          <RoutePinIcon />
+        </div>
       </div>
 
       <header ref={headerRef} className="hud hud-top">

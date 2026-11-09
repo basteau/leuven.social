@@ -126,6 +126,11 @@ export interface ViewerOptions {
    * 0 to 1, the same band of a figure's pixels as a crowd's markers); called whenever any changes.
    */
   onAvatarAt?: (x: number, y: number, figure: boolean, diamond: number) => void;
+  /**
+   * Where the end of a route to a picked spot is on screen (CSS px), each frame while there is one,
+   * and `far`, how much a pin should mark it: 0 close in, 1 as far out as the avatar's diamond is.
+   */
+  onRouteAt?: (x: number, y: number, far: number) => void;
   /** The street or square under the avatar changed (null: none, or the view too far out). */
   onStreetChange?: (name: string | null) => void;
   /** A bike is near enough to ride, or being ridden, or neither any more. */
@@ -1057,6 +1062,10 @@ export function createViewer(options: ViewerOptions): Viewer {
       if (shown !== avatarShown || diamond !== avatarDiamond || !still) {
         [avatarAt[0], avatarAt[1], avatarShown, avatarDiamond] = [ax, ay, shown, diamond];
         options.onAvatarAt?.(ax, ay, shown, diamond);
+      }
+      if (routeTo) {
+        at.set(routeTo[0], terrain.height(routeTo[0], routeTo[1]), routeTo[1]).project(camera);
+        options.onRouteAt?.(((at.x + 1) / 2) * width, ((1 - at.y) / 2) * height, diamond);
       }
     }
     // Fine road paint is drawn last in each cell, so a view too far out to see it can stop short.

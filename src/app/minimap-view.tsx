@@ -24,6 +24,8 @@ interface Cache {
   /** The list's version at the last paint, or -1 with no list: someone came, went, or changed. */
   version: number;
   settling: boolean;
+  /** The end of the walk at the last paint. */
+  routeTo: readonly [number, number] | null;
 }
 
 /**
@@ -52,7 +54,7 @@ function paint(
     cache.canvas = image;
     cache.city = { image, x: me.x, z: me.z, span: range * 2 };
   }
-  const view = { ...me, heading: live.heading, range, size, dpr };
+  const view = { ...me, heading: live.heading, range, size, dpr, target: live.routeTo };
   const people = live.people;
   people?.sample(performance.now());
   const marks = people ? cache.crowd(people, view) : NOBODY;
@@ -63,6 +65,7 @@ function paint(
   cache.heading = live.heading;
   cache.version = people?.version ?? -1;
   cache.settling = marks.settling;
+  cache.routeTo = live.routeTo;
 }
 
 /**
@@ -91,6 +94,7 @@ export function Minimap(props: { city: City; onOpen: () => void; onReach: () => 
       heading: 0,
       version: -1,
       settling: false,
+      routeTo: null,
     };
     const soon = () => {
       frame ||= requestAnimationFrame(() => {
@@ -104,7 +108,7 @@ export function Minimap(props: { city: City; onOpen: () => void; onReach: () => 
     const unlisten = live.listen(() => {
       const me = live.me;
       if (me?.x !== cache.x || me.z !== cache.z || me.facing !== cache.facing) soon();
-      else if (live.heading !== cache.heading) soon();
+      else if (live.heading !== cache.heading || live.routeTo !== cache.routeTo) soon();
     });
     const resized = new ResizeObserver(soon);
     resized.observe(canvas);

@@ -11,6 +11,8 @@ interface Live {
   heading: number;
   /** Everyone else this browser knows of, once there is a connection. */
   people: People | null;
+  /** Where the walk you set off on ends (m), if you're on one. */
+  routeTo: readonly [number, number] | null;
   /** Says that something changed. */
   changed(): void;
   /** Calls `news` on every change; returns an unsubscribe. */
@@ -23,6 +25,7 @@ function createLive(): Live {
     me: null,
     heading: 0,
     people: null,
+    routeTo: null,
     changed() {
       for (const news of listeners) news();
     },
