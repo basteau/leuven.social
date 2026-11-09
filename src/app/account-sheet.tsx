@@ -11,7 +11,8 @@ import {
   isUsername,
 } from '../net/rules.ts';
 import type { Outfit } from '../scene/viewer.ts';
-import { PARTS, css, surprise } from './outfits.ts';
+import { css } from './colours.ts';
+import { PARTS, surprise } from './outfits.ts';
 import './account-sheet.css';
 
 /**

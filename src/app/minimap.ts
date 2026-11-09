@@ -1,5 +1,6 @@
 import type { City } from '../data/city.ts';
 import { GROUND } from '../scene/palette.ts';
+import { YOU, css } from './colours.ts';
 
 /**
  * The minimap: the city round you from above, turned so that up is the way the view looks, with
@@ -36,7 +37,6 @@ export type Pen = Pick<
 const LAYERS = ['green', 'water', 'roads', 'plazas', 'buildings'] as const;
 type Layer = (typeof LAYERS)[number];
 
-const css = (hex: number) => `#${hex.toString(16).padStart(6, '0')}`;
 export const MAP_COLOURS: Record<Layer | 'ground' | 'ink' | 'outline', string> = {
   ground: css(GROUND.base),
   green: css(GROUND.green),
@@ -47,9 +47,6 @@ export const MAP_COLOURS: Record<Layer | 'ground' | 'ink' | 'outline', string> =
   ink: '#3a2e25',
   outline: 'rgb(58 46 37 / 0.55)',
 };
-
-/** You, on every map: the coral of the avatar's shirt and the diamond over it. */
-export const YOU = '#fa8064';
 
 /** The index's buckets are this many metres a side. */
 const BUCKET = 100;

@@ -3,6 +3,7 @@
 import { loadWaypoints } from '../data/waypoints.ts';
 import type { Waypoint } from '../data/waypoints.ts';
 import type { Store } from './store.ts';
+import { YOU, YOU_DEEP, YOU_LIT } from './colours.ts';
 
 const loaded = new WeakSet<Store<Waypoint[]>>();
 /** Fills the marks store from localStorage the first time a map part needs it. */
@@ -15,10 +16,6 @@ export function ensureMarks(store: Store<Waypoint[]>): void {
 /** The accent (`--accent` in index.html) as the canvas needs it. */
 export const ACCENT = '#1d5c9b';
 const OTHER = '#8d867c';
-/** You: the avatar's coral and the diamond's other two facets, as on the mark over it. */
-const YOU = '#fa8064';
-const YOU_LIT = '#ffb7a1';
-const YOU_DEEP = '#dc6147';
 
 /** A waypoint: a coloured dot in a white ring. */
 export function drawMark(

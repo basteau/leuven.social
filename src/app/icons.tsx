@@ -1,3 +1,5 @@
+import { YOU_DEEP, YOU_LIT } from './colours.ts';
+
 /**
  * 24 × 24 stroke icons drawn in currentColor. Decorative: every control carries its own name.
  * These are the few on the map; the menu's own are in menu-icons.tsx, which loads with it.
@@ -53,7 +55,7 @@ export const MinusIcon = () => (
 /** The compass's needle: north in the avatar's coral, south hollow. Turned with the view. */
 export const NeedleIcon = () => (
   <svg {...iconBase}>
-    <path d="M12 3l4 9h-8z" fill="var(--you, #fa8064)" stroke="var(--ink)" strokeWidth="1.5" />
+    <path d="M12 3l4 9h-8z" fill="var(--you)" stroke="var(--ink)" strokeWidth="1.5" />
     <path d="M8 12h8l-4 9z" strokeWidth="1.5" />
   </svg>
 );
@@ -113,8 +115,8 @@ export const MenuIcon = () => (
 export const DiamondIcon = () => (
   <svg width="26" height="34" viewBox="0 0 26 34" aria-hidden="true">
     <path d="M13 2 24 12 13 32 2 12Z" fill="var(--you)" />
-    <path d="M13 2 2 12H13Z" fill="#ffb7a1" />
-    <path d="M13 12H24L13 32Z" fill="#dc6147" />
+    <path d="M13 2 2 12H13Z" fill={YOU_LIT} />
+    <path d="M13 12H24L13 32Z" fill={YOU_DEEP} />
     <path
       d="M13 2 24 12 13 32 2 12Z"
       fill="none"

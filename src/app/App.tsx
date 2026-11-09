@@ -23,6 +23,7 @@ import type { ActionId, CommandState } from './commands.ts';
 import type { MenuPage } from './command-menu.tsx';
 import type { Multiplayer } from './multiplayer.ts';
 import { coachStep } from './coach.ts';
+import { css } from './colours.ts';
 import { ActionButton } from './controls.tsx';
 import { Credits } from './credits.tsx';
 import {
@@ -121,9 +122,6 @@ const TIME_SAID: Record<PresetId, string> = {
   dusk: 'Dusk',
   night: 'Night',
 };
-/** A colour as CSS, for the sky tokens. */
-const hex = (colour: number) => `#${colour.toString(16).padStart(6, '0')}`;
-
 const reducedMotion = () => globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
 /** The platform, for the menu's chord: ⌘ on Apple's, Ctrl elsewhere. */
@@ -476,8 +474,8 @@ export function App() {
           onDaylight: (light: Daylight) => {
             const app = appRef.current;
             if (app) {
-              app.style.setProperty('--sky-top', hex(light.top));
-              app.style.setProperty('--sky-horizon', hex(light.horizon));
+              app.style.setProperty('--sky-top', css(light.top));
+              app.style.setProperty('--sky-horizon', css(light.horizon));
             }
             document.documentElement.dataset.night = light.night > 0.5 ? '1' : '0';
             const preset = presetAt(light.hour);
@@ -821,7 +819,7 @@ export function App() {
               <>
                 <span
                   className="you-dot"
-                  style={{ '--shirt': hex(account.outfit.shirt) } as CSSProperties}
+                  style={{ '--shirt': css(account.outfit.shirt) } as CSSProperties}
                 />
                 <span className="you-name">
                   <span className="sr-only">You: </span>
