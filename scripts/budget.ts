@@ -235,7 +235,9 @@ const BUDGETS: {
     // 269.75: those 20 kinds' names and colours, which the facade shader needs from the first
     // frame (0.1 KB).
     // 271.25: windows fitted whole to each wall (the engine's note above says what, 1.3 KB).
-    limit: 271.25 * KB,
+    // 271.5: the second round of the light and water hardly taking a shadow (under 0.1 KB, after
+    // deleting the water's glints and streaks to pay for most of it), asked for.
+    limit: 271.5 * KB,
     gzip: true,
     closure: true,
   },
