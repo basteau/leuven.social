@@ -31,7 +31,8 @@ const BUDGETS: {
     // the other players' chunk loaded once the map is up, the minimap's place and its key.
     // 87.5 and a bit: the full map's button, the Stop pill and their wiring (0.5 KB), merged onto
     // multiplayer's shell.
-    limit: 88 * KB,
+    // 88.25: a long name on the street plate in two even lines, asked for (0.1 KB).
+    limit: 88.25 * KB,
     gzip: true,
   },
   // The engine, and the palette it shares with the chunks it loads later (vite.config.ts).
@@ -255,6 +256,7 @@ const BUDGETS: {
   {
     label: 'First-load JS',
     pattern: 'assets/{index,viewer}-*.js',
+    // 274.75: the shell's street plate, on the lines it chooses (0.1 KB).
     // 274.5: the engine's retaining walls above (0.2 KB).
     // 270: turning by hand, in the engine and the compass (1.1 KB), asked for.
     // 260: the engine's and the shell's additions above (1 KB). 260.5: dynamic resolution (0.4 KB).
@@ -271,7 +273,7 @@ const BUDGETS: {
     // 273.5: the 3 KB of bridges and tunnels in the engine.
     // 273.75: the engine's share of working out everyone's level of detail (lod.ts, 0.1 KB).
     // 274.25: that pin in the shell and its place from the engine (0.5 KB), asked for.
-    limit: 274.5 * KB,
+    limit: 274.75 * KB,
     gzip: true,
     closure: true,
   },

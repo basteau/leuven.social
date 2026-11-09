@@ -683,8 +683,9 @@ kbd {
   max-inline-size: min(17rem, 100%);
   min-block-size: var(--control);
   margin: 0;
-  padding-block: var(--space-xs);
-  padding-inline: var(--space-m);
+  /* Clear of the enamel's rim, which is 4.5 px in. */
+  padding-block: calc(4.5px + var(--space-xs));
+  padding-inline: calc(4.5px + var(--space-s));
   border: var(--border) solid var(--ink);
   border-radius: var(--radius);
   background: var(--sign);
@@ -699,11 +700,23 @@ kbd {
   line-height: 1.25;
   letter-spacing: 0.015em;
   text-align: center;
-  text-wrap: balance;
+}
+
+.sign[data-lines='2'] {
+  font-size: 0.8125rem;
+  line-height: 1.15;
 }
 
 .sign-name {
+  display: grid;
+  justify-items: center;
   animation: fade-in 200ms var(--ease-out);
+}
+
+/* Only a name wider than the screen allows gets here with more than the line it was given. */
+.sign-line {
+  text-wrap: balance;
+  overflow-wrap: anywhere;
 }
 
 /* It slides in from the start; each new name follows it in. */
@@ -1258,7 +1271,7 @@ kbd {
 /* On the narrowest phones the plate's name a step smaller, so a room's name fits a line. */
 @media (max-width: 24rem) {
   .sign {
-    padding-inline: var(--space-s);
+    padding-inline: calc(4.5px + var(--space-xs));
     font-size: 0.8125rem;
   }
 }
