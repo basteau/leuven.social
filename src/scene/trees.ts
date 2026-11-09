@@ -117,11 +117,11 @@ export function addTree(
   const { scale, wide } = treeSize(seed, height);
   const turn = (seed * 2.399) % (Math.PI * 2);
   const [c, s] = [Math.cos(turn), Math.sin(turn)];
-  for (const [part, shape, color, centreY, spread] of [
-    ['trunk', TRUNK, TREE.trunk, 1.5, trunkFoot(seed, height) / TRUNK_BASE],
-    ['crown', CROWN, crownColor(seed, height || scale * MODEL_HEIGHT), CROWN_Y, wide],
-  ] as const) {
-    if (!parts.includes(part)) continue;
+  for (const part of parts) {
+    const [shape, color, centreY, spread] =
+      part === 'trunk'
+        ? [TRUNK, TREE.trunk, 1.5, trunkFoot(seed, height) / TRUNK_BASE]
+        : [CROWN, crownColor(seed, height || scale * MODEL_HEIGHT), CROWN_Y, wide];
     const place = ([px, py, pz]: V3): V3 => [
       x + (px * c + pz * s) * spread,
       py * scale,
