@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 
 import { deltaE, toOklab } from '../data/colour.ts';
 import { groundOnScreen } from './lighting.ts';
-import { GROUND, carriagewayColor } from './palette.ts';
+import { GROUND, SURFACE_COLOURS, carriagewayColor } from './palette.ts';
 
 /** About twice a just-noticeable difference: two surfaces you can tell apart at a glance. */
 const DISTINCT = 0.05;
@@ -20,6 +20,12 @@ test('shade keeps the hue of its own colour', () => {
   // Same hue direction, and most of its colour (plain sky light greys it out).
   expect(sa * a + sb * b).toBeGreaterThan(0);
   expect(Math.hypot(sa, sb)).toBeGreaterThan(Math.hypot(a, b) * 0.6);
+});
+
+test("a pedestrian street's setts are the squares' own, a street's stay greyer", () => {
+  expect(carriagewayColor('pedestrian', 'sett')).toBe(GROUND.plaza);
+  expect(carriagewayColor('street', 'sett')).toBe(SURFACE_COLOURS.sett);
+  expect(carriagewayColor('pedestrian', 'asphalt')).toBe(SURFACE_COLOURS.asphalt);
 });
 
 test('sun is lighter than shade', () => {
