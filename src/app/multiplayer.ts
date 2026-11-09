@@ -85,12 +85,13 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
   /** Everyone on the map while the full map is open, as last told. */
   let dots: readonly Dot[] = [];
   let wantsDots = false;
-  /** The last time the minimap's dots were written (ms), and the wait to go down. */
+  /** The last time the minimap's dots were written (ms). */
   let dotsAt = 0;
+  /** The wait before everyone frozen by a dropped connection goes. */
   let goneFor: ReturnType<typeof setTimeout> | undefined;
   /** Where the map looks: said again as soon as there is a socket to say it on. */
   let lookingAt: [number, number] | null = null;
-  /** Bumped by every sign-in or -up: an answer to an older question about who you are is stale. */
+  /** Bumped by every sign-in: an answer to an older question about who you are is stale. */
   let asked = 0;
   let disposed = false;
 
@@ -141,12 +142,19 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
     // The count comes from the server; before it has said, whoever we can see and ourselves.
     hooks.online(status === 'online' ? Math.max(onlineCount, others.size + 1) : null);
   }
-  /** Down for good or a moment: the others stand frozen for a moment, then go. */
+  /** Everyone else off the map: a new connection's ids aren't the old one's, or the wait ran out. */
   function forget(): void {
     clearTimeout(goneFor);
     goneFor = undefined;
     if (!others.size) return;
     others.clear();
+    changed(true);
+  }
+  /** Someone we can see has a new name or look, which only a new entry can tell the roster. */
+  function restyle(id: number, change: Partial<Pick<Other, 'name' | 'outfit'>>): void {
+    const other = others.get(id);
+    if (!other) return;
+    others.set(id, { ...other, ...change });
     changed(true);
   }
   function settle(next: Account): void {
@@ -169,12 +177,7 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
         identity = next;
         apply(next);
       },
-      onRenamed(id, name, outfit) {
-        const other = others.get(id);
-        if (!other) return;
-        others.set(id, { ...other, name, outfit });
-        changed(true);
-      },
+      onRenamed: (id, name, outfit) => restyle(id, { name, outfit }),
       onOwn(state) {
         ownAt = state;
         followAvatar();
@@ -218,10 +221,7 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
           }
           return;
         }
-        const other = others.get(id);
-        if (!other) return;
-        others.set(id, { ...other, outfit });
-        changed(true);
+        restyle(id, { outfit });
       },
       onStatus(next) {
         status = next;
@@ -369,7 +369,7 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
     },
     moved(state) {
       // A room the server wouldn't know is the street to the others, as it would be on arrival.
-      last = isPlace(state.place) || !state.place ? state : { ...state, place: '', floor: 0 };
+      last = !state.place || isPlace(state.place) ? state : { ...state, place: '', floor: 0 };
       presence?.send(last);
     },
     dispose() {

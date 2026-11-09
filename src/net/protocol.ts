@@ -199,7 +199,7 @@ const MIN_DOT = 8;
 export const MAX_SPEED = 25.5;
 /** Room ids are short slugs; a name is a username. Longer strings are refused, not cut. */
 export const MAX_PLACE_BYTES = 64;
-export const MAX_NAME_BYTES = 64;
+const MAX_NAME_BYTES = 64;
 const MAX_ID = 0xffff_ffff;
 const STRICT = { fatal: true } as const;
 
@@ -231,7 +231,7 @@ function readId(r: Binary.Reader): number {
 function writeState(w: Binary.Writer, s: PlayerState): void {
   w.float32(s.x);
   w.float32(s.z);
-  writeHeading(w, s.heading);
+  w.uint16(headingSteps(s.heading));
   w.uint8(Math.round(clamp(finite(s.speed), 0, MAX_SPEED) * SPEED_STEPS));
   w.uint8(s.mode === 'bike' ? 1 : 0);
   w.int8(clamp(Math.round(finite(s.floor)), -128, 127));
@@ -248,11 +248,6 @@ function readState(r: Binary.Reader): PlayerState {
   const place = readString(r, MAX_PLACE_BYTES);
   if (!mode || !Number.isFinite(x) || !Number.isFinite(z)) throw new MalformedFrame();
   return { x, z, heading, speed, mode, place, floor };
-}
-
-function writeHeading(w: Binary.Writer, heading: number): void {
-  const turns = finite(heading) / TURN;
-  w.uint16(Math.round((turns - Math.floor(turns)) * HEADINGS) % HEADINGS);
 }
 
 /** `v` as a 16-bit step of `span` metres from `from`. */

@@ -84,7 +84,7 @@ const MESSAGES: Record<AccountErrorCode, string> = {
 const fail = (code: AccountErrorCode, cause?: unknown, retryAfter = 0) =>
   new AccountError(code, MESSAGES[code], cause === undefined ? undefined : { cause }, retryAfter);
 
-/** better-auth's error codes (core and the username plugin), as what they mean here. */
+/** Error codes as what they mean here: better-auth's (core and the username plugin) and our server's. */
 const CODES: Record<string, AccountErrorCode> = {
   INVALID_EMAIL: 'email',
   EMAIL_UNDELIVERABLE: 'undeliverable',
@@ -136,30 +136,32 @@ async function failure(response: Response): Promise<AccountError> {
 const post = (path: string, body: unknown) =>
   request(path, { method: 'POST', body: JSON.stringify(body) });
 
+const putMe = (body: unknown, keepalive = false) =>
+  request('/me', { method: 'PUT', body: JSON.stringify(body), keepalive });
+
+/** Throws the sentence for a response that failed; a good one goes on. */
+async function succeed(response: Response): Promise<void> {
+  if (!response.ok) throw await failure(response);
+}
+
 /** Mails a sign-in code to this address, whether or not it has an account yet. */
 export async function sendCode(email: string): Promise<void> {
   const address = normaliseEmail(email);
   if (!isEmail(address)) throw fail('email');
-  const response = await post('/auth/email-otp/send-verification-otp', { email: address });
-  if (!response.ok) throw await failure(response);
+  await succeed(await post('/auth/email-otp/send-verification-otp', { email: address }));
 }
 
 /** Gives a code back: signs in, making the account if this address has none. */
 export async function verifyCode(email: string, code: string): Promise<Me> {
   if (code.length !== CODE_LENGTH || /\D/.test(code)) throw fail('code');
-  const response = await post('/auth/sign-in/email-otp', {
-    email: normaliseEmail(email),
-    otp: code,
-  });
-  if (!response.ok) throw await failure(response);
+  await succeed(await post('/auth/sign-in/email-otp', { email: normaliseEmail(email), otp: code }));
   return signedIn();
 }
 
 /** Takes another name, if it's free. */
 export async function rename(name: string): Promise<Me> {
   if (!isUsername(name)) throw fail('name');
-  const response = await request('/me', { method: 'PUT', body: JSON.stringify({ name }) });
-  if (!response.ok) throw await failure(response);
+  await succeed(await putMe({ name }));
   return signedIn();
 }
 
@@ -188,7 +190,7 @@ export async function signOut(): Promise<void> {
 export async function me(): Promise<Me | null> {
   const response = await request('/me');
   if (response.status === 401) return null;
-  if (!response.ok) throw await failure(response);
+  await succeed(response);
   const body = (await response.json().catch(() => undefined)) as Partial<Me> | null | undefined;
   if (body === null) return null;
   if (typeof body?.name !== 'string' || !isOutfit(body.outfit)) throw fail('server', body);
@@ -205,10 +207,5 @@ export async function me(): Promise<Me | null> {
 /** Keeps the avatar's colours; everyone online sees them change. */
 export async function saveOutfit(outfit: Outfit, { leaving = false } = {}): Promise<void> {
   // Leaving the page, the request is kept alive past it.
-  const response = await request('/me', {
-    method: 'PUT',
-    body: JSON.stringify({ outfit }),
-    keepalive: leaving,
-  });
-  if (!response.ok) throw await failure(response);
+  await succeed(await putMe({ outfit }, leaving));
 }
