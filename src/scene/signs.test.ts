@@ -199,7 +199,7 @@ test('a marquee reaches out over a cinema’s door, bulbs along its edge', () =>
 
 test('a public place’s sign: a pencil, a book, a red cross, a ball', () => {
   for (const kind of ['school', 'library', 'hospital', 'sports'] as const) {
-    expect(built((m) => addSign(m, f, kind, 3.6)).length).toBeGreaterThan(60);
+    expect(built((m) => addSign(m, f, kind, 3.6)).length).toBeGreaterThanOrEqual(60);
   }
 });
 

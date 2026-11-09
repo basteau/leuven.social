@@ -47,7 +47,7 @@ test('public/data/city.bin decodes into a plausible Leuven', async () => {
   // Racks hold as many bikes as Leuven parks at them: the station's packed, quiet streets a third.
   const racks = city.props.filter((p) => p.kind === 'bikes');
   const bikes = racks.reduce((sum, p) => sum + bikesIn(p), 0);
-  expect(bikes).toBeGreaterThan(3000);
+  expect(bikes).toBeGreaterThan(2900); // fewer than the 3,100 of old: racks no longer jump the road
   expect(bikes).toBeLessThan(4500);
   expect(racks.every((p) => p.fill! >= 0 && p.fill! <= 1)).toBe(true);
   const streets = new StreetIndex(city);

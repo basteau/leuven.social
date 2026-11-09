@@ -251,9 +251,11 @@ function hipRoof(
 type At = (u: number, v: number, y: number) => V3;
 
 /**
- * A stepped gable at u = `end`: a thin wall whose steps climb above the roof slopes, so it
- * reads from the street side and from behind. Replaces the plain gable triangle. Only its two
- * faces: treads and risers are a third of a metre, less than a game pixel.
+ * A stepped gable at u = `end`: its steps climb above the roof slopes, so it reads from the street
+ * side and from behind. Replaces the plain gable triangle. Its two faces lie on one plane, the
+ * one its ink is drawn on: with the far face set back into the house, the line floated beside
+ * the fill wherever the gable was seen from the roof, and closing the gap with treads and risers
+ * costs more vertices than it gives anything back at these sizes.
  */
 function steppedGable(
   mesh: MeshBuilder,
@@ -268,7 +270,6 @@ function steppedGable(
   const W = plan.rect.halfWidth;
   const steps = Math.min(4, Math.max(2, Math.round(W / 1.3)));
   const rise = (ridge - eave) / steps;
-  const back = end - Math.sign(end) * 0.35;
   const inward: V3 = [-out[0], 0, -out[2]];
   for (const side of [1, -1]) {
     let below = eave;
@@ -277,24 +278,14 @@ function steppedGable(
       const q1 = side * W * (1 - (i + 1) / steps);
       // Each step stands a little proud of the roof line at its inner edge.
       const top = eave + rise * (i + 1.35);
-      mesh.quad(
+      const corners = [
         at(end, q0, eave),
         at(end, q1, eave),
         at(end, q1, top),
         at(end, q0, top),
-        wall,
-        out,
-        WALL_PLAIN,
-      );
-      mesh.quad(
-        at(back, q0, eave),
-        at(back, q1, eave),
-        at(back, q1, top),
-        at(back, q0, top),
-        wall,
-        inward,
-        WALL_PLAIN,
-      );
+      ] as const;
+      mesh.quad(...corners, wall, out, WALL_PLAIN);
+      mesh.quad(...corners, wall, inward, WALL_PLAIN);
       lines.segment(at(end, q0, below), at(end, q0, top));
       lines.segment(at(end, q0, top), at(end, q1, top));
       below = top;
@@ -716,8 +707,9 @@ const SKYLIGHT = { halfU: 0.45, halfV: 0.5, lift: 0.04 } as const;
 /**
  * What makes a roof a house's own, on the gables of the centre's houses: chimney stacks on the
  * ridge near the party walls (one on most, two on some), a dormer poking out of one slope of a
- * third of them, a roof window in another fifth. In brick a shade darker than the wall, or the
- * wall's own colour for a dormer; about 30 triangles a house at most. Shadows and ink cost
+ * third of them, a roof window in another fifth. In brick a shade darker than the wall; a
+ * dormer's front in the wall's colour, its cheeks and lid in the roof's; about 30 triangles a
+ * house at most. Shadows and ink cost
  * nothing more: a stack is too small for a line, a dormer gets its front's edges.
  */
 function roofDetails(
@@ -792,8 +784,10 @@ function roofDetails(
       out,
       PANE,
     );
-    mesh.triangle(at(u1, vf, y0), at(u1, vb, y1 + 0.3), at(u1, vf, y1), wall, [ux, 0, uz]);
-    mesh.triangle(at(u0, vf, y0), at(u0, vf, y1), at(u0, vb, y1 + 0.3), wall, [-ux, 0, -uz]);
+    // Its cheeks are clad like the roof, in slate or tile: in the wall's colour they read, seen
+    // from the side, as a wedge of brick poking through the slope.
+    mesh.triangle(at(u1, vf, y0), at(u1, vb, y1 + 0.3), at(u1, vf, y1), roof, [ux, 0, uz]);
+    mesh.triangle(at(u0, vf, y0), at(u0, vf, y1), at(u0, vb, y1 + 0.3), roof, [-ux, 0, -uz]);
     mesh.quad(
       at(u0, vf, y1),
       at(u1, vf, y1),

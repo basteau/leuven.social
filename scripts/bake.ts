@@ -27,6 +27,7 @@ import type {
   TerrainGrid,
   Tier,
 } from '../src/data/city.ts';
+import { wallAprons } from '../src/data/aprons.ts';
 import { packCity } from '../src/data/format.ts';
 import { Facades, streetSegments } from '../src/data/facades.ts';
 import {
@@ -52,6 +53,7 @@ import {
   RingIndex,
   Shapes,
   discInFootprint,
+  pathStrip,
   placeProps,
   propFootprint,
   rackFill,
@@ -66,7 +68,14 @@ import { PLACES, placeKind } from '../src/data/shop-kinds.ts';
 import { bridgeParapets, tankOutline } from '../src/data/structures.ts';
 import { joinLines, nameTable, streetName } from '../src/data/streets.ts';
 import { TREE_KINDS } from '../src/data/city.ts';
-import { clearCrowns, mergeTrees, treeKindOf, trunkRadius } from '../src/data/trees.ts';
+import {
+  atWater,
+  clearCrowns,
+  mergeTrees,
+  onBank,
+  treeKindOf,
+  trunkRadius,
+} from '../src/data/trees.ts';
 import { DATA } from './data-files.ts';
 
 const OUT = new URL('../public/data/city.bin', import.meta.url).pathname;
@@ -422,34 +431,6 @@ const footprints = new RingIndex();
 for (const b of buildings) footprints.add(b.ring);
 const carriagewayGround = new RingIndex();
 for (const c of carriageways) carriagewayGround.add(c.ring);
-// A mapped tree inside a footprint is in the wrong place: the house is surveyed, the tree typed.
-const riverForTrees = new RingIndex();
-for (const ring of [...layer(wtz.features, () => true), ...coverLayer('water')]) {
-  riverForTrees.add(ring);
-}
-/** A mapped tree in the water is on its bank, typed a little off: moved to the nearest dry ground. */
-function onBank([x, z, kind]: readonly [number, number, number]): readonly [
-  number,
-  number,
-  number,
-] {
-  if (!riverForTrees.contains(x, z)) return [x, z, kind];
-  for (let r = 1; r <= 8; r++) {
-    for (let k = 0; k < 16; k++) {
-      const t = (k / 16) * Math.PI * 2;
-      const [nx, nz] = [x + Math.cos(t) * r, z + Math.sin(t) * r];
-      if (!riverForTrees.contains(nx, nz)) return [nx, nz, kind];
-    }
-  }
-  return [x, z, kind];
-}
-const standing = osmTrees.map(onBank).filter(([x, z]) => !footprints.contains(x, z));
-const allTrees = mergeTrees(
-  standing.flatMap(([x, z]) => [x, z]),
-  crowns.trees.filter(([x, z]) => areaIndex(AREA, x, z) >= 0 && !underRoof(x, z)),
-  standing.map(([, , kind]) => kind),
-);
-
 const roads = layer(wbn.features, () => true);
 const squareRings = [
   ...coverRings('plazas'),
@@ -499,6 +480,25 @@ const parapets = knw.structures
   .flatMap((line) => AREA.flatMap((rect) => clipLine(line, rect)))
   .map((line) => new Float32Array(line));
 
+// Whether a point is water as drawn: roads, squares and bridges are drawn over it. A mapped tree
+// that stands in that is on its bank, typed a little off: moved to the nearest dry ground, and
+// gone if there is none. (A trunk on a road over the water is on the road, as it is drawn.)
+const overWater = new RingIndex();
+for (const ring of [...roads, ...plazas, ...bridges]) overWater.add(ring);
+const wet = (x: number, z: number) => river.contains(x, z) && !overWater.contains(x, z);
+// A mapped tree inside a footprint is in the wrong place: the house is surveyed, the tree typed.
+const standing = osmTrees
+  .flatMap(([x, z, kind]) => {
+    const spot = onBank(x, z, wet, (px, pz) => carriagewayGround.contains(px, pz));
+    return spot ? [[spot[0], spot[1], kind] as const] : [];
+  })
+  .filter(([x, z]) => !footprints.contains(x, z));
+const allTrees = mergeTrees(
+  standing.flatMap(([x, z]) => [x, z]),
+  crowns.trees.filter(([x, z]) => areaIndex(AREA, x, z) >= 0 && !underRoof(x, z)),
+  standing.map(([, , kind]) => kind),
+);
+
 // Street furniture by rule (src/data/props.ts): turned to its kerb, kept off walls, water, tanks,
 // trunks and each other, and off the carriageway unless mapped there (never a rack).
 const kerbs = new Shapes();
@@ -506,6 +506,21 @@ for (const { role, ring } of zones.faces) {
   if (role === 'pedestrian') continue;
   for (const r of clipRingToArea(normalizeRing(ring.flat()), AREA))
     if (r.length >= 6) kerbs.ring(r);
+}
+// The cycle paths only OSM maps, the width they're drawn: racks keep off them (the others'
+// tracks are in `kerbs`). Only racks read these, so a lamp or bench doesn't start lining up with one.
+const cyclePaths = new Shapes();
+for (const f of osmRoads.features) {
+  const tags = f.properties;
+  const cycle =
+    tags.highway === 'cycleway' || (tags.highway === 'path' && tags.bicycle === 'designated');
+  const style = cycle && f.geometry.type === 'LineString' ? pathFromOsm(tags) : null;
+  if (!style) continue;
+  for (const piece of AREA.flatMap((rect) => clipLine(lineOf(f), rect))) {
+    for (const shown of uncoveredPieces(piece, (x, z) => hard.contains(x, z))) {
+      for (const ring of pathStrip(shown, style.width)) cyclePaths.ring(ring);
+    }
+  }
 }
 const solid = new Shapes();
 for (const ring of [...buildings.map((b) => b.ring), ...tanks.map((t) => t.ring)]) solid.ring(ring);
@@ -526,6 +541,8 @@ const placed = placeProps(
   }),
   {
     roads: kerbs,
+    cyclePaths,
+    inArea: (x, z) => areaIndex(AREA, x, z) >= 0,
     solid,
     water: pools,
     edges,
@@ -592,7 +609,7 @@ const trees = clearCrowns(
   (x, z, r) =>
     carriagewayGround.contains(x, z) ||
     footprints.contains(x, z) ||
-    river.contains(x, z) ||
+    atWater(x, z, wet) ||
     [-1, 0, 1].some((i) =>
       [-1, 0, 1].some((j) =>
         (near.get(`${Math.round(x / 16) + i},${Math.round(z / 16) + j}`) ?? []).some((f) =>
@@ -695,14 +712,51 @@ const terraces = fitTerraces(
 );
 const shopFronts = markShopFronts(buildings, shops.fronts);
 
+// The strips of paving between a wall and the road in front of it (src/data/aprons.ts): laid
+// now, so nothing placed above takes them for the kerb's edge.
+const hardGround = new RingIndex();
+for (const ring of [
+  ...roads,
+  ...carriageways.map((c) => c.ring),
+  ...plazas,
+  ...coverLayer('islands'),
+]) {
+  hardGround.add(ring);
+}
+const softGround = new RingIndex();
+for (const r of [
+  ...coverLayer('green', MIN_GREEN_AREA),
+  ...coverLayer('woods', MIN_GREEN_AREA),
+  ...coverLayer('parking', MIN_GREEN_AREA),
+  ...water,
+  ...railLand,
+  ...pitchRings.map((p) => p.ring),
+  ...bridges,
+]) {
+  softGround.add(r);
+}
+const squareIndex = new RingIndex();
+for (const r of plazas) squareIndex.add(r);
+const aprons = buildings
+  .flatMap((b) =>
+    wallAprons(b.ring, {
+      base: (x, z) =>
+        !hardGround.contains(x, z) && !softGround.contains(x, z) && !footprints.contains(x, z),
+      paved: (x, z) =>
+        squareIndex.contains(x, z) ? 'square' : hardGround.contains(x, z) ? 'road' : null,
+    }),
+  )
+  .map(({ ring, surface }) => ({ ring: new Float32Array(ring), surface }));
+const roadAprons = aprons.flatMap((a) => (a.surface === 'road' ? [a.ring] : []));
+const squareAprons = aprons.flatMap((a) => (a.surface === 'square' ? [a.ring] : []));
 const city: City = {
   area: [...AREA],
   bounds: VIEW_AREA,
   buildings,
-  roads,
+  roads: [...roads, ...roadAprons],
   carriageways,
   markings,
-  plazas,
+  plazas: [...plazas, ...squareAprons],
   green: coverLayer('green', MIN_GREEN_AREA),
   woods: coverLayer('woods', MIN_GREEN_AREA),
   flowerbeds: coverLayer('flowerbeds'),
@@ -727,7 +781,7 @@ const city: City = {
   parapets,
   streetNames: names.table,
   streets,
-  plazaNames,
+  plazaNames: [...plazaNames, ...squareAprons.map(() => -1)],
   terrain: terrainOver(landform, VIEW_AREA),
   fronts: shops.fronts,
 };

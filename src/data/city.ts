@@ -196,7 +196,7 @@ export const RACK_STYLES = ['hoops', 'anchors', 'wall', 'informal', 'shed'] as c
 export type RackStyle = (typeof RACK_STYLES)[number];
 
 /** What kind of tree it is, where OSM says; a tree only the LiDAR saw is `broad`. */
-export const TREE_KINDS = ['broad', 'conifer', 'column', 'copper', 'willow'] as const;
+export const TREE_KINDS = ['broad', 'conifer', 'column', 'willow'] as const;
 export type TreeKind = (typeof TREE_KINDS)[number];
 
 export interface Prop {

@@ -6,6 +6,7 @@
  * cell's furniture like the awnings (storefronts.ts). Part of the furniture chunk.
  */
 
+import { PLACES } from '../data/shop-kinds.ts';
 import type { ShopKind } from '../data/shop-kinds.ts';
 import type { MeshBuilder, V3 } from './mesh-builder.ts';
 import { FRONTS, PROPS } from './palette.ts';
@@ -144,44 +145,18 @@ export function addSign(mesh: MeshBuilder, f: Frame, kind: ShopKind, middle: num
   const [g, y] = [{ ...f, scale: SIGN_SCALE }, middle / SIGN_SCALE];
   bracket(mesh, g, y + BOARD.half);
   const { canvas, stripe = canvas, board: boardColor = canvas } = FRONTS[kind];
-  if (BOARDED.has(kind)) board(mesh, g, y, boardColor);
+  if (!BARE.has(kind) && !PLACES.has(kind)) board(mesh, g, y, boardColor);
   symbol(mesh, g, y, canvas, stripe);
   return true;
 }
 
 type Symbol = (mesh: MeshBuilder, f: Frame, y: number, canvas: number, stripe: number) => void;
 
-/** Kinds whose symbol stands on a board in their colour. */
-const BOARDED = new Set<ShopKind>([
-  'cafe',
-  'bar',
-  'bakery',
-  'bank',
-  'books',
-  'fashion',
-  'food',
-  'restaurant',
-  'shop',
-  'service',
-  'library',
-  'hospital',
-  'gift',
-  'art',
-  'home',
-  'beauty',
-  'optician',
-  'laundry',
-  'phone',
-  'electronics',
-  'travel',
-  'hardware',
-  'copyshop',
-  'music',
-  'toys',
-  'sportshop',
-  'drugstore',
-  'kiosk',
-]);
+/**
+ * The shops whose symbol hangs on its own, every other on a board in its colour. A public place
+ * hangs a medallion (`addMedallion`) instead of a board.
+ */
+const BARE = new Set<ShopKind>(['frituur', 'icecream', 'pharmacy', 'bicycle', 'snack']);
 
 /** A book lying open, its pages over its cover, in the sign's plane. 96 vertices. */
 const openBook: Symbol = (mesh, f, y) => {
@@ -364,9 +339,9 @@ const SYMBOLS: Partial<Record<ShopKind, Symbol>> = {
     );
     bar(mesh, f, 0.09, [MID - 0.2, y - 0.14], [MID + 0.2, y - 0.14], 0.11, canvas);
     for (const s of [-1, 1]) {
-      bar(mesh, f, 0.04, [MID + s * 0.14, y + 0.04], [MID + s * 0.14, y + 0.29], 0.05, PROPS.iron);
+      bar(mesh, f, 0.05, [MID + s * 0.14, y + 0.04], [MID + s * 0.14, y + 0.29], 0.05, PROPS.iron);
     }
-    bar(mesh, f, 0.04, [MID - 0.14, y + 0.27], [MID + 0.14, y + 0.27], 0.05, PROPS.iron);
+    bar(mesh, f, 0.05, [MID - 0.14, y + 0.27], [MID + 0.14, y + 0.27], 0.05, PROPS.iron);
   },
   // A desk bell for a counter (an estate agent, an undertaker): a dome, its button and a base.
   service: (mesh, f, y) => {
@@ -386,12 +361,26 @@ const SYMBOLS: Partial<Record<ShopKind, Symbol>> = {
     bar(mesh, f, 0.05, [MID, y + 0.15], [MID, y + 0.26], 0.05, DARK_GOLD);
     bar(mesh, f, 0.1, [MID - 0.32, y - 0.22], [MID + 0.32, y - 0.22], 0.1, PROPS.iron);
   },
-  // A wrapped box: ribbon round it both ways, and a bow on top.
-  gift: (mesh, f, y, canvas) => {
-    rect(mesh, f, 0.08, MID - 0.27, MID + 0.27, y - 0.33, y + 0.08, PAPER);
-    bar(mesh, f, 0.09, [MID, y - 0.33], [MID, y + 0.08], 0.1, canvas);
-    bar(mesh, f, 0.09, [MID - 0.27, y - 0.13], [MID + 0.27, y - 0.13], 0.1, canvas);
-    for (const s of [-1, 1]) disc(mesh, f, 0.08, [MID + s * 0.1, y + 0.2], 0.11, 6, canvas);
+  // A wrapped present: a box under its lid, a ribbon down it and a big bow on top. The ribbon and
+  // the bow in gold, not the shop's own colour, which is what the board behind them already is.
+  gift: (mesh, f, y) => {
+    rect(mesh, f, 0.08, MID - 0.26, MID + 0.26, y - 0.34, y + 0.06, PAPER);
+    rect(mesh, f, 0.09, MID - 0.31, MID + 0.31, y + 0.06, y + 0.17, PAPER);
+    bar(mesh, f, 0.1, [MID, y - 0.34], [MID, y + 0.17], 0.12, DARK_GOLD);
+    for (const s of [-1, 1]) {
+      slab(
+        mesh,
+        f,
+        [-0.09, 0.09],
+        [
+          [MID, y + 0.26],
+          [MID + s * 0.3, y + 0.4],
+          [MID + s * 0.3, y + 0.14],
+        ],
+        GOLD,
+      );
+    }
+    disc(mesh, f, 0.1, [MID, y + 0.26], 0.07, 6, DARK_GOLD);
   },
   // A gilt frame round a little landscape.
   art: (mesh, f, y) => {
