@@ -269,7 +269,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
   const ground = (x: number, z: number) => terrain.height(x, z);
 
   // Trunks, benches and lamp posts stand in the way as drawn (src/scene/solids.ts).
-  const grid = new WalkGrid(host.city, walkSolids(host.city));
+  const grid = new WalkGrid(host.city, walkSolids(host.city), host.terrain);
   const router = new Router(grid);
   // On Grote Markt, a few steps from the middle: everyone starts there, not all on one spot.
   const middle = grid.nearest(0, 0, 60, true) ?? [0, 0];
@@ -396,7 +396,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
         scene,
         canvas,
         body,
-        floor: host.groundAt,
+        floor: feetAt,
         shadowsChanged: host.shadowsChanged,
       });
       bikes.show(true);
@@ -460,7 +460,18 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     return loadingInteriors;
   };
   /** The ground underfoot: the street's, or the room's floor. */
-  const underfoot = () => (room && interiors ? interiors.grid(room, avatar.floor) : grid);
+  const underfoot = () => {
+    if (room && interiors) return interiors.grid(room, avatar.floor);
+    return avatar.floor === 1 ? (grid.upper ?? grid) : grid;
+  };
+  /** The height of the level the avatar is on, where a deck or tunnel carries it there; else NaN. */
+  const onUpperLevel = (x: number, z: number) =>
+    !room && avatar.floor === 1 ? grid.upperHeight(x, z) : Number.NaN;
+  /** Where feet stand at (x, z) on the avatar's own level: a deck, a tunnel or the street as drawn. */
+  const feetAt = (x: number, z: number) => {
+    const up = onUpperLevel(x, z);
+    return Number.isNaN(up) ? host.groundAt(x, z) : up;
+  };
 
   // The other players, drawn as the avatar is, round where the view looks (players.ts).
   const riderKit = {
@@ -489,7 +500,10 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     tags: host.tags,
     reducedMotion,
     floorAt(at) {
-      if (!at.place) return host.groundAt(at.x, at.z);
+      if (!at.place) {
+        const up = at.floor === 1 ? grid.upperHeight(at.x, at.z) : Number.NaN;
+        return Number.isNaN(up) ? host.groundAt(at.x, at.z) : up;
+      }
       const inside = interiors?.byId(at.place);
       return inside && interiors ? interiors.standing(inside, at.floor, at.x, at.z).y : null;
     },
@@ -553,7 +567,11 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
    * open), up or down a floor halfway up a stair. Once a step, so each changes exactly once.
    */
   function crossings(): void {
-    if (!interiors || !room) return;
+    if (!room) {
+      avatar.floor = grid.levelAt(avatar.floor, avatar.walker.x, avatar.walker.z);
+      return;
+    }
+    if (!interiors) return;
     const w = avatar.walker;
     const { door } = room;
     const into = (w.x - door.x) * Math.sin(door.facing) + (w.z - door.z) * Math.cos(door.facing);
@@ -669,16 +687,18 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
    * nearest open ground, spread out so a walled-in garden or the far side of a fence is passed
    * over for the pavement beside it. Whether one did.
    */
-  function walkTo(x: number, z: number, reach = 3, most = TRIES): boolean {
+  function walkTo(x: number, z: number, reach = 3, most = TRIES, level = 0): boolean {
     const w = avatar.walker;
     const here = underfoot();
     const by = room && interiors ? interiors.router(room, avatar.floor) : router;
     const from = here.walkable(w.x, w.z) ? [w.x, w.z] : here.nearest(w.x, w.z, 4);
     if (!from) return false;
-    const places = here.around(x, z, reach, most);
-    if (here.walkable(x, z)) places.unshift([x, z]);
+    const goalGrid = room ? here : level === 1 && grid.upper ? grid.upper : grid;
+    const places = goalGrid.around(x, z, reach, most);
+    if (goalGrid.walkable(x, z)) places.unshift([x, z]);
+    const fromLevel = room ? 0 : avatar.floor;
     for (const [tx, tz] of places.slice(0, most)) {
-      const route = by.route(from[0]!, from[1]!, tx, tz, loose);
+      const route = by.route(from[0]!, from[1]!, tx, tz, loose, fromLevel, room ? 0 : level);
       if (route) {
         follow(route);
         return true;
@@ -686,6 +706,12 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     }
     return false;
   }
+
+  /** A step of a route on a deck is drawn on the deck, not on the ground under it. */
+  const routeY = (x: number, z: number) => {
+    const up = grid.upperHeight(x, z);
+    return Number.isNaN(up) ? ground(x, z) : Math.max(up, ground(x, z));
+  };
 
   /** Where the walk ends when the next route is only a leg of it: the ring stands there. */
   let ringAt: readonly [number, number] | undefined;
@@ -695,7 +721,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     sounds.routeStart();
     hint.geometry.dispose();
     const floorY = feet[1];
-    marker = routeMarker(route, room ? () => floorY : ground, ringAt);
+    marker = routeMarker(route, room ? () => floorY : routeY, ringAt);
     ringAt = undefined;
     hint.geometry = marker.geometry;
     hint.visible = true;
@@ -759,9 +785,14 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       }
     }
   }
+  /** Whether a surface at height y over (x, z) is a deck or tunnel floor as drawn. */
+  const onUpper = (x: number, y: number, z: number) => {
+    const up = grid.upperHeight(x, z);
+    return !Number.isNaN(up) && Math.abs(y - up) < ON_GROUND;
+  };
   const meantTests: MeantTests = {
-    ground: (x, y, z) => y < ground(x, z) + ON_GROUND,
-    open: (x, z) => grid.walkable(x, z),
+    ground: (x, y, z) => y < ground(x, z) + ON_GROUND || onUpper(x, y, z),
+    open: (x, z) => grid.walkable(x, z) || (grid.upper?.walkable(x, z) ?? false),
     building: (x, z) => grid.buildingHeight(x, z) > 0,
   };
   /**
@@ -797,7 +828,8 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
   /** Where to go on from a room's door, for a tap outside the room; dropped by any other. */
   let onward: [number, number] | null = null;
   /** Going further than one route reaches: the spot at the end, and where this leg stops. */
-  let trip: { to: [number, number]; leg: [number, number]; legs: number } | null = null;
+  let trip: { to: [number, number]; leg: [number, number]; legs: number; level: number } | null =
+    null;
 
   function tap(clientX: number, clientY: number): void {
     asked++;
@@ -829,7 +861,17 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       return;
     }
     if (room) leaveFor(at, room);
-    else headFor(...at);
+    else headFor(at[0], at[1], 0, levelOfTap(at[0], at[1]));
+  }
+
+  /** The level a tap at (x, z) means: the deck or tunnel floor it shows, or else the street. */
+  function levelOfTap(x: number, z: number): number {
+    let [best, y] = [Infinity, Number.NaN];
+    for (let i = 0; i < points.length; i += 3) {
+      const d = Math.hypot(points[i]! - x, points[i + 2]! - z);
+      if (d < best) [best, y] = [d, points[i + 1]!];
+    }
+    return !Number.isNaN(y) && onUpper(x, y, z) ? 1 : 0;
   }
 
   /**
@@ -839,13 +881,14 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
    * router's window) shouldn't be something a person walking across town has to know, and only
    * close by are the places round a spot worth trying: a failed search fills its window.
    */
-  function headFor(x: number, z: number, legs = 0): boolean {
+  function headFor(x: number, z: number, legs = 0, level = 0): boolean {
     const w = avatar.walker;
     for (const [lx, lz, final] of legsToward(w.x, w.z, x, z)) {
       ringAt = final ? undefined : [x, z];
-      if (!walkTo(lx, lz, TAP_REACH, final && away(x, z) <= DETOUR ? TRIES : 1)) continue;
+      if (!walkTo(lx, lz, TAP_REACH, final && away(x, z) <= DETOUR ? TRIES : 1, final ? level : 0))
+        continue;
       const end = w.route!;
-      trip = final ? null : { to: [x, z], leg: [end.at(-2)!, end.at(-1)!], legs };
+      trip = final ? null : { to: [x, z], leg: [end.at(-2)!, end.at(-1)!], legs, level };
       return true;
     }
     ringAt = undefined;
@@ -857,10 +900,10 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
   /** A leg walked to its end sets off on the next; stopped short (the keys took over), it's over. */
   function nextLeg(): void {
     if (!trip || avatar.walker.route) return;
-    const { to, leg, legs } = trip;
+    const { to, leg, legs, level } = trip;
     trip = null;
     if (away(...leg) >= LEG_ARRIVED) return;
-    if (legs < MAX_LEGS) headFor(...to, legs + 1);
+    if (legs < MAX_LEGS) headFor(...to, legs + 1, level);
     else refuse(...to, 'noway');
   }
 
@@ -986,12 +1029,13 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
   /** Poses and places the figure where the avatar is drawn. */
   function place(x: number, z: number, heading: number, phase: number, dt: number): void {
     const w = avatar.walker;
-    const step = host.groundAt(x, z) - ground(x, z);
+    // Measured from the bare landform, which has no step at a ramp's tip or a tunnel's mouth.
+    const bare = terrain.plain(x, z);
+    const step = feetAt(x, z) - bare;
     kerb = reducedMotion || !onFeet ? step : decay(kerb, step, KERB_EASE, dt);
     onFeet = true;
     // In a room, its floor: up the ramp of a stair, or over the threshold from the street's.
-    const floor =
-      room && interiors ? interiors.standing(room, avatar.floor, x, z).y : ground(x, z) + kerb;
+    const floor = room && interiors ? interiors.standing(room, avatar.floor, x, z).y : bare + kerb;
     avatar.rise = floor - host.groundAt(x, z);
     [feet[0], feet[1], feet[2]] = [x, floor, z];
     const onFoot = avatar.mode === 'foot' || (bikes?.busy ?? false);
@@ -1072,6 +1116,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     const w = avatar.walker;
     [publishedAt[0], publishedAt[1]] = [w.x, w.z];
     canvas.dataset.walker = `${w.x.toFixed(1)} ${w.z.toFixed(1)}`;
+    canvas.dataset.level = String(room ? 0 : avatar.floor);
   }
   publish();
   place(avatar.walker.x, avatar.walker.z, avatar.walker.heading, 0, 0);

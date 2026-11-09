@@ -172,6 +172,7 @@ export const GROUND = {
   plaza: 0xc2ae92,
   water: 0x5f9fc4,
   /** Bridge decks: the pavement's slabs a shade warmer, so a street runs on over the bridge. */
+  tunnel: 0x1b1c20,
   bridge: 0xb8b0a1,
   /** Railway land: the gravel between and beside the tracks, paler than their ballast. */
   railway: 0xaca291,

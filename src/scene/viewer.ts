@@ -29,7 +29,8 @@ import { clampToArea } from '../data/geometry.ts';
 import type { StreetIndex } from '../data/streets.ts';
 import { TREE_KINDS } from '../data/city.ts';
 import { TREE_STRIDE } from '../data/trees.ts';
-import { Terrain } from '../data/terrain.ts';
+import { deckStrip } from '../data/structures.ts';
+import { landform } from '../data/terrain.ts';
 import { addBuilding, footing, partyWalls, wallTop } from './buildings.ts';
 import { AWNING } from './facade-codes.ts';
 import { addGarden } from './gardens.ts';
@@ -376,7 +377,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   const glowMaterial = createGlowMaterial(lamps);
   const contactMaterial = createContactMaterial(lampField.cell);
 
-  const terrain = new Terrain(city.terrain);
+  const terrain = landform(city.terrain, city.ramps, city.decks.map(deckStrip));
 
   // Cells are built when they first come into view, and the rest while the page is idle, so
   // the first frame costs what the visible part of the city costs. The city is cut into them

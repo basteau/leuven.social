@@ -1,7 +1,16 @@
-import { expect, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 
 import { LineBuilder, MeshBuilder, unindexed } from './mesh-builder.ts';
-import { addParapet, addTank } from './structures.ts';
+import { FLAT_GRID, landform } from '../data/terrain.ts';
+import { deckStrip } from '../data/structures.ts';
+import {
+  addDeckFrame,
+  addDeckSurface,
+  addParapet,
+  addPortals,
+  addRampWalls,
+  addTank,
+} from './structures.ts';
 
 const measure = (mesh: MeshBuilder) => {
   const g = unindexed(mesh.build());
@@ -34,4 +43,70 @@ test('a parapet is a low wall under a capstone along its line, closed at both en
   // The capstone overhangs the wall: wider than the wall's 0.4 m along the first segment.
   expect(box.min.z).toBeLessThan(-0.2);
   expect(unindexed(lines.build()).getAttribute('position').count).toBe(2 * 2 * 2);
+});
+
+describe('bridges and tunnels', () => {
+  const deck = {
+    carries: 'road' as const,
+    ring: Float32Array.of(0, 0, 30, 0, 30, 10, 0, 10),
+    axis: Float32Array.of(-1.5, 5, 31.5, 5),
+    rise: Float32Array.of(5, 5),
+    piers: Float32Array.of(10, 2),
+    lanes: [
+      { width: 6.4, surface: 'asphalt' as const, line: Float32Array.of(0, 5, 30, 5) },
+      { width: 2, surface: 'asphalt' as const, line: Float32Array.of(0, 8, 30, 8) },
+    ],
+  };
+  const terrain = landform(FLAT_GRID, [], [deckStrip(deck)]);
+
+  test('a deck is held up with a surface, sides and piers', () => {
+    const mesh = new MeshBuilder();
+    const lines = new LineBuilder();
+    mesh.drape = terrain.decks;
+    addDeckSurface(mesh, deck);
+    mesh.drape = null;
+    addDeckFrame(mesh, lines, deck, terrain);
+    const before = mesh.indices;
+    expect(before).toBeGreaterThan(40);
+    expect(lines.segments).toBeGreaterThan(0);
+  });
+
+  test('a ramp is walled while it stands clear of the ground', () => {
+    const ramp = {
+      line: Float32Array.of(0, 0, 20, 0, 40, 0),
+      rise: Float32Array.of(4, 2, 0),
+      half: 4,
+      rail: false,
+    };
+    const mesh = new MeshBuilder();
+    const lines = new LineBuilder();
+    addRampWalls(mesh, lines, ramp, landform(FLAT_GRID, [ramp], []));
+    expect(mesh.indices).toBeGreaterThan(0);
+    const cutting = { ...ramp, rise: Float32Array.of(-4, -2, 0) };
+    const low = new MeshBuilder();
+    addRampWalls(low, new LineBuilder(), cutting, landform(FLAT_GRID, [cutting], []));
+    expect(low.indices).toBeGreaterThan(0);
+  });
+
+  test('a tunnel has a portal only at a mouth that opens', () => {
+    const tunnel = {
+      carries: 'road' as const,
+      line: Float32Array.of(0, 0, 40, 0),
+      half: 3,
+      depth: 5,
+      mouths: [true, false] as [boolean, boolean],
+    };
+    const mesh = new MeshBuilder();
+    addPortals(mesh, new LineBuilder(), tunnel, landform(FLAT_GRID, [], []));
+    const one = mesh.indices;
+    expect(one).toBeGreaterThan(0);
+    const both = new MeshBuilder();
+    addPortals(
+      both,
+      new LineBuilder(),
+      { ...tunnel, mouths: [true, true] },
+      landform(FLAT_GRID, [], []),
+    );
+    expect(both.indices).toBe(one * 2);
+  });
 });

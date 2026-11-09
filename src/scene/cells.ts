@@ -3,10 +3,13 @@ import type {
   Building,
   Carriageway,
   City,
+  Deck,
   Path,
   Prop,
+  Ramp,
   ShopFront,
   Tank,
+  Tunnel,
 } from '../data/city.ts';
 import { areaOutline, clipLine, clipRing } from '../data/geometry.ts';
 import type { Field } from '../data/pitches.ts';
@@ -34,7 +37,14 @@ import {
   planRailway,
 } from './rails.ts';
 import type { CanopyBay, Mast, RailParapet, Track } from './rails.ts';
-import { addParapet, addTank } from './structures.ts';
+import {
+  addDeckFrame,
+  addDeckSurface,
+  addParapet,
+  addPortals,
+  addRampWalls,
+  addTank,
+} from './structures.ts';
 import { addParasol } from './terraces.ts';
 import type { Parasol } from './terraces.ts';
 import { addTree } from './trees.ts';
@@ -68,6 +78,12 @@ export interface Cell {
   fronts: { building: Building; front: ShopFront }[];
   tanks: Tank[];
   parapets: Float32Array[];
+  /** Held-up decks, whole, in the cell of their first point. */
+  decks: Deck[];
+  ramps: Ramp[];
+  tunnels: Tunnel[];
+  /** Every deck over this cell: what stands on one is lifted to it. */
+  nearDecks: Deck[];
   /** Track pieces clipped to the cell, and what stands along them. */
   rails: Track[];
   masts: Mast[];
@@ -139,6 +155,10 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
           fronts: [],
           tanks: [],
           parapets: [],
+          decks: [],
+          ramps: [],
+          tunnels: [],
+          nearDecks: [],
           rails: [],
           masts: [],
           railParapets: [],
@@ -164,11 +184,14 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
   // Like buildings, tanks and parapets go whole to the cell of their first point.
   for (const t of city.tanks) at(t.ring[0]!, t.ring[1]!)?.tanks.push(t);
   for (const line of city.parapets) at(line[0]!, line[1]!)?.parapets.push(line);
+  for (const r of city.ramps) at(r.line[0]!, r.line[1]!)?.ramps.push(r);
+  for (const t of city.tunnels) at(t.line[0]!, t.line[1]!)?.tunnels.push(t);
   const railway = planRailway(city.rails);
   for (const m of railway.masts) at(m.x, m.z)?.masts.push(m);
   for (const p of railway.parapets) at(p.ax, p.az)?.railParapets.push(p);
   for (const b of city.canopies.flatMap(canopyBays)) at(b.cx, b.cz)?.canopies.push(b);
 
+  for (const d of city.decks) at(d.ring[0]!, d.ring[1]!)?.decks.push(d);
   const span = (flat: ArrayLike<number>) => {
     let [minX, minZ, maxX, maxZ] = [Infinity, Infinity, -Infinity, -Infinity];
     for (let k = 0; k < flat.length; k += 2) {
@@ -195,6 +218,7 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
   for (const layer of GROUND_RINGS) {
     for (const ring of city[layer]) cut(ring, (cell, piece) => cell.ground[layer].push(piece));
   }
+  for (const d of city.decks) for (const cell of span(d.ring)) cell.nearDecks.push(d);
   // Platforms too: their walls and edges are left out along a cut (see `addPlatform`).
   for (const ring of city.platforms) cut(ring, (cell, piece) => cell.platforms.push(piece));
   for (const { kind, surface, ring } of city.carriageways) {
@@ -323,22 +347,34 @@ export function buildCell(
   mesh.drape = lines.drape = terrain;
   addGround(mesh, area, cell.bounds, cell.ground);
   // Track beds are flat ground too, so they join it before the shadow pass's start.
+  mesh.drape = terrain.rails;
   onTheSlab(mesh, area, cell.bounds, () => addTracks(mesh, cell.rails));
   mesh.drape = null;
   const trunksFrom = mesh.indices;
   for (let i = 0; i < trees.length; i += TREE_STRIDE) tree(i, ['trunk']);
   mesh.lift = lines.lift = 0;
   const shadowFrom = mesh.indices;
+  lines.drape = terrain.rails;
   addRailLines(lines, cell.rails);
   const rails = lines.segments;
   addMasts(lines, cell.masts);
   const detail = { rails, masts: lines.segments };
+  lines.drape = terrain;
   // Every other outline follows the rails and masts, which the view leaves out from afar.
   addSlabInk(lines, area, cell.bounds);
-  mesh.drape = terrain;
+  mesh.drape = lines.drape = terrain.rails;
   for (const p of cell.railParapets) addRailParapet(mesh, lines, p);
   for (const ring of cell.platforms) addPlatform(mesh, lines, ring, cell.bounds);
+  mesh.drape = lines.drape = terrain;
   for (const line of cell.parapets) addParapet(mesh, lines, line);
+  for (const d of cell.decks) {
+    addDeckFrame(mesh, lines, d, terrain);
+    mesh.drape = terrain.decks;
+    addDeckSurface(mesh, d);
+    mesh.drape = terrain;
+  }
+  for (const r of cell.ramps) addRampWalls(mesh, lines, r, terrain);
+  for (const t of cell.tunnels) addPortals(mesh, lines, t, terrain);
   mesh.drape = lines.drape = null;
   for (const bay of cell.canopies) {
     at(bay.cx, bay.cz);

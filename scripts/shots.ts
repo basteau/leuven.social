@@ -36,6 +36,13 @@ const HOTEL: [number, number] = [-257, 369];
 const THEATRE: [number, number] = [-296, 440];
 
 const SHOTS: Shot[] = [
+  // Bridges, ramps and tunnels: over the tracks, under the ring, over the Dijle.
+  { name: 'bridge-over-rail', at: [1212, 720], zoom: 9, time: 'midday' },
+  { name: 'bridge-rail-road', at: [965, -600], zoom: 9, time: 'golden' },
+  { name: 'bridge-road-viaduct', at: [-747, 793], zoom: 8, time: 'midday' },
+  { name: 'bridge-over-water', at: [-524, 1016], zoom: 18, time: 'morning' },
+  { name: 'tunnel-under-ring', at: [-1329, -80], zoom: 14, time: 'midday' },
+  { name: 'tunnel-mouth', at: [-1041, -797], zoom: 18, time: 'golden' },
   { name: 'overview-golden', time: 'golden' },
   { name: 'overview-night', time: 'night' },
   { name: 'grote-markt-night', at: [12, -4], zoom: 16, time: 'night' },

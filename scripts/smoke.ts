@@ -68,7 +68,9 @@ const MAX_TRIANGLES = 1_150_000;
 // close, 3.91M and 96.9 MB (the lamps' pools, gone to the baked light, gave a little back).
 // 4.95M and 127 MB: twice the ground (8.9 to 17.1 km², asked for), measured 4.90M and 124.8 MB,
 // a quarter more for the forest, the abbey's fields and the campuses, which cost little per km².
-const MAX_VERTICES = 4_950_000;
+// 5M: the decks, ramps and tunnels drape each ground layer over their steps, less what paths and
+// hedges gave back by losing the points that drew nothing: measured 4.97M and 126.8 MB.
+const MAX_VERTICES = 5_000_000;
 const MAX_GEOMETRY_MB = 127;
 /**
  * The longest the main thread may be busy at once while the page loads (ms). About 60 on a

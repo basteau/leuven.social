@@ -66,7 +66,10 @@ const BUDGETS: {
     // the wall shader, 1.3 KB), so no window is cut by a corner or the house next door.
     // 178.25: given back after the code clean-up took 3.2 KB off (no comments in shipped GLSL).
     // 178.5: the slab's edges (0.1 KB), for the larger map: ribbons cut along it, its sides shadowless.
-    limit: 179.5 * KB,
+    // 182.75: bridges and tunnels, asked for (about 3 KB): the earthworks that drape the
+    // approaches and the decks, their walls and portals, in the engine as every ground layer
+    // needs them to draw.
+    limit: 182.75 * KB,
     gzip: true,
   },
   // 3.5: just above 3.1 KB. 3.75: the minimap, the other players' name tags and who you are in
@@ -151,7 +154,8 @@ const BUDGETS: {
     pattern: 'assets/avatar-layer-*.js',
     // 26.25: no new code; the chunk had no room left, and turning by hand renamed the engine's
     // exports it imports, which moves its gzip by a few bytes either way.
-    limit: 26.25 * KB,
+    // 28.25: the walk grid's second level and the deck heights (1.9 KB).
+    limit: 28.25 * KB,
     gzip: true,
   },
   // The street-name lookup for the sign, a chunk beside the avatar's that loads with it.
@@ -254,7 +258,8 @@ const BUDGETS: {
     // 271.5: the second round of the light and water hardly taking a shadow (under 0.1 KB, after
     // deleting the water's glints and streaks to pay for most of it), asked for.
     // 268.5: the engine's clean-up above.
-    limit: 270 * KB,
+    // 273.5: the 3 KB of bridges and tunnels in the engine.
+    limit: 273.5 * KB,
     gzip: true,
     closure: true,
   },

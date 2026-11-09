@@ -71,7 +71,7 @@ export function buildFurniture(cell: Cell, kit: FurnitureKit): Furniture {
   const { MeshBuilder, terrain } = kit;
   const near = new MeshBuilder();
   const bikes: number[] = [];
-  const drawn = drawnGround(terrain, cell, kit.layers);
+  const drawn = drawnGround(terrain, cell, kit.layers, cell.nearDecks);
   let tall: MeshBuilder | null = null;
   let glow: MeshBuilder | null = null;
   const open = (x: number, z: number) => !cell.buildings.some((b) => pointInRing(b.ring, x, z));

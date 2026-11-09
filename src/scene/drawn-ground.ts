@@ -1,3 +1,4 @@
+import type { Deck } from '../data/city.ts';
 import type { Terrain } from '../data/terrain.ts';
 import type { Cell } from './cells.ts';
 import type { LayerHeights } from './ground.ts';
@@ -25,7 +26,12 @@ type Piece = [y: number, ring: ArrayLike<number>, box: number[]];
  * A cell's drawn ground, in the furniture chunk, which takes the layer heights from the engine in
  * its kit. Its pieces are gathered the first time it's asked, highest layer first.
  */
-export function drawnGround(terrain: Terrain, cell: Cell, heights: LayerHeights): DrawnGround {
+export function drawnGround(
+  terrain: Terrain,
+  cell: Cell,
+  heights: LayerHeights,
+  decks: readonly Deck[] = [],
+): DrawnGround {
   let pieces: Piece[] | undefined;
   const { minX, minZ, maxX, maxZ } = cell.bounds;
   const layer = (x: number, z: number) => {
@@ -37,7 +43,16 @@ export function drawnGround(terrain: Terrain, cell: Cell, heights: LayerHeights)
     }
     return 0;
   };
-  return { layer, height: (x, z) => terrain.height(x, z) + layer(x, z) };
+  const height = (x: number, z: number) => {
+    // What stands on a deck stands on the deck: nothing is held up off the ground beneath it.
+    for (const deck of decks) {
+      if (deck.carries !== 'rail' && inRing(deck.ring, x, z)) {
+        return terrain.decks.height(x, z) + heights.bridges;
+      }
+    }
+    return terrain.height(x, z) + layer(x, z);
+  };
+  return { layer, height };
 }
 
 function gather({ ground }: Cell, h: LayerHeights): Piece[] {

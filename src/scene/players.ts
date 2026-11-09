@@ -533,7 +533,7 @@ export function createPlayers(kit: PlayersKit): Players {
       // Everyone else in view, in one draw call.
       for (const s of here) {
         if ((s.drawing && s.rig) || crowded === CROWD) continue;
-        const y = s.at.place ? kit.floorAt(s.at) : kit.groundAt(s.at.x, s.at.z);
+        const y = kit.floorAt(s.at);
         if (y === null) continue;
         placeCrowd(crowdOf(), crowded++, s, y);
         s.crowded = true;

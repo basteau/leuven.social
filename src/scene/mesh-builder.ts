@@ -416,7 +416,7 @@ export class MeshBuilder {
    */
   #drape(polygon: Polygon, color: number, hint: V3, facade?: number, ring = false): void {
     const [terrain, lift] = [this.drape!, this.#lift];
-    const onGround = (p: Corner): V3 => [p[0]!, p[1]! + terrain.height(p[0]!, p[2]!), p[2]!];
+    const onGround = (p: Corner): V3 => [p[0]!, p[1]! + terrain.plain(p[0]!, p[2]!), p[2]!];
     [this.drape, this.lift] = [null, 0];
     this.#up = hint[0] === 0 && hint[2] === 0 && hint[1] > 0;
     const pieces = (
@@ -580,7 +580,7 @@ export class LineBuilder {
     this.lift = 0;
     let last = -1;
     for (const p of terrain.cut(a, b)) {
-      const i = this.#point([p[0]!, p[1]! + terrain.height(p[0]!, p[2]!), p[2]!]);
+      const i = this.#point([p[0]!, p[1]! + terrain.plain(p[0]!, p[2]!), p[2]!]);
       if (last >= 0) this.#indices.push(last, i);
       last = i;
     }
