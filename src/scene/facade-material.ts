@@ -10,7 +10,7 @@ import type { Texture, Vector3 } from 'three';
 
 import { SHOP_KINDS } from '../data/shop-kinds.ts';
 import { AWNING, CROWN, ROOF, ROOF_FLAT, PANE, WALL_PLAIN } from './facade-codes.ts';
-import { LUMA, SHADE_CHROMA, SHADE_HUE, SHADE_RANGE } from './lighting.ts';
+import { LUMA, SHADE_CHROMA, SHADE_HUE, SHADE_RANGE, WATER_SUN } from './lighting.ts';
 import { LIFT_UNIT, linearVertexColors } from './mesh-builder.ts';
 import {
   ANGLES,
@@ -203,6 +203,17 @@ export function createFacadeMaterial(
         `#include <emissivemap_fragment>\ntotalEmissiveRadiance += glowEmit;\n${LAMP_FRAGMENT}`,
       )
       .replace(
+        '#include <lights_fragment_end>',
+        `#include <lights_fragment_end>
+        #if NUM_DIR_LIGHTS > 0
+        if (abs(vFacade + ${f(SURFACE.water)}) < 0.5) {
+          reflectedLight.directDiffuse = mix(reflectedLight.directDiffuse,
+            getGradientIrradiance(geometryNormal, directionalLights[0].direction) *
+            directionalLights[0].color * BRDF_Lambert(material.diffuseColor), ${f(WATER_SUN)});
+        }
+        #endif`,
+      )
+      .replace(
         '#include <opaque_fragment>',
         `// Shade keeps a richer version of its own hue at the same lightness (lighting.ts), so
         // sand in shadow stays sand instead of matching asphalt in the sun.
@@ -215,7 +226,7 @@ export function createFacadeMaterial(
         #include <opaque_fragment>`,
       );
   };
-  material.customProgramCacheKey = () => 'facade-v15';
+  material.customProgramCacheKey = () => 'facade-v16';
   return material;
 }
 

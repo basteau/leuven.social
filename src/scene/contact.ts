@@ -109,7 +109,7 @@ export function addContacts(
 }
 
 /** The bank of the water: a stone lip, and how dark the water is along it (m). */
-export const SHORE = { lip: 0.4, reach: 2, y: 0.112, stone: 0x9a9281 } as const;
+export const SHORE = { lip: 0.4, reach: 0.9, y: 0.112, stone: 0x9a9281 } as const;
 
 /**
  * Along every bank of the water in a cell: a lip of stone in `stone`, and in `dark` the shade the

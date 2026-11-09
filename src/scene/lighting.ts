@@ -47,3 +47,10 @@ export function groundOnScreen(albedo: number, sunlit: boolean): number {
   const [r, g, b] = out.map(gamma) as [number, number, number];
   return (r << 16) | (g << 8) | b;
 }
+
+/**
+ * How much of a cast shadow water ignores, 0 to 1. Water mostly shows the sky, so a house's shadow
+ * barely marks it; drawn at full strength, the sun between two shadows lay on the river as a hard
+ * bright wedge with nothing in view to explain it.
+ */
+export const WATER_SUN = 0.8;
