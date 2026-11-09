@@ -4,7 +4,7 @@ import type { Dot } from './minimap.ts';
  * What changes every frame or so and only a few corners of the page draw (the minimap): kept out
  * of React's state, so walking doesn't re-render the app. Whoever draws it listens, and reads.
  */
-export interface Live {
+interface Live {
   /** Where you are (m) and which way you face, once the avatar is on the map. */
   me: { x: number; z: number; facing: number } | null;
   /** Which way the view looks, clockwise from north (radians). */
@@ -17,7 +17,7 @@ export interface Live {
   listen(news: () => void): () => void;
 }
 
-export function createLive(): Live {
+function createLive(): Live {
   const listeners = new Set<() => void>();
   return {
     me: null,

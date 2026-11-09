@@ -531,9 +531,7 @@ kbd {
 
 @media (prefers-reduced-motion: no-preference) {
   .minimap {
-    transition:
-      translate 120ms var(--ease-out),
-      box-shadow 120ms var(--ease-out);
+    transition: translate 120ms var(--ease-out);
   }
 }
 

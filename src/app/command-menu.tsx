@@ -116,7 +116,7 @@ const PLACE_QUERY = 2;
 const PLACES_SHOWN = 6;
 
 /** Keycaps side by side, alternatives apart. */
-export function KeyCaps({ keys }: { keys: Keys }) {
+function KeyCaps({ keys }: { keys: Keys }) {
   return (
     <span className="keycaps">
       {keys.map((combo, i) => (

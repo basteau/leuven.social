@@ -9,7 +9,7 @@ import { SOURCES } from '../src/data/sources.ts';
 import type { Source } from '../src/data/sources.ts';
 
 const root = new URL('../', import.meta.url).pathname.replace(/\/$/, '');
-export const LOCK = `${root}/data/sources.lock.json`;
+const LOCK = `${root}/data/sources.lock.json`;
 
 export const DATA = `${root}/data`;
 

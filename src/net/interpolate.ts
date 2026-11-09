@@ -36,8 +36,8 @@ export interface Snapshots {
 }
 
 export const DEFAULT_DELAY = 120;
-export const DEFAULT_EXTRAPOLATE = 200;
-export const DEFAULT_SNAP = 15;
+const DEFAULT_EXTRAPOLATE = 200;
+const DEFAULT_SNAP = 15;
 
 const TURN = Math.PI * 2;
 /** The server's tick (ms), and a gap between updates that means the figure stood still. */
