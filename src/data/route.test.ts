@@ -4,6 +4,8 @@ import { normalizeRing } from './geometry.ts';
 import { RingIndex } from './props.ts';
 import { LEG, ROUTE_REACH, Router, TAP_REACH, clearLine, legsToward } from './route.ts';
 import { bridgeParapets } from './structures.ts';
+import { landform, FLAT_GRID } from './terrain.ts';
+import { deckStrip } from './structures.ts';
 import { WalkGrid } from './walkable.ts';
 import { town } from './walkable.fixture.ts';
 
@@ -231,5 +233,91 @@ describe('a footbridge at any angle', () => {
       const [a, b] = [grid.nearest(...at(0, 0), 2)!, grid.nearest(...at(0, 4), 2)!];
       expect(lengthOf(router.route(a[0], a[1], b[0], b[1])!)).toBeGreaterThan(SPAN / 2);
     }
+  });
+});
+
+describe('over a deck', () => {
+  const deck = {
+    carries: 'road' as const,
+    ring: Float32Array.of(50, 40, 80, 40, 80, 50, 50, 50),
+    axis: Float32Array.of(48.5, 45, 81.5, 45),
+    rise: Float32Array.of(5, 5),
+    piers: new Float32Array(0),
+    lanes: [],
+  };
+  const ramps = [
+    {
+      line: Float32Array.of(51.5, 45, 50, 45, 10, 45),
+      rise: Float32Array.of(5, 5, 0),
+      half: 5,
+      rail: false,
+    },
+    {
+      line: Float32Array.of(78.5, 45, 80, 45, 120, 45),
+      rise: Float32Array.of(5, 5, 0),
+      half: 5,
+      rail: false,
+    },
+  ];
+  const layers = {
+    area: [{ minX: 0, minZ: 0, maxX: 200, maxZ: 120 }],
+    bounds: { minX: 0, minZ: 0, maxX: 200, maxZ: 120 },
+    water: [Float32Array.of(0, 0, 200, 0, 200, 120, 0, 120)],
+    roads: [Float32Array.of(60, 0, 70, 0, 70, 120, 60, 120)],
+    plazas: [],
+    paths: [],
+    buildings: [],
+    tanks: [],
+    decks: [deck],
+    ramps,
+  };
+  const terrain = landform(FLAT_GRID, ramps, [deckStrip(deck)]);
+  const grid = new WalkGrid(layers, undefined, terrain);
+  const router = new Router(grid);
+
+  test('a walk from one ramp to the other goes over it', () => {
+    const route = router.route(30, 45, 100, 45)!;
+    expect(route).not.toBeNull();
+    expect(lengthOf(route)).toBeLessThan(90);
+  });
+
+  test('a walk along the road under it stays on the ground', () => {
+    const route = router.route(65, 5, 65, 115)!;
+    expect(route).not.toBeNull();
+    expect(lengthOf(route)).toBeCloseTo(110, 0);
+  });
+
+  test('a walk can end on the deck', () => {
+    expect(router.route(30, 45, 65, 45, [], 0, 1)).not.toBeNull();
+  });
+
+  test('a walk from under the deck to its top goes round by a ramp', () => {
+    const route = router.route(65, 5, 65, 45, [], 0, 1);
+    expect(route === null || lengthOf(route) > 40).toBe(true);
+  });
+
+  test('a change of level within one cell keeps both ends', () => {
+    const route = router.route(50.5, 45, 50.6, 45.1, [], 0, 1)!;
+    expect(Array.from(route)).toEqual([
+      Math.fround(50.5),
+      45,
+      Math.fround(50.6),
+      Math.fround(45.1),
+    ]);
+  });
+
+  test('a route ends where it was asked to, after its last change of level', () => {
+    const route = router.route(30, 45, 50.6, 45.1, [], 0, 1)!;
+    expect(route.at(-2)).toBeCloseTo(50.6, 3);
+    expect(route.at(-1)).toBeCloseTo(45.1, 3);
+  });
+
+  test('a walk on the ground does not cross under the deck past a ramp', () => {
+    const route = router.route(30, 45, 54, 45);
+    expect(route).toBeNull();
+  });
+
+  test('refuses an end on the deck off it', () => {
+    expect(router.route(30, 45, 30, 90, [], 0, 1)).toBeNull();
   });
 });

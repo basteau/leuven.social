@@ -66,6 +66,8 @@ import { correctRoofColours } from '../src/data/roof-colours.ts';
 import { capShedsUnderTrees } from '../src/data/sheds.ts';
 import { fitTerraces, markShopFronts, placeFronts, placePoints } from '../src/data/shops.ts';
 import { PLACES, placeKind } from '../src/data/shop-kinds.ts';
+import { planSpans } from '../src/data/spans.ts';
+import type { SpanWay } from '../src/data/spans.ts';
 import { bridgeParapets, tankOutline } from '../src/data/structures.ts';
 import { joinLines, nameTable, streetName } from '../src/data/streets.ts';
 import { TREE_KINDS } from '../src/data/city.ts';
@@ -176,6 +178,8 @@ const GROUND_SIMPLIFY = 0.3;
 const MIN_GREEN_AREA = 25;
 /** Track curves are long and gentle: 10 cm off is a third of a game pixel at the closest zoom. */
 const RAIL_SIMPLIFY = 0.1;
+/** Paths and hedges: every point is a quad and a few bytes, on lines at least 1.5 m wide. */
+const LINE_SIMPLIFY = 0.25;
 
 /** Outer ring of a GeoJSON polygon (or a closed line) in local metres, clipped to the area. */
 function areaRings(f: Feature): number[][] {
@@ -305,14 +309,14 @@ const osmTrees = osmPoints.features
     return [x, z, TREE_KINDS.indexOf(treeKindOf(f.properties))] as const;
   })
   .filter(([x, z]) => areaIndex(AREA, x, z) >= 0);
-const paths: Path[] = osmRoads.features.flatMap((f) => {
+const paths: (Path & { way: number[] })[] = osmRoads.features.flatMap((f) => {
   const style = pathFromOsm(f.properties);
   if (!style || f.geometry.type !== 'LineString') return [];
   const line = (f.geometry.coordinates as [number, number][]).flatMap(([lon, lat]) =>
     toLocal(lon, lat),
   );
   return AREA.flatMap((rect) => clipLine(line, rect)).map((piece) =>
-    Object.assign({ line: new Float32Array(piece) }, style),
+    Object.assign({ line: new Float32Array(piece), way: line }, style),
   );
 });
 
@@ -442,25 +446,6 @@ const squareRings = [
 const plazas = squareRings.map(({ ring }) => ring);
 const water = [...layer(wtz.features, () => true), ...coverLayer('water')];
 
-// A path under a carriageway or a square is never seen: keep the rest, which runs over the
-// plain road surface too (a track the GRB surveyed as a road, an earth path in a verge).
-const hard = new RingIndex();
-for (const ring of [...carriageways.map((c) => c.ring), ...plazas]) hard.add(ring);
-const shownPaths: Path[] = paths.flatMap((p) =>
-  uncoveredPieces(p.line, (x, z) => hard.contains(x, z)).map((piece): Path => ({
-    width: p.width,
-    surface: p.surface,
-    line: new Float32Array(piece),
-  })),
-);
-const pathLength = (list: Path[]) =>
-  list.reduce((sum, { line }) => {
-    for (let i = 0; i + 3 < line.length; i += 2) {
-      sum += Math.hypot(line[i + 2]! - line[i]!, line[i + 3]! - line[i + 1]!);
-    }
-    return sum;
-  }, 0);
-
 const river = new RingIndex();
 for (const ring of water) river.add(ring);
 // Tanks lower than this were built after the 2013–15 LiDAR, or are buried: leave them out.
@@ -472,16 +457,79 @@ const tanks: Tank[] = knw.structures.flatMap(({ kind, h, ring }) => {
     : [];
 });
 /** Bridge decks, clipped to the area: walkable over the water and drawn as stone above it. */
-const bridges = knw.structures
+// The spans: what is held up over what it crosses, and what sinks under it (src/data/spans.ts).
+const bridgeRings = knw.structures
   .filter((s) => s.kind === 'bridge')
-  .flatMap((s) => clipRingToArea(normalizeRing(s.ring.flat()), AREA))
-  .filter((r) => r.length >= 6)
-  .map((r) => new Float32Array(r));
-const parapets = knw.structures
-  .filter((s) => s.kind === 'bridge')
-  .flatMap((s) => bridgeParapets(normalizeRing(s.ring.flat()), river))
+  .flatMap((s) => clipRingToArea(simplifyRing(normalizeRing(s.ring.flat()), GROUND_SIMPLIFY), AREA))
+  .filter((r) => r.length >= 6);
+const pointInArea = (line: ArrayLike<number>) => {
+  for (let i = 0; i + 1 < line.length; i += 2)
+    if (areaIndex(AREA, line[i]!, line[i + 1]!) >= 0) return true;
+  return false;
+};
+const wayOf = (f: Feature): SpanWay => ({
+  line: lineOf(f),
+  tags: f.properties as Record<string, string | undefined>,
+});
+const spanRoads = osmRoads.features
+  .filter((f) => f.geometry.type === 'LineString' && f.properties.area !== 'yes')
+  .map(wayOf)
+  .filter((w) => pointInArea(w.line));
+const spanRails = osmAreaElements.elements.flatMap((e): SpanWay[] => {
+  const tags = (e.tags ?? {}) as Record<string, string | undefined>;
+  const points = (e.geometry ?? []).flatMap((p) => (p ? [p] : []));
+  if (e.type !== 'way' || tags.railway !== 'rail' || points.length < 2) return [];
+  const line = points.flatMap(({ lon, lat }) => toLocal(lon, lat));
+  return pointInArea(line) ? [{ line, tags }] : [];
+});
+const roadSurface = new RingIndex();
+for (const ring of [...roads, ...plazas]) roadSurface.add(ring);
+const spans = planSpans(spanRoads, spanRails, bridgeRings, {
+  water: (x, z) => river.contains(x, z),
+  roadHalf(x, z, nx, nz, reach) {
+    let last = 0;
+    for (let d = 0.5; d <= reach; d += 0.5) {
+      if (!roadSurface.contains(x + nx * d, z + nz * d)) break;
+      last = d;
+    }
+    return last;
+  },
+  roadway: (x, z) => carriagewayGround.contains(x, z),
+});
+const decks = spans.decks;
+const ramps = spans.ramps;
+const tunnels = spans.tunnels;
+
+const bridges = bridgeRings.filter((_, i) => !spans.taken.has(i)).map((r) => new Float32Array(r));
+// A path on a deck is drawn on it, and one in a tunnel isn't drawn at all.
+const wayKey = (line: ArrayLike<number>) =>
+  `${line[0]},${line[1]},${line[line.length - 2]},${line[line.length - 1]},${line.length}`;
+const onStructure = new Set([...spans.carried].map(({ line }) => wayKey(line)));
+const parapets = bridges
+  .flatMap((ring) => bridgeParapets(Array.from(ring), river))
   .flatMap((line) => AREA.flatMap((rect) => clipLine(line, rect)))
   .map((line) => new Float32Array(line));
+
+// A path under a carriageway or a square is never seen: keep the rest, which runs over the
+// plain road surface too (a track the GRB surveyed as a road, an earth path in a verge).
+const hard = new RingIndex();
+for (const ring of [...carriageways.map((c) => c.ring), ...plazas]) hard.add(ring);
+const shownPaths: Path[] = paths
+  .filter((p) => !onStructure.has(wayKey(p.way)))
+  .flatMap((p) =>
+    uncoveredPieces(p.line, (x, z) => hard.contains(x, z)).map((piece): Path => ({
+      width: p.width,
+      surface: p.surface,
+      line: new Float32Array(simplifyLine(piece, LINE_SIMPLIFY)),
+    })),
+  );
+const pathLength = (list: Path[]) =>
+  list.reduce((sum, { line }) => {
+    for (let i = 0; i + 3 < line.length; i += 2) {
+      sum += Math.hypot(line[i + 2]! - line[i]!, line[i + 3]! - line[i + 1]!);
+    }
+    return sum;
+  }, 0);
 
 // Whether a point is water as drawn: roads, squares and bridges are drawn over it. A mapped tree
 // that stands in that is on its bank, typed a little off: moved to the nearest dry ground, and
@@ -591,7 +639,7 @@ const hedges = osmHedges.elements.flatMap((e) => {
   return AREA.flatMap((rect) => clipLine(line, rect))
     .flatMap((piece) => uncoveredPieces(piece, (x, z) => noHedge.contains(x, z)))
     .filter((piece) => piece.length >= 4)
-    .map((piece) => new Float32Array(piece));
+    .map((piece) => new Float32Array(simplifyLine(piece, LINE_SIMPLIFY)));
 });
 
 const racks = placed.props.flatMap((p, i) =>
@@ -781,7 +829,7 @@ const city: City = {
   fields,
   parking: coverLayer('parking', MIN_GREEN_AREA),
   water,
-  paths: shownPaths,
+  paths: [...shownPaths, ...spans.groundLanes],
   rails,
   platforms,
   railLand,
@@ -792,6 +840,9 @@ const city: City = {
   props,
   tanks,
   bridges,
+  decks,
+  ramps,
+  tunnels,
   parapets,
   streetNames: names.table,
   streets,
@@ -851,7 +902,7 @@ console.log(
     `bikes ${fills.reduce((sum, f) => sum + f.bikes, 0)} in ${racks.length} racks: ${[...byFill]
       .map(([kind, n]) => `${kind} ${n.bikes} of ${n.stands} stands in ${n.racks} racks`)
       .join(', ')}`,
-    `tanks ${tanks.length}, bridge decks ${bridges.length}, parapets ${parapets.length}`,
+    `tanks ${tanks.length}, at-grade bridge rings ${bridges.length}, decks ${decks.length}, ramps ${ramps.length}, tunnels ${tunnels.length}, parapets ${parapets.length}`,
     `church towers ${buildings.filter((b) => b.tower).length}`,
     `terrain ${city.terrain.cols} × ${city.terrain.rows} nodes every ${city.terrain.step} m, ${Math.min(...city.terrain.heights).toFixed(1)} to ${Math.max(...city.terrain.heights).toFixed(1)} m about Grote Markt`,
     `street names ${names.table.length}: ${streets.length} streets (${streets.reduce((sum, s) => sum + s.line.length / 2, 0)} points), ${plazaNames.filter((n) => n >= 0).length} of ${plazas.length} squares named`,

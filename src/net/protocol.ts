@@ -48,7 +48,7 @@ export interface PlayerState {
   mode: Mode;
   /** The room id the figure is in, `''` in the street. */
   place: string;
-  /** The floor of that room, 0 in the street. */
+  /** The floor of that room; in the street 0, or 1 on a bridge's deck or in a tunnel. */
   floor: number;
 }
 

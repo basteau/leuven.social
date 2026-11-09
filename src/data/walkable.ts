@@ -9,10 +9,13 @@
  * map pays nothing until someone walks, and then only for the streets they reach.
  */
 
-import { CellGrid, TILE, ringBox, wallPush } from './cell-grid.ts';
+import { CellGrid, TILE, inRing, ringBox, wallPush } from './cell-grid.ts';
 import type { Wall } from './cell-grid.ts';
-import type { Bounds, City } from './city.ts';
+import type { Bounds, City, Deck, Ramp, Tunnel } from './city.ts';
 import { areaIndex } from './geometry.ts';
+import { deckEnds, deckSides } from './structures.ts';
+import { FLAT, mitres } from './terrain.ts';
+import type { Terrain } from './terrain.ts';
 
 /** How many cells out from a building's walls the places beside it reach. */
 const APRON = 5;
@@ -58,12 +61,34 @@ export interface Solids {
  * with a lamp on it keeps its cells and a route along it.
  */
 const GRID_POST = 0.25;
+/** Half a deck railing's thickness, as met (m). */
+const RAILING = 0.22;
+/**
+ * On the level of decks and tunnels, a cell just past an open end: no place to stand or be routed
+ * to, but not an edge to be held back at either, so a walker can step off onto the ground.
+ */
+const EXIT = 2;
+/** A ramp's tip is walled in this many pieces, so a neighbouring roadway can leave out its part. */
+const TIP_PIECES = 6;
+/** How far a deck's end opens the ground either side of it (m). */
+const END_PAD = 1.2;
+/** A step this high at the edge of a ramp is walked over; a higher one is walled (m). */
+const STEP_UP = 0.4;
+/** Two levels this close (m) meet: a walker passes between them at no step. */
+const SAME_HEIGHT = 0.6;
+/** A deck's surface over the terrain beyond its own rise, as drawn (m). */
+export const DECK_Y = 0.13;
 
 export type WalkLayers = Pick<
   City,
   'area' | 'bounds' | 'roads' | 'plazas' | 'paths' | 'buildings' | 'tanks'
 > &
-  Partial<Pick<City, 'water' | 'railLand' | 'platforms' | 'bridges' | 'parapets'>>;
+  Partial<
+    Pick<
+      City,
+      'water' | 'railLand' | 'platforms' | 'bridges' | 'parapets' | 'decks' | 'ramps' | 'tunnels'
+    >
+  >;
 
 interface Shape {
   ring: ArrayLike<number>;
@@ -79,10 +104,148 @@ interface Ribbon {
   rightOnly?: boolean;
 }
 
+/** Whether (x, z) lies within `half` of a line. */
+function nearLine(line: ArrayLike<number>, x: number, z: number, half: number): boolean {
+  for (let i = 0; i + 3 < line.length; i += 2) {
+    const [ax, az, bx, bz] = [line[i]!, line[i + 1]!, line[i + 2]!, line[i + 3]!];
+    const [dx, dz] = [bx - ax, bz - az];
+    const t = Math.min(1, Math.max(0, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz || 1)));
+    if (Math.hypot(ax + dx * t - x, az + dz * t - z) <= half) return true;
+  }
+  return false;
+}
+
+/**
+ * The edges of a ramp that are walls (a step past `STEP_UP`), as open lines with the drop on their
+ * right, as `Ribbon.rightOnly` closes.
+ */
+export function rampEdges({ line, rise, half }: Pick<Ramp, 'line' | 'rise' | 'half'>): number[][] {
+  const n = line.length / 2;
+  const across = mitres(line, half);
+  const runs: number[][] = [];
+  for (const side of [1, -1]) {
+    let run: number[] = [];
+    const flush = () => {
+      if (run.length >= 4) runs.push(side > 0 ? run : reverseLine(run));
+      run = [];
+    };
+    const edge = (i: number) =>
+      [line[i * 2]! + across[i * 2]! * side, line[i * 2 + 1]! + across[i * 2 + 1]! * side] as const;
+    for (let i = 0; i < n; i++) {
+      const high = Math.abs(rise[i]!) >= STEP_UP;
+      if (high) run.push(...edge(i));
+      const next = i + 1 < n ? Math.abs(rise[i + 1]!) >= STEP_UP : high;
+      if (high === next) {
+        if (!high) flush();
+        continue;
+      }
+      // The rise is linear between points: the wall starts or stops where it passes a step.
+      const [a, b] = [Math.abs(rise[i]!), Math.abs(rise[i + 1]!)];
+      const t = (STEP_UP - a) / (b - a);
+      const [ax, az] = edge(i);
+      const [bx, bz] = edge(i + 1);
+      run.push(ax + (bx - ax) * t, az + (bz - az) * t);
+      if (high) flush();
+    }
+    flush();
+  }
+  return runs;
+}
+
+/** Across the high end of a ramp, as an open line with the way past its tip on its right. */
+function rampTip({ line, rise, half }: Pick<Ramp, 'line' | 'rise' | 'half'>): number[] | null {
+  if (Math.abs(rise[0]!) < STEP_UP) return null;
+  const across = mitres(line, half);
+  const [x, z, nx, nz] = [line[0]!, line[1]!, across[0]!, across[1]!];
+  const out: number[] = [];
+  for (let k = 0; k <= TIP_PIECES; k++) {
+    const t = (2 * k) / TIP_PIECES - 1;
+    out.push(x + nx * t, z + nz * t);
+  }
+  return out;
+}
+
+/** The short lines just past a tunnel's open mouths, along it. */
+function tunnelExits({ line, mouths }: Tunnel): number[][] {
+  const out: number[][] = [];
+  const n = line.length / 2;
+  for (const [open, i, j] of [
+    [mouths[0], 0, 1],
+    [mouths[1], n - 1, n - 2],
+  ] as const) {
+    if (!open) continue;
+    const [x, z] = [line[i * 2]!, line[i * 2 + 1]!];
+    const [dx, dz] = [x - line[j * 2]!, z - line[j * 2 + 1]!];
+    const length = Math.hypot(dx, dz) || 1;
+    out.push([x, z, x + (dx / length) * END_PAD, z + (dz / length) * END_PAD]);
+  }
+  return out;
+}
+
+/** A ramp and the box round its roadway, worked out once. */
+interface RampBox {
+  ramp: Ramp;
+  box: Bounds;
+}
+
+/** The pieces of an edge line (flat [x, z, …]) that don't lie on another ramp's roadway. */
+function outsideOthers(line: readonly number[], own: Ramp, ramps: readonly RampBox[]): number[][] {
+  const box = ringBox(line);
+  const others = ramps.filter(({ ramp, box: b }) => {
+    return (
+      ramp !== own &&
+      b.minX <= box.maxX &&
+      b.maxX >= box.minX &&
+      b.minZ <= box.maxZ &&
+      b.maxZ >= box.minZ
+    );
+  });
+  if (!others.length) return [Array.from(line)];
+  const pieces: number[][] = [];
+  let run: number[] = [];
+  const onOther = (x: number, z: number) =>
+    others.some(({ ramp: r }) => nearLine(r.line, x, z, r.half - 0.3));
+  for (let i = 0; i + 3 < line.length; i += 2) {
+    const [ax, az, bx, bz] = [line[i]!, line[i + 1]!, line[i + 2]!, line[i + 3]!];
+    if (onOther((ax + bx) / 2, (az + bz) / 2)) {
+      if (run.length >= 4) pieces.push(run);
+      run = [];
+      continue;
+    }
+    if (!run.length) run.push(ax, az);
+    run.push(bx, bz);
+  }
+  if (run.length >= 4) pieces.push(run);
+  return pieces;
+}
+
+function reverseLine(line: readonly number[]): number[] {
+  const out: number[] = [];
+  for (let i = line.length - 2; i >= 0; i -= 2) out.push(line[i]!, line[i + 1]!);
+  return out;
+}
+
 const heightCode = (height: number) => Math.min(255 - SOLID, Math.ceil(height)) + SOLID;
 
 /** A trunk against a facade keeps the building's height in its cells. */
 const keep = (value: number) => (old: number) => value === SOLID && old > SOLID;
+
+/**
+ * The level above (or below) the ground, as a grid of its own: the decks people walk on and the
+ * tunnels they walk through. Walks enter it where its height meets the ground's (`WalkGrid.link`).
+ */
+export interface LevelGrid {
+  readonly cols: number;
+  readonly rows: number;
+  cellAt(x: number, z: number): number;
+  centre(cell: number): [number, number];
+  open(cell: number): boolean;
+  walkable(x: number, z: number): boolean;
+  nearest(x: number, z: number, radius: number): [number, number] | null;
+  around(x: number, z: number, radius: number, most: number): [number, number][];
+  closed(x: number, z: number): number;
+  wallOverlap(x: number, z: number, radius: number, out: [number, number]): number;
+}
 
 export class WalkGrid {
   readonly #grid: CellGrid;
@@ -94,8 +257,24 @@ export class WalkGrid {
   /** Scratch for `wallOverlap`, which a step calls several times: nothing allocated. */
   readonly #sum: [number, number, number] = [0, 0, 0];
   #query = 0;
+  readonly #terrain: Terrain;
+  /** The level of decks and tunnels; cells off it are closed. */
+  readonly #upper: CellGrid;
+  readonly #upperRings: { deck: Deck; box: Bounds }[][];
+  readonly #upperRibbons: { tunnel: Tunnel; box: Bounds }[][];
+  readonly #upperExits: { line: number[]; half: number }[][];
+  readonly #upperWalls: Wall[][];
+  /** Whether the level ever appears (a map without bridges pays nothing). */
+  readonly #levels: boolean;
+  readonly #links = new Map<number, boolean>();
+  readonly #view: LevelGrid;
 
-  constructor(city: WalkLayers, solids: Solids = { posts: [], rings: [] }) {
+  constructor(
+    city: WalkLayers,
+    solids: Solids = { posts: [], rings: [] },
+    terrain: Terrain = FLAT,
+  ) {
+    this.#terrain = terrain;
     this.#grid = new CellGrid(
       city.bounds,
       (tile, x0, z0, t) => this.#fill(tile, x0, z0, t),
@@ -106,14 +285,104 @@ export class WalkGrid {
     this.#shapes = Array.from({ length: tiles }, () => []);
     this.#ribbons = Array.from({ length: tiles }, () => []);
     this.#walls = Array.from({ length: tiles }, () => []);
+    this.#upper = new CellGrid(
+      city.bounds,
+      (tile, x0, z0, t) => this.#fillUpper(tile, x0, z0, t),
+      WALK_CELL,
+    );
+    this.#upperRings = Array.from({ length: tiles }, () => []);
+    this.#upperRibbons = Array.from({ length: tiles }, () => []);
+    this.#upperExits = Array.from({ length: tiles }, () => []);
+    this.#upperWalls = Array.from({ length: tiles }, () => []);
 
     const each = (box: Bounds, visit: (tile: number) => void) => this.#grid.eachTile(box, visit);
+    const decks = (city.decks ?? []).filter((d) => d.carries !== 'rail');
+    const tunnels = city.tunnels ?? [];
+    this.#levels = decks.length + tunnels.length > 0;
+    this.#view = {
+      cols: this.#upper.cols,
+      rows: this.#upper.rows,
+      cellAt: (x, z) => this.#upper.cellAt(x, z),
+      centre: (cell) => this.#upper.centre(cell),
+      open: (cell) => this.#upper.value(cell, CLOSED) === OPEN,
+      walkable: (x, z) => this.#upper.value(this.#upper.cellAt(x, z), CLOSED) === OPEN,
+      nearest: (x, z, radius) =>
+        this.#upper.nearest(x, z, radius, (cell) => this.#upper.value(cell, CLOSED) === OPEN),
+      around: (x, z, radius, most) =>
+        this.#upper.around(x, z, radius, (cell) => this.#upper.value(cell, CLOSED) === OPEN, most),
+      closed: (x, z) => this.#upper.blend(x, z, (v) => v === CLOSED),
+      wallOverlap: (x, z, radius, out) => this.#overlap(this.#upperWalls, x, z, radius, out),
+    };
+    for (const deck of decks) {
+      const box = ringBox(deck.ring);
+      each(box, (t) => this.#upperRings[t]!.push({ deck, box }));
+      for (const line of deckSides(deck)) {
+        const wall = { line, ring: false, half: RAILING, box: ringBox(line, RAILING), seen: 0 };
+        each(wall.box, (t) => this.#upperWalls[t]!.push(wall));
+      }
+      // Each end opens to the street it meets, whatever the survey left there.
+      const n = deck.ring.length / 2;
+      for (const [i, end] of deckEnds(deck).entries()) {
+        if (!end) continue;
+        const j = (i + 1) % n;
+        const line = [
+          deck.ring[i * 2]!,
+          deck.ring[i * 2 + 1]!,
+          deck.ring[j * 2]!,
+          deck.ring[j * 2 + 1]!,
+        ];
+        each(ringBox(line, END_PAD), (t) => {
+          this.#ribbons[t]!.push({ line, half: END_PAD, value: STREET });
+          this.#upperExits[t]!.push({ line, half: END_PAD });
+        });
+      }
+    }
+    for (const tunnel of tunnels) {
+      const box = ringBox(tunnel.line, tunnel.half);
+      each(box, (t) => this.#upperRibbons[t]!.push({ tunnel, box }));
+      for (const line of tunnelExits(tunnel)) {
+        each(ringBox(line, tunnel.half), (t) => {
+          this.#upperExits[t]!.push({ line, half: tunnel.half });
+        });
+      }
+    }
     const closing = [...(city.water ?? []), ...(city.railLand ?? []), ...(city.platforms ?? [])];
     for (const ring of closing) {
       each(ringBox(ring), (t) => this.#shapes[t]!.push({ ring, value: CLOSED }));
     }
     for (const ring of [...city.roads, ...city.plazas, ...(city.bridges ?? [])]) {
       each(ringBox(ring), (t) => this.#shapes[t]!.push({ ring, value: STREET }));
+    }
+    // A ramp opens its top, over water or tracks too, and walls off its sides once they are
+    // high enough to be a drop (`rampWalls`).
+    const roadRamps = (city.ramps ?? [])
+      .filter((ramp) => !ramp.rail)
+      .map((ramp) => ({ ramp, box: ringBox(ramp.line, ramp.half) }));
+    for (const { ramp } of roadRamps) {
+      const { line, half } = ramp;
+      each(ringBox(line, half), (t) => this.#ribbons[t]!.push({ line, half, value: STREET }));
+      const tip = rampTip(ramp);
+      for (const whole of tip ? [...rampEdges(ramp), tip] : rampEdges(ramp)) {
+        // A wall inside another ramp's roadway (two carriageways, a cycle track beside a road)
+        // divides nothing: the walled drop is the outer edge of the two.
+        for (const edge of outsideOthers(whole, ramp, roadRamps)) {
+          const ribbon = {
+            line: edge,
+            half: PARAPET_BAND,
+            value: heightCode(PARAPET_HEIGHT),
+            rightOnly: true,
+          };
+          each(ringBox(edge, PARAPET_BAND), (t) => this.#ribbons[t]!.push(ribbon));
+          const wall = {
+            line: edge,
+            ring: false,
+            half: RAILING,
+            box: ringBox(edge, RAILING),
+            seen: 0,
+          };
+          each(wall.box, (t) => this.#walls[t]!.push(wall));
+        }
+      }
     }
     for (const { line, width } of city.paths) {
       const half = Math.max(width / 2, MIN_HALF_WIDTH);
@@ -204,6 +473,56 @@ export class WalkGrid {
     return this.value(cell) === STREET;
   }
 
+  /** The grid of decks and tunnels, or null if the map has none. */
+  get upper(): LevelGrid | null {
+    return this.#levels ? this.#view : null;
+  }
+
+  /** Whether a cell is on the level of decks and tunnels. */
+  onUpper(cell: number): boolean {
+    return this.#upper.value(cell, CLOSED) === OPEN;
+  }
+
+  /** How high the level of decks and tunnels lies at (x, z), or NaN off it. */
+  upperHeight(x: number, z: number): number {
+    const [c, r] = this.#upper.tileOf(x, z);
+    const t = r * this.#upper.tilesX + c;
+    for (const { deck, box } of this.#upperRings[t]!) {
+      if (x < box.minX || x > box.maxX || z < box.minZ || z > box.maxZ) continue;
+      if (inRing(deck.ring, x, z)) return this.#terrain.decks.height(x, z) + DECK_Y;
+    }
+    for (const { tunnel, box } of this.#upperRibbons[t]!) {
+      if (x < box.minX || x > box.maxX || z < box.minZ || z > box.maxZ) continue;
+      if (nearLine(tunnel.line, x, z, tunnel.half)) return this.#terrain.plain(x, z) - tunnel.depth;
+    }
+    return Number.NaN;
+  }
+
+  /**
+   * Whether a walker can pass between the ground and the upper level at this cell, at no step:
+   * the cell is open on both and they lie at about the same height there.
+   */
+  link(cell: number): boolean {
+    const cached = this.#links.get(cell);
+    if (cached !== undefined) return cached;
+    let linked = false;
+    if (this.onUpper(cell) && this.open(cell)) {
+      const [x, z] = this.centre(cell);
+      const high = this.upperHeight(x, z);
+      linked = !Number.isNaN(high) && Math.abs(high - this.#terrain.height(x, z)) < SAME_HEIGHT;
+    }
+    this.#links.set(cell, linked);
+    return linked;
+  }
+
+  /** The level a walker is on after stepping to (x, z), on level `level` before it. */
+  levelAt(level: number, x: number, z: number): number {
+    if (!this.#levels) return 0;
+    const cell = this.cellAt(x, z);
+    if (level === 1) return this.onUpper(cell) ? 1 : 0;
+    return this.link(cell) ? 1 : 0;
+  }
+
   /** Whether (x, z) is in an open cell. */
   walkable(x: number, z: number): boolean {
     return this.open(this.cellAt(x, z));
@@ -228,6 +547,16 @@ export class WalkGrid {
    * the nearest face.
    */
   wallOverlap(x: number, z: number, radius: number, out: [number, number]): number {
+    return this.#overlap(this.#walls, x, z, radius, out);
+  }
+
+  #overlap(
+    walls: readonly (readonly Wall[])[],
+    x: number,
+    z: number,
+    radius: number,
+    out: [number, number],
+  ): number {
     const sum = this.#sum;
     [sum[0], sum[1], sum[2]] = [0, 0, 0];
     const query = ++this.#query;
@@ -235,7 +564,7 @@ export class WalkGrid {
     const [c1, r1] = this.#grid.tileOf(x + radius, z + radius);
     for (let r = r0; r <= r1; r++) {
       for (let c = c0; c <= c1; c++) {
-        wallPush(this.#walls[r * this.#grid.tilesX + c]!, x, z, radius, query, sum);
+        wallPush(walls[r * this.#grid.tilesX + c]!, x, z, radius, query, sum);
       }
     }
     const length = Math.hypot(sum[0], sum[1]);
@@ -307,6 +636,17 @@ export class WalkGrid {
   /** Up to `most` open places within `radius` of (x, z), nearest first and spread out. */
   around(x: number, z: number, radius: number, most: number): [number, number][] {
     return this.#grid.around(x, z, radius, (cell) => this.open(cell), most);
+  }
+
+  #fillUpper(tile: Uint8Array, x0: number, z0: number, t: number): void {
+    for (const { deck } of this.#upperRings[t]!)
+      this.#upper.fillRing(tile, deck.ring, OPEN, x0, z0);
+    for (const { tunnel } of this.#upperRibbons[t]!) {
+      this.#upper.fillRibbon(tile, tunnel.line, tunnel.half, OPEN, x0, z0);
+    }
+    for (const { line, half } of this.#upperExits[t]!) {
+      this.#upper.fillRibbon(tile, line, half, EXIT, x0, z0, (old) => old === OPEN);
+    }
   }
 
   /** Rasterises one tile from everything that touches it. */

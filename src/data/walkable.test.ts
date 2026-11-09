@@ -17,7 +17,9 @@ const house = (ring: Float32Array): Building => ({
   ring,
   holes: [],
 });
-import { WalkGrid } from './walkable.ts';
+import { landform, FLAT_GRID } from './terrain.ts';
+import { deckStrip } from './structures.ts';
+import { WalkGrid, rampEdges } from './walkable.ts';
 
 describe('WalkGrid', () => {
   const grid = new WalkGrid(town);
@@ -231,5 +233,131 @@ describe('WalkGrid', () => {
     expect(grid.centre(cell)).toEqual([12.5, 7.5]);
     expect(grid.cellAt(-1, 0)).toBe(-1);
     expect(grid.value(-1)).toBe(0);
+  });
+});
+
+describe('levels', () => {
+  const deck = {
+    carries: 'road' as const,
+    ring: Float32Array.of(50, 40, 80, 40, 80, 50, 50, 50),
+    axis: Float32Array.of(48.5, 45, 81.5, 45),
+    rise: Float32Array.of(5, 5),
+    piers: new Float32Array(0),
+    lanes: [],
+  };
+  const ramps = [
+    {
+      line: Float32Array.of(51.5, 45, 50, 45, 10, 45),
+      rise: Float32Array.of(5, 5, 0),
+      half: 5,
+      rail: false,
+    },
+    {
+      line: Float32Array.of(78.5, 45, 80, 45, 120, 45),
+      rise: Float32Array.of(5, 5, 0),
+      half: 5,
+      rail: false,
+    },
+  ];
+  const layers = {
+    area: [{ minX: 0, minZ: 0, maxX: 200, maxZ: 120 }],
+    bounds: { minX: 0, minZ: 0, maxX: 200, maxZ: 120 },
+    roads: [Float32Array.of(60, 0, 70, 0, 70, 120, 60, 120)],
+    plazas: [],
+    paths: [],
+    buildings: [],
+    tanks: [],
+    decks: [deck],
+    ramps,
+    tunnels: [
+      {
+        carries: 'path' as const,
+        line: Float32Array.of(100, 80, 140, 80),
+        half: 1.5,
+        depth: 3.4,
+        mouths: [true, true] as [boolean, boolean],
+      },
+    ],
+  };
+  const terrain = landform(layers.area.length ? FLAT_GRID : FLAT_GRID, ramps, [deckStrip(deck)]);
+  const grid = new WalkGrid(layers, undefined, terrain);
+
+  test('a deck is a level of its own over the ground under it', () => {
+    expect(grid.upper).not.toBeNull();
+    const cell = grid.cellAt(65, 45);
+    expect(grid.onUpper(cell)).toBe(true);
+    expect(grid.open(cell)).toBe(true);
+    expect(grid.upperHeight(65, 45)).toBeCloseTo(5.13, 2);
+  });
+
+  test('the two meet only where the ramp reaches the deck', () => {
+    expect(grid.link(grid.cellAt(65, 45))).toBe(false);
+    expect(grid.link(grid.cellAt(50.6, 45))).toBe(true);
+  });
+
+  test('a walker moves between them only where they meet', () => {
+    expect(grid.levelAt(0, 65, 45)).toBe(0);
+    expect(grid.levelAt(0, 50.6, 45)).toBe(1);
+    expect(grid.levelAt(1, 65, 45)).toBe(1);
+    expect(grid.levelAt(1, 30, 45)).toBe(0);
+  });
+
+  test('a tunnel is on that level too, under the ground', () => {
+    expect(grid.upperHeight(120, 80)).toBeCloseTo(-3.4, 5);
+    expect(grid.upper!.walkable(120, 80)).toBe(true);
+    expect(grid.upperHeight(120, 90)).toBeNaN();
+  });
+
+  test('a body on the deck is held by its railings', () => {
+    const out: [number, number] = [0, 0];
+    expect(grid.upper!.wallOverlap(65, 40.2, 0.45, out)).toBeGreaterThan(0);
+    expect(out[1]).toBeGreaterThan(0);
+    expect(grid.upper!.wallOverlap(65, 45, 0.45, out)).toBe(0);
+  });
+
+  test('the upper level answers as a grid does', () => {
+    const upper = grid.upper!;
+    expect(upper.cols).toBe(grid.cols);
+    expect(upper.rows).toBe(grid.rows);
+    const cell = upper.cellAt(65, 45);
+    expect(upper.centre(cell)).toEqual([65.5, 45.5]);
+    expect(upper.open(cell)).toBe(true);
+    expect(upper.nearest(65, 49.9, 4)).toEqual([65.5, 49.5]);
+    expect(upper.around(65, 45, 3, 2).length).toBe(2);
+    expect(upper.closed(65, 45)).toBe(0);
+  });
+
+  test('a walker can step off a deck at its end, but not over its railing', () => {
+    expect(grid.upper!.closed(49.4, 45)).toBeLessThan(0.5);
+    expect(grid.levelAt(1, 49.4, 45)).toBe(0);
+    expect(grid.upper!.closed(65, 38)).toBeGreaterThan(0.5);
+  });
+
+  test('a tunnel can be stepped out of at its mouth', () => {
+    expect(grid.upper!.closed(97.6, 80)).toBeLessThan(0.5);
+    expect(grid.levelAt(1, 97.6, 80)).toBe(0);
+  });
+
+  test('a ramp is walled along the whole of its height, between its points', () => {
+    const ramp = { line: Float32Array.of(0, 0, 100, 0), rise: Float32Array.of(5, 0), half: 4 };
+    const [edge] = rampEdges(ramp);
+    expect(edge![0]).toBe(0);
+    // A rise of 5 falls to the step at 92% of the way along.
+    expect(edge![2]).toBeCloseTo(92, 3);
+  });
+
+  test('a ramp that starts high is closed across its tip, under the deck', () => {
+    const out: [number, number] = [0, 0];
+    expect(grid.wallOverlap(51.7, 45, 0.45, out)).toBeGreaterThan(0);
+    expect(grid.walkable(52.5, 45)).toBe(false);
+  });
+
+  test('a road under the deck stays open on the ground', () => {
+    expect(grid.walkable(65, 45)).toBe(true);
+    expect(grid.walkable(65, 80)).toBe(true);
+  });
+
+  test('a map with no decks or tunnels has no upper level', () => {
+    expect(new WalkGrid({ ...layers, decks: [], tunnels: [] }).upper).toBeNull();
   });
 });

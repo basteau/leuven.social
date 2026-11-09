@@ -27,6 +27,7 @@
  * Tanks are a height in decimetres and a footprint each; parapets are open lines.
  * Street names are a table of strings, then each street as its name's place in the table and a
  * centre line, then one number per plaza: 0 for none, else its name's place plus one.
+ * Decks, ramps and tunnels (v29) close the file: rings and lines as elsewhere, rises in zigzag decimetres.
  * Church towers (v13) come next, as few as there are churches with one: each is its building's
  * place in the list (the change from the tower before), its centre (zigzag decimetres), radius,
  * wall top and tip (decimetres). The decoder hangs each on its building as `tower`.
@@ -47,6 +48,7 @@ import * as Binary from '@portable/binary';
 import * as Compress from '@portable/compress';
 
 import {
+  CARRIES,
   CARRIAGEWAY_KINDS,
   KINDS,
   MARKING_KINDS,
@@ -64,11 +66,15 @@ import type {
   Building,
   Carriageway,
   City,
+  Deck,
   Marking,
+  Path,
   Prop,
   Rail,
+  Ramp,
   ShopFront,
   TerrainGrid,
+  Tunnel,
 } from './city.ts';
 import { boundsOf } from './geometry.ts';
 import { FIELD_SPORTS, PITCH_SURFACES } from './pitches.ts';
@@ -80,7 +86,7 @@ const MAGIC = 'LVN1';
 // neighbour. v16: a byte per bike rack, its fill (`Prop.fill`). v17: the shop fronts. v18: pitch surfaces
 // and the fields painted on them, after the polygon layers. v25: more kinds of front, public
 // places among them. v26: those, and no ways for the traffic. Bump the cache in public/sw.js with it.
-const VERSION = 28;
+const VERSION = 29;
 const DM = 10; // units per metre
 const GROUND = 20; // terrain heights per metre: 5 cm
 const ZIGZAG = { encoding: 'zigzag' } as const;
@@ -168,6 +174,96 @@ function readTerrain(r: Binary.Reader): TerrainGrid {
 
 // Shop fronts (v17): a section of their own, after the terrain.
 const TERRACE_BIT = 0x80;
+
+/** Heights as zigzag decimetres, one per point of the line they go with. */
+function writeRises(w: Binary.Writer, rises: ArrayLike<number>): void {
+  for (let i = 0; i < rises.length; i++) w.varint(Math.round(rises[i]! * DM), ZIGZAG);
+}
+
+function readRises(r: Binary.Reader, count: number): Float32Array {
+  const rises = new Float32Array(count);
+  for (let i = 0; i < count; i++) rises[i] = r.varint(ZIGZAG) / DM;
+  return rises;
+}
+
+const pointCount = (line: ArrayLike<number>) => line.length / 2;
+
+/** Decks, ramps and tunnels, in that order. */
+function writeStructures(w: Binary.Writer, city: City): void {
+  w.varint(city.decks.length);
+  let at = origin();
+  for (const deck of city.decks) {
+    w.uint8(CARRIES.indexOf(deck.carries));
+    writeRing(w, deck.ring, at);
+    writeRing(w, deck.axis, at);
+    writeRises(w, deck.rise);
+    writeRing(w, deck.piers, at);
+    w.varint(deck.lanes.length);
+    for (const lane of deck.lanes) {
+      w.varint((Math.round(lane.width * DM) << 3) | SURFACES.indexOf(lane.surface));
+      writeRing(w, lane.line, at);
+    }
+  }
+  w.varint(city.ramps.length);
+  at = origin();
+  for (const ramp of city.ramps) {
+    w.varint((Math.round(ramp.half * DM) << 1) | (ramp.rail ? 1 : 0));
+    writeRing(w, ramp.line, at);
+    writeRises(w, ramp.rise);
+  }
+  w.varint(city.tunnels.length);
+  at = origin();
+  for (const tunnel of city.tunnels) {
+    w.uint8(
+      CARRIES.indexOf(tunnel.carries) | (tunnel.mouths[0] ? 4 : 0) | (tunnel.mouths[1] ? 8 : 0),
+    );
+    w.varint(Math.round(tunnel.half * DM));
+    w.varint(Math.round(tunnel.depth * DM));
+    writeRing(w, tunnel.line, at);
+  }
+}
+
+function readStructures(r: Binary.Reader): Pick<City, 'decks' | 'ramps' | 'tunnels'> {
+  const carries = () => CARRIES[r.uint8()] ?? 'road';
+  let at = origin();
+  const decks = Array.from({ length: r.varint() }, (): Deck => {
+    const kind = carries();
+    const ring = readRing(r, at);
+    const axis = readRing(r, at);
+    const rise = readRises(r, pointCount(axis));
+    const piers = readRing(r, at);
+    const lanes = Array.from({ length: r.varint() }, (): Path => {
+      const packed = r.varint();
+      return {
+        width: (packed >> 3) / DM,
+        surface: SURFACES[packed & 7] ?? 'asphalt',
+        line: readRing(r, at),
+      };
+    });
+    return { carries: kind, ring, axis, rise, piers, lanes };
+  });
+  at = origin();
+  const ramps = Array.from({ length: r.varint() }, (): Ramp => {
+    const packed = r.varint();
+    const line = readRing(r, at);
+    return {
+      half: (packed >> 1) / DM,
+      rail: (packed & 1) === 1,
+      line,
+      rise: readRises(r, pointCount(line)),
+    };
+  });
+  at = origin();
+  const tunnels = Array.from({ length: r.varint() }, (): Tunnel => {
+    const packed = r.uint8();
+    const kind = CARRIES[packed & 3] ?? 'road';
+    const half = r.varint() / DM;
+    const depth = r.varint() / DM;
+    const mouths: [boolean, boolean] = [(packed & 4) !== 0, (packed & 8) !== 0];
+    return { carries: kind, half, depth, mouths, line: readRing(r, at) };
+  });
+  return { decks, ramps, tunnels };
+}
 
 function writeFronts(w: Binary.Writer, fronts: readonly ShopFront[]): void {
   w.varint(fronts.length);
@@ -336,6 +432,7 @@ export function encodeCity(city: City): Uint8Array {
   }
   for (const name of city.plazaNames) w.varint(name + 1);
 
+  writeStructures(w, city);
   const towers = city.buildings.flatMap((b, i) => (b.tower ? [{ i, ...b.tower }] : []));
   w.varint(towers.length);
   let place = 0;
@@ -518,6 +615,7 @@ export function decodeCity(bytes: Uint8Array): City {
     if (name >= streetNames.length) throw new CityFormatError(`Bad square name ${name}.`);
     return name;
   });
+  const structures = readStructures(r);
   let place = 0;
   for (let n = r.varint(); n > 0; n--) {
     const b = buildings[(place += r.varint())];
@@ -564,6 +662,7 @@ export function decodeCity(bytes: Uint8Array): City {
     plazaNames,
     terrain,
     fronts,
+    ...structures,
   };
 }
 

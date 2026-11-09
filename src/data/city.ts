@@ -121,6 +121,59 @@ export interface Rail {
   line: Float32Array;
 }
 
+/** What a bridge or tunnel carries, which sets its clearance, its railing and who may use it. */
+export const CARRIES = ['road', 'path', 'rail'] as const;
+export type Carries = (typeof CARRIES)[number];
+
+/** A cycle way on a deck is a ribbon this wide; the renderer draws it in the cycle lanes' red (m). */
+export const CYCLE_LANE = 2;
+
+/**
+ * A bridge's deck: the GRB structure's outline where there is one (else the width of its OSM
+ * ways), held up over the ground at `rise` metres above the terrain at each point of `axis`. A
+ * road or path deck is a level of its own in the walk grid; a railway's stays at the terrain.
+ */
+export interface Deck {
+  carries: Carries;
+  /** Counter-clockwise outline, flat [x0, z0, x1, z1, …]. */
+  ring: Float32Array;
+  /** Centre line of the span, from one end past the other; `ends` of the deck are where it leaves. */
+  axis: Float32Array;
+  /** Metres above the terrain at each point of `axis`. */
+  rise: Float32Array;
+  /** Where its piers stand, flat [x, z, …]; none on a carriageway or a track. */
+  piers: Float32Array;
+  /** The road and cycle ways on it, as ribbons of their own surface. */
+  lanes: Path[];
+}
+
+/**
+ * A length of ground raised or sunk along a line, between retaining walls: the approach to a deck
+ * or a tunnel, or a road dropping under a railway. Everything the map draws there follows it.
+ */
+export interface Ramp {
+  /** Flat [x0, z0, x1, z1, …]. */
+  line: Float32Array;
+  /** Metres above the terrain at each point of `line`; negative in a cutting. */
+  rise: Float32Array;
+  /** Half its width (m). */
+  half: number;
+  /** Tracks run on it: only these move the railway. */
+  rail: boolean;
+}
+
+/** A covered stretch below the ground, from portal to portal. */
+export interface Tunnel {
+  carries: Carries;
+  line: Float32Array;
+  /** Half its width (m). */
+  half: number;
+  /** How far its floor lies below the terrain (m). */
+  depth: number;
+  /** Whether each end of `line` opens to the air: its first point, its last. */
+  mouths: [boolean, boolean];
+}
+
 /**
  * What lies on the road surface beside the pavement: the GRB surface cut along its kerbs
  * (tools/build_road_zones.py), named from the OSM ways on it (src/data/roads.ts) as a street, a
@@ -299,8 +352,14 @@ export interface City {
   treeKinds: Uint8Array;
   props: Prop[];
   tanks: Tank[];
-  /** Bridge decks (GRB structures): walkable over the water, drawn as stone above it. */
+  /** GRB bridge outlines left at the ground: what crosses them goes under in a tunnel. */
   bridges: Float32Array[];
+  /** Bridges held up over what they cross, each a level of its own to walk on. */
+  decks: Deck[];
+  /** The ground raised or sunk along the approaches. */
+  ramps: Ramp[];
+  /** Covered roads, paths and tracks with a way in at both ends. */
+  tunnels: Tunnel[];
   /** Bridge parapets: low walls along the sides of a bridge that face the water, as open lines. */
   parapets: Float32Array[];
   /** Every street and square name, sorted, each once (src/data/streets.ts). */

@@ -21,6 +21,10 @@ export function walkSolids(city: City): Solids {
     const [x, z] = [city.trees[i * 2]!, city.trees[i * 2 + 1]!];
     posts.push(x, z, trunkFoot(i, city.treeHeights[i] ?? 0));
   }
+  // A deck's piers: met as posts by whoever walks under it.
+  for (const { piers } of city.decks ?? []) {
+    for (let i = 0; i + 1 < piers.length; i += 2) posts.push(piers[i]!, piers[i + 1]!, 0.55);
+  }
   const rings: Float32Array[] = [];
   const box = (x: number, z: number, fx: number, fz: number, uv: readonly number[]) => {
     const [u0, u1, v0, v1] = uv as [number, number, number, number];

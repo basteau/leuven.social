@@ -104,6 +104,34 @@ const city: City = {
   ],
   tanks: [{ height: 14.5, ring: square(500, -1000, 6) }],
   bridges: [square(-60, 0, 10)],
+  decks: [
+    {
+      carries: 'road',
+      ring: square(80, 80, 10),
+      axis: Float32Array.of(75, 85, 95, 85),
+      rise: Float32Array.of(0.5, 5.2),
+      piers: Float32Array.of(82, 82),
+      lanes: [{ width: 6.4, surface: 'asphalt', line: Float32Array.of(80, 85, 90, 85) }],
+    },
+  ],
+  ramps: [
+    {
+      line: Float32Array.of(95, 85, 120, 85),
+      rise: Float32Array.of(5.2, 0),
+      half: 6.5,
+      rail: false,
+    },
+    { line: Float32Array.of(0, 200, 0, 300), rise: Float32Array.of(-6.8, 0), half: 3, rail: true },
+  ],
+  tunnels: [
+    {
+      carries: 'path',
+      line: Float32Array.of(-10, -10, 10, -10),
+      half: 1.5,
+      depth: 3.4,
+      mouths: [true, false],
+    },
+  ],
   parapets: [new Float32Array([-3, 0, -3, 10]), new Float32Array([3, 0, 3, 5, 3.5, 10])],
   streetNames: ['Grote Markt', 'Naamsestraat'],
   streets: [

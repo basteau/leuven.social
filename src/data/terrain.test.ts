@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { FLAT, Terrain, clipPolygon } from './terrain.ts';
+import { FLAT, FLAT_GRID, Terrain, clipPolygon, landform } from './terrain.ts';
 import type { Corner } from './terrain.ts';
 
 // A 3 × 3 grid of 10 m squares anchored at (-10, -10): a slope up to the east and a bump at
@@ -187,5 +187,102 @@ describe('cut', () => {
       [-9, 0, 0],
       [9, 0, 0],
     ]);
+  });
+});
+
+describe('landform', () => {
+  const ramp = { line: Float32Array.of(10, 0, 30, 0), rise: Float32Array.of(4, 0), half: 3 };
+  const ground = landform(FLAT_GRID, [ramp], []);
+
+  test('lifts a strip along its centre line, and leaves the rest', () => {
+    expect(ground.height(10, 0)).toBeCloseTo(4, 5);
+    expect(ground.height(20, 0)).toBeCloseTo(2, 5);
+    expect(ground.height(30, 0)).toBeCloseTo(0, 5);
+    expect(ground.height(20, 3.5)).toBe(0);
+    expect(ground.height(0, 0)).toBe(0);
+  });
+
+  test('never moves the bare landform', () => {
+    expect(ground.plain(20, 0)).toBe(0);
+  });
+
+  test('cuts what lies across a strip along its edges', () => {
+    const pieces = ground.clip([
+      [15, 0, -10],
+      [25, 0, -10],
+      [25, 0, 10],
+      [15, 0, 10],
+    ]);
+    expect(pieces.length).toBeGreaterThan(1);
+    // A lifted piece and the ground beside it: one lies over the other.
+    expect(Math.max(...pieces.flat().map((p) => p[1]!))).toBeGreaterThan(1);
+    expect(Math.min(...pieces.flat().map((p) => p[1]!))).toBe(0);
+  });
+
+  test('a piece wholly on the strip comes back in one, lifted', () => {
+    const pieces = ground.clip([
+      [18, 0, -1],
+      [22, 0, -1],
+      [22, 0, 1],
+      [18, 0, 1],
+    ]);
+    expect(pieces).toHaveLength(1);
+    expect(pieces[0]![0]![1]).toBeCloseTo(2.4, 4);
+  });
+
+  test('a line across a strip stops at its edges', () => {
+    const points = ground.cut([20, 0, -10], [20, 0, 10]);
+    expect(points.length).toBeGreaterThan(2);
+    expect(points.some((p) => p[1]! > 1)).toBe(true);
+    expect(points[0]![1]).toBe(0);
+    expect(points.at(-1)![1]).toBe(0);
+  });
+
+  test('a line along a ramp lies on it at every point', () => {
+    const points = ground.cut([12, 0, 0], [28, 0, 0]);
+    for (const p of points) expect(p[1]).toBeCloseTo(ground.height(p[0]!, p[2]!), 4);
+  });
+
+  test('a piece only near a strip is not cut', () => {
+    const near = [
+      [15, 0, 3.5],
+      [25, 0, 3.5],
+      [25, 0, 6],
+      [15, 0, 6],
+    ];
+    expect(ground.clip(near)).toEqual([near]);
+  });
+
+  test('where strips overlap the stronger one wins', () => {
+    const low = { line: Float32Array.of(0, 0, 40, 0), rise: Float32Array.of(1, 1), half: 5 };
+    const both = landform(FLAT_GRID, [low, ramp], []);
+    expect(both.height(12, 0)).toBeCloseTo(3.6, 4);
+  });
+
+  test('a bend shares its cross-section between its two quads', () => {
+    const bend = {
+      line: Float32Array.of(0, 0, 10, 0, 10, 10),
+      rise: Float32Array.of(0, 5, 5),
+      half: 2,
+    };
+    const bent = landform(FLAT_GRID, [bend], []);
+    expect(bent.height(10, 0)).toBeCloseTo(5, 3);
+    expect(bent.height(10, 5)).toBeCloseTo(5, 3);
+  });
+
+  test('its tracks follow only the ramps that carry them', () => {
+    const rail = { ...ramp, rail: true };
+    const road = { ...ramp, line: Float32Array.of(10, 20, 30, 20) };
+    const both = landform(FLAT_GRID, [rail, road], []);
+    expect(both.rails.height(20, 0)).toBeCloseTo(2, 5);
+    expect(both.rails.height(20, 20)).toBe(0);
+    expect(both.height(20, 20)).toBeCloseTo(2, 5);
+  });
+
+  test('its decks lie on a surface of their own', () => {
+    const deck = { line: Float32Array.of(0, 0, 20, 0), rise: Float32Array.of(5, 5), half: 4 };
+    const raised = landform(FLAT_GRID, [], [deck]);
+    expect(raised.decks.height(10, 0)).toBeCloseTo(5, 5);
+    expect(raised.height(10, 0)).toBe(0);
   });
 });

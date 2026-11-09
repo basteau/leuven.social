@@ -4,13 +4,17 @@
  */
 
 import { WALK_CELL } from './walkable.ts';
-import type { WalkGrid } from './walkable.ts';
+import type { LevelGrid, WalkGrid } from './walkable.ts';
 
 /** What a route needs of a grid: the street's (WalkGrid) or a room's floor (RoomGrid). */
 export type RouteGrid = Pick<
   WalkGrid,
   'cols' | 'rows' | 'cellAt' | 'centre' | 'open' | 'walkable' | 'nearest' | 'around'
->;
+> & {
+  /** The level of decks and tunnels, and where it meets the ground, if the map has one. */
+  upper?: LevelGrid | null;
+  link?(cell: number): boolean;
+};
 
 /** The furthest one route goes (m), drawn whole; further off, the walk goes in legs. */
 export const ROUTE_REACH = 625;
@@ -37,6 +41,8 @@ const NEIGHBOURS = [
 ] as const;
 
 const NO_CELLS: ReadonlySet<number> = new Set();
+/** What moving from the ground to the level over it adds to a walk (m): nothing but a step. */
+const LINK_COST = 0.5;
 
 /** Reuses its buffers across searches: a route is asked for on every click. */
 export class Router {
@@ -65,12 +71,17 @@ export class Router {
     toX: number,
     toZ: number,
     avoid: ArrayLike<number> = [],
+    fromLevel = 0,
+    toLevel = 0,
   ): Float32Array | null {
     const grid = this.#grid;
+    const upper = grid.upper ?? null;
+    const on = (level: number, cell: number) =>
+      level ? upper?.open(cell) === true : grid.open(cell);
     const start = grid.cellAt(fromX, fromZ);
     const goal = grid.cellAt(toX, toZ);
-    if (!grid.open(start) || !grid.open(goal)) return null;
-    if (start === goal) return Float32Array.of(fromX, fromZ, toX, toZ);
+    if (!on(fromLevel, start) || !on(toLevel, goal)) return null;
+    if (start === goal && fromLevel === toLevel) return Float32Array.of(fromX, fromZ, toX, toZ);
     const blocked = coveredCells(grid, avoid);
     blocked.delete(start);
     blocked.delete(goal);
@@ -85,7 +96,8 @@ export class Router {
     const [w, h] = [c1 - c0 + 1, r1 - r0 + 1];
     if (w > MAX_WINDOW || h > MAX_WINDOW) return null;
 
-    const size = w * h;
+    const layer = w * h;
+    const size = upper ? layer * 2 : layer;
     if (this.#cost.length < size) {
       this.#cost = new Float32Array(size);
       this.#parent = new Int32Array(size);
@@ -104,17 +116,21 @@ export class Router {
       const [dx, dy] = [Math.abs(c - gc), Math.abs(r - gr)];
       return Math.max(dx, dy) + (Math.SQRT2 - 1) * Math.min(dx, dy);
     };
-    const open = (c: number, r: number) =>
-      c >= 0 &&
-      r >= 0 &&
-      c < grid.cols &&
-      r < grid.rows &&
-      grid.open(r * grid.cols + c) &&
-      !blocked.has(r * grid.cols + c);
+    const open = (c: number, r: number, level: number) => {
+      if (c < 0 || r < 0 || c >= grid.cols || r >= grid.rows) return false;
+      const cell = r * grid.cols + c;
+      return level ? upper?.open(cell) === true : grid.open(cell) && !blocked.has(cell);
+    };
     // Asked of a cell once for each neighbour that reaches it: the walls are only looked at once.
-    const nearEdge = (c: number, r: number) => {
-      const at = local(c, r);
-      edge[at] ||= !open(c + 1, r) || !open(c - 1, r) || !open(c, r + 1) || !open(c, r - 1) ? 2 : 1;
+    const nearEdge = (c: number, r: number, level: number) => {
+      const at = local(c, r) + level * layer;
+      edge[at] ||=
+        !open(c + 1, r, level) ||
+        !open(c - 1, r, level) ||
+        !open(c, r + 1, level) ||
+        !open(c, r - 1, level)
+          ? 2
+          : 1;
       return edge[at] === 2;
     };
 
@@ -158,44 +174,72 @@ export class Router {
       return top;
     };
 
-    const s = local(sc, sr);
+    const s = local(sc, sr) + fromLevel * layer;
     cost[s] = 0;
     parent[s] = -1;
     state[s] = 1;
     push(s, guess(sc, sr));
-    const g = local(gc, gr);
+    const g = local(gc, gr) + toLevel * layer;
     for (let node = pop(); node !== -1; node = pop()) {
       if (state[node] === 2) continue;
       state[node] = 2;
       if (node === g) break;
-      const c = (node % w) + c0;
-      const r = Math.floor(node / w) + r0;
-      for (const [dc, dr, step] of NEIGHBOURS) {
-        const [nc, nr] = [c + dc, r + dr];
-        if (nc < c0 || nc > c1 || nr < r0 || nr > r1 || !open(nc, nr)) continue;
-        // No cutting corners between two closed cells.
-        if (dc && dr && (!open(c + dc, r) || !open(c, r + dr))) continue;
-        const next = local(nc, nr);
-        if (state[next] === 2) continue;
-        const total = cost[node]! + step * (nearEdge(nc, nr) ? 1 + EDGE_COST : 1);
-        if (state[next] === 1 && total >= cost[next]!) continue;
+      const level = node >= layer ? 1 : 0;
+      const here = node - level * layer;
+      const c = (here % w) + c0;
+      const r = Math.floor(here / w) + r0;
+      const visit = (next: number, step: number, nc: number, nr: number) => {
+        if (state[next] === 2) return;
+        const total = cost[node]! + step;
+        if (state[next] === 1 && total >= cost[next]!) return;
         cost[next] = total;
         parent[next] = node;
         state[next] = 1;
         push(next, total + guess(nc, nr));
+      };
+      // Between the ground and the level over it, where they meet: no way along it but this.
+      if (upper && grid.link?.(r * grid.cols + c) && open(c, r, level ? 0 : 1)) {
+        visit(here + (level ? 0 : layer), LINK_COST, c, r);
+      }
+      for (const [dc, dr, step] of NEIGHBOURS) {
+        const [nc, nr] = [c + dc, r + dr];
+        if (nc < c0 || nc > c1 || nr < r0 || nr > r1 || !open(nc, nr, level)) continue;
+        // No cutting corners between two closed cells.
+        if (dc && dr && (!open(c + dc, r, level) || !open(c, r + dr, level))) continue;
+        const next = local(nc, nr) + level * layer;
+        visit(next, step * (nearEdge(nc, nr, level) ? 1 + EDGE_COST : 1), nc, nr);
       }
     }
     if (state[g] !== 2) return null;
 
-    const cells: number[] = [];
+    const steps: { cell: number; level: number }[] = [];
     for (let node = g; node !== -1; node = parent[node]!) {
-      cells.push((Math.floor(node / w) + r0) * grid.cols + (node % w) + c0);
+      const level = node >= layer ? 1 : 0;
+      const here = node - level * layer;
+      steps.push({ cell: (Math.floor(here / w) + r0) * grid.cols + (here % w) + c0, level });
     }
-    cells.reverse();
-    const points = cells.map((cell) => grid.centre(cell));
-    points[0] = [fromX, fromZ];
-    points[points.length - 1] = [toX, toZ];
-    return Float32Array.from(taut(grid, points, blocked).flat());
+    steps.reverse();
+    // Pulled taut level by level: the only way between two is where they meet.
+    const out: [number, number][] = [];
+    for (let from = 0; from < steps.length;) {
+      const level = steps[from]!.level;
+      let to = from;
+      while (to + 1 < steps.length && steps[to + 1]!.level === level) to++;
+      const points = steps.slice(from, to + 1).map(({ cell }) => grid.centre(cell));
+      if (from === 0) points[0] = [fromX, fromZ];
+      if (to === steps.length - 1) points[points.length - 1] = [toX, toZ];
+      const lane = level ? upper! : grid;
+      const pulled = points.length > 1 ? taut(lane, points, level ? NO_CELLS : blocked) : points;
+      // Each run starts on the cell the last one ended on, its one step between levels.
+      const last = out.at(-1);
+      out.push(
+        ...(last && pulled[0]![0] === last[0] && pulled[0]![1] === last[1]
+          ? pulled.slice(1)
+          : pulled),
+      );
+      from = to + 1;
+    }
+    return Float32Array.from(out.flat());
   }
 }
 
@@ -221,7 +265,7 @@ function coveredCells(grid: RouteGrid, circles: ArrayLike<number>): Set<number> 
  * `blocked` ones.
  */
 export function clearLine(
-  grid: RouteGrid,
+  grid: Pick<RouteGrid, 'walkable' | 'cellAt'>,
   ax: number,
   az: number,
   bx: number,
@@ -243,7 +287,7 @@ export function clearLine(
 
 /** Keeps only the corners a straight line can't skip: string-pulling over the cell path. */
 function taut(
-  grid: RouteGrid,
+  grid: Pick<RouteGrid, 'walkable' | 'cellAt'>,
   points: [number, number][],
   blocked: ReadonlySet<number>,
 ): [number, number][] {

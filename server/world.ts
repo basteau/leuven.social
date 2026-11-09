@@ -255,11 +255,14 @@ export function sanitise(state: PlayerState, area: readonly Bounds[] = AREA): Pl
     speed: Number.isFinite(state.speed) ? clamp(state.speed, 0, MAX_SPEED) : 0,
     mode: state.mode === 'bike' ? 'bike' : 'foot',
     place,
-    // The street has one floor.
-    floor:
-      place && Number.isFinite(state.floor)
+    // In the street, the ground or the one level of decks and tunnels; a room has its floors.
+    floor: !Number.isFinite(state.floor)
+      ? 0
+      : place
         ? clamp(Math.round(state.floor), MIN_FLOOR, MAX_FLOOR)
-        : 0,
+        : state.floor === 1
+          ? 1
+          : 0,
   };
 }
 
