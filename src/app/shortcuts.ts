@@ -57,7 +57,7 @@ export interface ShortcutTarget {
  * brings the view back to the avatar and Esc does too, once any route to a picked spot is let go;
  * R turns north up and back to you, M opens the full map, N mutes, H shows or hides the minimap,
  * and T and P set the time of day. ⌘K and its kin open the menu. Shortcuts act while focus is
- * anywhere in the app except the menu, not in the rest of the page.
+ * anywhere in the app except the menu, or nowhere at all.
  */
 export function useShortcuts(target: ShortcutTarget): void {
   useEffect(() => {
@@ -81,6 +81,9 @@ export function useShortcuts(target: ShortcutTarget): void {
       steer();
     };
     const onKeyDown = (event: KeyboardEvent) => {
+      // With nothing focused the keys land on the page itself, and they're still the map's: a
+      // button that went away with focus on it (Stop, Ride, Go in) leaves it there.
+      if (event.target !== document.body && !app.contains(event.target as Node | null)) return;
       // The menu's own keys (its search, arrows, Escape) are the menu's.
       if (event.target instanceof Element && event.target.closest('dialog')) return;
       // From the moment it's asked for, too: a search typed before its code arrives goes into
@@ -164,14 +167,14 @@ export function useShortcuts(target: ShortcutTarget): void {
       else if (held.delete(event.code)) steer();
       else target.turnHold.release(event.code);
     };
-    app.addEventListener('keydown', onKeyDown);
+    globalThis.addEventListener('keydown', onKeyDown);
     globalThis.addEventListener('keyup', onKeyUp);
     // A key released while the window is in the background never sends its keyup.
     globalThis.addEventListener('blur', release);
     document.addEventListener('visibilitychange', release);
     return () => {
       document.removeEventListener('visibilitychange', release);
-      app.removeEventListener('keydown', onKeyDown);
+      globalThis.removeEventListener('keydown', onKeyDown);
       globalThis.removeEventListener('keyup', onKeyUp);
       globalThis.removeEventListener('blur', release);
     };

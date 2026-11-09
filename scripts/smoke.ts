@@ -681,7 +681,7 @@ async function expectNothingDrawnUnderMap(): Promise<void> {
 
 /** A key event on the map, as a script has to send it (agent-browser only taps keys). */
 const keyEvent = (type: string, key: string, code: string) =>
-  `document.querySelector('.map').dispatchEvent(new KeyboardEvent('${type}', { key: '${key}', code: '${code}', bubbles: true }))`;
+  `(document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent('${type}', { key: '${key}', code: '${code}', bubbles: true }))`;
 
 /** Where the keys the smoke test holds sit on the keyboard: walking reads `code`, not `key`. */
 const CODES: Record<string, string> = {
@@ -764,6 +764,8 @@ async function expectWalking(): Promise<void> {
   await zoomToStreet();
   await browser('wait', '1500'); // the camera has come back to the avatar
   const start = await walker();
+  // Focus lost to the page (a pressed button went away with it): the keys are still the map's.
+  await browser('eval', 'document.activeElement.blur(); 1');
   await holdKeys(['d'], 800);
   await holdKeys(['Shift', 'w'], 800);
   // The avatar publishes where it stands once it has stopped.
