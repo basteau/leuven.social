@@ -88,6 +88,33 @@ describe('bridges and tunnels', () => {
     expect(low.indices).toBeGreaterThan(0);
   });
 
+  test("a ramp's wall stops at another's roadway: it would stand in the road", () => {
+    const ramp = {
+      line: Float32Array.of(0, 0, 40, 0),
+      rise: Float32Array.of(3, 3),
+      half: 3,
+      rail: false,
+    };
+    const beside = { ...ramp, line: Float32Array.of(0, 4, 40, 4) };
+    const far = { ...ramp, line: Float32Array.of(0, 400, 40, 400) };
+    const carved = landform(FLAT_GRID, [ramp, beside], []);
+    const count = (others: (typeof ramp)[]) => {
+      const mesh = new MeshBuilder();
+      addRampWalls(mesh, new LineBuilder(), ramp, carved, others);
+      return mesh.indices;
+    };
+    const alone = count([ramp, far]);
+    expect(alone).toBe(count([]));
+    // Near enough to look at the walls length by length, too far to cover either: both stand whole.
+    expect(count([{ ...ramp, line: Float32Array.of(0, 5.8, 40, 5.8) }])).toBe(alone);
+    // Over the one on the side it lies: that side goes.
+    expect(count([ramp, beside])).toBe(alone / 2);
+    // At another height it's a step, and the wall stays.
+    expect(count([ramp, { ...beside, rise: Float32Array.of(-3, -3) }])).toBe(alone);
+    // Partly along it: the wall stops where it starts, one length either side.
+    expect(count([{ ...beside, line: Float32Array.of(10, 4, 20, 4) }])).toBe(alone + alone / 2);
+  });
+
   test('a tunnel has a portal only at a mouth that opens', () => {
     const tunnel = {
       carries: 'road' as const,

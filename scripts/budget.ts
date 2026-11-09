@@ -40,6 +40,7 @@ const BUDGETS: {
   {
     label: '3D engine JS (three.js)',
     pattern: 'assets/{viewer,palette}-*.js',
+    // 183.5: retaining walls that stop at another ramp's roadway, as walking does (0.3 KB).
     // 179.5: turning by hand, asked for (0.9 KB): a twist, a turning drag, a sideways scroll,
     // Safari's trackpad gesture and the glide after a flick.
     // 169: the map's presence list, routes and zoom limit (0.4 KB). 168: livelier facades asked for (1.4 KB): frames, sills and flower boxes on ordinary
@@ -253,6 +254,7 @@ const BUDGETS: {
   {
     label: 'First-load JS',
     pattern: 'assets/{index,viewer}-*.js',
+    // 274.5: the engine's retaining walls above (0.2 KB).
     // 270: turning by hand, in the engine and the compass (1.1 KB), asked for.
     // 260: the engine's and the shell's additions above (1 KB). 260.5: dynamic resolution (0.4 KB).
     // 264.75: the look of the city (3.9 KB), asked for; the engine's own note says what.

@@ -78,6 +78,8 @@ export interface Cell {
   fronts: { building: Building; front: ShopFront }[];
   tanks: Tank[];
   parapets: Float32Array[];
+  /** Every ramp on the map: a wall stops where it meets another's roadway. */
+  allRamps: readonly Ramp[];
   /** Held-up decks, whole, in the cell of their first point. */
   decks: Deck[];
   ramps: Ramp[];
@@ -156,6 +158,7 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
           tanks: [],
           parapets: [],
           decks: [],
+          allRamps: city.ramps,
           ramps: [],
           tunnels: [],
           nearDecks: [],
@@ -373,7 +376,7 @@ export function buildCell(
     addDeckSurface(mesh, d);
     mesh.drape = terrain;
   }
-  for (const r of cell.ramps) addRampWalls(mesh, lines, r, terrain);
+  for (const r of cell.ramps) addRampWalls(mesh, lines, r, terrain, cell.allRamps);
   for (const t of cell.tunnels) addPortals(mesh, lines, t, terrain);
   mesh.drape = lines.drape = null;
   for (const bay of cell.canopies) {
