@@ -3,7 +3,7 @@ import type { KeyboardEvent, PointerEvent as ReactPointerEvent } from 'react';
 
 import { sound } from '../audio/sound.ts';
 import type { City } from '../data/city.ts';
-import { clampScale, toCity, toScreen } from '../data/map-view.ts';
+import { MAP_MAX_SCALE, clampScale, toCity, toScreen } from '../data/map-view.ts';
 import type { Frame } from '../data/map-view.ts';
 import { placesOf } from '../data/places.ts';
 import type { Place } from '../data/places.ts';
@@ -18,10 +18,13 @@ import {
   WAYPOINT_COLOURS,
 } from '../data/waypoints.ts';
 import type { Waypoint } from '../data/waypoints.ts';
+import { createClumper } from '../scene/clumps.ts';
+import type { Marks } from '../scene/clumps.ts';
+import { crowdLabel, drawMarks } from '../scene/marks.ts';
 import type { RoomPlace, Viewer } from '../scene/viewer.ts';
 import { MapIcon, MinusIcon, PlusIcon, TargetIcon, WalkIcon } from './icons.tsx';
 import { CloseIcon, PinIcon, SearchIcon } from './menu-icons.tsx';
-import { ACCENT, INK, drawDoor, drawMark, drawPlayer, drawTarget } from './map-draw.ts';
+import { ACCENT, INK, drawDoor, drawMark, drawTarget, drawYou } from './map-draw.ts';
 import { dpr, paintRaster, rasterOf } from './map-raster.ts';
 import { search } from './search.ts';
 import type { Store } from './store.ts';
@@ -53,6 +56,19 @@ const QUERY_FROM = 2;
 /** What it opens at: the city's heart as the player's own part of it, in px per metre. */
 const START_SCALE = 0.35;
 const KEY_PAN = 80;
+/** How much closer a press on a crowd takes the map: enough to pull most apart. */
+const CROWD_ZOOM = 3;
+/** A crowd says how many it is from this many, in a label with room to be read. */
+const COUNTED_FROM = 10;
+/** How much of it must show, while levels of zoom fade across, for it to be numbered. */
+const COUNT_FROM_ALPHA = 0.5;
+/** A person within this many px of a press is under it, however small they're drawn. */
+const CROWD_REACH = 14;
+/** How often people are redrawn on the map while open (ms): smooth without burning a phone. */
+const PEOPLE_MS = 100;
+/** What the map says it can see, padded so a small pan doesn't need the server (m, and ratio). */
+const LOOK_MOVE = 40;
+const LOOK_GROW = 1.15;
 const ARROW_PANS: Record<string, [number, number]> = {
   ArrowUp: [0, KEY_PAN],
   ArrowDown: [0, -KEY_PAN],
@@ -105,6 +121,7 @@ export function MapOverlay(props: Props) {
     selection: null as Selection,
     // Squares claim their room first; a street's name gives way to them.
     labels: places.toSorted((a, b) => Number(b.kind === 'square') - Number(a.kind === 'square')),
+    crowd: null as Marks | null,
     rooms: [] as readonly RoomPlace[],
     draw: () => {},
     schedule: () => {},
@@ -157,6 +174,7 @@ export function MapOverlay(props: Props) {
       },
       () => {},
     );
+    const scene = viewer.current;
     const ctx = canvas.getContext('2d')!;
     const raster = rasterOf(city);
     const state = live.current;
@@ -164,6 +182,25 @@ export function MapOverlay(props: Props) {
     if (me) [state.frame.cx, state.frame.cz] = [me.x, me.z];
     const labelFont = '600 12px system-ui, sans-serif';
     const streetFont = '500 11px system-ui, sans-serif';
+    const countFont = '700 11px system-ui, sans-serif';
+    const clumper = createClumper();
+    /** Which crowds are numbered, biggest first, kept to reuse from one paint to the next. */
+    const counted: number[] = [];
+    /** Where the map last told the server it looks, so a nudge isn't news. */
+    let lookedAt: readonly [number, number, number] | null = null;
+    const look = (w: number, h: number, { cx, cz, scale }: Frame) => {
+      const needed = Math.hypot(w, h) / 2 / scale;
+      if (
+        lookedAt &&
+        Math.hypot(cx - lookedAt[0], cz - lookedAt[1]) < LOOK_MOVE &&
+        needed <= lookedAt[2] &&
+        needed >= lookedAt[2] / (LOOK_GROW * LOOK_GROW)
+      ) {
+        return;
+      }
+      lookedAt = [cx, cz, Math.ceil(needed * LOOK_GROW)];
+      scene?.mapLook(cx, cz, lookedAt[2]);
+    };
     let queued = 0;
     state.schedule = () => {
       if (queued) return;
@@ -184,22 +221,66 @@ export function MapOverlay(props: Props) {
         const [px, py] = toScreen(frame, x, z);
         return [w / 2 + px, h / 2 + py] as const;
       };
-      const people = viewer.current?.presences() ?? [];
+      const self = selfOf(viewer.current?.presences() ?? []);
+      look(w, h, frame);
+      // Under everything that has words on it, so nobody's shirt covers a name. A friend, when
+      // there are any, goes over the crowd and under the names, between this and the next line.
+      const people = viewer.current?.people();
+      if (people) {
+        const pad = 40 / frame.scale;
+        const halfW = w / 2 / frame.scale + pad;
+        const halfH = h / 2 / frame.scale + pad;
+        const crowd = clumper.clump(people, {
+          pxPerMetre: frame.scale,
+          x0: frame.cx - halfW,
+          z0: frame.cz - halfH,
+          x1: frame.cx + halfW,
+          z1: frame.cz + halfH,
+          place: '',
+          floor: 0,
+        });
+        state.crowd = crowd;
+        drawMarks(
+          ctx,
+          crowd,
+          {
+            a: frame.scale,
+            b: 0,
+            c: 0,
+            d: frame.scale,
+            e: w / 2 - frame.cx * frame.scale,
+            f: h / 2 - frame.cz * frame.scale,
+          },
+          ratio,
+        );
+      } else state.crowd = null;
+
+      // What a label has to keep clear of. Only you reserve a place: a crowd doesn't erase a name.
+      const taken: [number, number, number, number][] = [];
+      const free = (l: number, t: number, r: number, b: number) =>
+        !taken.some(([l2, t2, r2, b2]) => r > l2 && l < r2 && b > t2 && t < b2);
+      if (self) {
+        const [x, y] = at(self.x, self.z);
+        taken.push([x - 14, y - 14, x + 14, y + 14]);
+      }
+      // A spot just picked and the marks keep their pins clear, or a name would run under them.
+      for (const pin of state.selection?.kind === 'spot'
+        ? [state.selection, ...state.marks]
+        : state.marks) {
+        const [x, y] = at(pin.x, pin.z);
+        taken.push([x - 10, y - 10, x + 10, y + 10]);
+      }
       if (frame.scale >= LABELS_FROM) {
         ctx.textAlign = 'center';
         ctx.lineWidth = 3;
         ctx.strokeStyle = 'rgba(255,253,246,0.9)';
         // A label that would land on one already drawn, or on you, waits for a closer zoom.
-        const taken: [number, number, number, number][] = [];
         const label = (text: string, x: number, y: number) => {
           if (x < -80 || y < -20 || x > w + 80 || y > h + 20) return;
           const half = ctx.measureText(text).width / 2 + 3;
-          const free = (row: number) =>
-            !taken.some(
-              ([l, t, r, b]) => x + half > l && x - half < r && row + 7 > t && row - 15 < b,
-            );
+          const fits = (row: number) => free(x - half, row - 15, x + half, row + 7);
           // Where it belongs, or just under whoever's standing on it.
-          const row = free(y) ? y : free(y + 24) ? y + 24 : Number.NaN;
+          const row = fits(y) ? y : fits(y + 24) ? y + 24 : Number.NaN;
           if (Number.isNaN(row)) return;
           taken.push([x - half, row - 15, x + half, row + 7]);
           ctx.strokeText(text, x, row);
@@ -214,23 +295,37 @@ export function MapOverlay(props: Props) {
           drawDoor(ctx, x, y);
           label(room.name, x, y - 14);
         }
-        for (const p of people) {
-          const [x, y] = at(p.x, p.z);
-          taken.push([x - 14, y - 14, x + 14, y + 14]);
-        }
-        // A spot just picked and the marks keep their pins clear, or a name would run under them.
-        for (const pin of state.selection?.kind === 'spot'
-          ? [state.selection, ...state.marks]
-          : state.marks) {
-          const [x, y] = at(pin.x, pin.z);
-          taken.push([x - 10, y - 10, x + 10, y + 10]);
-        }
         ctx.fillStyle = INK;
         for (const place of state.labels) {
           if (place.kind === 'street' && frame.scale < STREETS_FROM) break;
           ctx.font = place.kind === 'street' ? streetFont : labelFont;
           label(place.name, ...at(place.x, place.z));
         }
+      }
+      // Numbers go on crowds big enough to want one, over the names' turn at the room, biggest first.
+      const crowd = state.crowd;
+      if (crowd) {
+        counted.length = 0;
+        for (let i = 0; i < crowd.count; i++) if (crowd.n[i]! >= COUNTED_FROM) counted.push(i);
+        counted.sort((a, b) => crowd.n[b]! - crowd.n[a]!);
+        ctx.font = countFont;
+        ctx.textAlign = 'center';
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = 'rgba(255,253,246,0.9)';
+        ctx.fillStyle = INK;
+        for (const i of counted) {
+          // A crowd fading out of one level's turn takes its number with it.
+          if (crowd.alpha[i]! < COUNT_FROM_ALPHA) continue;
+          const text = crowdLabel(crowd.n[i]!);
+          const [x, y] = at(crowd.x[i]!, crowd.z[i]!);
+          const half = ctx.measureText(text).width / 2 + 2;
+          if (!free(x - half, y - 8, x + half, y + 8)) continue;
+          taken.push([x - half, y - 8, x + half, y + 8]);
+          ctx.globalAlpha = crowd.alpha[i]!;
+          ctx.strokeText(text, x, y + 4);
+          ctx.fillText(text, x, y + 4);
+        }
+        ctx.globalAlpha = 1;
       }
       const picked = state.selection;
       for (const m of state.marks) {
@@ -243,9 +338,7 @@ export function MapOverlay(props: Props) {
       }
       const route = viewer.current?.routeTarget();
       if (route) drawTarget(ctx, ...at(route[0], route[1]), 10);
-      for (const p of people) {
-        drawPlayer(ctx, ...at(p.x, p.z), p.heading, 9, p.self);
-      }
+      if (self) drawYou(ctx, ...at(self.x, self.z), self.heading, 9);
     };
     const resize = () => {
       const [w, h] = [canvas.clientWidth, canvas.clientHeight];
@@ -257,17 +350,21 @@ export function MapOverlay(props: Props) {
     };
     const observer = new ResizeObserver(resize);
     observer.observe(canvas);
-    // People keep walking while it is open: poll them gently, and draw only if someone moved.
-    let last = '';
-    const poll = setInterval(() => {
-      const now = JSON.stringify([viewer.current?.presences(), viewer.current?.routeTarget()]);
-      if (now !== last) state.schedule();
-      last = now;
-    }, 500);
+    // People keep walking while it is open: redrawn while anyone moves, or you, or a route ends.
+    let you = '';
+    const everyone = setInterval(() => {
+      const people = viewer.current?.people();
+      const busy = (people?.sample(performance.now()) ?? false) || state.crowd?.settling === true;
+      const self = selfOf(viewer.current?.presences() ?? []);
+      const now = `${self?.x} ${self?.z} ${self?.heading} ${viewer.current?.routeTarget()}`;
+      if (busy || now !== you) state.schedule();
+      you = now;
+    }, PEOPLE_MS);
     return () => {
       observer.disconnect();
-      clearInterval(poll);
+      clearInterval(everyone);
       cancelAnimationFrame(queued);
+      scene?.mapLook(null);
     };
   }, [city, viewer]);
   // What had focus can go with the sheet: the dialog keeps it, or the keys would stop here.
@@ -364,6 +461,23 @@ export function MapOverlay(props: Props) {
     }
     [last.x, last.y] = [e.clientX, e.clientY];
   };
+  /** The nearest crowd under a press, by where it's drawn. */
+  const crowdAt = (px: number, py: number) => {
+    const { crowd, frame } = live.current;
+    if (!crowd) return null;
+    let best: { x: number; z: number } | null = null;
+    let nearest = Infinity;
+    for (let i = 0; i < crowd.count; i++) {
+      if (crowd.n[i]! < 4) continue;
+      const [x, y] = toScreen(frame, crowd.x[i]!, crowd.z[i]!);
+      const d = Math.hypot(x - px, y - py);
+      if (d <= Math.max(crowd.radius[i]!, CROWD_REACH) && d < nearest) {
+        nearest = d;
+        best = { x: crowd.x[i]!, z: crowd.z[i]! };
+      }
+    }
+    return best;
+  };
   const up = (e: ReactPointerEvent) => {
     pointers.current.delete(e.pointerId);
     const p = press.current;
@@ -379,9 +493,20 @@ export function MapOverlay(props: Props) {
     }
     const [x, z] = toCity(live.current.frame, px, py);
     const door = roomAt(px, py);
-    setSelection(
-      door ? { kind: 'spot', x: door.x, z: door.z, name: door.name } : { kind: 'spot', x, z },
-    );
+    if (door) {
+      setSelection({ kind: 'spot', x: door.x, z: door.z, name: door.name });
+      return;
+    }
+    // A crowd has room to be looked at, closer: unless the map is as close as it goes.
+    const crowd = live.current.frame.scale < MAP_MAX_SCALE ? crowdAt(px, py) : null;
+    if (crowd) {
+      const { frame } = live.current;
+      frame.scale = clampScale(frame.scale * CROWD_ZOOM);
+      centreOn(crowd.x, crowd.z);
+      setSelection(null);
+      return;
+    }
+    setSelection({ kind: 'spot', x, z });
   };
   // A long press still pending when the map closes must not drop a mark afterwards.
   useEffect(() => () => clearTimeout(press.current?.timer), []);
@@ -505,7 +630,7 @@ export function MapOverlay(props: Props) {
       <canvas
         ref={canvasRef}
         className="bigmap-canvas"
-        aria-label="Map of Leuven. Drag to pan, scroll or pinch to zoom, press a street or square to go there or keep a mark, hold to drop a mark at once. Slash finds a street by name."
+        aria-label="Map of Leuven. Drag to pan, scroll or pinch to zoom, press a street or square to go there or keep a mark, press a crowd to come closer, hold to drop a mark at once. Slash finds a street by name."
         onPointerDown={down}
         onPointerMove={move}
         onPointerUp={up}

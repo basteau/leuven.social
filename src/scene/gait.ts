@@ -1,11 +1,12 @@
+import { STANDING } from '../net/people.ts';
 import { BIKE_STRIDE } from './avatar.ts';
 import { wrap } from './motion.ts';
 import { STRIDE_RUN, STRIDE_WALK, runBlend } from './walker.ts';
 
 /**
- * The other players, as the map draws them: where each is (as the app's roster samples it, a
- * moment behind the network, smoothly), and the gait the figure takes from that, stepped here as
- * the avatar's own walker steps it. Pure, so it is tested; players.ts draws it.
+ * How a full figure's legs and lean follow someone along the list of people (src/net/people.ts),
+ * stepped here as the avatar's own walker steps its: from a sample of where they are, as the
+ * list keeps it, a moment behind the network. Pure, so it is tested; players.ts draws it.
  */
 
 /** Where someone is and what they're doing: the network's state, sampled for a frame. */
@@ -38,8 +39,6 @@ export interface Gait {
 
 /** A turn's rate eases in with this half-life (s): a network sample is a step, not a curve. */
 const TURN_EASE = 0.12;
-/** Under this (m/s), they stand. */
-const STANDING = 0.05;
 /** A bike leans this share of what a real one would, at most MAX_LEAN (as bikes.ts). */
 const LEAN_SHARE = 0.45;
 const MAX_LEAN = (16 * Math.PI) / 180;
@@ -73,13 +72,6 @@ export function stepGait(g: Gait, pose: PlayerPose, dt: number): void {
       : 0;
   g.lean += (want - g.lean) * k;
 }
-
-/**
- * Whether a figure shows to someone at `place` and `floor` ('' the street): everyone in the street
- * (it shows round a room that is open, too), and in a room only those on its floor with you.
- */
-export const together = (pose: PlayerPose, place: string, floor: number) =>
-  pose.place === '' || (pose.place === place && pose.floor === floor);
 
 /** The distances `nearestOf` keeps beside its indices, reused from call to call. */
 const far: number[] = [];

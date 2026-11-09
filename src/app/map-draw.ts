@@ -6,7 +6,7 @@ import { YOU, YOU_DEEP, YOU_LIT } from './colours.ts';
 export const ACCENT = '#1d5c9b';
 /** The ink of what's drawn on the map: names and a spot just picked. */
 export const INK = '#2b2420';
-const OTHER = '#8d867c';
+const PAPER = '#fffdf6';
 
 /** A waypoint: a coloured dot in a white ring. */
 export function drawMark(
@@ -61,16 +61,16 @@ export function drawTarget(ctx: CanvasRenderingContext2D, x: number, y: number, 
 }
 
 /**
- * A player: the diamond that marks you on the street, its long point `angle` radians clockwise from
- * up, the way they face. Others flat in their colour, you cut in facets in your coral.
+ * You: the diamond that marks you on the street, its long point `angle` radians clockwise from up,
+ * the way you face, cut in facets in your coral, with a rim of paper round its ink so it stands
+ * clear of a crowd.
  */
-export function drawPlayer(
+export function drawYou(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
   angle: number,
   r: number,
-  self: boolean,
 ): void {
   const trace = () => {
     ctx.beginPath();
@@ -89,20 +89,22 @@ export function drawPlayer(
     ctx.fillStyle = fill;
     ctx.fill();
   };
+  const width = Math.max(1.5, r * 0.22);
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(angle);
-  trace();
-  ctx.fillStyle = self ? YOU : OTHER;
-  ctx.fill();
-  if (self) {
-    facet(YOU_LIT, -1, r);
-    facet(YOU_DEEP, 1, -r * 1.9);
-    trace();
-  }
-  ctx.lineWidth = Math.max(1.5, r * 0.22);
   ctx.lineJoin = 'round';
-  ctx.strokeStyle = self ? INK : '#fff';
+  trace();
+  ctx.strokeStyle = PAPER;
+  ctx.lineWidth = width + 3;
+  ctx.stroke();
+  ctx.fillStyle = YOU;
+  ctx.fill();
+  facet(YOU_LIT, -1, r);
+  facet(YOU_DEEP, 1, -r * 1.9);
+  trace();
+  ctx.lineWidth = width;
+  ctx.strokeStyle = INK;
   ctx.stroke();
   ctx.restore();
 }

@@ -415,6 +415,7 @@ function riderMaterials(kit: RiderKit): {
         '#include <clipping_planes_fragment>',
         `#include <clipping_planes_fragment>
         float dither = bayer4(gl_FragCoord.xy);
+        if (dither >= vState.z) discard;
         if (vPart == ${PART.beam}.0 && dither >= uNight * vFade * 0.75) discard;
         if (vPart == ${PART.halo}.0 && dither >= uNight * vFade) discard;
         if (vPart == ${PART.haloTail}.0 && dither >= (0.6 * uNight + 0.9 * vState.y) * vFade) discard;`,
@@ -429,12 +430,18 @@ function riderMaterials(kit: RiderKit): {
         else if (vPart == ${PART.haloTail}.0) totalEmissiveRadiance += vec3(0.9, 0.12, 0.06);`,
       );
   };
-  material.customProgramCacheKey = () => 'rider-v1';
+  material.customProgramCacheKey = () => 'rider-v2';
   const inkMaterial = new three.MeshBasicMaterial({ color: kit.ink, side: three.BackSide });
   inkMaterial.onBeforeCompile = (shader) => {
     shader.vertexShader = riderVertexShader(shader.vertexShader);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>\nvarying vec4 vState;\n${kit.bayer}`)
+      .replace(
+        '#include <clipping_planes_fragment>',
+        `#include <clipping_planes_fragment>\nif (bayer4(gl_FragCoord.xy) >= vState.z) discard;`,
+      );
   };
-  inkMaterial.customProgramCacheKey = () => 'rider-ink-v1';
+  inkMaterial.customProgramCacheKey = () => 'rider-ink-v2';
   // The silhouette where a house hides it, the lamps' glow left out.
   const xrayMaterial = new three.MeshBasicMaterial(kit.xray);
   // Each in their own shirt's colour (sRGB, as the tints are), so nobody is taken for you.
@@ -443,18 +450,21 @@ function riderMaterials(kit: RiderKit): {
       .replace('#include <common>', '#include <common>\nvarying vec3 vShirt;')
       .replace('vState = state;', 'vState = state;\nvShirt = shirt;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying float vPart;\nvarying vec3 vShirt;')
+      .replace(
+        '#include <common>',
+        `#include <common>\nvarying float vPart;\nvarying vec3 vShirt;\nvarying vec4 vState;\n${kit.bayer}`,
+      )
       .replace(
         '#include <clipping_planes_fragment>',
         `#include <clipping_planes_fragment>
-        if (vPart < ${RIDER}.0) discard;`,
+        if (vPart < ${RIDER}.0 || bayer4(gl_FragCoord.xy) >= vState.z) discard;`,
       )
       .replace(
         '#include <color_fragment>',
         '#include <color_fragment>\ndiffuseColor.rgb = sRGBTransferEOTF(vec4(vShirt, 1.0)).rgb;',
       );
   };
-  xrayMaterial.customProgramCacheKey = () => 'rider-xray-v4';
+  xrayMaterial.customProgramCacheKey = () => 'rider-xray-v5';
   return { material, inkMaterial, xrayMaterial };
 }
 
@@ -480,6 +490,8 @@ export interface RiderPose {
   /** The pedals' turn (radians). */
   pedal: number;
   braking: boolean;
+  /** How much of them is drawn, by ordered dither: 1 (the default) all of them. */
+  fade?: number;
 }
 
 export interface Riders {
@@ -561,6 +573,7 @@ export function createRiders(kit: RiderKit, scene: Scene, most: number): Riders 
       const s = state.array as Float32Array;
       s[i * 4] = at.pedal;
       s[i * 4 + 1] = at.braking ? 1 : 0;
+      s[i * 4 + 2] = at.fade ?? 1;
       state.needsUpdate = true;
     },
     dress(i, look) {

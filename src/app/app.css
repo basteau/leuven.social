@@ -113,6 +113,10 @@ kbd {
   pointer-events: none;
 }
 
+.avatar-diamond[data-edge='false'] {
+  transition: opacity 80ms linear;
+}
+
 .avatar-diamond svg {
   translate: -50% calc(-100% - 6px);
   filter: drop-shadow(0 2px 0 color-mix(in oklch, var(--ink) 35%, transparent));
@@ -578,12 +582,27 @@ kbd {
 }
 
 /*
+ * Other people, when a figure of them would be a few pixels: a stamped disc each, between the map
+ * and the tags. The scene draws it, by itself, when the map itself is idle.
+ */
+.people {
+  position: absolute;
+  inset: 0;
+  inline-size: 100%;
+  block-size: 100%;
+  pointer-events: none;
+}
+
+/*
  * The other players' names, over their heads: a small paper tag with a dot in their shirt's
- * colour. Placed by transform from the viewer's frames, so a pan moves them without a layout.
+ * colour. Placed by transform from the viewer's frames, so a pan moves them without a layout;
+ * the nearest on top, each fading a moment rather than popping as a nearer tag takes its place.
  */
 .player-tags {
   position: absolute;
   inset: 0;
+  /* A stacking context of its own: the tags' z-order stays among themselves, under the HUD. */
+  isolation: isolate;
   overflow: clip;
   pointer-events: none;
 }
@@ -608,7 +627,15 @@ kbd {
   line-height: 1.2;
   white-space: nowrap;
   overflow: clip;
-  will-change: transform;
+  will-change: transform, opacity;
+  transition:
+    opacity 120ms ease-out,
+    visibility 120ms;
+}
+
+.player-tag[data-shown='0'] {
+  visibility: hidden;
+  opacity: 0;
 }
 
 .player-tag::before {

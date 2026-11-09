@@ -1,12 +1,12 @@
 import * as Accounts from '../net/account.ts';
 import type { Me } from '../net/account.ts';
-import { createSnapshots } from '../net/interpolate.ts';
-import type { Snapshots } from '../net/interpolate.ts';
+import { createPeople } from '../net/people.ts';
+import type { Roster } from '../net/people.ts';
 import { connectPresence } from '../net/presence.ts';
 import type { Identity, Presence, PresenceStatus } from '../net/presence.ts';
-import type { Dot, Outfit, PlayerState } from '../net/protocol.ts';
+import type { Outfit, PlayerState } from '../net/protocol.ts';
 import { isPlace } from '../net/rules.ts';
-import type { Roster, RosterEntry, Viewer } from '../scene/viewer.ts';
+import type { Viewer } from '../scene/viewer.ts';
 import type { Account } from './account-sheet.tsx';
 import { live } from './live.ts';
 
@@ -18,7 +18,7 @@ import { live } from './live.ts';
 
 /** A look is saved this long after the last change (ms): a few taps on swatches, one request. */
 const SAVE_AFTER_MS = 600;
-/** How often the minimap's dots are written while people walk about (ms). */
+/** How often the minimap hears the others moved (ms). */
 const MINIMAP_MS = 250;
 /** How long the others stand frozen when the connection goes down, before they go (ms). */
 const FROZEN_MS = 5000;
@@ -50,10 +50,6 @@ export interface Multiplayer {
   dispose(): void;
 }
 
-interface Other extends RosterEntry {
-  snapshots: Snapshots;
-}
-
 export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multiplayer {
   let account: Account = { signedIn: false };
   /** A new account yet to choose its name, and whether sign-in codes can be sent: as `me` said. */
@@ -70,10 +66,7 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
   let last: PlayerState | null = null;
   let presence: Presence | null = null;
   let status: PresenceStatus = 'connecting';
-  let you = 0;
-  let version = 0;
-  let entries: Other[] = [];
-  const others = new Map<number, Other>();
+  const people = createPeople();
   const listeners = new Set<() => void>();
   let saving: ReturnType<typeof setTimeout> | undefined;
   /** A look chosen but not saved yet, and the save under way: one at a time, in order. */
@@ -81,35 +74,40 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
   let saved: Promise<void> = Promise.resolve();
   /** How many are on the map, as the server last said; it knows those we don't hear of too. */
   let onlineCount = 0;
-  /** Everyone on the map while the full map is open, as last told. */
-  let dots: readonly Dot[] = [];
-  let wantsDots = false;
-  /** The last time the minimap's dots were written (ms). */
-  let dotsAt = 0;
+  /** The next frame's run of the listeners, once it is asked for. */
+  let newsFrame: number | undefined;
+  /** The last time the minimap was told about the others (ms). */
+  let minimapAt = 0;
+  /** How many were known when the online count was last worked out. */
+  let toldCount = 0;
   /** The wait before everyone frozen by a dropped connection goes. */
   let goneFor: ReturnType<typeof setTimeout> | undefined;
   /** Where the map looks: said again as soon as there is a socket to say it on. */
-  let lookingAt: [number, number] | null = null;
+  let lookingAt: [number, number, number] | null = null;
   /** Bumped by every sign-in: an answer to an older question about who you are is stale. */
   let asked = 0;
   let disposed = false;
 
+  /** Tells whoever listens, at most once a frame, that someone moved or came or went. */
   const news = () => {
-    for (const listener of listeners) listener();
+    if (newsFrame !== undefined) return;
+    newsFrame = requestAnimationFrame(() => {
+      newsFrame = undefined;
+      for (const listener of listeners) listener();
+      if (people.count !== toldCount) tell();
+      const now = performance.now();
+      // The minimap repaints a few times a second, not on each packet.
+      if (now - minimapAt > MINIMAP_MS) {
+        minimapAt = now;
+        live.changed();
+      }
+    });
   };
   const roster: Roster = {
-    version: () => version,
-    entries: () => entries,
-    pose: (id, now, out) => Boolean(others.get(id)?.snapshots.sample(now, out)),
-    look(x, z) {
-      lookingAt = [x, z];
-      presence?.view(x, z);
-    },
-    dots: () => dots,
-    fullMap(on) {
-      wantsDots = on;
-      if (!on) dots = [];
-      presence?.dots(on);
+    people,
+    look(x, z, reach) {
+      lookingAt = [x, z, reach];
+      presence?.view(x, z, reach);
     },
     listen(listener) {
       listeners.add(listener);
@@ -117,44 +115,21 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
     },
   };
   viewer.others(roster);
+  live.people = people;
 
-  /** Joins, leaves and new clothes change who's drawn; the minimap's dots follow every move. */
-  function changed(people: boolean): void {
-    if (people) {
-      version++;
-      entries = [...others.values()];
-      tell();
-    }
-    const now = performance.now();
-    // The minimap redraws a list of a few dozen dots a few times a second, not on each packet.
-    if (people || now - dotsAt > MINIMAP_MS) {
-      dotsAt = now;
-      live.others = entries.flatMap((o) => {
-        const at = o.snapshots.latest();
-        return at && !at.place ? [{ x: at.x, z: at.z, colour: o.outfit.shirt }] : [];
-      });
-      live.changed();
-    }
-    news();
-  }
   function tell(): void {
+    toldCount = people.count;
     // The count comes from the server; before it has said, whoever we can see and ourselves.
-    hooks.online(status === 'online' ? Math.max(onlineCount, others.size + 1) : null);
+    hooks.online(status === 'online' ? Math.max(onlineCount, people.count + 1) : null);
   }
   /** Everyone else off the map: a new connection's ids aren't the old one's, or the wait ran out. */
   function forget(): void {
     clearTimeout(goneFor);
     goneFor = undefined;
-    if (!others.size) return;
-    others.clear();
-    changed(true);
-  }
-  /** Someone we can see has a new name or look, which only a new entry can tell the roster. */
-  function restyle(id: number, change: Partial<Pick<Other, 'name' | 'outfit'>>): void {
-    const other = others.get(id);
-    if (!other) return;
-    others.set(id, { ...other, ...change });
-    changed(true);
+    if (!people.count) return;
+    people.forget();
+    news();
+    tell();
   }
   function settle(next: Account): void {
     account = next;
@@ -167,10 +142,13 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
     forget();
     onlineCount = 0;
     presence = connectPresence({
-      // Every connection starts with one, reconnects too, and ids change: start the others afresh.
-      onWelcome(id) {
-        you = id;
-        forget();
+      // Every connection starts with one, reconnects too, and ids change: `people` starts afresh.
+      people,
+      onWelcome() {
+        clearTimeout(goneFor);
+        goneFor = undefined;
+        tell();
+        news();
       },
       onIdentity(next) {
         // Let on the map after waiting unseen: the server dropped what we sent, and a figure
@@ -180,51 +158,23 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
         apply(next);
         if (letIn && last) presence?.send(last);
       },
-      onRenamed: (id, name, outfit) => restyle(id, { name, outfit }),
       onOwn(state) {
         ownAt = state;
         followAvatar();
       },
-      onJoin(players) {
-        const now = performance.now();
-        for (const player of players) {
-          if (player.id === you) continue;
-          const snapshots = createSnapshots();
-          snapshots.push(now, player.state);
-          others.set(player.id, { ...player, snapshots });
-        }
-        changed(true);
-      },
-      onLeave(ids) {
-        let any = false;
-        for (const id of ids) any = others.delete(id) || any;
-        if (any) changed(true);
-      },
-      onStates(updates) {
-        const now = performance.now();
-        for (const { id, state } of updates) others.get(id)?.snapshots.push(now, state);
-        changed(false);
-      },
+      onNews: news,
       onOnline(count) {
         onlineCount = count;
         tell();
       },
       inUse: () => document.visibilityState === 'visible' && document.hasFocus(),
-      onDots(everyone) {
-        dots = everyone;
-        news();
-      },
-      onOutfit(id, outfit) {
-        // Your own comes back too: worn already here, new to your other tabs (unless you've since
-        // picked another, which is on its way to the server).
-        if (id === you) {
-          if (account.signedIn && !unsaved) {
-            settle({ ...account, outfit });
-            wear(outfit);
-          }
-          return;
+      onOwnOutfit(outfit) {
+        // It comes back to the tab that picked it too: worn already here, new to your other tabs
+        // (unless you've since picked another, which is on its way to the server).
+        if (account.signedIn && !unsaved) {
+          settle({ ...account, outfit });
+          wear(outfit);
         }
-        restyle(id, { outfit });
       },
       onStatus(next) {
         status = next;
@@ -232,14 +182,13 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
         if (next === 'online') {
           clearTimeout(goneFor);
           goneFor = undefined;
-        } else if (others.size && goneFor === undefined) {
+        } else if (people.count && goneFor === undefined) {
           goneFor = setTimeout(forget, FROZEN_MS);
         }
         tell();
       },
     });
     if (last) presence.send(last);
-    if (wantsDots) presence.dots(true);
     if (lookingAt) presence.view(...lookingAt);
   }
 
@@ -383,8 +332,9 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
       presence?.close();
       // After the close, whose own status report would start this timer again.
       clearTimeout(goneFor);
+      if (newsFrame !== undefined) cancelAnimationFrame(newsFrame);
       viewer.others(null);
-      live.others = [];
+      live.people = null;
       live.changed();
     },
   };

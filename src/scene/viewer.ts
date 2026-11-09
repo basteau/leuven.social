@@ -87,8 +87,8 @@ import { isTap } from './tap.ts';
 import { terraceParasols } from './terraces.ts';
 import type { AvatarLayer, Refusal, RoomPlace } from './avatar-layer.ts';
 import type { Outfit } from './character.ts';
-import type { PlayerPose } from './crowd.ts';
-import type { Roster } from './players.ts';
+import type { PlayerPose } from './gait.ts';
+import type { People, Roster } from '../net/people.ts';
 import { createScaler, pixelRatio } from './resolution.ts';
 import type { RideAction, RideState } from './bikes.ts';
 import {
@@ -97,9 +97,10 @@ import {
   MAX_ZOOM,
   MIN_ZOOM,
   PITCH,
-  SPANS,
   VIEW_HEIGHT,
   detailAt,
+  figurePixels,
+  markerAlpha,
   fogRange,
   spanOf,
 } from './lod.ts';
@@ -108,8 +109,8 @@ import type { Detail } from './lod.ts';
 export type { RideAction, RideState } from './bikes.ts';
 export type { Refusal, RoomPlace } from './avatar-layer.ts';
 export type { Outfit } from './character.ts';
-export type { PlayerPose } from './crowd.ts';
-export type { Roster, RosterEntry } from './players.ts';
+export type { PlayerPose } from './gait.ts';
+export type { People, Roster } from '../net/people.ts';
 
 export interface ViewerOptions {
   canvas: HTMLCanvasElement;
@@ -120,10 +121,11 @@ export interface ViewerOptions {
   /** The avatar's code couldn't be downloaded (it loads once the first frame is drawn). */
   onAvatarUnavailable?: () => void;
   /**
-   * Where the avatar is on the canvas (CSS px from its top left, possibly off it), and whether
-   * its figure is drawn there; called whenever either changes, for its diamond.
+   * Where the avatar is on the canvas (CSS px from its top left, possibly off it), whether its
+   * figure reads at this zoom (`figure`) and how much of the marker there is instead (`diamond`,
+   * 0 to 1, the same band of a figure's pixels as a crowd's markers); called whenever any changes.
    */
-  onAvatarAt?: (x: number, y: number, figure: boolean) => void;
+  onAvatarAt?: (x: number, y: number, figure: boolean, diamond: number) => void;
   /** The street or square under the avatar changed (null: none, or the view too far out). */
   onStreetChange?: (name: string | null) => void;
   /** A bike is near enough to ride, or being ridden, or neither any more. */
@@ -140,6 +142,8 @@ export interface ViewerOptions {
   onDaylight?: (light: Daylight) => void;
   /** Where the other players' name tags go: an element laid over the canvas. */
   tags?: HTMLElement;
+  /** The 2D layer for far-out markers of the other players, laid over the canvas. */
+  marks?: HTMLCanvasElement;
   /** Where the avatar is and what it's doing, whenever that changes: for the other players. */
   onMove?: (state: PlayerPose) => void;
   /** A route to a picked spot began (its end, local metres) or ended (null). */
@@ -184,6 +188,10 @@ export interface Viewer {
   rooms(): Promise<RoomPlace[]>;
   /** The other players to draw, kept by the app from the network; null: none. */
   others(roster: Roster | null): void;
+  /** Everyone known of, as drawn: for the minimap and the full map to read. */
+  people(): People | null;
+  /** What the full map is looking at (m) as it pans; null gives the look back to the camera. */
+  mapLook(x: number | null, z?: number, reach?: number): void;
   /** Dresses the avatar: its clothes, skin and hair. */
   dress(outfit: Outfit): void;
   /** Puts the avatar back where it was last time, facing `heading` (on foot, in the street). */
@@ -200,7 +208,7 @@ export interface Viewer {
   navigateTo(x: number, z: number): void;
   /** Lets go of the route being walked to a picked spot, if any. */
   cancelRoute(): void;
-  /** You and the other players, for the full map. Empty until the avatar has loaded. */
+  /** You, for the full map. Empty until the avatar has loaded. */
   presences(): readonly Presence[];
   /** The end of the route being walked to a picked spot, or null. */
   routeTarget(): readonly [number, number] | null;
@@ -682,7 +690,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   let [nearest, farthest] = depthRange(light, cityCorners);
   let shadow: ShadowSquare | undefined;
   /** What the view's span says is worth drawing (lod.ts), as of the last frame. */
-  let detail: Detail = detailAt(VIEW_HEIGHT);
+  let detail: Detail = detailAt(VIEW_HEIGHT, 1);
   let propsShown = false;
   const shadowFrustum = new Frustum();
   /** Whether cells built since the shadow map was drawn cast into it. */
@@ -814,7 +822,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     }
     const need = shadowNeeds(light, ground);
     need.half += Math.min(SHADOW_REACH, span / 4);
-    detail = detailAt(span);
+    detail = detailAt(span, height);
     propsShown = detail.furniture;
     const refit = !shadow || !shadowCovers(shadow, need, SHADOW_COARSER);
     if (refit) fitShadowTo(need);
@@ -1017,7 +1025,7 @@ export function createViewer(options: ViewerOptions): Viewer {
    * gap in those is someone pausing. The scaler works on the street; the map stays sharp (`render`).
    */
   function loopFrame(now: number): void {
-    if (detail.avatar === 'figure' && !covered && scaler.frame(now)) resize();
+    if (detail.figure && !covered && scaler.frame(now)) resize();
     renderNow();
   }
 
@@ -1026,7 +1034,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   function render(): void {
     if (covered || loading) return;
     // Read from the span, not `detail`: that's last frame's, and one zoom step draws one frame.
-    if (scaler.scale < 1 && detailAt(viewSpan()).avatar !== 'figure' && scaler.reset()) resize();
+    if (scaler.scale < 1 && !detailAt(viewSpan(), height).figure && scaler.reset()) resize();
     // World metres per drawing-buffer pixel: how much road paint and texture is worth drawing.
     const span = viewSpan();
     const unit = span / renderer.getDrawingBufferSize(buffer).y;
@@ -1035,7 +1043,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     camera.updateMatrixWorld();
     prepare();
     avatar?.detail(detail, span);
-    const shown = detail.avatar === 'figure';
+    const shown = detail.figure;
     if (avatar) {
       // Just over the avatar's head on screen, for its diamond to point at without covering the
       // figure: only when that changes by a pixel.
@@ -1044,9 +1052,11 @@ export function createViewer(options: ViewerOptions): Viewer {
       const [ax, ay] = [((at.x + 1) / 2) * width, ((1 - at.y) / 2) * height];
       // Written as "not within a pixel", so the first frame (NaN) says where it is too.
       const still = Math.abs(ax - avatarAt[0]) < 1 && Math.abs(ay - avatarAt[1]) < 1;
-      if (shown !== avatarShown || !still) {
-        [avatarAt[0], avatarAt[1], avatarShown] = [ax, ay, shown];
-        options.onAvatarAt?.(ax, ay, shown);
+      // The diamond's opacity, as much as the figure's dither leaves to it, in the steps it shows.
+      const diamond = Math.round(markerAlpha(figurePixels(height, camera.zoom)) * 20) / 20;
+      if (shown !== avatarShown || diamond !== avatarDiamond || !still) {
+        [avatarAt[0], avatarAt[1], avatarShown, avatarDiamond] = [ax, ay, shown, diamond];
+        options.onAvatarAt?.(ax, ay, shown, diamond);
       }
     }
     // Fine road paint is drawn last in each cell, so a view too far out to see it can stop short.
@@ -1103,12 +1113,13 @@ export function createViewer(options: ViewerOptions): Viewer {
   let signed: string | null = null;
   const signedAt = { x: Number.NaN, z: Number.NaN };
   let avatarShown = false;
+  let avatarDiamond = Number.NaN;
   const avatarAt: [number, number] = [Number.NaN, Number.NaN];
   const at = new Vector3();
   function signStreet(): void {
     if (!options.onStreetChange) return;
     let name: string | null = null;
-    if (avatar && viewSpan() <= SPANS.figure) {
+    if (avatar && detail.figure) {
       const [x, , z] = avatar.feet;
       if (Math.hypot(x - signedAt.x, z - signedAt.z) < STREET_STEP) return;
       [signedAt.x, signedAt.z] = [x, z];
@@ -1177,6 +1188,7 @@ export function createViewer(options: ViewerOptions): Viewer {
           ...(options.onRideChange && { onRide: options.onRideChange }),
           ...(options.onMove && { onMove: options.onMove }),
           tags: options.tags ?? null,
+          marks: options.marks ?? null,
         });
         invalidate();
         return avatar;
@@ -1209,12 +1221,6 @@ export function createViewer(options: ViewerOptions): Viewer {
   function cover(on: boolean): void {
     if (on === covered) return;
     covered = on;
-    if (avatar) avatar.fullMap(on);
-    else
-      void loadingAvatar?.then(
-        (loaded) => loaded.fullMap(covered),
-        () => {},
-      );
     // Uncovered, the city as it is now, before the page paints.
     if (!on && !disposed) renderNow();
   }
@@ -1567,6 +1573,8 @@ export function createViewer(options: ViewerOptions): Viewer {
     ride: (action) => withAvatar((loaded) => loaded.ride(action)),
     rooms: () => loadAvatar().then((loaded) => loaded.rooms()),
     others: (roster) => withAvatar((loaded) => loaded.others(roster)),
+    people: () => avatar?.people() ?? null,
+    mapLook: (x, z, reach) => withAvatar((loaded) => loaded.mapLook(x, z, reach)),
     dress: (outfit) => withAvatar((loaded) => loaded.dress(outfit)),
     placeAvatar: (x, z, turned) => withAvatar((loaded) => loaded.placeAt(x, z, turned)),
     navigateTo: (x, z) => withAvatar((loaded) => loaded.goTo(x, z)),

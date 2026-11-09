@@ -12,7 +12,7 @@ import { WALKER } from './palette.ts';
 import { PARKED, nearestParked, parkedHeading } from './parked.ts';
 import type { Furniture } from './parked.ts';
 import { createRiders } from './rider.ts';
-import type { RiderKit, RiderLook } from './rider.ts';
+import type { RiderKit, RiderLook, RiderPose } from './rider.ts';
 
 /**
  * Bikes for the avatar: take a parked one (F, or the Ride pill) and ride it as a faster walk with
@@ -70,6 +70,8 @@ export interface Bikes {
   cancel(): void;
   /** Bikes and riders show with the street furniture, not from far out. */
   show(near: boolean): void;
+  /** How much of the rider is drawn, as much as the avatar's figure on foot would be, 0 to 1. */
+  dither(fade: number): void;
   /** The rider wears the avatar's clothes, skin and hair. */
   dress(outfit: Outfit): void;
   dispose(): void;
@@ -134,6 +136,19 @@ export function createBikes(kit: BikesKit): Bikes {
   scene.add(standing);
   let dropped: Dropped[] = [];
   let shown = true;
+  /** Whether a rider is on a bike to be drawn this frame, and how much of it the zoom leaves. */
+  let seated = false;
+  let figureFade = 1;
+  const riderPose: RiderPose = {
+    x: 0,
+    y: 0,
+    z: 0,
+    heading: 0,
+    lean: 0,
+    pedal: 0,
+    braking: false,
+    fade: 1,
+  };
 
   function bake(): void {
     loose.length = 0;
@@ -332,15 +347,15 @@ export function createBikes(kit: BikesKit): Bikes {
       Math.min(MAX_LEAN, -Math.atan((w.speed * w.turning) / G) * LEAN_SHARE),
     );
     leaning += (want - leaning) * (1 - Math.exp(-dt / 0.09));
-    riders.pose(0, {
-      x: w.x,
-      y: kit.floor(w.x, w.z) + a.rise,
-      z: w.z,
-      heading: w.heading,
-      lean: leaning,
-      pedal: w.phase,
-      braking: w.accel < -BRAKING,
-    });
+    riderPose.x = w.x;
+    riderPose.y = kit.floor(w.x, w.z) + a.rise;
+    riderPose.z = w.z;
+    riderPose.heading = w.heading;
+    riderPose.lean = leaning;
+    riderPose.pedal = w.phase;
+    riderPose.braking = w.accel < -BRAKING;
+    riderPose.fade = figureFade;
+    riders.pose(0, riderPose);
   }
 
   return {
@@ -396,7 +411,8 @@ export function createBikes(kit: BikesKit): Bikes {
         wheel += (w.speed * dt) / (WHEEL * SCALE);
         if (wheel !== was) sounds.freewheel(wheel, w.speed, w.accel <= 0);
       }
-      riders.count = riding && shown ? 1 : 0;
+      seated = riding;
+      riders.count = riding && shown && figureFade > 0 ? 1 : 0;
       const near = !riding && !a.place && nearest(w.x, w.z, OFFER) !== null;
       publish(a.mode === 'bike' ? 'riding' : near ? 'near' : '');
       return busy;
@@ -404,6 +420,13 @@ export function createBikes(kit: BikesKit): Bikes {
     dress(outfit) {
       look = { ...look, ...outfit };
       riders.dress(0, look);
+    },
+    dither(fade) {
+      if (fade === figureFade) return;
+      figureFade = fade;
+      riderPose.fade = fade;
+      riders.pose(0, riderPose);
+      riders.count = seated && shown && fade > 0 ? 1 : 0;
     },
     show(near) {
       shown = near;

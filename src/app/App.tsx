@@ -181,12 +181,14 @@ function placeDiamond(
   header: HTMLElement | null,
   x: number,
   y: number,
-  figure: boolean,
+  opacity: number,
 ): void {
   diamondInset.top = EDGE_INSET.top + (header?.offsetHeight ?? 0);
-  const p = pointerFor(x, y, map.clientWidth, map.clientHeight, figure, diamondInset);
+  const p = pointerFor(x, y, map.clientWidth, map.clientHeight, opacity === 0, diamondInset);
   diamond.hidden = !p;
   if (!p) return;
+  // At the edge it is the way back, whatever the zoom; over the avatar it fades with the figure.
+  diamond.style.opacity = p.edge ? '' : String(opacity);
   diamond.dataset.edge = p.edge ? 'true' : 'false';
   diamond.tabIndex = p.edge ? 0 : -1;
   diamond.style.translate = `${p.x}px ${p.y}px`;
@@ -212,6 +214,8 @@ export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   /** Where the other players' names float over the map. */
   const tagsRef = useRef<HTMLDivElement>(null);
+  /** Where the far-out marks for the other players are stamped. */
+  const marksRef = useRef<HTMLCanvasElement>(null);
   const viewerRef = useRef<Viewer | null>(null);
   // Q and E and the buttons: the map turns for as long as they're held.
   const [turnHold] = useState(createTurnHold);
@@ -448,9 +452,10 @@ export function App() {
           city: loaded,
           reducedMotion: reducedMotion() ?? false,
           ...(tagsRef.current && { tags: tagsRef.current }),
+          ...(marksRef.current && { marks: marksRef.current }),
           onBlocked: setBlocked,
           onAvatarUnavailable: () => setAvatarFailed(true),
-          onAvatarAt: (x, y, figure) => {
+          onAvatarAt: (x, y, figure, diamond) => {
             setAvatarShown(figure);
             const off = viewerRef.current?.pinned() === false;
             setAway(off);
@@ -460,7 +465,7 @@ export function App() {
               setCoach((c) => (c.street ? c : { ...c, street: true }));
             }
             if (diamondRef.current) {
-              placeDiamond(diamondRef.current, map, headerRef.current, x, y, figure);
+              placeDiamond(diamondRef.current, map, headerRef.current, x, y, diamond);
             }
           },
           onStreetChange: setStreet,
@@ -515,6 +520,13 @@ export function App() {
           setPlaceCity(loaded);
           publish({ state: 'ready' }, viewer);
           cacheForOffline();
+          // In development, `?crowd=2000` fills the map with made-up people, with no server.
+          if (import.meta.env.DEV && new URLSearchParams(location.search).has('crowd')) {
+            void import('./fake-crowd.ts').then(({ startFakeCrowd }) => {
+              if (!abort.signal.aborted) startFakeCrowd(viewer, loaded, location.search);
+            });
+            return;
+          }
           // Other people: a chunk of its own, once the map is up. Without it the map is yours alone.
           import('./multiplayer.ts').then(
             ({ startMultiplayer }) => {
@@ -759,6 +771,8 @@ export function App() {
         aria-label={riding ? rideLabel(keys, mod) : mapLabel(keys, mod)}
       >
         <canvas ref={canvasRef} className="city" />
+        {/* Other people too far out to be figures: a stamped dot each, over the map, under the tags. */}
+        <canvas ref={marksRef} className="people" aria-hidden="true" />
         <div ref={tagsRef} className="player-tags" aria-hidden="true" />
         {/*
           Where you are: a diamond over your head while the view is too far out to see you, and at

@@ -7,6 +7,7 @@
  *
  *   bun scripts/swarm.ts --bots 1000                      # its own server, reports and exits
  *   bun scripts/swarm.ts --bots 50 --api http://… --at 0,0 --spread 40 --seconds 30
+ *   bun scripts/swarm.ts --bots 1000 --zoomed-out 0.3     # that share are looking at the whole city
  *
  * The measure is taken after the swarm has settled, and printed as JSON last.
  */
@@ -23,6 +24,13 @@ const SECONDS = Number(flag('seconds') ?? 20);
 const SETTLE_MS = Number(flag('settle') ?? 4000);
 const SPREAD = Number(flag('spread') ?? 1200);
 const [CENTRE_X, CENTRE_Z] = (flag('at') ?? '0,500').split(',').map(Number) as [number, number];
+/** The share of bots looking at the whole city from high up, rather than at the street round them. */
+const ZOOMED_OUT = Number(flag('zoomed-out') ?? (Bun.argv.includes('--zoomed-out') ? 0.3 : 0));
+/** How far a bot on the street reaches (m), and one zoomed right out. */
+const STREET_REACH = 180;
+const CITY_REACH = 3000;
+/** The look is said again when the view has moved this far (m), as the page does. */
+const VIEW_STEP = 40;
 const ORIGIN = 'http://localhost:5173';
 /** The server keeps 12 guests an address on the map. */
 const PER_ADDRESS = 12;
@@ -58,6 +66,12 @@ interface BotCount {
   bytes: number;
   frames: number;
   undecoded: number;
+  zoomedOut: boolean;
+}
+
+/** A bot on the street says where it looks as it walks; one zoomed out looks at the city. */
+function say(socket: WebSocket, x: number, z: number, reach: number) {
+  socket.send(encodeClientMessage({ type: 'view', x, z, reach }));
 }
 
 function startBot(address: string, seed: number, count: BotCount, decode: boolean) {
@@ -72,6 +86,11 @@ function startBot(address: string, seed: number, count: BotCount, decode: boolea
     headers: { origin: ORIGIN, 'x-real-ip': address },
   } as unknown as string[]);
   socket.binaryType = 'arraybuffer';
+  let toldX = Number.NaN;
+  let toldZ = Number.NaN;
+  socket.addEventListener('open', () => {
+    if (count.zoomedOut) say(socket, CENTRE_X, CENTRE_Z, CITY_REACH);
+  });
   socket.addEventListener('message', (event) => {
     const data = new Uint8Array(event.data as ArrayBuffer);
     count.bytes += data.length;
@@ -98,6 +117,11 @@ function startBot(address: string, seed: number, count: BotCount, decode: boolea
     }
     x += Math.sin(heading) * speed * dt;
     z += Math.cos(heading) * speed * dt;
+    if (!count.zoomedOut && !(Math.hypot(x - toldX, z - toldZ) < VIEW_STEP)) {
+      say(socket, x, z, STREET_REACH);
+      toldX = x;
+      toldZ = z;
+    }
     socket.send(
       encodeClientMessage({
         type: 'state',
@@ -137,7 +161,12 @@ async function serverLoad(): Promise<{ seconds: number; mb: number } | null> {
 const sampleEvery = 50;
 try {
   if (!api) await startServer();
-  const counts = Array.from({ length: BOTS }, () => ({ bytes: 0, frames: 0, undecoded: 0 }));
+  const counts = Array.from({ length: BOTS }, (_, i) => ({
+    bytes: 0,
+    frames: 0,
+    undecoded: 0,
+    zoomedOut: i < BOTS * ZOOMED_OUT,
+  }));
   const bots = counts.map((count, i) =>
     startBot(addressOf(i), i + 1, count, i % sampleEvery === 0),
   );
@@ -155,16 +184,32 @@ try {
   );
   const rates = counts.map((c) => c.bytes / elapsed / 1024).toSorted((a, b) => a - b);
   const total = rates.reduce((a, b) => a + b, 0);
+  const groupRates = (zoomedOut: boolean) => {
+    const group = counts
+      .filter((c) => c.zoomedOut === zoomedOut)
+      .map((c) => c.bytes / elapsed / 1024)
+      .toSorted((a, b) => a - b);
+    if (!group.length) return null;
+    return {
+      bots: group.length,
+      mean: Number((group.reduce((a, b) => a + b, 0) / group.length).toFixed(2)),
+      p95: Number(group[Math.floor(group.length * 0.95)]!.toFixed(2)),
+      max: Number(group.at(-1)!.toFixed(2)),
+    };
+  };
   const report = {
     bots: BOTS,
     open,
     spread: SPREAD,
+    zoomedOut: ZOOMED_OUT,
     seconds: Math.round(elapsed),
     kbPerClient: {
       mean: Number((total / rates.length).toFixed(2)),
       p95: Number(rates[Math.floor(rates.length * 0.95)]!.toFixed(2)),
       max: Number(rates.at(-1)!.toFixed(2)),
     },
+    onTheStreet: groupRates(false),
+    zoomedOutClients: groupRates(true),
     framesPerClientPerSecond: Number(
       (counts.reduce((a, c) => a + c.frames, 0) / rates.length / elapsed).toFixed(1),
     ),

@@ -1,9 +1,17 @@
 import { describe, expect, test } from 'bun:test';
 
 import { decodeServerMessage, encodeClientMessage, quantise } from '../src/net/protocol.ts';
-import type { Move, MoveEntry, Outfit, PlayerState, ServerMessage } from '../src/net/protocol.ts';
+import type {
+  JoinedPlayer,
+  Move,
+  MoveEntry,
+  Outfit,
+  PlayerState,
+  ServerMessage,
+} from '../src/net/protocol.ts';
 import { VIEW_AREA } from '../src/data/area.ts';
 import { CELL_SIZE } from '../src/data/grid.ts';
+import { FINE_REACH } from '../src/net/interest.ts';
 import { CLOSE_SIGNED_OUT, createWorld, sanitise, withinReach } from './world.ts';
 import type { Account, ConnectOptions, WorldOptions } from './world.ts';
 
@@ -19,8 +27,30 @@ const here: PlayerState = quantise({
   floor: 0,
 });
 
+/** What a client heard: a `tick` read as the parts tests care about, in the frame's own order. */
+type Heard =
+  | Exclude<ServerMessage, { type: 'tick' }>
+  | { type: 'recount'; phase: 'begin' | 'end' }
+  | { type: 'leaves'; ids: readonly number[] }
+  | { type: 'demotes'; ids: readonly number[] }
+  | { type: 'joins'; players: readonly JoinedPlayer[] }
+  | { type: 'moves'; cx: number; cz: number; players: readonly MoveEntry[] };
+
+function explode(message: ServerMessage): Heard[] {
+  if (message.type !== 'tick') return [message];
+  const parts: Heard[] = [];
+  if (message.beginsRecount) parts.push({ type: 'recount', phase: 'begin' });
+  if (message.leaves.length) parts.push({ type: 'leaves', ids: message.leaves });
+  if (message.demotes.length) parts.push({ type: 'demotes', ids: message.demotes });
+  if (message.joins.length) parts.push({ type: 'joins', players: message.joins });
+  const moves = [...message.near, ...message.far.flatMap((block) => block.moves)];
+  if (moves.length) parts.push({ type: 'moves', cx: message.cx, cz: message.cz, players: moves });
+  if (message.endsRecount) parts.push({ type: 'recount', phase: 'end' });
+  return parts;
+}
+
 class FakeConnection {
-  messages: ServerMessage[] = [];
+  messages: Heard[] = [];
   closed: { code: number; reason: string } | null = null;
   queued = 0;
   dropping = false;
@@ -31,13 +61,13 @@ class FakeConnection {
     if (this.dropping) return 0;
     const message = decodeServerMessage(frame);
     if (!message) throw new Error('the world sent a malformed frame');
-    this.messages.push(message);
+    this.messages.push(...explode(message));
   }
   close(code: number, reason: string) {
     this.closed = { code, reason };
   }
   /** What it heard, leaving aside who it is and whether it drives: tests of those read `messages`. */
-  take(): ServerMessage[] {
+  take(): Heard[] {
     const taken = this.messages;
     this.messages = [];
     return taken.filter((m) => m.type !== 'identity' && m.type !== 'driving');
@@ -64,8 +94,8 @@ function setup(options: WorldOptions = {}) {
   };
   const move = (id: number, state: Partial<PlayerState> = {}) =>
     world.receive(id, encodeClientMessage({ type: 'state', state: { ...here, ...state } }));
-  const look = (id: number, x: number, z: number) =>
-    world.receive(id, encodeClientMessage({ type: 'view', x, z }));
+  const look = (id: number, x: number, z: number, reach = FINE_REACH) =>
+    world.receive(id, encodeClientMessage({ type: 'view', x, z, reach }));
   return {
     world,
     saved,
@@ -75,6 +105,21 @@ function setup(options: WorldOptions = {}) {
     advance: (ms: number) => (time += ms),
   };
 }
+
+describe('flipping floors in the street', () => {
+  test('moves nobody further than walking would', async () => {
+    const { world, join, move, advance } = setup();
+    const a = join('ana');
+    await move(a.id, { x: 0, z: 0 });
+    for (const floor of [1, 0, 1, 0, 1]) {
+      advance(100);
+      // eslint-disable-next-line no-await-in-loop -- one state after the other
+      await move(a.id, { x: 5000, z: 0, floor });
+    }
+    const at = world.stateOf('ana')!;
+    expect(at.x).toBeLessThan(100);
+  });
+});
 
 describe('sanitise', () => {
   const area = [
@@ -142,12 +187,12 @@ const whole = (entry: MoveEntry | { id: number; state: Move } | undefined) => {
   return entry.state;
 };
 
-const ofType = <T extends ServerMessage['type']>(messages: ServerMessage[], type: T) =>
-  messages.filter((m): m is Extract<ServerMessage, { type: T }> => m.type === type);
-const joinedIds = (messages: ServerMessage[]) =>
+const ofType = <T extends Heard['type']>(messages: Heard[], type: T) =>
+  messages.filter((m): m is Extract<Heard, { type: T }> => m.type === type);
+const joinedIds = (messages: Heard[]) =>
   ofType(messages, 'joins').flatMap((m) => m.players.map((p) => p.id));
-const leftIds = (messages: ServerMessage[]) => ofType(messages, 'leaves').flatMap((m) => m.ids);
-const movedIds = (messages: ServerMessage[]) =>
+const leftIds = (messages: Heard[]) => ofType(messages, 'leaves').flatMap((m) => m.ids);
+const movedIds = (messages: Heard[]) =>
   ofType(messages, 'moves').flatMap((m) => m.players.map((p) => p.id));
 
 describe('withinReach', () => {
@@ -171,8 +216,19 @@ describe('withinReach', () => {
   test('a door moves a figure at once', () => {
     const inside = { ...from, x: 10_000, place: 'stadhuis' };
     expect(withinReach(from, inside, 0)).toBe(inside);
-    const upstairs = { ...inside, floor: 1 };
+    const upstairs = { ...inside, x: 10_050, floor: 1 };
     expect(withinReach(inside, upstairs, 0)).toBe(upstairs);
+  });
+
+  test('a step onto a deck or down a tunnel is a step, however it comes', () => {
+    // A walker goes from the ground to a deck at no step at all (`levelAt`): the street's floor
+    // changing is what walking does, so it is clamped as any step is, not waved through as a door.
+    const onDeck = withinReach(from, { ...from, x: 10_000, floor: 1 }, 1);
+    expect(onDeck.x).toBeCloseTo(38);
+    expect(onDeck.floor).toBe(1);
+    const down = withinReach({ ...from, floor: 1 }, { ...from, x: 10_000, floor: 0 }, 1);
+    expect(down.x).toBeCloseTo(38);
+    expect(down.floor).toBe(0);
   });
 });
 
@@ -215,7 +271,7 @@ describe('createWorld', () => {
     await move(a.id);
     expect(guest.connection.take()).toEqual([]);
     world.tick();
-    const joins: ServerMessage = {
+    const joins: Heard = {
       type: 'joins',
       players: [{ id: a.you, name: 'A', outfit, state: here }],
     };
@@ -266,9 +322,10 @@ describe('createWorld', () => {
     world.tick();
     expect(joinedIds(walker.connection.take())).toEqual([west.you]);
     for (const c of [west, east]) c.connection.take();
-    // It stepped from cell 0 into cell 1: east comes into view, west goes out of it.
-    advance(1000);
-    await move(walker.id, { x: CELL_SIZE + 1, z: 20 });
+    // It stepped from cell 0 well into cell 1 (past the edge by more than the 40 m it takes before
+    // the 3×3 moves over): east comes into view, west goes out of it.
+    advance(2000);
+    await move(walker.id, { x: CELL_SIZE + 41, z: 20 });
     world.tick();
     const heard = walker.connection.take();
     expect(joinedIds(heard)).toEqual([east.you]);
@@ -276,8 +333,8 @@ describe('createWorld', () => {
     expect(joinedIds(east.connection.take())).toEqual([walker.you]);
     expect(leftIds(west.connection.take())).toEqual([walker.you]);
     // And out the other way.
-    advance(1000);
-    await move(walker.id, { x: CELL_SIZE - 1, z: 20 });
+    advance(3000);
+    await move(walker.id, { x: CELL_SIZE - 41, z: 20 });
     world.tick();
     expect(leftIds(walker.connection.take())).toEqual([east.you]);
     expect(leftIds(east.connection.take())).toEqual([walker.you]);
@@ -404,7 +461,8 @@ describe('createWorld', () => {
         crowd.map(({ c, i }) => move(c.id, { x: 10 + i + (t % 2 ? 0.1 : 0.2), z: 10 })),
       );
       world.tick();
-      const moved = movedIds(viewer.connection.take());
+      // A cell's far entries are shared, so a client's own turn is in there: it reads past it.
+      const moved = movedIds(viewer.connection.take()).filter((id) => id !== viewer.you);
       expect(moved.length).toBeGreaterThanOrEqual(32);
       expect(moved.length).toBeLessThanOrEqual(160);
       for (const id of moved) heard.set(id, (heard.get(id) ?? 0) + 1);
@@ -650,6 +708,34 @@ describe('createWorld', () => {
       const followed = ofType(second.connection.take(), 'placed');
       expect(followed.at(-1)).toEqual({ type: 'placed', id: first.you, state: { ...here, x: 8 } });
       expect(ofType(first.connection.take(), 'placed')).toEqual([]);
+    });
+
+    test('a tab behind for its figure’s last move is told once it has caught up', async () => {
+      const { world, join, move, advance } = setup({ slices: 2 });
+      const first = join('ana');
+      await move(first.id, { x: 7 });
+      world.tick();
+      const second = joinTab(world, first);
+      for (let t = 0; t < 4; t++) world.tick();
+      second.connection.take();
+      // Its socket backs up, the figure takes its last step, and it heard nothing of it.
+      second.connection.queued = 70_000;
+      for (let t = 0; t < 2; t++) world.tick();
+      advance(100);
+      await move(first.id, { x: 8 });
+      for (let t = 0; t < 2; t++) world.tick();
+      expect(ofType(second.connection.take(), 'placed')).toEqual([]);
+      // Recovered: a recount says nothing of its own figure, so it has to hear this anyway.
+      second.connection.queued = 0;
+      for (let t = 0; t < 4; t++) world.tick();
+      expect(ofType(second.connection.take(), 'placed').at(-1)).toEqual({
+        type: 'placed',
+        id: first.you,
+        state: { ...here, x: 8 },
+      });
+      // Told once: no more frames until the figure moves again.
+      for (let t = 0; t < 4; t++) world.tick();
+      expect(ofType(second.connection.take(), 'placed')).toEqual([]);
     });
 
     test('when the tab in use closes, the newest left takes over', async () => {
@@ -1027,11 +1113,12 @@ describe('createWorld', () => {
     await move(a.id, { x: 12 });
     world.tick();
     expect(slow.connection.take()).toEqual([]);
-    // Caught up: told to forget everyone, then who is here, as they are.
+    // Caught up: told who is here, as they are, with nobody wiped: no welcome, a recount.
     slow.connection.queued = 0;
     world.tick();
     const heard = slow.connection.take();
-    expect(heard[0]).toEqual({ type: 'welcome', you: slow.you });
+    expect(heard[0]).toEqual({ type: 'recount', phase: 'begin' });
+    expect(heard.some((m) => m.type === 'welcome')).toBe(false);
     expect(joinedIds(heard)).toEqual([a.you]);
     expect(ofType(heard, 'joins')[0]?.players[0]?.state.x).toBe(12);
   });
@@ -1048,7 +1135,7 @@ describe('createWorld', () => {
     world.tick();
     b.connection.dropping = false;
     world.tick();
-    expect(b.connection.take()[0]).toEqual({ type: 'welcome', you: b.you });
+    expect(b.connection.take()[0]).toEqual({ type: 'recount', phase: 'begin' });
   });
 
   test('whoever comes later hears how many are on the map', async () => {
@@ -1070,23 +1157,6 @@ describe('createWorld', () => {
     expect(ofType(guest.connection.take(), 'online')).toEqual([{ type: 'online', count: 1 }]);
     for (let i = 0; i < 10; i++) world.tick();
     expect(ofType(guest.connection.take(), 'online')).toEqual([]);
-  });
-
-  test('the full map gets everyone as dots, only while it is open', async () => {
-    const { join, move, world } = setup();
-    const a = join('a');
-    const far = join('far');
-    const viewer = join(null);
-    await move(a.id, { x: 10, z: 20 });
-    await move(far.id, { x: CELL_SIZE * 3, z: 20 });
-    await world.receive(viewer.id, encodeClientMessage({ type: 'dots', on: true }));
-    for (let i = 0; i < 20; i++) world.tick();
-    const [dots] = ofType(viewer.connection.take(), 'dots');
-    expect(dots?.players.map((p) => p.id).toSorted()).toEqual([a.you, far.you].toSorted());
-    expect(dots?.players[0]?.colour).toBe(outfit.shirt);
-    await world.receive(viewer.id, encodeClientMessage({ type: 'dots', on: false }));
-    for (let i = 0; i < 20; i++) world.tick();
-    expect(ofType(viewer.connection.take(), 'dots')).toEqual([]);
   });
 
   test('after the first move a figure nearby goes as a delta; a leave forgets it', async () => {

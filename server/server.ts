@@ -554,7 +554,7 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
       maxPayloadLength: 1024,
       // The client says something at least every few seconds (throttle.ts's heartbeat).
       idleTimeout: 60,
-      // The hub stops sending to a socket long before this (world.ts, it starts it over when it
+      // The hub stops sending to a socket long before this (broadcast.ts, it recounts it when it
       // catches up): whoever is still this far behind has stopped reading.
       backpressureLimit: 1024 * 1024,
       closeOnBackpressureLimit: true,

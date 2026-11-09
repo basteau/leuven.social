@@ -2,21 +2,32 @@ import { describe, expect, test } from 'bun:test';
 
 import {
   MAX_PLACE_BYTES,
+  cacheJoin,
+  createOutput,
   decodeClientMessage,
   decodeServerMessage,
   encodeClientMessage,
   encodeServerMessage,
+  freshenJoin,
   isOutfit,
-  moved,
+  putCachedJoin,
   quantise,
+  readCoarse,
+  readTick,
+  rgb565,
+  rgb888,
 } from './protocol.ts';
 import type {
+  CoarseSink,
+  Move,
   MoveBaseline,
   MoveDelta,
   MoveEntry,
   Outfit,
   PlayerState,
   ServerMessage,
+  TickMessage,
+  TickSink,
 } from './protocol.ts';
 
 const state: PlayerState = {
@@ -49,16 +60,34 @@ const whole = (entry: MoveEntry | undefined) => {
   return entry.state;
 };
 const fresh = (): MoveBaseline => ({ x: Number.NaN, z: Number.NaN, heading: 0, speed: 0 });
-const leaving = (id: number) => encodeServerMessage({ type: 'leaves', ids: [id] });
+/** A tick that says just this: everything else empty. */
+const tickOf = (message: Partial<TickMessage>): TickMessage => ({
+  type: 'tick',
+  leaves: [],
+  demotes: [],
+  joins: [],
+  cx: 0,
+  cz: 0,
+  near: [],
+  far: [],
+  ...message,
+});
+const leaving = (id: number) => encodeServerMessage(tickOf({ leaves: [id] }));
 const movedAs = (m: object) =>
   decodeServerMessage(
-    encodeServerMessage({
-      type: 'moves',
-      cx: 0,
-      cz: 0,
-      players: [{ id: 1, state: { heading: 0, speed: 99, mode: 'foot', ...m } as never }],
-    }),
+    encodeServerMessage(
+      tickOf({ near: [{ id: 1, state: { heading: 0, speed: 99, mode: 'foot', ...m } as never }] }),
+    ),
   );
+const nearOf = (bytes: Uint8Array) => (decodeServerMessage(bytes) as TickMessage).near;
+/** A delta's result applied to a move, as a client would. */
+const moved = (from: Move, d: MoveDelta): Move => ({
+  x: from.x + d.dx,
+  z: from.z + d.dz,
+  heading: d.heading ?? from.heading,
+  speed: d.speed ?? from.speed,
+  mode: d.mode ?? from.mode,
+});
 
 describe('client messages', () => {
   test('a state round-trips within its quantisation', () => {
@@ -109,42 +138,143 @@ describe('server messages', () => {
     { type: 'renamed', id: 12, name: 'Bram', outfit },
     { type: 'driving', on: true },
     { type: 'driving', on: false },
-    { type: 'joins', players: [] },
-    { type: 'joins', players: [{ id: 7, name: 'Marie-Thérèse', outfit, state }] },
-    { type: 'leaves', ids: [] },
-    { type: 'leaves', ids: [300, 1] },
     { type: 'outfit', id: 9, outfit },
     { type: 'online', count: 1234 },
-    { type: 'dots', players: [] },
   ];
 
   test.each(messages.map((m) => [m.type, m] as const))('%s round-trips', (_, message) => {
-    const back = decodeServerMessage(encodeServerMessage(message));
-    expect(back?.type).toBe(message.type);
-    if (back?.type === 'joins' && message.type === 'joins') {
-      const strip = (p: (typeof back.players)[number]) => ({ ...p, state: undefined });
-      expect(back.players.map(strip)).toEqual(message.players.map(strip));
-      back.players.forEach((p, i) => expectNear(p.state, message.players[i]!.state));
-    } else {
-      expect(back).toEqual(message);
-    }
+    expect(decodeServerMessage(encodeServerMessage(message))).toEqual(message);
+  });
+
+  test('a tick carries who left, was demoted, joined, and who moved, in that order', () => {
+    const frame = encodeServerMessage(
+      tickOf({
+        beginsRecount: true,
+        endsRecount: true,
+        leaves: [300, 1],
+        demotes: [7],
+        joins: [{ id: 8, name: 'Marie-Thérèse', outfit, state }],
+        cx: 1,
+        cz: -2,
+        near: [{ id: 9, state: { x: 400, z: -700, heading: 2, speed: 4, mode: 'foot' } }],
+        far: [
+          {
+            cx: -3,
+            cz: 2,
+            moves: [{ id: 10, state: { x: -900, z: 800, heading: 1, speed: 2, mode: 'bike' } }],
+          },
+        ],
+      }),
+    );
+    const heard: string[] = [];
+    const sink: TickSink = {
+      beginRecount: () => heard.push('begin'),
+      endRecount: () => heard.push('end'),
+      left: (id) => heard.push(`left ${id}`),
+      demoted: (id) => heard.push(`demoted ${id}`),
+      joined: (id, name) => heard.push(`joined ${id} ${name}`),
+      whole: (id) => heard.push(`whole ${id}`),
+      delta: (id) => heard.push(`delta ${id}`),
+    };
+    expect(readTick(frame, sink)).toBe(true);
+    expect(heard).toEqual([
+      'begin',
+      'left 300',
+      'left 1',
+      'demoted 7',
+      'joined 8 Marie-Thérèse',
+      'whole 9',
+      'whole 10',
+      'end',
+    ]);
+    const back = decodeServerMessage(frame) as TickMessage;
+    expect(back).toMatchObject({ beginsRecount: true, endsRecount: true, cx: 1, cz: -2 });
+    expect(back.leaves).toEqual([300, 1]);
+    expect(back.demotes).toEqual([7]);
+    expectNear(back.joins[0]!.state, state);
+    near(whole(back.near[0]).x, 400, 0.02);
+    expect(back.far[0]).toMatchObject({ cx: -3, cz: 2 });
+    near(back.far[0]!.moves[0]!.state.x, -900, 0.02);
+    near(back.far[0]!.moves[0]!.state.z, 800, 0.02);
+    expect(back.far[0]!.moves[0]!.state.mode).toBe('bike');
+  });
+
+  test('readTick says so on a broken frame, never throws, and an empty tick is fine', () => {
+    const sink: TickSink = {
+      beginRecount() {},
+      endRecount() {},
+      left() {},
+      demoted() {},
+      joined() {},
+      whole() {},
+      delta() {},
+    };
+    const good = encodeServerMessage(tickOf({ leaves: [1] }));
+    expect(readTick(good, sink)).toBe(true);
+    expect(readTick(new Uint8Array([24, 4]), sink)).toBe(false); // flags it never has
+    expect(readTick(good.subarray(0, good.length - 1), sink)).toBe(false);
+    expect(readTick(new Uint8Array([99]), sink)).toBe(false);
+    expect(readTick(new Uint8Array(), sink)).toBe(false);
+    expect(decodeServerMessage(encodeServerMessage(tickOf({})))).toMatchObject(tickOf({}));
+  });
+
+  test('a coarse frame says every cell, thinned by id, in 256ths of a cell', () => {
+    const frame = encodeServerMessage({
+      type: 'coarse',
+      first: true,
+      last: false,
+      cells: [
+        {
+          cx: -2,
+          cz: 3,
+          total: 12,
+          weight: 2,
+          people: [{ id: 300, x: -2 * 350 + 100.2, z: 3 * 350 + 349, colour: 0xfa8064 }],
+        },
+      ],
+    });
+    const back = decodeServerMessage(frame);
+    if (back?.type !== 'coarse') throw new Error('no coarse');
+    expect(back).toMatchObject({ first: true, last: false });
+    expect(back.cells[0]).toMatchObject({ cx: -2, cz: 3, total: 12, weight: 2 });
+    const person = back.cells[0]!.people[0]!;
+    near(person.x, -2 * 350 + 100.2, 1.4);
+    near(person.z, 3 * 350 + 349, 1.4);
+    expect(person.colour).toBe(rgb888(rgb565(0xfa8064)));
+    expect(person.id).toBe(300);
+
+    const sinkCalls: unknown[] = [];
+    const sink: CoarseSink = {
+      begin: () => sinkCalls.push('begin'),
+      person: (id, _x, _z, _colour, weight) => sinkCalls.push([id, weight]),
+      end: () => sinkCalls.push('end'),
+    };
+    expect(readCoarse(frame, sink)).toBe(true);
+    expect(sinkCalls).toEqual(['begin', [300, 2]]);
+    const last = encodeServerMessage({ type: 'coarse', first: false, last: true, cells: [] });
+    expect(readCoarse(last, sink)).toBe(true);
+    expect(sinkCalls.at(-1)).toBe('end');
+    expect(readCoarse(new Uint8Array([25, 4]), sink)).toBe(false);
+    expect(readCoarse(frame.subarray(0, frame.length - 1), sink)).toBe(false);
+  });
+
+  test('a shirt is nearly the same after RGB565 and stays pure if it was', () => {
+    expect(rgb888(rgb565(0xffffff))).toBe(0xffffff);
+    expect(rgb888(rgb565(0x000000))).toBe(0x000000);
+    const back = rgb888(rgb565(0xfa8064));
+    expect(Math.abs((back >> 16) - 0xfa)).toBeLessThan(8);
   });
 
   test('a move is 9 bytes, to under 2 cm, across the cells round its frame', () => {
     const move = { x: 400.123, z: -100.456, heading: 1.25, speed: 4.2, mode: 'bike' } as const;
-    const bytes = encodeServerMessage({
-      type: 'moves',
-      cx: 1,
-      cz: -1,
-      players: [{ id: 300, state: move }],
-    });
-    // Tag, the cell, a count of one: 6 bytes; a two-byte id and its seven.
-    expect(bytes.length).toBe(6 + 9);
+    const bytes = encodeServerMessage(tickOf({ cx: 1, cz: -1, near: [{ id: 300, state: move }] }));
+    // Tag, flags, empty leaves, demotes and joins, near of one with its cell, empty far: 11.
+    expect(bytes.length).toBe(11 + 9);
     const back = decodeServerMessage(bytes);
-    if (back?.type !== 'moves') throw new Error('no moves');
+    if (back?.type !== 'tick') throw new Error('no tick');
     expect([back.cx, back.cz]).toEqual([1, -1]);
-    expect(back.players[0]?.id).toBe(300);
-    const got = whole(back.players[0]);
+    expect(back.near[0]?.id).toBe(300);
+    const got = whole(back.near[0]);
     near(got.x, move.x, 0.02);
     near(got.z, move.z, 0.02);
     near(got.heading, move.heading, 0.001);
@@ -154,8 +284,8 @@ describe('server messages', () => {
 
   test('a move keeps its mode and clamps to its frame', () => {
     const clamped = movedAs({ x: 1e6, z: -1e6 });
-    if (clamped?.type !== 'moves') throw new Error('no moves');
-    const move = whole(clamped.players[0]);
+    if (clamped?.type !== 'tick') throw new Error('no tick');
+    const move = whole(clamped.near[0]);
     expect(Math.abs(move.x - 700)).toBeLessThan(0.02);
     expect(Math.abs(move.z + 350)).toBeLessThan(0.02);
     expect(move.mode).toBe('foot');
@@ -165,22 +295,15 @@ describe('server messages', () => {
   describe('deltas', () => {
     const start = { x: 100, z: 200, heading: 1, speed: 4, mode: 'foot' } as const;
     const send = (move: object, base: MoveBaseline) =>
-      encodeServerMessage({
-        type: 'moves',
-        cx: 0,
-        cz: 0,
-        players: [{ id: 300, state: move as typeof start }],
-        bases: [base],
-      });
-
+      encodeServerMessage(
+        tickOf({ near: [{ id: 300, state: move as typeof start }], bases: [base] }),
+      );
     test('the first move goes whole, the next a delta of 5 bytes', () => {
       const base = fresh();
-      expect(send(start, base).length).toBe(6 + 9);
+      expect(send(start, base).length).toBe(11 + 9);
       const next = send({ ...start, x: 100.5, z: 200.25 }, base);
-      expect(next.length).toBe(6 + 5);
-      const back = decodeServerMessage(next);
-      if (back?.type !== 'moves') throw new Error('no moves');
-      const entry = back.players[0]!;
+      expect(next.length).toBe(11 + 5);
+      const entry = nearOf(next)[0]!;
       if (!('delta' in entry)) throw new Error('no delta');
       expect(entry.id).toBe(300);
       expect(Math.abs(entry.delta.dx - 0.5)).toBeLessThan(0.02);
@@ -193,10 +316,8 @@ describe('server messages', () => {
       const base = fresh();
       send(start, base);
       const bytes = send({ ...start, x: 100.1, heading: 1.5, speed: 9, mode: 'bike' }, base);
-      expect(bytes.length).toBe(6 + 5 + 2 + 1);
-      const back = decodeServerMessage(bytes);
-      if (back?.type !== 'moves') throw new Error('no moves');
-      const delta = (back.players[0] as { delta: MoveDelta }).delta;
+      expect(bytes.length).toBe(11 + 5 + 2 + 1);
+      const delta = (nearOf(bytes)[0] as { delta: MoveDelta }).delta;
       near(delta.heading!, 1.5, 0.001);
       near(delta.speed!, 9, 0.11);
       expect(delta.mode).toBe('bike');
@@ -206,34 +327,29 @@ describe('server messages', () => {
     test('a step too long for a delta goes whole, and the deltas go on from it', () => {
       const base = fresh();
       send(start, base);
-      expect(send({ ...start, x: 110 }, base).length).toBe(6 + 9);
-      expect(send({ ...start, x: 110.5 }, base).length).toBe(6 + 5);
+      expect(send({ ...start, x: 110 }, base).length).toBe(11 + 9);
+      expect(send({ ...start, x: 110.5 }, base).length).toBe(11 + 5);
     });
 
     test('many deltas add up to where the figure is, to within a step', () => {
       const base = fresh();
       let x = 100;
-      let at = whole(
-        (decodeServerMessage(send(start, base)) as { players: MoveEntry[] }).players[0],
-      ).x;
+      let at = whole(nearOf(send(start, base))[0]).x;
       for (let i = 0; i < 500; i++) {
         x += 0.5 + Math.sin(i) * 0.3;
-        const back = decodeServerMessage(send({ ...start, x }, base)) as { players: MoveEntry[] };
-        at = moved({ ...start, x: at }, (back.players[0] as { delta: MoveDelta }).delta).x;
+        const entry = nearOf(send({ ...start, x }, base))[0] as { delta: MoveDelta };
+        at = moved({ ...start, x: at }, entry.delta).x;
       }
       near(at, x, 0.02);
     });
 
     test('a delta can’t be asked for, and a frame with bits no entry has is refused', () => {
       expect(() =>
-        encodeServerMessage({
-          type: 'moves',
-          cx: 0,
-          cz: 0,
-          players: [{ id: 1, delta: { dx: 0, dz: 0 } }],
-        }),
+        encodeServerMessage(tickOf({ near: [{ id: 1, delta: { dx: 0, dz: 0 } }] })),
       ).toThrow(RangeError);
-      expect(decodeServerMessage(new Uint8Array([17, 0, 0, 0, 0, 1, 3, 0, 0, 0xff]))).toBeNull();
+      // near of one at cell 0,0: id×2+1 = 3, dx, dz, then changes 0xff.
+      const bad = new Uint8Array([24, 0, 0, 0, 0, 1, 0, 0, 0, 0, 3, 0, 0, 0xff, 0]);
+      expect(decodeServerMessage(bad)).toBeNull();
     });
   });
 
@@ -244,28 +360,12 @@ describe('server messages', () => {
     expectNear(back.state, state);
   });
 
-  test('dots land within half a metre, with their colours', () => {
-    const back = decodeServerMessage(
-      encodeServerMessage({
-        type: 'dots',
-        players: [{ id: 3, x: -1234.5, z: 1999, colour: 0xfa8064 }],
-      }),
-    );
-    if (back?.type !== 'dots') throw new Error('no dots');
-    expect(back.players[0]).toMatchObject({ id: 3, colour: 0xfa8064 });
-    near(back.players[0]!.x, -1234.5, 0.5);
-    near(back.players[0]!.z, 1999, 0.5);
-  });
-
   test('ids outside u32 and overlong names are refused when encoding', () => {
     expect(() => leaving(-1)).toThrow(RangeError);
     expect(() => leaving(2 ** 32)).toThrow(RangeError);
     expect(() => leaving(1.5)).toThrow(RangeError);
     expect(() =>
-      encodeServerMessage({
-        type: 'joins',
-        players: [{ id: 1, name: 'n'.repeat(65), outfit, state }],
-      }),
+      encodeServerMessage(tickOf({ joins: [{ id: 1, name: 'n'.repeat(65), outfit, state }] })),
     ).toThrow(RangeError);
   });
 });
@@ -278,32 +378,33 @@ describe('what the client says about its view', () => {
     expect(decodeClientMessage(new Uint8Array([...bytes, 0]))).toBeNull();
   });
 
-  test('where the map looks and whether the full map is open', () => {
-    expect(decodeClientMessage(encodeClientMessage({ type: 'view', x: 12.5, z: -3.25 }))).toEqual({
-      type: 'view',
-      x: 12.5,
-      z: -3.25,
-    });
-    for (const on of [true, false]) {
-      expect(decodeClientMessage(encodeClientMessage({ type: 'dots', on }))).toEqual({
-        type: 'dots',
-        on,
-      });
-    }
+  test('where the map looks and how far it reaches', () => {
+    expect(
+      decodeClientMessage(encodeClientMessage({ type: 'view', x: 12.5, z: -3.25, reach: 800 })),
+    ).toEqual({ type: 'view', x: 12.5, z: -3.25, reach: 800 });
+    // Past what 16 bits hold it says as far as it can.
+    const far = encodeClientMessage({ type: 'view', x: 0, z: 0, reach: 1e6 });
+    expect(decodeClientMessage(far)).toMatchObject({ reach: 0xffff });
+    // A hidden tab asks for nobody.
+    expect(
+      decodeClientMessage(encodeClientMessage({ type: 'view', x: 0, z: 0, reach: 0 })),
+    ).toMatchObject({ reach: 0 });
+  });
+
+  test('a view from before reach reads as looking at a street', () => {
+    const old = new Uint8Array([2, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(decodeClientMessage(old)).toEqual({ type: 'view', x: 0, z: 0, reach: 350 });
   });
 
   test('a view off the number line is refused', () => {
-    const frame = encodeClientMessage({ type: 'view', x: 0, z: 0 });
+    const frame = encodeClientMessage({ type: 'view', x: 0, z: 0, reach: 100 });
     frame.set([0x7f, 0xc0, 0, 0], 1);
     expect(decodeClientMessage(frame)).toBeNull();
   });
 });
 
 describe('malformed frames decode to null', () => {
-  const good = encodeServerMessage({
-    type: 'joins',
-    players: [{ id: 7, name: 'Bram', outfit, state }],
-  });
+  const good = encodeServerMessage(tickOf({ joins: [{ id: 7, name: 'Bram', outfit, state }] }));
 
   test('empty, unknown tags and the wrong direction', () => {
     expect(decodeServerMessage(new Uint8Array())).toBeNull();
@@ -354,13 +455,20 @@ describe('malformed frames decode to null', () => {
   });
 
   test('a lying player count and an overlong id', () => {
-    expect(decodeServerMessage(new Uint8Array([15, 50, 1]))).toBeNull(); // joins
-    expect(decodeServerMessage(new Uint8Array([16, 50, 1]))).toBeNull(); // leaves
-    expect(decodeServerMessage(new Uint8Array([17, 0, 0, 0, 0, 50, 1]))).toBeNull(); // moves
-    expect(decodeServerMessage(new Uint8Array([20, 50, 1]))).toBeNull(); // dots
+    expect(decodeServerMessage(new Uint8Array([24, 0, 50, 1]))).toBeNull(); // leaves
+    expect(decodeServerMessage(new Uint8Array([24, 0, 0, 50, 1]))).toBeNull(); // demotes
+    expect(decodeServerMessage(new Uint8Array([24, 0, 0, 0, 50, 1]))).toBeNull(); // joins
+    expect(decodeServerMessage(new Uint8Array([24, 0, 0, 0, 0, 50, 0, 0, 0, 0]))).toBeNull(); // near
+    expect(decodeServerMessage(new Uint8Array([24, 0, 0, 0, 0, 0, 50, 1]))).toBeNull(); // far blocks
     const longId = [14, 0x80, 0x80, 0x80, 0x80, 0x10, ...Array(12).fill(0)];
     expect(decodeServerMessage(new Uint8Array(longId))).toBeNull();
     expect(decodeServerMessage(new Uint8Array([14, ...Array(11).fill(0x80)]))).toBeNull();
+  });
+
+  test('a coarse frame that lies about its count or weight is refused', () => {
+    expect(decodeServerMessage(new Uint8Array([25, 1, 0, 0, 1, 0, 50, 1]))).toBeNull(); // count
+    expect(decodeServerMessage(new Uint8Array([25, 1, 0, 0, 1, 0, 0]))).toBeNull(); // no weight
+    expect(decodeServerMessage(new Uint8Array([25, 4]))).toBeNull(); // flags it never has
   });
 
   test('random bytes never throw', () => {
@@ -371,6 +479,35 @@ describe('malformed frames decode to null', () => {
       expect(() => decodeServerMessage(bytes)).not.toThrow();
       expect(() => decodeClientMessage(bytes)).not.toThrow();
     }
+  });
+});
+
+describe('a cached join', () => {
+  const who = { id: 300, name: 'Sunny Otter', outfit: { skin: 1, hair: 2, shirt: 3, shorts: 4 } };
+
+  test('is the bytes of the ordinary join, and only the numbers move', () => {
+    const join = { ...who, state: quantise(state) };
+    const cached = cacheJoin(join);
+    const out = createOutput(8);
+    const end = putCachedJoin(out, 2, cached);
+    expect(end).toBe(2 + cached.bytes.length);
+    const frame = encodeServerMessage({
+      type: 'tick',
+      flags: 0,
+      leaves: [],
+      demotes: [],
+      joins: [join],
+      near: [],
+      far: [],
+      cx: 0,
+      cz: 0,
+    } as ServerMessage);
+    // The join sits in the frame after its flags and the empty lists before it.
+    expect([...frame.subarray(5, 5 + cached.bytes.length)]).toEqual([...cached.bytes]);
+
+    const there = quantise({ ...state, x: 99.5, z: -40.25, heading: 2, speed: 3, mode: 'bike' });
+    freshenJoin(cached, there);
+    expect([...cached.bytes]).toEqual([...cacheJoin({ ...who, state: there }).bytes]);
   });
 });
 

@@ -1,12 +1,16 @@
 import type { City } from '../data/city.ts';
+import type { People } from '../net/people.ts';
+import { createClumper } from '../scene/clumps.ts';
+import type { Marks } from '../scene/clumps.ts';
+import { drawMarks } from '../scene/marks.ts';
 import { GROUND } from '../scene/palette.ts';
 import { YOU, css } from './colours.ts';
 
 /**
  * The minimap: the city round you from above, turned so that up is the way the view looks, with
- * you in the middle and everyone else as a dot in their shirt's colour. Drawn on a 2D canvas from
- * the city's own footprints (a bucket index, so a frame draws only the few hundred near you); the
- * React side (minimap-view.tsx) decides when.
+ * you in the middle and everyone else as the street's marks, a dot each or a disc for a crowd.
+ * Drawn on a 2D canvas from the city's own footprints (a bucket index, so a frame draws only the
+ * few hundred near you); the React side (minimap-view.tsx) decides when.
  */
 
 /** The canvas calls the minimap uses: a real 2D context has them all. */
@@ -31,13 +35,14 @@ export type Pen = Pick<
   fillStyle: string | CanvasGradient | CanvasPattern;
   strokeStyle: string | CanvasGradient | CanvasPattern;
   lineWidth: number;
+  globalAlpha: number;
 };
 
 /** Each layer, drawn in this order, and its colour. */
 const LAYERS = ['green', 'water', 'roads', 'plazas', 'buildings'] as const;
 type Layer = (typeof LAYERS)[number];
 
-export const MAP_COLOURS: Record<Layer | 'ground' | 'ink' | 'outline', string> = {
+export const MAP_COLOURS: Record<Layer | 'ground' | 'ink' | 'outline' | 'paper', string> = {
   ground: css(GROUND.base),
   green: css(GROUND.green),
   water: css(GROUND.water),
@@ -46,6 +51,7 @@ export const MAP_COLOURS: Record<Layer | 'ground' | 'ink' | 'outline', string> =
   buildings: '#9a8a76',
   ink: '#3a2e25',
   outline: 'rgb(58 46 37 / 0.55)',
+  paper: '#fffdf6',
 };
 
 /** The index's buckets are this many metres a side. */
@@ -89,13 +95,6 @@ export function indexCity(
   return { buckets };
 }
 
-/** Someone on the minimap: where they are, and their shirt (24-bit sRGB). */
-export interface Dot {
-  x: number;
-  z: number;
-  colour: number;
-}
-
 export interface MinimapView {
   /** The middle: where you are (m). */
   x: number;
@@ -106,8 +105,61 @@ export interface MinimapView {
   facing: number;
   /** How many metres across the minimap shows. */
   range: number;
-  /** Its size in device pixels, square. */
+  /** Its size in device pixels, square, and how many of those a CSS pixel is. */
   size: number;
+  dpr: number;
+}
+
+/** The cell the minimap's marks are grouped by covers this many pixels: mid octave, so no crossfade. */
+const CELL_PX = 24;
+/** The biggest a crowd gets, or a few crowds fill the whole little window (CSS px). */
+const LARGEST_CLUMP = 9;
+/** The grid's coarsest step of 5 m to this power of two. */
+const cellLevel = (pxPerMetre: number) => Math.round(Math.log2(CELL_PX / (5 * pxPerMetre)));
+/** A scale at which the clumper picks the level above and doesn't sit fading between two. */
+const settledScale = (pxPerMetre: number) => CELL_PX / (5 * 2 ** cellLevel(pxPerMetre));
+
+/** No one to draw: before a connection, or with no others on it. */
+export const NOBODY: Marks = {
+  count: 0,
+  x: new Float32Array(0),
+  z: new Float32Array(0),
+  n: new Uint32Array(0),
+  colour: new Int32Array(0),
+  radius: new Float32Array(0),
+  alpha: new Float32Array(0),
+  settling: false,
+};
+
+/**
+ * Everyone inside the minimap's circle, ready to draw at its scale. A closure keeps the arrays
+ * and each clump's easing from one repaint to the next.
+ */
+export function createMinimapCrowd(clock?: () => number) {
+  const clumper = createClumper(clock);
+  let inside = new Float32Array(64);
+  return (people: People, view: MinimapView): Marks => {
+    if (inside.length < people.count) inside = new Float32Array(people.count * 2);
+    const { x: px, z: pz } = people;
+    const radius = view.range / 2;
+    const reach = radius * radius;
+    for (let s = 0; s < people.count; s++) {
+      const dx = px[s]! - view.x;
+      const dz = pz[s]! - view.z;
+      inside[s] = dx * dx + dz * dz <= reach ? 1 : 0;
+    }
+    return clumper.clump(people, {
+      pxPerMetre: settledScale(view.size / view.dpr / view.range),
+      x0: view.x - radius,
+      z0: view.z - radius,
+      x1: view.x + radius,
+      z1: view.z + radius,
+      place: '',
+      floor: 0,
+      alpha: inside,
+      largest: LARGEST_CLUMP,
+    });
+  };
 }
 
 /** The city drawn once round a spot, north up, for the minimap to turn and move under you. */
@@ -175,16 +227,11 @@ export function drawCity(
 
 /**
  * The minimap for a frame: the city image turned so the view's way is up and moved so you are in
- * the middle, then the others as dots in their shirts' colours, then you, the coral diamond with
- * its long point the way you face. The round frame is CSS's.
+ * the middle, then the marks of everyone round you, then you, the coral diamond with its long
+ * point the way you face. The round frame is CSS's.
  */
-export function drawMinimap(
-  pen: Pen,
-  city: CityImage,
-  view: MinimapView,
-  others: readonly Dot[],
-): void {
-  const { size, range } = view;
+export function drawMinimap(pen: Pen, city: CityImage, view: MinimapView, marks: Marks): void {
+  const { size, range, dpr } = view;
   const scale = size / range;
   pen.save();
   pen.setTransform(1, 0, 0, 1, 0, 0);
@@ -197,30 +244,48 @@ export function drawMinimap(
   pen.translate(-view.x, -view.z);
   const half = city.span / 2;
   pen.drawImage(city.image, city.x - half, city.z - half, city.span, city.span);
-  // The dots stay one size on screen, however far the map reaches.
-  const px = 1 / scale;
-  pen.lineWidth = 1.5 * px * (size / 160);
-  pen.strokeStyle = MAP_COLOURS.ink;
-  const dot = size / 40;
-  for (const o of others) {
-    pen.fillStyle = css(o.colour);
-    pen.beginPath();
-    pen.arc(o.x, o.z, dot * px, 0, Math.PI * 2);
-    pen.fill();
-    pen.stroke();
-  }
-  // You: the diamond over your head on the street, its long point the way you face.
-  pen.translate(view.x, view.z);
+  pen.restore();
+
+  // The marks and you are in CSS pixels, the same size however far the map reaches.
+  pen.save();
+  pen.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const width = size / dpr;
+  const middle = width / 2;
+  const toPx = width / range;
+  const cos = Math.cos(view.heading) * toPx;
+  const sin = Math.sin(view.heading) * toPx;
+  drawMarks(
+    pen,
+    marks,
+    {
+      a: cos,
+      b: -sin,
+      c: sin,
+      d: cos,
+      e: middle - cos * view.x - sin * view.z,
+      f: middle + sin * view.x - cos * view.z,
+    },
+    dpr,
+  );
+  // You on top of every crowd: the diamond over your head on the street, its long point the way
+  // you face, with a rim of paper so it stands clear of whatever shirts are round it.
+  const dot = (width / 40) * 1.25;
+  pen.translate(middle, middle);
+  pen.rotate(-view.heading);
   pen.rotate(-view.facing);
   pen.fillStyle = YOU;
-  pen.lineWidth *= 1.4;
   pen.beginPath();
-  pen.moveTo(0, dot * 2.7 * px);
-  pen.lineTo(dot * 1.4 * px, 0);
-  pen.lineTo(0, dot * -1.4 * px);
-  pen.lineTo(dot * -1.4 * px, 0);
+  pen.moveTo(0, dot * 2.7);
+  pen.lineTo(dot * 1.4, 0);
+  pen.lineTo(0, dot * -1.4);
+  pen.lineTo(dot * -1.4, 0);
   pen.closePath();
+  pen.strokeStyle = MAP_COLOURS.paper;
+  pen.lineWidth = (width / 160) * 4;
+  pen.stroke();
   pen.fill();
+  pen.strokeStyle = MAP_COLOURS.ink;
+  pen.lineWidth = (width / 160) * 2;
   pen.stroke();
   pen.restore();
 }

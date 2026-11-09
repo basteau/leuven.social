@@ -130,14 +130,14 @@ const SLEW_MS = 400;
 /** A playhead is never further back than this, whatever else: hidden tabs catch up at once. */
 const FURTHEST_BACK = 3000;
 /** Under this, someone stands (m/s). */
-const STANDING = 0.05;
+export const STANDING = 0.05;
 /** No one covers ground faster than this, plus the margin: further is a teleport (m/s, m). */
 const FASTEST_MOVER = 30;
 const JUMP_MARGIN = 15;
 /** How long someone keeps going in the legs after the last update (ms). */
 const LEGS_LINGER = 400;
 /** Where `travelled` wraps (m). */
-const TRAVELLED_WRAP = 4096;
+export const TRAVELLED_WRAP = 4096;
 /** How a longer gap, and a shorter one, count toward the usual gap between updates. */
 const WIDEN = 0.5;
 const NARROW = 0.1;
@@ -152,7 +152,8 @@ const shortWay = (from: number, to: number) => {
 const clamp = (value: number, least: number, most: number) =>
   value < least ? least : value > most ? most : value;
 
-type Flat = Int32Array | Float32Array | Float64Array | Uint8Array | Uint16Array | Uint32Array;
+type Flat =
+  Int8Array | Int32Array | Float32Array | Float64Array | Uint8Array | Uint16Array | Uint32Array;
 
 /** A longer array of the same kind, starting with what `from` holds. */
 function wider<T extends Flat>(from: T, length: number): T {
@@ -191,9 +192,12 @@ export function createPeople(): People {
   let gap = new Float32Array(capacity);
   /** Fading out, and whether a coarse frame or a recount has them. */
   let leaving = new Uint8Array(capacity);
+  /** The fade when it last changed direction, and when that was (ms): so it goes by the clock. */
+  let fadedFrom = new Float32Array(capacity);
+  let fadedAt = new Float64Array(capacity);
   let seen = new Uint32Array(capacity);
   let counted = new Uint32Array(capacity);
-  let floors = new Uint8Array(capacity);
+  let floors = new Int8Array(capacity);
   const whos: (Who | null)[] = [];
   const places: string[] = [];
 
@@ -216,12 +220,28 @@ export function createPeople(): People {
     playhead = wider(playhead, capacity);
     gap = wider(gap, capacity);
     leaving = wider(leaving, capacity);
+    fadedFrom = wider(fadedFrom, capacity);
+    fadedAt = wider(fadedAt, capacity);
     seen = wider(seen, capacity);
     counted = wider(counted, capacity);
     floors = wider(floors, capacity);
   }
 
-  function add(id: number, shirt: number, usual: number): number {
+  /** How much of `s` is there at `now`, going by the clock. */
+  function fadeAt(s: number, now: number): number {
+    const step = Math.max(0, now - fadedAt[s]!) / FADE_MS;
+    return leaving[s] ? Math.max(0, fadedFrom[s]! - step) : Math.min(1, fadedFrom[s]! + step);
+  }
+
+  /** Sets `s` fading in or out, from wherever it has got to. */
+  function setLeaving(s: number, now: number, going: number): void {
+    if (leaving[s] === going) return;
+    fadedFrom[s] = fadeAt(s, now);
+    fadedAt[s] = now;
+    leaving[s] = going;
+  }
+
+  function add(id: number, shirt: number, usual: number, now: number): number {
     if (count === capacity) grow();
     const s = count++;
     slots.set(id, s);
@@ -235,6 +255,8 @@ export function createPeople(): People {
     travelled[s] = 0;
     gap[s] = usual;
     leaving[s] = 0;
+    fadedFrom[s] = 0;
+    fadedAt[s] = now;
     seen[s] = coarseFrame;
     counted[s] = recount;
     floors[s] = 0;
@@ -270,6 +292,8 @@ export function createPeople(): People {
     playhead[s] = playhead[last]!;
     gap[s] = gap[last]!;
     leaving[s] = leaving[last]!;
+    fadedFrom[s] = fadedFrom[last]!;
+    fadedAt[s] = fadedAt[last]!;
     seen[s] = seen[last]!;
     counted[s] = counted[last]!;
     floors[s] = floors[last]!;
@@ -417,18 +441,17 @@ export function createPeople(): People {
 
     join(now, id, name, outfit, state) {
       let s = slots.get(id);
-      if (s === undefined) s = add(id, outfit.shirt, FINE_GAP);
-      else if (leaving[s] && !(flags[s]! & FINE)) leaving[s] = 0;
-      else if (leaving[s]) {
+      if (s === undefined) s = add(id, outfit.shirt, FINE_GAP, now);
+      else if (leaving[s] && flags[s]! & FINE) {
         // The id's old holder was still fading: this is someone else.
         remove(s);
-        s = add(id, outfit.shirt, FINE_GAP);
+        s = add(id, outfit.shirt, FINE_GAP, now);
       }
       whos[s] = { id, name, outfit };
       colour[s] = outfit.shirt;
       weight[s] = 1;
       counted[s] = recount;
-      leaving[s] = 0;
+      setLeaving(s, now, 0);
       setState(s, state);
       flags[s]! |= FINE;
       version++;
@@ -447,9 +470,9 @@ export function createPeople(): People {
       setState(s, state);
       restart(s, now, state.x, state.z, state.heading, state.speed);
     },
-    leave(_now, id) {
+    leave(now, id) {
       const s = slots.get(id);
-      if (s !== undefined) leaving[s] = 1;
+      if (s !== undefined) setLeaving(s, now, 1);
     },
     demote(id) {
       const s = slots.get(id);
@@ -469,10 +492,10 @@ export function createPeople(): People {
     },
     coarse(now, id, px, pz, shirt, stands) {
       let s = slots.get(id);
-      if (s === undefined) s = add(id, shirt, COARSE_GAP);
+      if (s === undefined) s = add(id, shirt, COARSE_GAP, now);
       seen[s] = coarseFrame;
       if (flags[s]! & FINE) return;
-      leaving[s] = 0;
+      setLeaving(s, now, 0);
       colour[s] = shirt;
       weight[s] = stands;
       if (length[s] === 0) return restart(s, now, px, pz, heading[s]!, 0);
@@ -485,9 +508,9 @@ export function createPeople(): People {
       const turned = pace > 0 ? Math.atan2(dx, dz) : ring[newest + 2]!;
       push(s, now, px, pz, turned, pace);
     },
-    endCoarse() {
+    endCoarse(now) {
       for (let s = 0; s < count; s++) {
-        if (!(flags[s]! & FINE) && seen[s] !== coarseFrame) leaving[s] = 1;
+        if (!(flags[s]! & FINE) && seen[s] !== coarseFrame) setLeaving(s, now, 1);
       }
     },
 
@@ -495,11 +518,11 @@ export function createPeople(): People {
       recount = (recount + 1) >>> 0;
       recounting = true;
     },
-    endRecount() {
+    endRecount(now) {
       if (!recounting) return;
       recounting = false;
       for (let s = 0; s < count; s++) {
-        if (flags[s]! & FINE && counted[s] !== recount) leaving[s] = 1;
+        if (flags[s]! & FINE && counted[s] !== recount) setLeaving(s, now, 1);
       }
     },
 
@@ -516,20 +539,15 @@ export function createPeople(): People {
       const dt = Number.isNaN(lastNow) ? 0 : Math.max(0, now - lastNow);
       lastNow = now;
       let busy = false;
-      const step = dt / FADE_MS;
       // Backwards: leaving moves the last slot into the gap, which has been done already.
       for (let s = count - 1; s >= 0; s--) {
-        if (leaving[s]) {
-          fade[s] = Math.max(0, fade[s]! - step);
-          if (fade[s] === 0) {
-            remove(s);
-            continue;
-          }
-          busy = true;
-        } else if (fade[s]! < 1) {
-          fade[s] = Math.min(1, fade[s]! + step);
-          busy = true;
+        const faded = fadeAt(s, now);
+        fade[s] = faded;
+        if (leaving[s] && faded === 0) {
+          remove(s);
+          continue;
         }
+        if (leaving[s] || faded < 1) busy = true;
         if (length[s]! > 0 && play(s, now, dt)) busy = true;
       }
       return busy;

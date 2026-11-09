@@ -530,7 +530,7 @@ async function expectPlayers(): Promise<void> {
     await browser(
       'wait',
       '--fn',
-      `[...document.querySelectorAll('.player-tag')].some((t) => !t.hidden && t.textContent === ${JSON.stringify(bot.name)})`,
+      `[...document.querySelectorAll('.player-tag')].some((t) => t.dataset.shown === '1' && t.textContent === ${JSON.stringify(bot.name)})`,
     );
     await browser('wait', '600');
     await expectHealthyPage('desktop with another player');
@@ -559,7 +559,7 @@ async function expectPlayers(): Promise<void> {
     await until(() => bot.joined().includes('smoke-anna'), 'the bot seeing smoke-anna join');
     const you = bot.idOf('smoke-anna');
     if (you === undefined) throw new Error('the bot lost track of smoke-anna');
-    if (bot.heard.some((m) => m.type === 'leaves')) {
+    if (bot.heard.some((m) => m.type === 'tick' && m.leaves.length > 0)) {
       throw new Error('joining made the guest leave and someone else arrive: two figures');
     }
     // A new look, worn at once and seen by the others.

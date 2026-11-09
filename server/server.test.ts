@@ -4,7 +4,7 @@ import { Database } from 'bun:sqlite';
 import * as account from '../src/net/account.ts';
 import { AccountError } from '../src/net/account.ts';
 import { decodeServerMessage, encodeClientMessage, quantise } from '../src/net/protocol.ts';
-import type { PlayerState, ServerMessage } from '../src/net/protocol.ts';
+import type { JoinedPlayer, MoveEntry, PlayerState, ServerMessage } from '../src/net/protocol.ts';
 import { MailError } from './mail.ts';
 import type { Mailer } from './mail.ts';
 import { clientKey, originMatches, startServer } from './server.ts';
@@ -129,9 +129,26 @@ const postJson = (jar: Jar, path: string, body: unknown) =>
     headers: { 'content-type': 'application/json' },
   });
 
+/** What a client heard, with a `tick` read as the parts these tests care about. */
+type Heard =
+  | Exclude<ServerMessage, { type: 'tick' }>
+  | { type: 'joins'; players: readonly JoinedPlayer[] }
+  | { type: 'leaves'; ids: readonly number[] }
+  | { type: 'moves'; players: readonly MoveEntry[] };
+
+function explode(message: ServerMessage): Heard[] {
+  if (message.type !== 'tick') return [message];
+  const parts: Heard[] = [];
+  if (message.leaves.length) parts.push({ type: 'leaves', ids: message.leaves });
+  if (message.joins.length) parts.push({ type: 'joins', players: message.joins });
+  const moves = [...message.near, ...message.far.flatMap((block) => block.moves)];
+  if (moves.length) parts.push({ type: 'moves', players: moves });
+  return parts;
+}
+
 /** A WebSocket with the jar's cookie, collecting what the server sends. */
 class Client {
-  readonly messages: ServerMessage[] = [];
+  readonly messages: Heard[] = [];
   readonly socket: WebSocket;
   readonly opened: Promise<void>;
   readonly closed: Promise<CloseEvent>;
@@ -149,7 +166,7 @@ class Client {
     this.closed = new Promise((resolve) => this.socket.addEventListener('close', resolve));
     this.socket.addEventListener('message', (event) => {
       const message = decodeServerMessage(new Uint8Array(event.data as ArrayBuffer));
-      if (message) this.messages.push(message);
+      if (message) this.messages.push(...explode(message));
       for (const check of this.waiters) if (check()) this.waiters.delete(check);
     });
   }
@@ -159,11 +176,11 @@ class Client {
   }
 
   /** Resolves with the first message (from the start) that matches. */
-  next<T extends ServerMessage['type']>(
+  next<T extends Heard['type']>(
     type: T,
-    match: (m: Extract<ServerMessage, { type: T }>) => boolean = () => true,
-  ): Promise<Extract<ServerMessage, { type: T }>> {
-    type M = Extract<ServerMessage, { type: T }>;
+    match: (m: Extract<Heard, { type: T }>) => boolean = () => true,
+  ): Promise<Extract<Heard, { type: T }>> {
+    type M = Extract<Heard, { type: T }>;
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => reject(new Error(`no ${type} message arrived`)), 2000);
       const check = () => {

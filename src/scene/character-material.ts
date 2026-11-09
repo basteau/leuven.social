@@ -7,6 +7,7 @@ import type {
 
 import { BAYER as DITHER } from './facade-material.ts';
 import { linearVertexColors } from './mesh-builder.ts';
+import { TINT_ROLE } from './crowd-mesh.ts';
 import { WALKER } from './palette.ts';
 
 /** Every other pixel, in a checkerboard: see-through without blending or sorting. */
@@ -22,6 +23,115 @@ const FADED = 'bayer4(gl_FragCoord.xy) >= fade';
 /** How much of the figure to draw, 0 to 1: shared by its materials. */
 export interface Fade {
   value: number;
+}
+
+/**
+ * One crowd figure's dither, for the fragment shader, by the fade from `motion.z`. Past 0 it is a
+ * plain fade, keeping the pixels under it. Under 0 it is a rig's complement: `-fade` is what a
+ * rig draws where they swap, so the two together make whole pixels, nothing doubled or missing.
+ */
+const DITHERED = `(vMotionFade >= 0.0 ? bayer4(gl_FragCoord.xy) >= vMotionFade : bayer4(gl_FragCoord.xy) < -vMotionFade)`;
+
+const CROWD_VERTEX_HEAD = `#include <common>
+attribute float facade;
+attribute vec3 motion;
+attribute vec3 shirt;
+attribute vec3 look;
+uniform float inkExtra;
+varying float vMotionFade;
+varying float vPart;
+vec3 unpack(float c) {
+  return vec3(floor(c / 65536.0), mod(floor(c / 256.0), 256.0), mod(c, 256.0)) / 255.0;
+}
+void swing(inout vec3 p, float y, float a) {
+  float d = p.y - y;
+  float e = p.z;
+  float c = cos(a);
+  float s = sin(a);
+  p.y = y + d * c - e * s;
+  p.z = d * s + e * c;
+}`;
+
+/** Legs and arms swung about the hip and shoulder from each instance's phase and how far. */
+const CROWD_BEGIN = `#include <begin_vertex>
+float bone = floor(facade);
+float role = fract(facade) * 8.0;
+vPart = bone;
+vMotionFade = motion.z;
+if (role > ${(TINT_ROLE.ink - 0.5).toFixed(1)}) transformed -= normal * inkExtra;
+float legSwing = sin(motion.x) * 0.6 * motion.y;
+if (bone == 8.0) swing(transformed, ${(0.86).toFixed(2)}, legSwing);
+else if (bone == 9.0) swing(transformed, ${(0.86).toFixed(2)}, -legSwing);
+else if (bone == 4.0) swing(transformed, ${(1.4).toFixed(2)}, -legSwing);
+else if (bone == 5.0) swing(transformed, ${(1.4).toFixed(2)}, legSwing);`;
+
+/** The instance's colours for the parts that take them, each times its own shade. */
+const CROWD_TINT = `#include <color_vertex>
+{
+  float r = fract(facade) * 8.0;
+  if (r > ${(TINT_ROLE.shirt - 0.5).toFixed(1)} && r < ${(TINT_ROLE.shirt + 0.5).toFixed(1)}) vColor.rgb *= shirt;
+  else if (r > ${(TINT_ROLE.shorts - 0.5).toFixed(1)} && r < ${(TINT_ROLE.shorts + 0.5).toFixed(1)}) vColor.rgb *= unpack(look.x);
+  else if (r > ${(TINT_ROLE.skin - 0.5).toFixed(1)} && r < ${(TINT_ROLE.skin + 0.5).toFixed(1)}) vColor.rgb *= unpack(look.y);
+  else if (r > ${(TINT_ROLE.hair - 0.5).toFixed(1)} && r < ${(TINT_ROLE.hair + 0.5).toFixed(1)}) vColor.rgb *= unpack(look.z);
+}`;
+
+function withCrowd(shader: WebGLProgramParametersWithUniforms, ink: { value: number }): void {
+  shader.uniforms.inkExtra = ink;
+  shader.vertexShader = shader.vertexShader
+    .replace('#include <common>', CROWD_VERTEX_HEAD)
+    .replace('#include <begin_vertex>', CROWD_BEGIN);
+  shader.fragmentShader = shader.fragmentShader
+    .replace(
+      '#include <common>',
+      `#include <common>\nvarying float vMotionFade;\nvarying float vPart;\n${DITHER}`,
+    )
+    .replace(
+      '#include <clipping_planes_fragment>',
+      `#include <clipping_planes_fragment>\nif (${DITHERED}) discard;`,
+    );
+}
+
+/** Everyone in a crowd in one draw call: the same toon, per instance, through the same shadow. */
+export function createCrowdMaterial(
+  gradientMap: Texture,
+  ink: { value: number },
+): MeshToonMaterial {
+  const material = new MeshToonMaterial({ vertexColors: true, gradientMap });
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = linearVertexColors(shader.vertexShader);
+    withCrowd(shader, ink);
+    shader.vertexShader = shader.vertexShader.replace('#include <color_vertex>', CROWD_TINT);
+    // The blob under the feet is a checkerboard of its own, as the rigs' is.
+    shader.fragmentShader = shader.fragmentShader.replace(
+      '#include <clipping_planes_fragment>',
+      `#include <clipping_planes_fragment>\nif (vPart == 0.0 && ${CHECKER}) discard;`,
+    );
+  };
+  material.customProgramCacheKey = () => 'crowd-figure-v1';
+  return material;
+}
+
+/** A crowd's silhouettes behind a house, each in their shirt, in one more call. */
+export function createCrowdXrayMaterial(ink: { value: number }): MeshBasicMaterial {
+  const material = new MeshBasicMaterial(XRAY_LOOK);
+  material.onBeforeCompile = (shader) => {
+    withCrowd(shader, ink);
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vShirt;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvShirt = shirt;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vShirt;')
+      .replace(
+        '#include <clipping_planes_fragment>',
+        `#include <clipping_planes_fragment>\nif (vPart == 0.0) discard;`,
+      )
+      .replace(
+        '#include <color_fragment>',
+        '#include <color_fragment>\ndiffuseColor.rgb = sRGBTransferEOTF(vec4(vShirt, 1.0)).rgb;',
+      );
+  };
+  material.customProgramCacheKey = () => 'crowd-xray-v1';
+  return material;
 }
 
 function withDither(shader: WebGLProgramParametersWithUniforms, fade: Fade, discard: string): void {
@@ -48,7 +158,7 @@ function withDither(shader: WebGLProgramParametersWithUniforms, fade: Fade, disc
 
 /**
  * The walker's toon material: its blob shadow (the `dither` vertices) is a pixel checkerboard,
- * and all of it dithers away as `fade` drops, for a camera squeezed up against it.
+ * and all of it dithers away as `fade` drops: with the zoom, or as someone comes and goes.
  */
 export function createCharacterMaterial(gradientMap: Texture, fade: Fade): MeshToonMaterial {
   const material = new MeshToonMaterial({ vertexColors: true, gradientMap });

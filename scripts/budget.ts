@@ -69,7 +69,8 @@ const BUDGETS: {
     // 182.75: bridges and tunnels, asked for (about 3 KB): the earthworks that drape the
     // approaches and the decks, their walls and portals, in the engine as every ground layer
     // needs them to draw.
-    limit: 182.75 * KB,
+    // 183: everyone's level of detail worked out from a figure's pixels (lod.ts, 0.1 KB).
+    limit: 183 * KB,
     gzip: true,
   },
   // 3.5: just above 3.1 KB. 3.75: the minimap, the other players' name tags and who you are in
@@ -155,7 +156,9 @@ const BUDGETS: {
     // 26.25: no new code; the chunk had no room left, and turning by hand renamed the engine's
     // exports it imports, which moves its gzip by a few bytes either way.
     // 28.25: the walk grid's second level and the deck heights (1.9 KB).
-    limit: 28.25 * KB,
+    // 33.25: people at every zoom, asked for (the crowd's figure and its shader, markers and
+    // their clumps, tags that give way by rank), 4.5 KB, in place of a prism and a boolean.
+    limit: 33.25 * KB,
     gzip: true,
   },
   // The street-name lookup for the sign, a chunk beside the avatar's that loads with it.
@@ -178,10 +181,11 @@ const BUDGETS: {
     gzip: true,
   },
   // The minimap: its index of the city's footprints and drawing them round you, once the map is up.
+  // 2.5: it draws everyone as the same marks as the street now (0.3 KB), culled to its circle.
   {
     label: 'Minimap JS (once the map is up)',
     pattern: 'assets/minimap-view-*.js',
-    limit: 2 * KB,
+    limit: 2.5 * KB,
     gzip: true,
   },
   // The rider (rider.ts) and the bike's rig: the avatar's and the other players' bikes, loaded
@@ -259,7 +263,8 @@ const BUDGETS: {
     // deleting the water's glints and streaks to pay for most of it), asked for.
     // 268.5: the engine's clean-up above.
     // 273.5: the 3 KB of bridges and tunnels in the engine.
-    limit: 273.5 * KB,
+    // 273.75: the engine's share of working out everyone's level of detail (lod.ts, 0.1 KB).
+    limit: 273.75 * KB,
     gzip: true,
     closure: true,
   },

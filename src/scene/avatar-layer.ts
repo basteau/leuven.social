@@ -23,13 +23,20 @@ import type { City } from '../data/city.ts';
 import { DOOR_HALF } from '../data/room-grid.ts';
 import type { Room } from '../data/rooms.ts';
 import type { Presence } from '../data/presence.ts';
+import type { People, Roster } from '../net/people.ts';
 import { Router, TAP_REACH, legsToward } from '../data/route.ts';
 import type { Terrain } from '../data/terrain.ts';
 import { WalkGrid } from '../data/walkable.ts';
 import { avatarState, createAvatar, stepAvatar } from './avatar.ts';
 import type { Avatar, AvatarState } from './avatar.ts';
 import type { Bikes, RideAction, RideState } from './bikes.ts';
-import { XRAY_LOOK, createCharacterMaterial, createXrayMaterial } from './character-material.ts';
+import {
+  XRAY_LOOK,
+  createCharacterMaterial,
+  createCrowdMaterial,
+  createCrowdXrayMaterial,
+  createXrayMaterial,
+} from './character-material.ts';
 import type { Fade } from './character-material.ts';
 import {
   CHARACTER_SCALE,
@@ -40,14 +47,14 @@ import {
   restPose,
 } from './character.ts';
 import type { Outfit } from './character.ts';
-import type { PlayerPose } from './crowd.ts';
+import type { PlayerPose } from './gait.ts';
 import { loose } from './collide.ts';
 import { BAYER } from './facade-material.ts';
 import { LEAD, recentre, screenSteer } from './follow.ts';
 import { loadInteriors } from './interiors.ts';
 import type { Interiors } from './interiors.ts';
-import type { Detail } from './lod.ts';
-import { MAX_ZOOM, PUFF_LAYER } from './lod.ts';
+import type { Detail, GroundRect } from './lod.ts';
+import { MAX_ZOOM, PUFF_LAYER, VIEW_HEIGHT, figureAlpha, figurePixels, groundRect } from './lod.ts';
 import type { MapControls } from './map-controls.ts';
 import { markerDrop, markerGeometry, markerRadius } from './marker.ts';
 import { MeshBuilder, linearVertexColors } from './mesh-builder.ts';
@@ -57,12 +64,13 @@ import { OUTLINE, WALKER } from './palette.ts';
 import { nearestParked } from './parked.ts';
 import { meant, nearestShown, unpackDepth } from './pick.ts';
 import type { MeantTests } from './pick.ts';
-import { createPlayers } from './players.ts';
-import type { PlayersView, Roster } from './players.ts';
+import { FAST as PLAYERS_FAST, SLOW as PLAYERS_SLOW, createPlayers } from './players.ts';
+import type { PlayersView } from './players.ts';
 import { passedVertices, routeMarker } from './route-marker.ts';
 import type { RouteMarker } from './route-marker.ts';
 import { walkSolids } from './solids.ts';
 import { STEP, followRoute, runBlend } from './walker.ts';
+import { FEET_Y } from './crowd-mesh.ts';
 
 /**
  * The avatar in the scene: its figure, its route hint, a refused spot's marker, the camera
@@ -105,12 +113,17 @@ const ON_GROUND = 0.4;
 const SPAWN_SPREAD = 9;
 /** A place chosen from the menu brings the camera at least this close (zoom). */
 const PLACE_ZOOM = 8;
+/** At most this many other players are drawn as the crowd's instanced figures. */
+const CROWD = 600;
+const CROWD_ON_TOUCH = 300;
+/** How long the crowd waits between frames with nobody close moving (ms): 20 a second. */
+const CROWD_FRAME_MS = 50;
+/** A little more ground than the window's (m), and a share of the span, for what rises from it. */
+const PEOPLE_MARGIN = 3;
 /** A refused spot: its greyed marker shakes and goes over this long (s). */
 const NOPE = 0.55;
 /** Under this much view (m), the marker is hidden by what stands in front of it. */
 const NEAR_SPAN = 30;
-/** Feet this far over the ground as drawn, so their ink never dips into the street (m). */
-const FEET_Y = 0.04;
 /** A kerb's step up or down is eased over this half-life (s), not taken in one frame. */
 const KERB_EASE = 0.04;
 /** Within this of a parked bike (m), the bikes' chunk downloads, ready for F. */
@@ -198,6 +211,8 @@ export interface AvatarHost {
   onDoor?(door: { room: string; inside: boolean } | null): void;
   /** Where the other players' name tags go: an element over the canvas, or none. */
   tags: HTMLElement | null;
+  /** The 2D layer the far-out markers are stamped on, over the canvas, or none. */
+  marks: HTMLCanvasElement | null;
   /** Where the avatar is and what it's doing, whenever that changes: for the other players. */
   onMove?(state: PlayerPose): void;
 }
@@ -226,9 +241,9 @@ export interface AvatarLayer {
   goTo(x: number, z: number): void;
   /** Lets go of the route being walked to a picked spot, if any. */
   cancelRoute(): void;
-  /** The full map opened or shut, so the others are told of as dots while it is open. */
-  fullMap(on: boolean): void;
-  /** You, then the other players, as the full map draws them. */
+  /** What the full map looks at (m), told to the network so it sends who's there; null: the camera again. */
+  mapLook(x: number | null, z?: number, reach?: number): void;
+  /** You, for the full map, which reads everyone else from `people()`. */
   presences(): Presence[];
   /** Takes the camera to a spot (m), down to the street, leaving the avatar where it is. */
   lookAt(x: number, z: number): void;
@@ -248,6 +263,8 @@ export interface AvatarLayer {
   detail(detail: Detail, span: number): void;
   /** The other players to draw, or none. */
   others(roster: Roster | null): void;
+  /** The list of them being drawn, for the minimap and the full map. */
+  people(): People | null;
   /** Dresses the avatar: its clothes, skin and hair. */
   dress(outfit: Outfit): void;
   /** Puts the avatar back where it was last time (m), on the open ground nearest, facing `heading`. */
@@ -357,7 +374,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
   const goal = { x: 0, z: 0 };
   const aim = { x: 0, z: 0 };
   /** What the view's span allows, and the span. */
-  let shown: Detail['avatar'] = 'none';
+  let shown = false;
   let span = 560;
   /** Whether the view is close enough to build rooms near the avatar ahead of a visit. */
   let prewarm = false;
@@ -494,11 +511,16 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
   const players = createPlayers({
     scene,
     camera,
-    canvas,
-    body,
-    xray: (color) => createXrayMaterial(fade, color),
+    material: (f) => createCharacterMaterial(host.gradientMap, f),
+    xray: (color, f) => createXrayMaterial(f, color),
+    crowd: (ink) => ({
+      body: createCrowdMaterial(host.gradientMap, ink),
+      xray: createCrowdXrayMaterial(ink),
+    }),
     tags: host.tags,
+    marks: host.marks,
     reducedMotion,
+    cap: window.matchMedia('(pointer: coarse)').matches ? CROWD_ON_TOUCH : CROWD,
     floorAt(at) {
       if (!at.place) {
         const up = at.floor === 1 ? grid.upperHeight(at.x, at.z) : Number.NaN;
@@ -515,19 +537,65 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       }),
   });
   let unlisten: () => void = noop;
-  const othersView: PlayersView = { figures: false, x: 0, z: 0, reach: 0, place: '', floor: 0 };
-  /** Where the view looks, for which of the others to draw. */
-  function playersView(figures = shown === 'figure'): PlayersView {
+  let roster: Roster | null = null;
+  /** What the full map is looking at, while it is. */
+  let mapView: { x: number; z: number; reach: number } | null = null;
+  const othersRect = {} as GroundRect;
+  const othersView: PlayersView = {
+    rect: othersRect,
+    span,
+    width: 0,
+    height: 0,
+    place: '',
+    floor: 0,
+  };
+  /** Where the view looks, and how far it reaches, for who to draw and who to be told of. */
+  function playersView(): PlayersView {
     const t = controls.target;
-    return Object.assign(othersView, {
-      figures,
-      x: t.x,
-      z: t.z,
-      // A half diagonal of the widest screens.
-      reach: span,
-      place: room?.id ?? '',
-      floor: avatar.floor,
-    });
+    const [width, height] = [canvas.clientWidth, canvas.clientHeight];
+    groundRect(
+      t.x,
+      t.z,
+      span,
+      height > 0 ? width / height : 1,
+      host.yaw(),
+      PEOPLE_MARGIN + span * 0.06,
+      othersRect,
+    );
+    othersView.span = span;
+    othersView.width = width;
+    othersView.height = height;
+    othersView.place = room?.id ?? '';
+    othersView.floor = avatar.floor;
+    return othersView;
+  }
+  /** Tells the network who this view wants to hear of: a hidden tab wants nobody. */
+  function look(): void {
+    if (!roster) return;
+    if (document.visibilityState === 'hidden') {
+      const t = controls.target;
+      roster.look(t.x, t.z, 0);
+    } else if (mapView) {
+      roster.look(mapView.x, mapView.z, mapView.reach);
+    } else {
+      const { rect } = playersView();
+      roster.look(rect.x, rect.z, rect.reach);
+    }
+  }
+  /** Back in view, or gone: told to the network straight away, not at the next frame. */
+  const onVisibility = () => {
+    look();
+    if (document.visibilityState === 'visible') wake();
+  };
+  document.addEventListener('visibilitychange', onVisibility);
+  let slowFrame: ReturnType<typeof setTimeout> | 0 = 0;
+  /** A frame in a while, for those who walk in the crowd's one draw call: 20 a second is plenty. */
+  function slowly(): void {
+    if (slowFrame || frame || document.visibilityState === 'hidden') return;
+    slowFrame = setTimeout(() => {
+      slowFrame = 0;
+      wake();
+    }, CROWD_FRAME_MS);
   }
 
   function publishPlace(): void {
@@ -636,7 +704,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     if (!interiors) {
       const close = landmarks.some(([x, z]) => Math.hypot(x - w.x, z - w.z) < ROOMS_NEAR);
       const due = !loadingInteriors && performance.now() >= roomsRetry;
-      if (close && shown === 'figure' && due) void loadRooms().catch(() => {});
+      if (close && shown && due) void loadRooms().catch(() => {});
       return;
     }
     const near = !room && prewarm ? interiors.beside(w.x, w.z, PREWARM_NEAR) : undefined;
@@ -655,12 +723,6 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       prewarmed.add(near);
     });
   }
-
-  /** The other players, as last given, and a pose to read them into for the full map. */
-  let crowd: Roster | null = null;
-  /** The full map is open, so the roster, when it comes, is told to send its dots. */
-  let mapOpen = false;
-  const seen: PlayerPose = { x: 0, z: 0, heading: 0, speed: 0, mode: 'foot', place: '', floor: 0 };
 
   /** The route being walked was picked (a tap, the map); a bike's own short ones aren't. */
   let picked = false;
@@ -947,7 +1009,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       if (routed && !w.route && !sx && !sz) sounds.routeEnd();
     }
     // Nobody sees an idle figure from far out: it stands still there.
-    if (shown !== 'figure' || reducedMotion) w.still = Math.max(w.still, 1e3);
+    if (!shown || reducedMotion) w.still = Math.max(w.still, 1e3);
     // A frame too short for a step (the first after a tap often is: its time stamp comes before
     // the tap's) keeps what the last step said, and a route or keys just given keep it going too:
     // otherwise the path is drawn and the loop stops before the first step.
@@ -980,7 +1042,8 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       prevPhase + Math.atan2(Math.sin(w.phase - prevPhase), Math.cos(w.phase - prevPhase)) * blend;
     place(x, z, heading, phase, dt);
     // The others step here; the frame drawn places them (`detail`), as it does on a pan.
-    busy = players.step(now, dt) || busy;
+    const pace = players.step(dt);
+    busy = pace === PLAYERS_FAST || busy;
     tell();
 
     if (Math.hypot(w.x - publishedAt[0], w.z - publishedAt[1]) >= 1) publish();
@@ -1024,6 +1087,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     // Zooming in may have woken it already, from inside the render above.
     if (busy && !frame) frame = requestAnimationFrame(tick);
     else publish();
+    if (!busy && pace === PLAYERS_SLOW) slowly();
   }
 
   /** Poses and places the figure where the avatar is drawn. */
@@ -1039,8 +1103,8 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     avatar.rise = floor - host.groundAt(x, z);
     [feet[0], feet[1], feet[2]] = [x, floor, z];
     const onFoot = avatar.mode === 'foot' || (bikes?.busy ?? false);
-    // Drawn at every zoom, under its diamond when that's too far out to read it.
-    character.mesh.visible = onFoot;
+    // Drawn till it has dithered away under its diamond (`fade`, by the zoom).
+    character.mesh.visible = onFoot && fade.value > 0;
     if (!character.mesh.visible) return;
     applyPose(
       character,
@@ -1139,18 +1203,25 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     get calls() {
       return (character.mesh.visible ? 2 : 0) + players.calls;
     },
-    others(roster) {
-      crowd = roster;
-      if (mapOpen) roster?.fullMap(true);
+    others(next) {
       unlisten();
-      // News from far off, or from nobody the view would draw, is worth no frame.
-      unlisten = roster
-        ? roster.listen(() => {
-            if (players.drawn > 0 || players.near(performance.now(), playersView())) wake();
+      roster = next;
+      // News from nobody the view shows, or that a marker is enough to show, is worth no frame.
+      unlisten = next
+        ? next.listen(() => {
+            const want = players.news(playersView());
+            if (want === PLAYERS_FAST) wake();
+            else if (want === PLAYERS_SLOW) slowly();
           })
         : noop;
-      players.use(roster);
+      players.use(next);
+      look();
       wake();
+    },
+    people: () => players.people(),
+    mapLook(x, z = 0, reach = 0) {
+      mapView = x === null ? null : { x, z, reach };
+      look();
     },
     dress(next) {
       outfit = next;
@@ -1221,18 +1292,31 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     detail(detail, height) {
       span = height;
       prewarm = detail.prewarm;
+      // The avatar goes by the same band of a figure's pixels as a crowd's figure does.
+      fade.value = figureAlpha(figurePixels(canvas.clientHeight, VIEW_HEIGHT / span));
+      bikes?.dither(fade.value);
+      const foot = avatar.mode === 'foot' || (bikes?.busy ?? false);
+      character.mesh.visible = foot && fade.value > 0;
       // The others, placed for every frame drawn, the camera's too: their tags follow a pan.
-      players.place(playersView(detail.avatar === 'figure'));
+      const view = playersView();
+      players.place(view);
+      if (!mapView && document.visibilityState !== 'hidden' && roster) {
+        roster.look(view.rect.x, view.rect.z, view.rect.reach);
+      }
       // How many are drawn, for the smoke test.
       if (canvas.dataset.players !== String(players.drawn)) {
         canvas.dataset.players = String(players.drawn);
       }
-      if (detail.avatar === shown) return;
-      shown = detail.avatar;
+      // A frame the camera drew is one too, for whoever is still easing: they ask for the next.
+      const want = players.pace();
+      if (want === PLAYERS_FAST) wake();
+      else if (want === PLAYERS_SLOW) slowly();
+      if (detail.figure === shown) return;
+      shown = detail.figure;
       const w = avatar.walker;
       place(w.x, w.z, w.heading, w.phase, 0);
       // Close enough for figures now: one loop, to catch up with who joined while they weren't.
-      if (shown === 'figure') wake();
+      if (shown) wake();
     },
     goTo(x, z) {
       asked++;
@@ -1257,36 +1341,13 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     },
     presences() {
       const w = avatar.walker;
-      const now = performance.now();
-      const list: Presence[] = [
-        { id: 'me', x: w.x, z: w.z, heading: Math.PI - w.heading, self: true },
-      ];
-      const known = new Set<number>();
-      for (const { id } of crowd?.entries() ?? []) {
-        if (crowd?.pose(id, now, seen)) {
-          known.add(id);
-          list.push({
-            id: String(id),
-            x: seen.x,
-            z: seen.z,
-            heading: Math.PI - seen.heading,
-            self: false,
-          });
-        }
-      }
-      // Everyone further off, as the server last said.
-      for (const { id, x, z } of crowd?.dots() ?? []) {
-        if (!known.has(id)) list.push({ id: String(id), x, z, heading: 0, self: false });
-      }
-      return list;
-    },
-    fullMap(on) {
-      mapOpen = on;
-      crowd?.fullMap(on);
+      return [{ id: 'me', x: w.x, z: w.z, heading: Math.PI - w.heading, self: true }];
     },
     dispose() {
       disposed = true;
       unlisten();
+      clearTimeout(slowFrame as ReturnType<typeof setTimeout>);
+      document.removeEventListener('visibilitychange', onVisibility);
       players.dispose();
       cancelAnimationFrame(frame);
       cancelIdle(prewarming);

@@ -1,4 +1,4 @@
-import type { Dot } from './minimap.ts';
+import type { People } from '../net/people.ts';
 
 /**
  * What changes every frame or so and only a few corners of the page draw (the minimap): kept out
@@ -9,8 +9,8 @@ interface Live {
   me: { x: number; z: number; facing: number } | null;
   /** Which way the view looks, clockwise from north (radians). */
   heading: number;
-  /** Everyone else, as dots in their shirts' colours. */
-  others: readonly Dot[];
+  /** Everyone else this browser knows of, once there is a connection. */
+  people: People | null;
   /** Says that something changed. */
   changed(): void;
   /** Calls `news` on every change; returns an unsubscribe. */
@@ -22,7 +22,7 @@ function createLive(): Live {
   return {
     me: null,
     heading: 0,
-    others: [],
+    people: null,
     changed() {
       for (const news of listeners) news();
     },

@@ -198,6 +198,25 @@ describe('people', () => {
     expect(people.fade[0]).toBeLessThan(0.2);
   });
 
+  test('a fade goes by the clock, however seldom anyone looks', () => {
+    const people = createPeople();
+    people.join(0, 1, 'A', OUTFIT, state(0));
+    people.sample(0);
+    people.sample(5000); // an idle view: nobody asked for a while
+    people.join(5000, 2, 'B', OUTFIT, state(9));
+    people.sample(5110);
+    expect(people.fade[people.slotOf(2)]).toBeCloseTo(0.5, 5);
+    people.leave(5110, 2);
+    people.sample(5165);
+    expect(people.fade[people.slotOf(2)]).toBeCloseTo(0.25, 5);
+  });
+
+  test('a floor below the street stays below it', () => {
+    const people = createPeople();
+    people.join(0, 1, 'A', OUTFIT, { ...state(0), place: 'crypt', floor: -2 });
+    expect(people.floor(0)).toBe(-2);
+  });
+
   test('new clothes and names', () => {
     const people = createPeople();
     people.join(0, 1, 'A', OUTFIT, state(1));
