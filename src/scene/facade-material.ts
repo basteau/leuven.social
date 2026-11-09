@@ -35,7 +35,7 @@ export { lampLight, setLightField } from './shader/lamp-light.ts';
 export type { LampLight } from './shader/lamp-light.ts';
 
 /** How much of the ground the darkest contact shadow covers, in pixels of its dither. */
-const CONTACT_DARK = 0.36;
+const CONTACT_DARK = 0.26;
 
 /**
  * Which surface a fragment is, from its `facade` code (the table is facade-codes.ts and SURFACE in
@@ -235,7 +235,7 @@ export function createContactMaterial(cell: { value: number }): MeshBasicMateria
         `#include <clipping_planes_fragment>\nif (bayer4(gl_FragCoord.xy / uDitherCell) >= vDark * ${f(CONTACT_DARK)}) discard;`,
       );
   };
-  material.customProgramCacheKey = () => 'contact-v1';
+  material.customProgramCacheKey = () => 'contact-v2';
   return material;
 }
 

@@ -4,14 +4,38 @@ import type { MeshBuilder, V3 } from './mesh-builder.ts';
 
 /**
  * The dark at the foot of what stands on the ground, so it stands there rather than floats: a band
- * along every wall that faces the open, from `facade` 1 at the wall to 0 at its edge, drawn in the ordered dither (`createContactMaterial`). Part of the furniture
- * chunk. Walls shared with a neighbour in the cell get none.
+ * along every wall that faces the open, from `facade` 1 at the wall to 0 at its edge, drawn in the
+ * ordered dither (`createContactMaterial`). Part of the furniture chunk. Walls shared with a
+ * neighbour in the cell get none. Each band is mitred into the next one, at a corner or across a
+ * neighbour's front, so it runs round a building as one strip; where no wall carries it on, it
+ * tapers to nothing over its own reach instead of stopping in a square block.
  */
 
 /** How far a wall's band reaches out over the ground (m), and how high it lies over the terrain. */
-export const CONTACT = { reach: 1.15, lift: 0.225, shortest: 1.2, piece: 12 } as const;
+export const CONTACT = { reach: 0.55, lift: 0.225, shortest: 0.6, piece: 12, miter: 1.5 } as const;
 
 const key = (x: number, z: number) => `${Math.round(x * 10)},${Math.round(z * 10)}`;
+
+interface Wall {
+  ax: number;
+  az: number;
+  bx: number;
+  bz: number;
+  length: number;
+  /** Out of the building, unit length. */
+  nx: number;
+  nz: number;
+}
+
+/** Where a band's edge meets the next wall's, measured from their shared corner. */
+function miter(a: Wall, b: Wall): readonly [number, number] {
+  const [mx, mz] = [a.nx + b.nx, a.nz + b.nz];
+  const len = Math.hypot(mx, mz);
+  // Walls folding back on each other have no corner to go round.
+  if (len < 0.3) return [a.nx * CONTACT.reach, a.nz * CONTACT.reach];
+  const out = (Math.min(CONTACT.miter, 2 / len) * CONTACT.reach) / len;
+  return [mx * out, mz * out];
+}
 
 export function addContacts(
   mesh: MeshBuilder,
@@ -26,7 +50,9 @@ export function addContacts(
       edges.add(`${key(ring[i]!, ring[i + 1]!)}>${key(ring[j]!, ring[j + 1]!)}`);
     }
   }
-  const lifted = (x: number, z: number): V3 => [x, ground(x, z) + CONTACT.lift, z];
+  const walls: Wall[] = [];
+  const startingAt = new Map<string, Wall>();
+  const endingAt = new Map<string, Wall>();
   for (const { ring } of near) {
     for (let i = 0; i < ring.length; i += 2) {
       const j = (i + 2) % ring.length;
@@ -35,30 +61,57 @@ export function addContacts(
       if (length < CONTACT.shortest) continue;
       // Its neighbour walks this edge the other way round: a party wall has nothing to darken.
       if (edges.has(`${key(bx, bz)}>${key(ax, az)}`)) continue;
-      const [nx, nz] = [
-        ((bz - az) / length) * CONTACT.reach,
-        (-(bx - ax) / length) * CONTACT.reach,
-      ];
-      // In pieces, so a long wall's band follows the ground rather than cutting under a rise.
-      const pieces = Math.max(1, Math.ceil(length / CONTACT.piece));
-      for (let k = 0; k < pieces; k++) {
-        const [t0, t1] = [k / pieces, (k + 1) / pieces];
-        const [x0, z0, x1, z1] = [
-          ax + (bx - ax) * t0,
-          az + (bz - az) * t0,
-          ax + (bx - ax) * t1,
-          az + (bz - az) * t1,
-        ];
-        mesh.quad(
-          lifted(x0, z0),
-          lifted(x1, z1),
-          lifted(x1 + nx, z1 + nz),
-          lifted(x0 + nx, z0 + nz),
-          0,
-          [0, 1, 0],
-          [1, 1, 0, 0],
-        );
-      }
+      const wall = { ax, az, bx, bz, length, nx: (bz - az) / length, nz: -(bx - ax) / length };
+      walls.push(wall);
+      startingAt.set(key(ax, az), wall);
+      endingAt.set(key(bx, bz), wall);
+    }
+  }
+  const lifted = (x: number, z: number): V3 => [x, ground(x, z) + CONTACT.lift, z];
+  const up: V3 = [0, 1, 0];
+  for (const w of walls) {
+    const before = endingAt.get(key(w.ax, w.az));
+    const after = startingAt.get(key(w.bx, w.bz));
+    const square = [w.nx * CONTACT.reach, w.nz * CONTACT.reach] as const;
+    const [startX, startZ] = before ? miter(before, w) : square;
+    const [endX, endZ] = after ? miter(w, after) : square;
+    const taper = Math.min(CONTACT.reach, w.length / 3);
+    const [capStart, capEnd] = [before ? 0 : taper, after ? 0 : taper];
+    const span = w.length - capStart - capEnd;
+    const [dx, dz] = [(w.bx - w.ax) / w.length, (w.bz - w.az) / w.length];
+    // The wall's foot at `s` metres along it, and the band's outer edge there.
+    const at = (s: number) => {
+      const u = Math.min(1, Math.max(0, (s - capStart) / span));
+      let scale = 1;
+      if (s < capStart) scale = s / capStart;
+      else if (s > w.length - capEnd) scale = (w.length - s) / capEnd;
+      const [x, z] = [w.ax + dx * s, w.az + dz * s];
+      return [
+        x,
+        z,
+        x + (startX + (endX - startX) * u) * scale,
+        z + (startZ + (endZ - startZ) * u) * scale,
+      ] as const;
+    };
+    // In pieces, so a long wall's band follows the ground rather than cutting under a rise.
+    const pieces = Math.max(1, Math.ceil(span / CONTACT.piece));
+    const stops = [0, capStart];
+    for (let k = 1; k < pieces; k++) stops.push(capStart + (k / pieces) * span);
+    stops.push(w.length - capEnd, w.length);
+    for (let k = 0; k + 1 < stops.length; k++) {
+      const [s0, s1] = [stops[k]!, stops[k + 1]!];
+      if (s1 - s0 < 1e-3) continue;
+      const [x0, z0, ox0, oz0] = at(s0);
+      const [x1, z1, ox1, oz1] = at(s1);
+      mesh.quad(
+        lifted(x0, z0),
+        lifted(x1, z1),
+        lifted(ox1, oz1),
+        lifted(ox0, oz0),
+        0,
+        up,
+        [1, 1, 0, 0],
+      );
     }
   }
 }
