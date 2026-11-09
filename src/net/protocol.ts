@@ -155,12 +155,6 @@ export type ServerMessage =
   /** Everyone on the map, for the full map's dots. */
   | { type: 'dots'; players: Dot[] };
 
-/**
- * The close code for a connection that the same account replaced by signing in elsewhere. It
- * is final: the old tab must not reconnect and push the new one out in turn.
- */
-export const CLOSE_REPLACED = 4001;
-
 const TAG = {
   state: 1,
   view: 2,

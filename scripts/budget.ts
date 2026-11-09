@@ -74,7 +74,8 @@ const BUDGETS: {
   {
     label: 'Account sheet JS (when opened)',
     pattern: 'assets/account-sheet-*.js',
-    limit: 2.5 * KB,
+    // 3: telling a guest who they are and that joining keeps a name of their own (0.4 KB).
+    limit: 3 * KB,
     gzip: true,
   },
   // Other people, once the map is up: accounts, the presence socket (and Portable's
@@ -85,7 +86,8 @@ const BUDGETS: {
     // 9: interest management's messages (who comes into view and leaves it, compact moves, doors,
     // the count, the full map's dots) and telling the server where the map looks (0.9 KB).
     // 9.5: delta moves (0.2 KB), about 5 bytes for a figure nearby where a whole move is 9.
-    limit: 9.5 * KB,
+    // 9.75: guests and tabs (0.2 KB): who you are from the server, renames, and one tab driving.
+    limit: 9.75 * KB,
     gzip: true,
   },
   // The page itself paints the loading screen before any script or stylesheet: the tokens, its

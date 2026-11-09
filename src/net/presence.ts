@@ -1,9 +1,11 @@
 /**
  * The live connection to the other players: one WebSocket to `/ws` on the page's own origin,
- * which comes back by itself after a drop. The session cookie says who we are; without one we
- * are a guest who sees everyone but isn't seen. The avatar's state goes out through
- * `send`, throttled (throttle.ts); what comes back is decoded and handed to the callbacks, minus
- * our own echo.
+ * which comes back by itself after a drop. A cookie says who we are, an account or this browser's
+ * guest, and the server says so back (`onIdentity`), again whenever that changes under us: signing
+ * in or out in another tab reaches this one here. One tab of a person moves their figure: the last
+ * to `drive`, or else the newest left. The avatar's state goes out through `send`, throttled
+ * (throttle.ts), from that tab alone; the others follow the figure (`onOwn`). What comes back is
+ * decoded and handed to the callbacks, minus our own echo.
  *
  * Each connection starts with `onWelcome`: forget every other player then, since ids are only
  * good for one connection, and the joins of those nearby follow. The server tells it only of the
@@ -13,17 +15,22 @@
 import * as WebSockets from '@portable/websockets';
 
 import { cellAt } from './interest.ts';
-import { CLOSE_REPLACED, decodeServerMessage, encodeClientMessage, moved } from './protocol.ts';
+import { decodeServerMessage, encodeClientMessage, moved } from './protocol.ts';
 import type { Dot, Move, Outfit, PlayerState, PlayerUpdate } from './protocol.ts';
 import { sendDelay } from './throttle.ts';
 import type { Sent } from './throttle.ts';
 
-/**
- * `connecting` at first, `online` while connected, `offline` while it tries again, `replaced`
- * once the same account signed in somewhere else (final), `closed` after `close()` or when the
- * server turned us away for good.
- */
-export type PresenceStatus = 'connecting' | 'online' | 'offline' | 'replaced' | 'closed';
+/** `connecting` at first, `online` while connected, `offline` while it tries again, `closed` after `close()` or when the server turned us away for good. */
+export type PresenceStatus = 'connecting' | 'online' | 'offline' | 'closed';
+
+/** Who this connection speaks for. */
+export interface Identity {
+  guest: boolean;
+  /** Over the cap on guests from one address: nobody sees them until there is room or they join. */
+  unseen: boolean;
+  name: string;
+  outfit: Outfit;
+}
 
 export interface RemotePlayer {
   id: number;
@@ -35,8 +42,16 @@ export interface RemotePlayer {
 export interface PresenceOptions {
   /** Defaults to `/ws` on the page's origin, `wss:` on an `https:` page. */
   url?: string | URL;
-  /** Our id on this connection, or 0 as a guest. Drop every remote player you had. */
+  /** Our figure's id on this connection. Drop every remote player you had. */
   onWelcome?: (you: number) => void;
+  /** Who we are: on connecting, and again whenever that changes (signing in or out anywhere). */
+  onIdentity?: (identity: Identity) => void;
+  /** A figure we can see is someone else now, in place: same id, a new name and look. */
+  onRenamed?: (id: number, name: string, outfit: Outfit) => void;
+  /** Our figure moved, driven from another of our tabs. */
+  onOwn?: (state: PlayerState) => void;
+  /** Whether a claim to drive should be made as soon as a socket opens. */
+  inUse?: () => boolean;
   /** Those who came within what we hear of, in one batch a tick. */
   onJoin?: (players: RemotePlayer[]) => void;
   /** Those who went out of it, gone or further off. */
@@ -62,6 +77,8 @@ export interface Presence {
   view(x: number, z: number): void;
   /** Whether the full map is open and wants a dot for everyone online. */
   dots(on: boolean): void;
+  /** This tab is the one in use: it moves the figure from now on, whichever had it before. */
+  drive(): void;
   /** Disconnects for good. */
   close(): void;
 }
@@ -71,7 +88,7 @@ const VIEW_STEP = 40;
 const VIEW_INTERVAL = 250;
 
 /** A server that turned us away on purpose (1008) won't change its mind on a retry. */
-const FINAL = new Set([CLOSE_REPLACED, 1008]);
+const FINAL = new Set([1008]);
 
 const ignore = () => {};
 
@@ -86,6 +103,8 @@ export function connectPresence(options: PresenceOptions = {}): Presence {
   let status: PresenceStatus | undefined;
   let online = false;
   let you = 0;
+  /** Whether this tab moves the figure; the server has the last word. */
+  let driving = false;
   let latest: PlayerState | null = null;
   let sent: Sent | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -100,7 +119,7 @@ export function connectPresence(options: PresenceOptions = {}): Presence {
   const lastMoves = new Map<number, Move>();
 
   const report = (next: PresenceStatus) => {
-    if (status === next || status === 'replaced' || status === 'closed') return;
+    if (status === next || status === 'closed') return;
     status = next;
     options.onStatus?.(next);
   };
@@ -120,6 +139,7 @@ export function connectPresence(options: PresenceOptions = {}): Presence {
     open({ send, signal }) {
       online = true;
       sent = null;
+      driving = false;
       signal.addEventListener('abort', () => {
         online = false;
         clearTimeout(timer);
@@ -134,11 +154,16 @@ export function connectPresence(options: PresenceOptions = {}): Presence {
         toldAt = now();
       }
       if (wantsDots) send(encodeClientMessage({ type: 'dots', on: true }));
-      // The server forgot us with the old connection: say where we are before anything else.
-      if (latest) {
-        send(encodeClientMessage({ type: 'state', state: latest }));
-        sent = { state: latest, at: now() };
-        schedule(sendDelay(sent, latest, now()));
+      // The tab being used takes its figure back at once, and says where it is before anything
+      // else (the server forgot it with the old connection). Any other waits to be told it drives.
+      if (options.inUse?.()) {
+        driving = true;
+        send(encodeClientMessage({ type: 'drive' }));
+        if (latest) {
+          send(encodeClientMessage({ type: 'state', state: latest }));
+          sent = { state: latest, at: now() };
+          schedule(sendDelay(sent, latest, now()));
+        }
       }
     },
   });
@@ -153,7 +178,7 @@ export function connectPresence(options: PresenceOptions = {}): Presence {
 
   /** Sends the latest state if it is time, and comes back when it will be. */
   function pump() {
-    if (!online || !latest) return;
+    if (!online || !driving || !latest) return;
     const wait = sendDelay(sent, latest, now());
     if (wait === 0) {
       writer.write(encodeClientMessage({ type: 'state', state: latest })).catch(ignore);
@@ -191,6 +216,23 @@ export function connectPresence(options: PresenceOptions = {}): Presence {
         lastMoves.clear();
         options.onWelcome?.(you);
         break;
+      case 'identity':
+        options.onIdentity?.(message);
+        break;
+      case 'renamed':
+        if (message.id !== you) options.onRenamed?.(message.id, message.name, message.outfit);
+        break;
+      case 'driving':
+        if (driving === message.on) break;
+        driving = message.on;
+        if (driving) {
+          // Our turn: say where the figure is now, at once.
+          sent = null;
+          pump();
+        } else {
+          clearTimeout(timer);
+        }
+        break;
       case 'joins': {
         const others = message.players.filter((p) => p.id !== you);
         for (const { id, state } of others) places.set(id, state);
@@ -222,8 +264,15 @@ export function connectPresence(options: PresenceOptions = {}): Presence {
         break;
       }
       case 'placed':
+        if (message.id === you) {
+          // Our figure, moved from another tab. Should this tab take over, it goes on from here.
+          if (driving) break;
+          latest = message.state;
+          options.onOwn?.(message.state);
+          break;
+        }
         // A door: the figure is somewhere else at once, told in full.
-        if (message.id !== you && places.has(message.id)) {
+        if (places.has(message.id)) {
           places.set(message.id, message.state);
           options.onStates?.([{ id: message.id, state: message.state }]);
         }
@@ -241,11 +290,10 @@ export function connectPresence(options: PresenceOptions = {}): Presence {
   }
 
   /** The stream ends only for good: closed by us, or by a server that won't have us back. */
-  const ended = (error?: unknown) => {
+  const ended = () => {
     online = false;
     clearTimeout(timer);
-    const replaced = error instanceof WebSockets.CloseError && error.code === CLOSE_REPLACED;
-    report(replaced ? 'replaced' : 'closed');
+    report('closed');
   };
   readable.pipeTo(new WritableStream({ write: receive })).then(ended, ended);
 
@@ -261,6 +309,13 @@ export function connectPresence(options: PresenceOptions = {}): Presence {
     dots(on) {
       wantsDots = on;
       if (online) writer.write(encodeClientMessage({ type: 'dots', on })).catch(ignore);
+    },
+    drive() {
+      if (!online || driving) return;
+      driving = true;
+      writer.write(encodeClientMessage({ type: 'drive' })).catch(ignore);
+      sent = null;
+      pump();
     },
     close() {
       clearTimeout(timer);

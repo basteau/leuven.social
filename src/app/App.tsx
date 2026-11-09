@@ -286,6 +286,7 @@ export function App() {
   useEffect(() => {
     const data = document.documentElement.dataset;
     data.account = account.signedIn ? account.name : '';
+    data.guest = account.signedIn ? '' : (account.name ?? '');
     data.online = online === null ? '' : String(online);
   }, [account, online]);
   const [accountSheet, setAccountSheet] = useState({ open: false, used: false });
@@ -782,7 +783,7 @@ export function App() {
                 openAccount();
               }}
             >
-              {account.signedIn ? (
+              {account.name && account.outfit ? (
                 <>
                   <span
                     className="you-dot"
@@ -792,11 +793,12 @@ export function App() {
                     <span className="sr-only">You: </span>
                     {account.name}
                   </span>
+                  {!account.signedIn && <span className="you-join">Join</span>}
                 </>
               ) : (
                 'Join'
               )}
-              {online !== null && online > (account.signedIn ? 1 : 0) && (
+              {online !== null && online > 1 && (
                 <span className="you-count">
                   <PeopleIcon />
                   {online}

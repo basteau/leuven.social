@@ -1043,6 +1043,8 @@ kbd {
 }
 
 .you.primary {
+  /* A guest's name and Join beside it: wider where there's room to read the whole name. */
+  max-inline-size: min(22rem, 40vw);
   background: var(--accent);
   color: var(--paper);
   padding-inline-start: var(--space-m);
@@ -1060,6 +1062,12 @@ kbd {
 .you-name {
   overflow: clip;
   text-overflow: ellipsis;
+}
+
+.you-join {
+  flex: none;
+  padding-inline-start: var(--space-s);
+  border-inline-start: 1px solid;
 }
 
 .you-count {

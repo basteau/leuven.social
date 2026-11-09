@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from 'bun:test';
 
 import { connectPresence } from './presence.ts';
-import type { PresenceOptions, PresenceStatus, RemotePlayer } from './presence.ts';
-import { CLOSE_REPLACED, decodeClientMessage, encodeServerMessage, quantise } from './protocol.ts';
+import type { Identity, PresenceOptions, PresenceStatus, RemotePlayer } from './presence.ts';
+import { decodeClientMessage, encodeServerMessage, quantise } from './protocol.ts';
 import type { Outfit, PlayerState, PlayerUpdate, ServerMessage } from './protocol.ts';
 import { HEARTBEAT, SEND_INTERVAL } from './throttle.ts';
 
@@ -125,11 +125,18 @@ function open(options: PresenceOptions = {}) {
   return { presence, log, socket };
 }
 
+/** A socket that says it is driving, as the first tab of a person is told. */
+const serve = async (socket: FakeSocket, driving = true) => {
+  socket.accept();
+  await flush();
+  socket.deliver({ type: 'driving', on: driving });
+  await flush();
+};
+
 async function online(options: PresenceOptions = {}) {
   const session = open(options);
   await flush();
-  session.socket().accept();
-  await flush();
+  await serve(session.socket());
   return session;
 }
 
@@ -238,8 +245,7 @@ describe('connectPresence', () => {
     const second = socket();
     expect(second).not.toBe(first);
     expect(second.sent).toEqual([]);
-    second.accept();
-    await flush();
+    await serve(second);
     expect(log.statuses.at(-1)).toBe('online');
     expect(second.states()).toEqual([{ ...here, x: 40 }]);
     presence.close();
@@ -253,14 +259,6 @@ describe('connectPresence', () => {
     await flush();
     expect(socket().sent).toEqual([]);
     presence.close();
-  });
-
-  test('being replaced by another sign-in is final', async () => {
-    const { socket, log } = await online();
-    socket().hangUp(CLOSE_REPLACED, 'Signed in somewhere else');
-    await advance(60_000);
-    expect(FakeSocket.all.length).toBe(1);
-    expect(log.statuses).toEqual(['connecting', 'online', 'replaced']);
   });
 
   test('a server that turns us away for good is closed', async () => {
@@ -297,6 +295,133 @@ describe('connectPresence', () => {
     } finally {
       delete page.location;
     }
+  });
+
+  describe('one figure, moved from one tab at a time', () => {
+    test('a tab that isn’t the one driving sends no state, and goes on from where the figure went', async () => {
+      const followed: PlayerState[] = [];
+      const session = open({ onOwn: (s) => followed.push(s) });
+      await flush();
+      await serve(session.socket(), false);
+      const { presence, socket } = session;
+      socket().deliver({ type: 'welcome', you: 5 });
+      await flush();
+      presence.send(here);
+      await advance(SEND_INTERVAL);
+      expect(socket().states()).toEqual([]);
+
+      const moved = { ...here, x: 44, z: 55 };
+      socket().deliver({ type: 'placed', id: 5, state: moved });
+      await flush();
+      expect(followed).toEqual([moved]);
+
+      // Told to drive (the other tab closed): the figure carries on from where it was.
+      socket().deliver({ type: 'driving', on: true });
+      await flush();
+      expect(socket().states()).toEqual([moved]);
+      presence.close();
+    });
+
+    test('drive() takes over at once, and says so', async () => {
+      const session = open();
+      await flush();
+      await serve(session.socket(), false);
+      const { presence, socket } = session;
+      presence.send(here);
+      presence.drive();
+      await flush();
+      expect(socket().sent.map((b) => decodeClientMessage(b)?.type)).toEqual(['drive', 'state']);
+      // Already driving: nothing more to say.
+      presence.drive();
+      await flush();
+      expect(socket().sent.length).toBe(2);
+      presence.close();
+    });
+
+    test('drive() before a socket is up does nothing yet', async () => {
+      const { presence, socket } = open();
+      await flush();
+      presence.drive();
+      await flush();
+      expect(socket().sent).toEqual([]);
+      presence.close();
+    });
+
+    test('losing the drive stops the state going out', async () => {
+      const { presence, socket } = await online();
+      presence.send(here);
+      expect(socket().states()).toEqual([here]);
+      socket().deliver({ type: 'driving', on: false });
+      await flush();
+      presence.send({ ...here, x: 50 });
+      await advance(SEND_INTERVAL * 3);
+      expect(socket().states()).toEqual([here]);
+      // A figure update for ourselves while driving is just old news.
+      presence.drive();
+      await flush();
+      socket().deliver({ type: 'placed', id: 0, state: { ...here, x: 99 } });
+      await flush();
+      expect(socket().states().at(-1)?.x).not.toBe(99);
+      presence.close();
+    });
+
+    test('the tab in use claims its figure as soon as the socket opens', async () => {
+      const { presence, socket } = open({ inUse: () => true });
+      presence.send(here);
+      await flush();
+      socket().accept();
+      await flush();
+      expect(socket().sent.map((b) => decodeClientMessage(b)?.type)).toEqual(['drive', 'state']);
+      presence.close();
+    });
+
+    test('claiming as it opens survives the server’s earlier “not you”', async () => {
+      const { presence, socket } = open({ inUse: () => true });
+      presence.send(here);
+      await flush();
+      socket().accept();
+      await flush();
+      expect(socket().states()).toEqual([here]);
+      // Sent on connecting, before the claim reached the server; then its answer to the claim.
+      socket().deliver({ type: 'driving', on: false });
+      await flush();
+      presence.send({ ...here, x: 30 });
+      await advance(SEND_INTERVAL);
+      expect(socket().states()).toEqual([here]);
+      socket().deliver({ type: 'driving', on: true });
+      await flush();
+      expect(socket().states().at(-1)?.x).toBeCloseTo(30, 3);
+      presence.close();
+    });
+
+    test('a tab not in use waits to be told', async () => {
+      const { presence, socket } = open({ inUse: () => false });
+      presence.send(here);
+      await flush();
+      socket().accept();
+      await flush();
+      expect(socket().sent).toEqual([]);
+      presence.close();
+    });
+  });
+
+  test('tells who we are, and who a figure has become', async () => {
+    const identities: Identity[] = [];
+    const renames: [number, string, Outfit][] = [];
+    const { presence, socket } = await online({
+      onIdentity: (identity) => identities.push(identity),
+      onRenamed: (id, name, o) => renames.push([id, name, o]),
+    });
+    socket().deliver({ type: 'welcome', you: 5 });
+    const identity = { guest: true, unseen: false, name: 'Guest Sunny Otter', outfit };
+    socket().deliver({ type: 'identity', ...identity });
+    await flush();
+    expect(identities).toEqual([{ type: 'identity', ...identity }] as never);
+    socket().deliver({ type: 'renamed', id: 5, name: 'Me', outfit });
+    socket().deliver({ type: 'renamed', id: 7, name: 'Ann', outfit });
+    await flush();
+    expect(renames).toEqual([[7, 'Ann', outfit]]);
+    presence.close();
   });
 
   test('works without any callbacks', async () => {
