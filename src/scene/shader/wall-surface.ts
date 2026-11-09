@@ -39,6 +39,12 @@ const WALL_SKIN = `void wallSkin(inout vec3 albedo, vec2 p, float pixel, float i
  * A wall with its windows. `vFacade` holds its top height plus a code (facade-codes.ts): each
  * building's own rhythm of bays and storeys seeded by that height, its style of window, trim and
  * door; a church's lancets, civic Gothic's niches and statues, a shop's glazed ground floor.
+ *
+ * Comments inside this string ship in the engine's bundle, so the notes that aren't needed line by
+ * line live here. A lit shop's shine is emissive (`glowEmit`) and its pane stays mostly its own
+ * glass and goods, so a street lamp's pool can't add up to white; a door's frame blocks that light.
+ * `fromJoin` is the metres from a wall's join: `vJoin` runs 1 to 0 along the wall as `vBay` runs
+ * over its bays, so their rates give the count of bays without wrapping at a page of bay numbers.
  */
 export const WALL = `${WALL_SKIN}
 void wallSurface(inout vec3 albedo, vec3 base, inout vec3 glowEmit) {
@@ -165,8 +171,6 @@ void wallSurface(inout vec3 albedo, vec3 base, inout vec3 glowEmit) {
   glass *= 1.0 - 0.45 * reveal;
   vec3 room = bulb * mix(0.72, 1.12, paneV) * (1.0 - 0.45 * curtain);
   vec3 paneColour = mix(mix(glass, uLit, glow * detail), room, lit);
-  // A lit shop's shine is emissive (glowEmit); the pane stays mostly its own glass and goods, so
-  // a street lamp's pool on it can't add up to white, and frames and goods keep reading.
   paneColour = mix(paneColour, mix(glass, shopLight, 0.18), shopLit);
   paneColour = mix(paneColour, vec3(0.05, 0.05, 0.06), bars * 0.85);
   albedo = mix(albedo, paneColour, coverage * 0.8);
@@ -251,8 +255,6 @@ void wallSurface(inout vec3 albedo, vec3 base, inout vec3 glowEmit) {
   // Where this house starts against the one next door: a zinc downpipe down the join, strapped
   // to the wall every 2.4 m, and a line of its shade beside it, so the change of house reads as
   // something built, not a seam in the paint. Gone before it is thinner than a pixel.
-  // Metres along the wall from the join: vJoin runs 1 to 0 over the wall as vBay runs over its
-  // bays, so their rates give the bays' count without wrapping at a page of bay numbers.
   float fromJoin = (1.0 - vJoin) * fwidth(vBay) / max(fwidth(vJoin), 1e-6) * size.x;
   float pipe = step(0.5, vJoin) * step(0.0, p.y);
   float pipeFine = 1.0 - smoothstep(0.045, 0.08, pixel);
@@ -271,7 +273,6 @@ void wallSurface(inout vec3 albedo, vec3 base, inout vec3 glowEmit) {
   float doorFrame = shopDoor * clamp(step(0.42, abs(doorU - doorAt)) + step(abs(p.y - 1.0), 0.04) + step(p.y, 0.2), 0.0, 1.0);
   float frameFine = doorFrame * (1.0 - smoothstep(0.06, 0.12, pixel));
   albedo = mix(albedo, wood, frameFine);
-  // Frames block the shop's light from inside, so a lit door still shows its wood.
   glowEmit *= 1.0 - frameFine;
 }
 
