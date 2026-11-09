@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 
-import { MailError, codeMail, consoleMailer, mailerFrom, noMailer, resendMailer } from './mail.ts';
+import {
+  MailError,
+  TEST_SENDER,
+  codeMail,
+  consoleMailer,
+  mailerFrom,
+  resendMailer,
+} from './mail.ts';
 
 const asError = (promise: Promise<unknown>) =>
   promise.then(
@@ -86,18 +93,44 @@ describe('sending through Resend', () => {
   });
 });
 
-describe('the mailer without a key', () => {
-  test('in production nothing can be sent, and it says so', async () => {
-    const off = mailerFrom({ NODE_ENV: 'production' });
-    expect(off).toBe(noMailer);
-    expect(off.ready).toBe(false);
-    expect(await asError(off.send('a@b.co', '1'))).toBeInstanceOf(MailError);
-    expect(mailerFrom({ NODE_ENV: 'production', RESEND_API_KEY: 'k' })).toBe(noMailer);
+const refusing = (status: number, body: unknown) =>
+  resendMailer({
+    apiKey: 'k',
+    from: 'a@b.co',
+    fetch: (() => Promise.resolve(Response.json(body, { status }))) as unknown as typeof fetch,
   });
 
-  test('in development the code goes to the console', async () => {
-    expect(mailerFrom({}).ready).toBe(true);
-    expect(mailerFrom({ RESEND_API_KEY: 'k' }).ready).toBe(true);
+const kindOf = async (status: number, body: unknown) =>
+  ((await asError(refusing(status, body).send('a@b.co', '123456'))) as MailError).kind;
+
+describe('what a refusal means', () => {
+  test('an address the provider won’t take is the person’s to fix', async () => {
+    expect(await kindOf(422, { name: 'validation_error', message: 'Invalid `to` field.' })).toBe(
+      'recipient',
+    );
+  });
+
+  test('a provider out of quota is a wait', async () => {
+    expect(await kindOf(429, { name: 'daily_quota_exceeded', message: 'Quota.' })).toBe('busy');
+  });
+
+  test('an unverified domain or a bad key is ours', async () => {
+    expect(await kindOf(403, { name: 'validation_error', message: 'Not verified.' })).toBe(
+      'failed',
+    );
+    expect(await kindOf(422, { name: 'validation_error', message: 'Invalid `from`.' })).toBe(
+      'failed',
+    );
+  });
+});
+
+describe('the mailer the environment asks for', () => {
+  test('production won’t go without a key', () => {
+    expect(() => mailerFrom({ NODE_ENV: 'production' })).toThrow('RESEND_API_KEY');
+  });
+
+  test('in development without a key the code goes to the console', async () => {
+    expect(mailerFrom({}).send).toBeFunction();
     const lines: string[] = [];
     await consoleMailer((line) => lines.push(line)).send('a@b.co', '123456');
     expect(lines.join()).toContain('123456');
@@ -105,7 +138,13 @@ describe('the mailer without a key', () => {
     await consoleMailer().send('a@b.co', '123456');
   });
 
-  test('with a key and a sender it goes to Resend', () => {
-    expect(mailerFrom({ RESEND_API_KEY: 'k', MAIL_FROM: 'a@b.co' }).ready).toBe(true);
+  test('a key alone uses Resend’s test sender, MAIL_FROM its own', () => {
+    expect(TEST_SENDER).toContain('@resend.dev');
+    for (const env of [
+      { NODE_ENV: 'production', RESEND_API_KEY: 'k' },
+      { RESEND_API_KEY: 'k', MAIL_FROM: 'a@b.co' },
+    ]) {
+      expect(mailerFrom(env).send).toBeFunction();
+    }
   });
 });

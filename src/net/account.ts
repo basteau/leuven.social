@@ -28,8 +28,6 @@ export interface Me {
   at: PlayerState | null;
   /** A new account that hasn't chosen or kept the name it was given yet. */
   fresh: boolean;
-  /** Whether sign-in codes can be sent at all; false before the mail is set up. */
-  mail: boolean;
 }
 
 export type AccountErrorCode =
@@ -37,15 +35,19 @@ export type AccountErrorCode =
   | 'name'
   | 'email'
   | 'undeliverable'
+  | 'digits'
   | 'code'
   | 'expired'
   | 'spent'
-  | 'mail-off'
   | 'mail-failed'
+  | 'mail-busy'
   | 'sent'
   | 'signed-out'
+  | 'codes'
+  | 'guesses'
   | 'busy'
   | 'accounts-full'
+  | 'cookies'
   | 'offline'
   | 'server';
 
@@ -64,21 +66,25 @@ export class AccountError extends Error {
 }
 
 const MESSAGES: Record<AccountErrorCode, string> = {
-  taken: 'That name is taken.',
+  taken: 'That name is taken. Try another.',
   name: `Use ${MIN_NAME} to ${MAX_NAME} letters, digits, _, - or . for your name, with no dot at either end.`,
-  email: 'That doesn’t look like an email address. Check it and try again.',
+  email: 'Enter your email address, like name@example.com.',
   undeliverable: 'That address can’t receive mail. Use another one.',
+  digits: `Enter all ${CODE_LENGTH} digits from the email.`,
   code: 'That code isn’t right. Check the digits, or send a new one.',
   expired: 'That code has expired. Send a new one.',
   spent: 'Too many wrong tries for that code. Send a new one.',
-  'mail-off': 'Joining isn’t switched on yet. Keep exploring as you are.',
-  'mail-failed': 'Couldn’t send the email just now. Try again in a minute.',
+  'mail-failed': 'Couldn’t send the email. Try another address, or try again later.',
+  'mail-busy': 'Too many emails are going out right now. Try again in a few minutes.',
   sent: 'A code is already on its way. Check your inbox.',
   'signed-out': 'You were signed out. Join again to keep your changes.',
+  codes: 'Too many codes for this address or connection. Try again in an hour.',
+  guesses: 'Too many wrong codes. Wait 15 minutes, then try again.',
   busy: 'Too many tries. Wait a minute, then try again.',
   'accounts-full': 'Too many new accounts from here today. Send a new code later.',
+  cookies: 'Your browser blocked the sign-in. Allow cookies for this site, then try again.',
   offline: 'Can’t reach the server. Check your connection, then try again.',
-  server: 'Something went wrong on our side. Try again in a moment.',
+  server: 'The server had a problem. Try again in a moment.',
 };
 
 const fail = (code: AccountErrorCode, cause?: unknown, retryAfter = 0) =>
@@ -92,8 +98,10 @@ const CODES: Record<string, AccountErrorCode> = {
   OTP_EXPIRED: 'expired',
   TOO_MANY_ATTEMPTS: 'spent',
   TOO_MANY_ACCOUNTS: 'accounts-full',
-  MAIL_OFF: 'mail-off',
+  TOO_MANY_CODES: 'codes',
+  TOO_MANY_GUESSES: 'guesses',
   MAIL_FAILED: 'mail-failed',
+  MAIL_BUSY: 'mail-busy',
   CODE_ALREADY_SENT: 'sent',
   USERNAME_IS_ALREADY_TAKEN: 'taken',
   USERNAME_TOO_SHORT: 'name',
@@ -120,21 +128,27 @@ async function failure(response: Response): Promise<AccountError> {
     retryAfter?: unknown;
   } | null;
   const code = typeof body?.code === 'string' ? CODES[body.code] : undefined;
-  if (response.status === 429) {
-    if (code === 'accounts-full') return fail(code);
-    if (code !== 'sent') return fail('busy');
+  if (code === 'sent') {
     return fail(
       'sent',
       body,
       typeof body?.retryAfter === 'number' ? body.retryAfter : CODE_COOLDOWN_SECONDS,
     );
   }
+  if (response.status === 429) return fail(code ?? 'busy', body);
   if (response.status === 401) return fail('signed-out');
   return fail(code ?? 'server', body ?? response.status);
 }
 
+/** Longer than the server gives the mail provider, so a hung request ends in a sentence. */
+const POST_TIMEOUT_MS = 20_000;
+
 const post = (path: string, body: unknown) =>
-  request(path, { method: 'POST', body: JSON.stringify(body) });
+  request(path, {
+    method: 'POST',
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(POST_TIMEOUT_MS),
+  });
 
 const putMe = (body: unknown, keepalive = false) =>
   request('/me', { method: 'PUT', body: JSON.stringify(body), keepalive });
@@ -153,7 +167,7 @@ export async function sendCode(email: string): Promise<void> {
 
 /** Gives a code back: signs in, making the account if this address has none. */
 export async function verifyCode(email: string, code: string): Promise<Me> {
-  if (code.length !== CODE_LENGTH || /\D/.test(code)) throw fail('code');
+  if (code.length !== CODE_LENGTH || /\D/.test(code)) throw fail('digits');
   await succeed(await post('/auth/sign-in/email-otp', { email: normaliseEmail(email), otp: code }));
   return signedIn();
 }
@@ -174,10 +188,13 @@ export async function nameFree(name: string): Promise<boolean | null> {
   return typeof body?.available === 'boolean' ? body.available : null;
 }
 
-/** The account right after signing in; a browser that dropped the cookie is our failure. */
+/**
+ * The account right after signing in, when the server has already said yes: one lost request isn't
+ * worth the person retyping a code that's now spent. Still a guest means the cookie was dropped.
+ */
 async function signedIn(): Promise<Me> {
-  const account = await me();
-  if (!account || account.guest) throw fail('server');
+  const account = await me().catch(() => me());
+  if (!account || account.guest) throw fail('cookies');
   return account;
 }
 
@@ -200,7 +217,6 @@ export async function me(): Promise<Me | null> {
     outfit: body.outfit,
     at: body.at ?? null,
     fresh: body.fresh === true,
-    mail: body.mail !== false,
   };
 }
 

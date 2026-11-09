@@ -15,7 +15,6 @@ const ORIGIN = 'http://localhost:5173';
 /** Instead of a mail provider: the last code each address got. */
 const inbox = new Map<string, string>();
 const fakeMailer: Mailer = {
-  ready: true,
   send(to, code) {
     inbox.set(to, code);
     return Promise.resolve();
@@ -42,6 +41,7 @@ const baseConfig = {
   secret: SECRET,
   baseURL: ORIGIN,
   quiet: true,
+  mailer: fakeMailer,
 };
 
 /** A code that isn't `right`. */
@@ -204,7 +204,7 @@ describe('signing in with a code', () => {
   test('a new address gets an account named after its guest, fresh until it says so', async () => {
     const jar = new Jar();
     const guest = await as(jar, () => account.me());
-    expect(guest).toMatchObject({ guest: true, mail: true });
+    expect(guest).toMatchObject({ guest: true });
     const me = await codeIn(jar);
     expect(me.guest).toBe(false);
     expect(me.fresh).toBe(true);
@@ -365,7 +365,7 @@ describe('signing in with a code', () => {
     }
     const over = await postJson(new Jar(), SEND_CODE, { email });
     expect(over.status).toBe(429);
-    expect(await over.json()).toMatchObject({ code: 'TOO_MANY_REQUESTS' });
+    expect(await over.json()).toMatchObject({ code: 'TOO_MANY_CODES' });
   });
 
   test('wrong codes are capped for one address, from anywhere', async () => {
@@ -478,7 +478,7 @@ describe('choosing a name', () => {
     await codeIn(other);
     expect(as(other, () => account.rename('marie2'))).rejects.toMatchObject({
       code: 'taken',
-      message: 'That name is taken.',
+      message: 'That name is taken. Try another.',
     });
     await wait(10);
     expect(await as(owner, () => account.rename('MARIE2'))).toMatchObject({ name: 'MARIE2' });
@@ -530,15 +530,18 @@ describe('the code routes under limits', () => {
     return { running, post, signedIn, rename };
   };
 
-  test('with no mail set up, a code answers 503 and the page is told up front', async () => {
-    const { running, post } = await start({ rateLimit: false });
-    const refused = await post(SEND_CODE, { email: 'a@example.com' });
-    expect(refused.status).toBe(503);
-    expect(await refused.json()).toMatchObject({ code: 'MAIL_OFF' });
-    const me = await realFetch(new URL('/api/me', running.url));
-    expect(await me.json()).toMatchObject({ guest: true, mail: false });
-    // Guests still play.
-    expect(me.headers.getSetCookie().join()).toContain('leuven_guest=');
+  test('an address the provider refuses is the person’s to fix, a full provider a wait', async () => {
+    let kind: 'recipient' | 'busy' = 'recipient';
+    const { post } = await start({
+      mailer: { send: () => Promise.reject(new MailError('no', kind)) },
+    });
+    const bad = await post(SEND_CODE, { email: anAddress() });
+    expect(bad.status).toBe(400);
+    expect(await bad.json()).toMatchObject({ code: 'EMAIL_UNDELIVERABLE' });
+    kind = 'busy';
+    const full = await post(SEND_CODE, { email: anAddress() });
+    expect(full.status).toBe(503);
+    expect(await full.json()).toMatchObject({ code: 'MAIL_BUSY' });
   });
 
   test('a provider that refuses is a sentence, and doesn’t count against them', async () => {
@@ -546,7 +549,6 @@ describe('the code routes under limits', () => {
     const { post } = await start({
       rateLimit: false,
       mailer: {
-        ready: true,
         send(to, code) {
           if (fail) return Promise.reject(new MailError('Resend said 403: not verified'));
           inbox.set(to, code);
@@ -565,7 +567,7 @@ describe('the code routes under limits', () => {
   test('an unexpected failure from a mailer is still a sentence', async () => {
     const { post } = await start({
       rateLimit: false,
-      mailer: { ready: true, send: () => Promise.reject(new Error('boom')) },
+      mailer: { send: () => Promise.reject(new Error('boom')) },
     });
     expect((await post(SEND_CODE, { email: anAddress() })).status).toBe(502);
   });
@@ -578,7 +580,7 @@ describe('the code routes under limits', () => {
     expect(first.map((r) => r.status)).toEqual(Array(30).fill(200));
     const over = await post(SEND_CODE, { email: anAddress() });
     expect(over.status).toBe(429);
-    expect(await over.json()).toMatchObject({ code: 'TOO_MANY_REQUESTS' });
+    expect(await over.json()).toMatchObject({ code: 'TOO_MANY_CODES' });
     // Another address isn't touched, the check and the codes are limited by themselves.
     expect((await post(SEND_CODE, { email: anAddress() }, '203.0.113.10')).status).toBe(200);
   });
@@ -600,7 +602,7 @@ describe('the code routes under limits', () => {
     expect((await post(SEND_CODE, { email: anAddress() })).status).toBe(200);
     const over = await post(SEND_CODE, { email: anAddress() });
     expect(over.status).toBe(429);
-    expect(await over.json()).toMatchObject({ code: 'TOO_MANY_REQUESTS' });
+    expect(await over.json()).toMatchObject({ code: 'TOO_MANY_CODES' });
   });
 
   test('a reserved name doesn’t read as free before it is refused', async () => {
@@ -638,7 +640,7 @@ describe('the code routes under limits', () => {
 
 describe('accounts from before email', () => {
   const path = `${Bun.env.TMPDIR ?? '/tmp'}/leuven-${crypto.randomUUID()}.sqlite`;
-  const open = (mailer?: Mailer) =>
+  const open = (mailer: Mailer = fakeMailer) =>
     startServer({ ...baseConfig, databasePath: path, rateLimit: false, mailer });
   afterAll(async () => {
     await Promise.all(
@@ -729,7 +731,6 @@ describe('accounts', () => {
       outfit: expect.any(Object),
       at: null,
       fresh: false,
-      mail: true,
     });
     expect(await as(bram, () => account.me())).toEqual(me);
   });
@@ -739,7 +740,7 @@ describe('accounts', () => {
       (e: unknown) => e,
     );
     expect(error).toBeInstanceOf(AccountError);
-    expect(error).toMatchObject({ code: 'taken', message: 'That name is taken.' });
+    expect(error).toMatchObject({ code: 'taken', message: 'That name is taken. Try another.' });
   });
 
   test('no password route is left, and only the public auth endpoints are reachable', async () => {

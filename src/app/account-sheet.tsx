@@ -25,7 +25,7 @@ import './account-sheet.css';
 
 /** Who you are on the map: signed in, or a guest with the name and look the server gave them. */
 export type Account =
-  | { signedIn: false; name?: string; outfit?: Outfit; unseen?: boolean; mailOff?: boolean }
+  | { signedIn: false; name?: string; outfit?: Outfit; unseen?: boolean }
   | { signedIn: true; name: string; outfit: Outfit; fresh?: boolean };
 
 export interface AccountSheetProps {
@@ -70,9 +70,9 @@ function Preview({ outfit }: { outfit: Outfit }) {
 }
 
 /** What went wrong, said at once to a screen reader; nothing while all is well. */
-const Problem = ({ text }: { text: string | null }) =>
+const Problem = ({ id, text }: { id: string; text: string | null }) =>
   text && (
-    <p className="account-error" role="alert">
+    <p id={id} className="account-error" role="alert">
       {text}
     </p>
   );
@@ -134,7 +134,7 @@ function NameForm({ current, fresh, fieldRef, save, nameFree, onSaved }: NameFor
   const hint =
     free === false ? 'That name is taken.' : free === true ? 'That name is free.' : nameRules;
   return (
-    <form className="account-form" onSubmit={(event) => void submit(event)}>
+    <form className="account-form" noValidate onSubmit={(event) => void submit(event)}>
       <div className="field">
         <label htmlFor={`${uid}-name`}>{fresh ? 'Your name' : 'Name'}</label>
         <div className="name-row">
@@ -143,17 +143,14 @@ function NameForm({ current, fresh, fieldRef, save, nameFree, onSaved }: NameFor
             id={`${uid}-name`}
             name="username"
             required
-            minLength={MIN_NAME}
             maxLength={MAX_NAME}
-            pattern="[A-Za-z0-9_.\-]+"
-            title={nameRules}
             autoComplete="username"
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
             enterKeyHint="done"
-            aria-describedby={`${uid}-hint`}
-            aria-invalid={free === false}
+            aria-describedby={error ? `${uid}-hint ${uid}-error` : `${uid}-hint`}
+            aria-invalid={free === false || error !== null}
             value={name}
             onChange={(event) => typed(event.target.value)}
           />
@@ -167,7 +164,7 @@ function NameForm({ current, fresh, fieldRef, save, nameFree, onSaved }: NameFor
           {hint}
         </small>
       </div>
-      <Problem text={error} />
+      <Problem id={`${uid}-error`} text={error} />
       {fresh && (
         <button type="submit" className="action primary" disabled={busy || free === false}>
           {busy ? 'Saving…' : 'Use this name'}
@@ -270,7 +267,10 @@ export function AccountSheet(props: AccountSheetProps) {
       const { code: why, retryAfter = 0 } = failure as { code?: string; retryAfter?: number };
       // One went out a moment ago and is still good: on to where it can be typed.
       if (why === 'sent') waiting(address, retryAfter);
-      else setError(messageOf(failure));
+      else {
+        setError(messageOf(failure));
+        fieldRef.current?.select();
+      }
     } finally {
       setBusy(false);
     }
@@ -296,7 +296,7 @@ export function AccountSheet(props: AccountSheetProps) {
   }
 
   async function verify(digits: string) {
-    if (digits.length !== CODE_LENGTH || busy) return;
+    if (busy) return;
     lastTried.current = digits;
     setBusy(true);
     setError(null);
@@ -330,11 +330,9 @@ export function AccountSheet(props: AccountSheetProps) {
     ? fresh
       ? 'Pick your name'
       : account.name
-    : account.mailOff
-      ? (account.name ?? 'Join Leuven')
-      : step === 'code'
-        ? 'Check your email'
-        : 'Join Leuven';
+    : step === 'code'
+      ? 'Check your email'
+      : 'Join Leuven';
 
   return (
     <dialog ref={dialogRef} className="menu account" aria-labelledby={`${uid}-title`}>
@@ -435,24 +433,13 @@ export function AccountSheet(props: AccountSheetProps) {
                   Sign out
                 </button>
               </div>
-              <Problem text={error} />
+              <Problem id={`${uid}-error`} text={error} />
             </>
           )}
-          {!account.signedIn && account.mailOff && (
-            <p className="menu-lede">
-              Joining isn’t switched on yet. Keep exploring
-              {account.name && (
-                <>
-                  {' '}
-                  as <strong>{account.name}</strong>
-                </>
-              )}
-              .
-            </p>
-          )}
-          {!account.signedIn && !account.mailOff && step === 'email' && (
+          {!account.signedIn && step === 'email' && (
             <form
               className="account-form"
+              noValidate
               onSubmit={(event) => {
                 event.preventDefault();
                 void send(email.trim());
@@ -485,19 +472,25 @@ export function AccountSheet(props: AccountSheetProps) {
                   spellCheck={false}
                   inputMode="email"
                   enterKeyHint="send"
+                  aria-invalid={error !== null}
+                  aria-describedby={error ? `${uid}-error` : undefined}
                   value={email}
-                  onChange={(event) => setEmail(event.target.value)}
+                  onChange={(event) => {
+                    setEmail(event.target.value);
+                    setError(null);
+                  }}
                 />
               </label>
-              <Problem text={error} />
+              <Problem id={`${uid}-error`} text={error} />
               <button type="submit" className="action primary" disabled={busy}>
                 {busy ? 'Sending…' : 'Send code'}
               </button>
             </form>
           )}
-          {!account.signedIn && !account.mailOff && step === 'code' && (
+          {!account.signedIn && step === 'code' && (
             <form
               className="account-form"
+              noValidate
               onSubmit={(event) => {
                 event.preventDefault();
                 void verify(code);
@@ -518,6 +511,8 @@ export function AccountSheet(props: AccountSheetProps) {
                   inputMode="numeric"
                   pattern="[0-9]*"
                   enterKeyHint="go"
+                  aria-invalid={error !== null}
+                  aria-describedby={error ? `${uid}-error` : undefined}
                   value={code}
                   onChange={(event) => {
                     // Not `maxLength`: a pasted "123 456" must arrive whole to be cleaned up.
@@ -530,7 +525,7 @@ export function AccountSheet(props: AccountSheetProps) {
                   }}
                 />
               </label>
-              <Problem text={error} />
+              <Problem id={`${uid}-error`} text={error} />
               <button type="submit" className="action primary" disabled={busy}>
                 {busy ? 'Checking…' : 'Continue'}
               </button>

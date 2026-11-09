@@ -135,7 +135,7 @@ The size and render budgets are enforced by `bun run verify`; if one is exceeded
 | Minimap JS (once the map is up)                                                 | 2 KB             | `scripts/budget.ts` |
 | Full map JS and CSS (when first opened)                                         | 8 KB, 1.6 KB     | `scripts/budget.ts` |
 | Account sheet JS and CSS (when first opened)                                    | 4.25 KB, 1.25 KB | `scripts/budget.ts` |
-| Multiplayer JS: accounts, presence, protocol (once the map is up)               | 10 KB            | `scripts/budget.ts` |
+| Multiplayer JS: accounts, presence, protocol (once the map is up)               | 10.25 KB         | `scripts/budget.ts` |
 | First-load JS (shell + engine)                                                  | 268.5 KB         | `scripts/budget.ts` |
 | CSS loaded with the page, gzipped                                               | 4.1 KB           | `scripts/budget.ts` |
 | HTML, with the loading screen inline, gzipped                                   | 7 KB             | `scripts/budget.ts` |

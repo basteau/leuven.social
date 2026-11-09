@@ -58,7 +58,6 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
   let account: Account = { signedIn: false };
   /** A new account yet to choose its name, and whether sign-in codes can be sent: as `me` said. */
   let fresh = false;
-  let mailOff = false;
   /** What the socket last said about who we are, if it has yet. */
   let identity: Identity | null = null;
   /** The look on the avatar, to wear another only when it changed. */
@@ -249,11 +248,8 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
 
   /** The server says who this tab is now: the same, whichever tab caused it. */
   function apply(who: Identity | Me): void {
-    // Only `Me` knows these: the socket doesn't tell a new account or whether codes can be sent.
-    if ('fresh' in who) {
-      fresh = who.fresh;
-      mailOff = !who.mail;
-    }
+    // Only `Me` knows this: the socket doesn't tell a new account.
+    if ('fresh' in who) fresh = who.fresh;
     settle(
       who.guest
         ? {
@@ -261,7 +257,6 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
             name: who.name,
             outfit: who.outfit,
             unseen: 'unseen' in who && who.unseen,
-            mailOff,
           }
         : { signedIn: true, name: who.name, outfit: who.outfit, fresh },
     );

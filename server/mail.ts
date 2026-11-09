@@ -1,7 +1,7 @@
 /**
  * Sign-in codes by mail, through Resend's HTTP API (no SDK). Without a key, in development the
- * code goes to this server's console so signing in works locally, and in production nothing can
- * be sent: sending a code answers plainly and the guests carry on. Nothing is ever pretended.
+ * code goes to this server's console so signing in works locally; production won't start without
+ * one, as without its secret.
  */
 
 import * as Log from '@portable/log';
@@ -14,28 +14,31 @@ const log = Log.create('leuven:mail');
 const TIMEOUT_MS = 8000;
 const RESEND = 'https://api.resend.com/emails';
 
+/** Sender when `MAIL_FROM` isn't set. Resend delivers its mail only to the account's own address. */
+export const TEST_SENDER = 'Leuven <onboarding@resend.dev>';
+
+/** Why a mail didn't go: this address is no good, the provider is full, or anything else. */
+export type MailFailure = 'recipient' | 'busy' | 'failed';
+
 /** A failed send; `message` is for the server's log and names the provider's reason. */
 export class MailError extends Error {
   override name = 'MailError';
+  constructor(
+    message: string,
+    readonly kind: MailFailure = 'failed',
+  ) {
+    super(message);
+  }
 }
 
 export interface Mailer {
-  /** Whether a code can be sent at all. */
-  readonly ready: boolean;
   /** Mails `code` to `to`, or throws a `MailError` saying why it couldn't. */
   send(to: string, code: string): Promise<void>;
 }
 
-/** Mail isn't set up: nothing can go out. */
-export const noMailer: Mailer = {
-  ready: false,
-  send: () => Promise.reject(new MailError('mail is not set up')),
-};
-
 /** Development: the code on the console, so a sign-in works with no account at a provider. */
 export function consoleMailer(write: (line: string) => void = (line) => log.info(line)): Mailer {
   return {
-    ready: true,
     send(to, code) {
       write(`${code} is the code for ${to}`);
       return Promise.resolve();
@@ -60,6 +63,12 @@ export function codeMail(code: string): { subject: string; text: string; html: s
 const hexOf = (bytes: ArrayBuffer) =>
   Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, '0')).join('');
 
+/** What a refusal means for the person waiting: Resend names a bad address in a 422 about `to`. */
+function failureOf(status: number, reason: string): MailFailure {
+  if (status === 429) return 'busy';
+  return status === 422 && reason.includes('`to`') ? 'recipient' : 'failed';
+}
+
 export interface ResendOptions {
   apiKey: string;
   from: string;
@@ -70,7 +79,6 @@ export interface ResendOptions {
 export function resendMailer(options: ResendOptions): Mailer {
   const { apiKey, from, fetch: post = fetch, timeoutMs = TIMEOUT_MS } = options;
   return {
-    ready: true,
     async send(to, code) {
       // The same code to the same address is one mail, however many times this request is retried.
       const digest = await crypto.subtle.digest(
@@ -103,22 +111,22 @@ export function resendMailer(options: ResendOptions): Mailer {
       // Whatever the provider says goes in a log line; the key never does.
       throw new MailError(
         `Resend said ${response.status}: ${reason.replaceAll(apiKey, '[key]').slice(0, 300)}`,
+        failureOf(response.status, reason),
       );
     },
   };
 }
 
-/** The mailer the environment asks for, and a word in the log about what it means. */
+/** The mailer the environment asks for; production has to be able to send. */
 export function mailerFrom(env: Record<string, string | undefined>): Mailer {
   const { RESEND_API_KEY: apiKey, MAIL_FROM: from } = env;
-  if (apiKey && from) return resendMailer({ apiKey, from });
-  if (env.NODE_ENV === 'production') {
-    const missing = [apiKey ? '' : 'RESEND_API_KEY', from ? '' : 'MAIL_FROM'].filter(Boolean);
-    log.warn(
-      `${missing.join(' and ')} not set: nobody can sign in until they are (docs/DEPLOY.md); guests can still play`,
-    );
-    return noMailer;
+  if (apiKey) {
+    if (!from) log.warn('no MAIL_FROM: codes reach only the Resend account’s own address');
+    return resendMailer({ apiKey, from: from || TEST_SENDER });
   }
-  log.info('no RESEND_API_KEY and MAIL_FROM: sign-in codes are printed here');
+  if (env.NODE_ENV === 'production') {
+    throw new Error('RESEND_API_KEY must be set in production (see docs/DEPLOY.md).');
+  }
+  log.info('no RESEND_API_KEY: sign-in codes are printed here');
   return consoleMailer();
 }

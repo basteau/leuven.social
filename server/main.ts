@@ -6,8 +6,8 @@
  *   BETTER_AUTH_SECRET   required when NODE_ENV=production
  *   BETTER_AUTH_URL      where the site is served; Vite's http://localhost:5173 in dev
  *   TRUSTED_ORIGINS      more origins, comma-separated (dev adds localhost on any port)
- *   RESEND_API_KEY       sends sign-in codes; without it, dev prints them and production can't
- *   MAIL_FROM            the verified sender, such as Leuven <hello@leuven.social>
+ *   RESEND_API_KEY       sends sign-in codes; required in production, dev prints them without it
+ *   MAIL_FROM            a sender on a domain verified in Resend, such as Leuven <hello@leuven.social>
  *   DEBUG                @portable/log patterns; leuven:* at info by default
  */
 

@@ -6,7 +6,7 @@
  *   /api/auth/*      better-auth, only the paths in PUBLIC_AUTH_PATHS
  *   POST /api/auth/email-otp/send-verification-otp   { email }: mails a sign-in code
  *   POST /api/auth/sign-in/email-otp                 { email, otp }: signs in or makes the account
- *   GET  /api/me       { guest, name, outfit, at, fresh, mail }: an account, or this browser's guest
+ *   GET  /api/me       { guest, name, outfit, at, fresh }: an account, or this browser's guest
  *   PUT  /api/me       { outfit } or { name }: keeps it and tells everyone online
  *   GET  /api/health   { ok, online, players, tickMs, tickMaxMs, bytesPerSecond }
  *   /ws                presence (world.ts); the session cookie decides the account, else the guest
@@ -37,7 +37,7 @@ import {
 } from './auth.ts';
 import type { AuthConfig, NewUser } from './auth.ts';
 import { createGuests, guestAccount, guestKey, guestName } from './guest.ts';
-import { noMailer } from './mail.ts';
+import { MailError } from './mail.ts';
 import type { Mailer } from './mail.ts';
 import { randomOutfit } from './outfit.ts';
 import { createStore } from './store.ts';
@@ -80,7 +80,7 @@ export interface ServerConfig {
   tick?: number;
   saveEvery?: number;
   /** Where sign-in codes go. Without one, none can be sent. */
-  mailer?: Mailer;
+  mailer: Mailer;
   /** How many accounts one address may make in an hour. */
   accountsPerHour?: number;
   /** Sign-in codes the whole server mails in an hour, for tests. */
@@ -174,6 +174,16 @@ function withBody(request: Request, body: unknown): Request {
   return new Request(request.url, { method: 'POST', headers, body: JSON.stringify(body) });
 }
 
+/** A send that failed, as the sentence it should become: a bad address is theirs to fix. */
+function mailProblem(error: unknown): Response {
+  const kind = error instanceof MailError ? error.kind : 'failed';
+  if (kind === 'recipient') {
+    return problem(400, 'EMAIL_UNDELIVERABLE', 'That address can’t receive mail.');
+  }
+  if (kind === 'busy') return problem(503, 'MAIL_BUSY', 'Too many emails just now.');
+  return problem(502, 'MAIL_FAILED', 'Couldn’t send the email.');
+}
+
 /** better-auth knows who holds a name, not which are kept back: the sheet must say so too. */
 async function asksForReservedName(request: Request): Promise<boolean> {
   const name = (await readJson(request.clone()))?.username;
@@ -196,7 +206,7 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
   await migrateAuth(authConfig);
   const auth = createAuth(authConfig);
   const store = createStore(db);
-  const mailer = config.mailer ?? noMailer;
+  const { mailer } = config;
   const limited = config.rateLimit !== false;
   const base = new URL(config.baseURL);
   const ownerOf = db.query<{ id: string }, [string]>('SELECT id FROM "user" WHERE username = ?');
@@ -288,10 +298,10 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
   /** Takes what a code costs from every limit on it, or answers with the one that refuses it. */
   async function spendOnCode(ip: string, box: string, now: Date): Promise<Response | null> {
     if (limited && (await spent(codesFromAddress, ip, now))) {
-      return problem(429, 'TOO_MANY_REQUESTS', 'Too many codes from here. Try again later.');
+      return problem(429, 'TOO_MANY_CODES', 'Too many codes from here. Try again later.');
     }
     if (limited && (await spent(codesEverywhere, 'all', now))) {
-      return problem(429, 'TOO_MANY_REQUESTS', 'Too many codes just now. Try again later.');
+      return problem(429, 'TOO_MANY_CODES', 'Too many codes just now. Try again later.');
     }
     const wait = await codeWait.take(box, { now });
     if (!wait.allowed) {
@@ -306,7 +316,7 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
     }
     if (!(await codesAnHour.take(box, { now })).allowed) {
       await giveBack(codeWait, box, now);
-      return problem(429, 'TOO_MANY_REQUESTS', 'Too many codes for this address. Try again later.');
+      return problem(429, 'TOO_MANY_CODES', 'Too many codes for this address. Try again later.');
     }
     if (limited) {
       await codesFromAddress.take(ip, { now });
@@ -321,7 +331,6 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
    * a mail that didn't go must say so, so the code is made here and sent here.
    */
   async function sendCode(request: Request): Promise<Response> {
-    if (!mailer.ready) return problem(503, 'MAIL_OFF', 'Joining isn’t switched on yet.');
     const email = emailIn(await readJson(request));
     if (!isEmail(email)) return problem(400, 'INVALID_EMAIL', 'Enter an email address.');
     // Accounts from before email have no mailbox behind them; docs/MULTIPLAYER.md says what next.
@@ -341,7 +350,7 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
       await giveBack(codeWait, box, now);
       await giveBack(codesAnHour, box, now);
       log.warn('a sign-in code didn’t go out: %s', error instanceof Error ? error.message : error);
-      return problem(502, 'MAIL_FAILED', 'Couldn’t send the email.');
+      return mailProblem(error);
     }
     return json({ success: true });
   }
@@ -360,7 +369,7 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
     // and the codes a mailbox can be sent.
     const guesser = `${email}|${clientKey(request.headers.get('x-real-ip'))}`;
     if (await spent(wrongCodes, guesser, at())) {
-      return problem(429, 'TOO_MANY_REQUESTS', 'Too many tries. Wait a while, then try again.');
+      return problem(429, 'TOO_MANY_GUESSES', 'Too many tries. Wait a while, then try again.');
     }
     const before = await session(request);
     const guestId = await guests.read(request);
@@ -406,7 +415,6 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
       name: world.who(guest.userId)?.name ?? guest.name,
       outfit: guest.outfit,
       at: world.stateOf(guest.userId),
-      mail: mailer.ready,
     });
     reply.headers.append('set-cookie', await guests.cookie(id));
     return reply;

@@ -28,8 +28,8 @@ The database is `./.data/leuven.sqlite` (gitignored); delete it to start over. b
 | `BETTER_AUTH_SECRET` | a fixed dev-only value  | Signs the session and guest cookies. Required when `NODE_ENV=production`: the server won't start |
 | `BETTER_AUTH_URL`    | `http://localhost:5173` | Where the site is served; cookies are `Secure` when it is `https:`                               |
 | `TRUSTED_ORIGINS`    | none (dev: localhost)   | More origins allowed to post and connect, comma-separated                                        |
-| `RESEND_API_KEY`     | none                    | Sends the sign-in codes. Without it: see "Mail" below                                            |
-| `MAIL_FROM`          | none                    | The sender, such as `Leuven <hello@leuven.social>`; its domain must be verified in Resend        |
+| `RESEND_API_KEY`     | none                    | Sends the sign-in codes. Required when `NODE_ENV=production`: the server won't start without it  |
+| `MAIL_FROM`          | Resend's test sender    | A sender on a domain verified in Resend, such as `Leuven <hello@leuven.social>`                  |
 | `DEBUG`              | `leuven:*=info`         | [@portable/log](https://portablejs.com/packages/log) patterns, e.g. `leuven:*=debug`             |
 
 ## Accounts
@@ -54,12 +54,15 @@ better-auth (`server/auth.ts`) does the security work: one-time codes (hashed at
 
 `server/mail.ts` posts to Resend's HTTP API (no SDK) with a timeout and an idempotency key. `main.ts` picks what to do from the environment:
 
-|                       | No `RESEND_API_KEY` and `MAIL_FROM`                                                                                                                                                                                           | With both |
-| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
-| Outside production    | The code is printed on the server's console (`leuven:mail`), so signing in works locally with no account at a provider                                                                                                        | Sent      |
-| `NODE_ENV=production` | The server starts and guests play. A warning is logged at start, `/api/me` says `mail: false` so the sheet says so up front ("Joining isn't switched on yet. Keep exploring as Breezy Kite."), and sending a code answers 503 | Sent      |
+Without `RESEND_API_KEY`, outside production the code is printed on the server's console (`leuven:mail`), so signing in works locally with no account at a provider; in production the server refuses to start, as it does without its secret. With the key and no `MAIL_FROM`, codes go out from Resend's test sender, which delivers only to the Resend account's own address, and the log says so at start.
 
-When Resend refuses (a bad key, an unverified domain, 429) the person reads a sentence (502, `MAIL_FAILED`) and the log gets a line with the provider's reason, never the key; a send that failed doesn't count against the address's limits.
+| Resend answers                                            | The person reads                                                       | The route                 |
+| --------------------------------------------------------- | ---------------------------------------------------------------------- | ------------------------- |
+| 422 about the `to` address                                | "That address can't receive mail. Use another one."                    | 400 `EMAIL_UNDELIVERABLE` |
+| 429, a rate or a quota                                    | "Too many emails are going out right now. Try again in a few minutes." | 503 `MAIL_BUSY`           |
+| Anything else: an unverified domain, a bad key, a timeout | "Couldn't send the email. Try another address, or try again later."    | 502 `MAIL_FAILED`         |
+
+Every one logs the provider's reason, never the key. A send that failed doesn't count against the mailbox's limits, but does against the sender's address and the server's.
 
 ### Accounts from before email
 
@@ -91,17 +94,17 @@ Not signed in, you are on the map all the same, as a guest. A guest is a signed 
 
 ### Routes
 
-| Route                                            | What                                                                                                                                                                                                                                            |
-| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /api/auth/email-otp/send-verification-otp` | `{ email }`: mails a code. `{ success: true }`; 429 with `retryAfter` (`CODE_ALREADY_SENT`) inside the 30 seconds; 503 `MAIL_OFF`; 502 `MAIL_FAILED`; 400 `INVALID_EMAIL` or `EMAIL_UNDELIVERABLE`                                              |
-| `POST /api/auth/sign-in/email-otp`               | `{ email, otp }`: signs in, making the account if there is none; sets the cookie. 400 `INVALID_OTP` or `OTP_EXPIRED`, 403 `TOO_MANY_ATTEMPTS`                                                                                                   |
-| `POST /api/auth/is-username-available`           | `{ username }`: `{ available }`                                                                                                                                                                                                                 |
-| `POST /api/auth/sign-out`                        | Ends the session                                                                                                                                                                                                                                |
-| `GET /api/auth/get-session`                      | better-auth's session, or null                                                                                                                                                                                                                  |
-| `GET /api/me`                                    | `{ guest, name, outfit, at, fresh, mail }`: the account (`fresh`: yet to choose its name), or this browser's guest and its cookie (`mail`: whether codes can be sent). `at` is the live position while online, else the saved or remembered one |
-| `PUT /api/me`                                    | `{ outfit }`: four 24-bit colours, sent to everyone online as `outfit`; or `{ name }`: takes it if free (400 `USERNAME_IS_ALREADY_TAKEN`), sent as `renamed`. 401 for a guest                                                                   |
-| `GET /api/health`                                | `{ ok: true, online, players, tickMs, tickMaxMs, bytesPerSecond }`: open sockets, those on the map, and how the presence hub is doing                                                                                                           |
-| `/ws`                                            | Presence, below. The session cookie makes it a player; without one it is this browser's guest (and sets the cookie if there is none)                                                                                                            |
+| Route                                            | What                                                                                                                                                                                                                                      |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/auth/email-otp/send-verification-otp` | `{ email }`: mails a code. `{ success: true }`; 429 with `retryAfter` (`CODE_ALREADY_SENT`) inside the 30 seconds; 429 `TOO_MANY_CODES`; 503 `MAIL_BUSY`; 502 `MAIL_FAILED`; 400 `INVALID_EMAIL` or `EMAIL_UNDELIVERABLE`                 |
+| `POST /api/auth/sign-in/email-otp`               | `{ email, otp }`: signs in, making the account if there is none; sets the cookie. 400 `INVALID_OTP` or `OTP_EXPIRED`, 403 `TOO_MANY_ATTEMPTS`                                                                                             |
+| `POST /api/auth/is-username-available`           | `{ username }`: `{ available }`                                                                                                                                                                                                           |
+| `POST /api/auth/sign-out`                        | Ends the session                                                                                                                                                                                                                          |
+| `GET /api/auth/get-session`                      | better-auth's session, or null                                                                                                                                                                                                            |
+| `GET /api/me`                                    | `{ guest, name, outfit, at, fresh }`: the account (`fresh`: yet to choose its name), or this browser's guest and its cookie (`mail`: whether codes can be sent). `at` is the live position while online, else the saved or remembered one |
+| `PUT /api/me`                                    | `{ outfit }`: four 24-bit colours, sent to everyone online as `outfit`; or `{ name }`: takes it if free (400 `USERNAME_IS_ALREADY_TAKEN`), sent as `renamed`. 401 for a guest                                                             |
+| `GET /api/health`                                | `{ ok: true, online, players, tickMs, tickMaxMs, bytesPerSecond }`: open sockets, those on the map, and how the presence hub is doing                                                                                                     |
+| `/ws`                                            | Presence, below. The session cookie makes it a player; without one it is this browser's guest (and sets the cookie if there is none)                                                                                                      |
 
 Every `/api` answer is `Cache-Control: no-store`.
 

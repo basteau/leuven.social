@@ -41,14 +41,13 @@ const reason = (promise: Promise<unknown>) =>
 
 describe('account', () => {
   test('sends the cookie, JSON and the right paths', async () => {
-    answer(json({}), json({ name: 'Bram', outfit, at: null, fresh: false, mail: true }));
+    answer(json({}), json({ name: 'Bram', outfit, at: null, fresh: false }));
     expect(await verifyCode('a@b.co', '123456')).toEqual({
       guest: false,
       name: 'Bram',
       outfit,
       at: null,
       fresh: false,
-      mail: true,
     });
     expect(calls.map((c) => [c.url, c.init?.method ?? 'GET'])).toEqual([
       ['/api/auth/sign-in/email-otp', 'POST'],
@@ -70,7 +69,7 @@ describe('account', () => {
     answer(new Response('Bad gateway', { status: 502 }));
     expect(await reason(me())).toMatchObject({
       code: 'server',
-      message: 'Something went wrong on our side. Try again in a moment.',
+      message: 'The server had a problem. Try again in a moment.',
     });
     answer(json({ code: 'SOMETHING_NEW' }, 400));
     expect(await reason(verifyCode('a@b.co', '123456'))).toMatchObject({ code: 'server' });
@@ -86,23 +85,30 @@ describe('account', () => {
   });
 
   test('a guest is someone', async () => {
-    answer(json({ guest: true, name: 'Sunny Otter', outfit, at: null, fresh: false, mail: true }));
+    answer(json({ guest: true, name: 'Sunny Otter', outfit, at: null, fresh: false }));
     expect(await me()).toEqual({
       guest: true,
       name: 'Sunny Otter',
       outfit,
       at: null,
       fresh: false,
-      mail: true,
     });
   });
 
-  test('a guest after signing in is the server’s failure', async () => {
-    answer(
-      json({}),
-      json({ guest: true, name: 'Sunny Otter', outfit, at: null, fresh: false, mail: true }),
-    );
-    expect(await reason(verifyCode('a@b.co', '123456'))).toMatchObject({ code: 'server' });
+  test('one lost request right after signing in doesn’t spend the code for nothing', async () => {
+    answer(json({}), new TypeError('lost'), json({ name: 'Bram', outfit, at: null, fresh: false }));
+    expect(await verifyCode('a@b.co', '123456')).toMatchObject({ name: 'Bram', guest: false });
+  });
+
+  test('a code too short is asked for in full, with no request', async () => {
+    answer();
+    expect(await reason(verifyCode('a@b.co', '123'))).toMatchObject({ code: 'digits' });
+    expect(calls).toHaveLength(0);
+  });
+
+  test('a browser that dropped the cookie is told about cookies', async () => {
+    answer(json({}), json({ guest: true, name: 'Sunny Otter', outfit, at: null, fresh: false }));
+    expect(await reason(verifyCode('a@b.co', '123456'))).toMatchObject({ code: 'cookies' });
   });
 
   test('an odd answer to me() is the server’s fault', async () => {
@@ -117,13 +123,12 @@ describe('account', () => {
       outfit,
       at: null,
       fresh: false,
-      mail: true,
     });
   });
 
   test('a session the browser dropped right after signing in', async () => {
     answer(json({}), json({}, 401));
-    expect(await reason(verifyCode('a@b.co', '123456'))).toMatchObject({ code: 'server' });
+    expect(await reason(verifyCode('a@b.co', '123456'))).toMatchObject({ code: 'cookies' });
   });
 
   test('signing out when already out is fine; a failure is not', async () => {
@@ -148,10 +153,9 @@ describe('account', () => {
       answer(json({ code }, status));
       return reason(sendCode('a@b.co'));
     };
-    expect(await say(503, 'MAIL_OFF')).toMatchObject({
-      code: 'mail-off',
-      message: 'Joining isn’t switched on yet. Keep exploring as you are.',
-    });
+    expect(await say(503, 'MAIL_BUSY')).toMatchObject({ code: 'mail-busy' });
+    expect(await say(429, 'TOO_MANY_CODES')).toMatchObject({ code: 'codes' });
+    expect(await say(429, 'TOO_MANY_GUESSES')).toMatchObject({ code: 'guesses' });
     expect(await say(502, 'MAIL_FAILED')).toMatchObject({ code: 'mail-failed' });
     expect(await say(400, 'EMAIL_UNDELIVERABLE')).toMatchObject({ code: 'undeliverable' });
     expect(await say(429, 'TOO_MANY_REQUESTS')).toMatchObject({ code: 'busy' });
@@ -164,8 +168,8 @@ describe('account', () => {
 
   test('a code is six digits, sent with its address', async () => {
     answer();
-    expect(await reason(verifyCode('a@b.co', '12345'))).toMatchObject({ code: 'code' });
-    expect(await reason(verifyCode('a@b.co', '12345a'))).toMatchObject({ code: 'code' });
+    expect(await reason(verifyCode('a@b.co', '12345'))).toMatchObject({ code: 'digits' });
+    expect(await reason(verifyCode('a@b.co', '12345a'))).toMatchObject({ code: 'digits' });
     expect(calls).toEqual([]);
     answer(json({}), json({ name: 'Bram', outfit, fresh: true }));
     expect(await verifyCode(' A@b.co', '123456')).toMatchObject({ name: 'Bram', fresh: true });
@@ -191,7 +195,7 @@ describe('account', () => {
     answer(json({ code: 'USERNAME_IS_ALREADY_TAKEN' }, 400));
     expect(await reason(rename('Bram'))).toMatchObject({
       code: 'taken',
-      message: 'That name is taken.',
+      message: 'That name is taken. Try another.',
     });
   });
 

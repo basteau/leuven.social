@@ -101,7 +101,8 @@ const BUDGETS: {
     // 9.75: guests and tabs (0.2 KB): who you are from the server, renames, and one tab driving.
     // 10: signing in by email (0.15 KB), asked for: a code to send and give back, a name to take,
     // and a sentence for each way mail can fail, for what passwords cost before.
-    limit: 10 * KB,
+    // 10.25: a sentence of its own for each way sign-in can fail, asked for (0.1 KB).
+    limit: 10.25 * KB,
     gzip: true,
   },
   // The page itself paints the loading screen before any script or stylesheet: the tokens, its

@@ -29,13 +29,13 @@ Each step is safe to repeat, so a rerun is also how you repair a VM.
 
 ## On the VM
 
-| Path or unit                     | What                                                                                                                                                          |
-| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/srv/leuven/current/site/`      | What nginx serves                                                                                                                                             |
-| `/srv/leuven/current/server/`    | `main.js`, run by `leuven-server.service` as the user `leuven`, restarted on any exit                                                                         |
-| `/srv/leuven/data/leuven.sqlite` | Accounts, sessions, outfits and last positions (with its `-wal` and `-shm` files). Back this up.                                                              |
-| `/srv/leuven/data/server.env`    | `NODE_ENV=production`, `PORT=8787`, `DATABASE_PATH`, `BETTER_AUTH_URL=https://<vm>.exe.xyz`, the secret; add `RESEND_API_KEY` and `MAIL_FROM` by hand (below) |
-| nginx, port 8000                 | The site; `/api/` and `/ws` proxied to the server on 127.0.0.1:8787                                                                                           |
+| Path or unit                     | What                                                                                                                                                                                  |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/srv/leuven/current/site/`      | What nginx serves                                                                                                                                                                     |
+| `/srv/leuven/current/server/`    | `main.js`, run by `leuven-server.service` as the user `leuven`, restarted on any exit                                                                                                 |
+| `/srv/leuven/data/leuven.sqlite` | Accounts, sessions, outfits and last positions (with its `-wal` and `-shm` files). Back this up.                                                                                      |
+| `/srv/leuven/data/server.env`    | `NODE_ENV=production`, `PORT=8787`, `DATABASE_PATH`, `BETTER_AUTH_URL=https://<vm>.exe.xyz`, the secret; add `RESEND_API_KEY` and `MAIL_FROM` by hand before the first deploy (below) |
+| nginx, port 8000                 | The site; `/api/` and `/ws` proxied to the server on 127.0.0.1:8787                                                                                                                   |
 
 The server listens on 127.0.0.1 only. nginx passes the client's address as `X-Real-IP`, taken from the last entry of exe.dev's `X-Forwarded-For` (the one a client can't forge), which better-auth rate-limits sign-ins by. `/ws` keeps WebSocket upgrades and an hour of read timeout (the client's heartbeat keeps it far from that), and at most 16 sockets an address. The unit restarts the server on any exit, never giving up (`StartLimitIntervalSec=0`), and runs it with no devices, no kernel tunables, only network sockets and at most 512 MB.
 
@@ -43,7 +43,7 @@ To look at the server: `ssh leuven.exe.xyz 'sudo journalctl -u leuven-server -n 
 
 ## Sign-in mail
 
-Sign-in codes go out through [Resend](https://resend.com). Until `RESEND_API_KEY` and `MAIL_FROM` are in `server.env`, the server still starts and guests still play, a warning is logged at start, nobody can sign in, and the sheet says so ([MULTIPLAYER.md](MULTIPLAYER.md)). A deploy never rewrites that file, so set them once, on the VM:
+Sign-in codes go out through [Resend](https://resend.com). The server won't start in production without `RESEND_API_KEY`, so a deploy to a VM that lacks it rolls back. With the key and no `MAIL_FROM`, codes go out from Resend's test sender, which delivers only to the Resend account's own address: everyone else reads that the email couldn't be sent. To send to anyone:
 
 1. In Resend, add and verify the sending domain (its DNS records), and create an API key.
 2. Add the two lines, keeping the file private:

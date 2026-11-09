@@ -103,8 +103,6 @@ export interface CommandState {
   minimap: boolean;
   /** Whether you're signed in: you can change your look, or join. */
   signedIn: boolean;
-  /** Joining isn't switched on: the Join row would lead nowhere. */
-  mailOff: boolean;
   keys: Keycaps;
   /** The menu's chord on this platform: ⌘ or Ctrl. */
   mod: string;
@@ -201,23 +199,19 @@ const yours = (s: CommandState): Command[] => {
           } satisfies Command,
         ]
       : []),
-    ...(s.signedIn || !s.mailOff
-      ? [
-          {
-            id: 'account',
-            group: 'walk',
-            label: s.signedIn ? 'Your look' : 'Join Leuven',
-            detail: s.signedIn
-              ? 'Your name and colours, as everyone sees them; or sign out'
-              : 'Keep a name and colours of your own',
-            keywords:
-              'account join sign in up log in out register name email code look clothes colours outfit dress avatar shirt hair skin multiplayer players',
-            keys: [['L']],
-            icon: 'person',
-            action: 'account',
-          } satisfies Command,
-        ]
-      : []),
+    {
+      id: 'account',
+      group: 'walk',
+      label: s.signedIn ? 'Your look' : 'Join Leuven',
+      detail: s.signedIn
+        ? 'Your name and colours, as everyone sees them; or sign out'
+        : 'Keep a name and colours of your own',
+      keywords:
+        'account join sign in up log in out register name email code look clothes colours outfit dress avatar shirt hair skin multiplayer players',
+      keys: [['L']],
+      icon: 'person',
+      action: 'account',
+    } satisfies Command,
     ...(s.door
       ? [
           {

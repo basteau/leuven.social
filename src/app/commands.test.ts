@@ -14,7 +14,6 @@ const state = (over: Partial<CommandState> = {}): CommandState => ({
   passing: false,
   minimap: true,
   signedIn: false,
-  mailOff: false,
   keys: KEYCAPS,
   mod: '⌘',
   ...over,
