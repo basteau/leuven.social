@@ -26,8 +26,8 @@ import { coachStep } from './coach.ts';
 import { ActionButton } from './controls.tsx';
 import { Credits } from './credits.tsx';
 import {
-  ArrowIcon,
   BikeIcon,
+  DiamondIcon,
   DoorIcon,
   MapIcon,
   MenuIcon,
@@ -186,9 +186,9 @@ export function App() {
   const retryRef = useRef<HTMLButtonElement>(null);
   /** A tap the avatar couldn't go to, and why, until the next try. */
   const [blocked, setBlocked] = useState<Refusal | null>(null);
-  /** The arrow that marks the avatar, placed by hand: it moves with every frame that pans. */
-  const arrowRef = useRef<HTMLButtonElement>(null);
-  /** The top row: what the arrow at the edge stays below. */
+  /** The diamond that marks the avatar, placed by hand: it moves with every frame that pans. */
+  const diamondRef = useRef<HTMLButtonElement>(null);
+  /** The top row: what the diamond at the edge stays below. */
   const headerRef = useRef<HTMLElement>(null);
   const [running, setRunning] = useState(false);
   const runningRef = useRef(running);
@@ -450,17 +450,17 @@ export function App() {
             setAway(off);
             if (!off) setLooking(null);
             if (figure) setCoach((c) => (c.street ? c : { ...c, street: true }));
-            const arrow = arrowRef.current;
+            const diamond = diamondRef.current;
             const top = EDGE_INSET.top + (headerRef.current?.offsetHeight ?? 0);
             const inset = { ...EDGE_INSET, top };
-            const p = arrow && pointerFor(x, y, map.clientWidth, map.clientHeight, figure, inset);
-            if (!arrow) return;
-            arrow.hidden = !p;
+            const p = diamond && pointerFor(x, y, map.clientWidth, map.clientHeight, figure, inset);
+            if (!diamond) return;
+            diamond.hidden = !p;
             if (!p) return;
-            arrow.dataset.edge = p.edge ? 'true' : 'false';
-            arrow.tabIndex = p.edge ? 0 : -1;
-            arrow.style.translate = `${p.x}px ${p.y}px`;
-            arrow.style.setProperty('--turn', `${p.angle}rad`);
+            diamond.dataset.edge = p.edge ? 'true' : 'false';
+            diamond.tabIndex = p.edge ? 0 : -1;
+            diamond.style.translate = `${p.x}px ${p.y}px`;
+            diamond.style.setProperty('--turn', `${p.angle}rad`);
           },
           onStreetChange: setStreet,
           onRoute: (target) => {
@@ -782,24 +782,24 @@ export function App() {
         <canvas ref={canvasRef} className="city" />
         <div ref={tagsRef} className="player-tags" aria-hidden="true" />
         {/*
-          Where you are: an arrow over your head while the view is too far out to see you, and at
+          Where you are: a diamond over your head while the view is too far out to see you, and at
           the edge of the screen, pointing your way, when you're off it; that one takes you back.
         */}
         <button
-          ref={arrowRef}
+          ref={diamondRef}
           type="button"
-          className="avatar-arrow"
+          className="avatar-diamond"
           aria-label="Back to you"
           hidden
           tabIndex={-1}
           onClick={() => {
             viewerRef.current?.recentre();
-            // Back on screen, the avatar needs no arrow: it hides, and its focus would fall to the
+            // Back on screen, the avatar needs no diamond: it hides, and its focus would fall to the
             // page and take the map's keys with it.
             mapRef.current?.focus({ focusVisible: false } as FocusOptions);
           }}
         >
-          <ArrowIcon />
+          <DiamondIcon />
         </button>
       </div>
 
@@ -875,10 +875,10 @@ export function App() {
           ) : coaching === 'zoom' ? (
             <>
               <span className="hint-keys">
-                You’re the coral arrow. Scroll or press <kbd>+</kbd> to come down to the street.
+                You’re the coral diamond. Scroll or press <kbd>+</kbd> to come down to the street.
               </span>
               <span className="hint-touch">
-                You’re the coral arrow. Pinch or press + to come down to the street.
+                You’re the coral diamond. Pinch or press + to come down to the street.
               </span>
             </>
           ) : coaching === 'walk' ? (

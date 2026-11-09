@@ -15,8 +15,10 @@ export function ensureMarks(store: Store<Waypoint[]>): void {
 /** The accent (`--accent` in index.html) as the canvas needs it. */
 export const ACCENT = '#1d5c9b';
 const OTHER = '#8d867c';
-/** You: the avatar's coral, as on the minimap and the arrow over it. */
+/** You: the avatar's coral and the diamond's other two facets, as on the mark over it. */
 const YOU = '#fa8064';
+const YOU_LIT = '#ffb7a1';
+const YOU_DEEP = '#dc6147';
 
 /** A waypoint: a coloured dot in a white ring. */
 export function drawMark(
@@ -70,7 +72,10 @@ export function drawTarget(ctx: CanvasRenderingContext2D, x: number, y: number, 
   ctx.fill();
 }
 
-/** A player: an arrowhead pointing `angle` radians clockwise from up; you in your coral. */
+/**
+ * A player: the diamond that marks you on the street, its long point `angle` radians clockwise from
+ * up, the way they face. Others flat in their colour, you cut in facets in your coral.
+ */
 export function drawPlayer(
   ctx: CanvasRenderingContext2D,
   x: number,
@@ -79,18 +84,35 @@ export function drawPlayer(
   r: number,
   self: boolean,
 ): void {
+  const trace = () => {
+    ctx.beginPath();
+    ctx.moveTo(0, -r * 1.9);
+    ctx.lineTo(r, 0);
+    ctx.lineTo(0, r);
+    ctx.lineTo(-r, 0);
+    ctx.closePath();
+  };
+  const facet = (fill: string, side: number, along: number) => {
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(side * r, 0);
+    ctx.lineTo(0, along);
+    ctx.closePath();
+    ctx.fillStyle = fill;
+    ctx.fill();
+  };
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(angle);
-  ctx.beginPath();
-  ctx.moveTo(0, -r * 1.3);
-  ctx.lineTo(r * 0.95, r);
-  ctx.lineTo(0, r * 0.45);
-  ctx.lineTo(-r * 0.95, r);
-  ctx.closePath();
+  trace();
   ctx.fillStyle = self ? YOU : OTHER;
   ctx.fill();
-  ctx.lineWidth = Math.max(1.5, r * 0.3);
+  if (self) {
+    facet(YOU_LIT, -1, r);
+    facet(YOU_DEEP, 1, -r * 1.9);
+    trace();
+  }
+  ctx.lineWidth = Math.max(1.5, r * 0.22);
   ctx.lineJoin = 'round';
   ctx.strokeStyle = self ? '#2b2420' : '#fff';
   ctx.stroke();

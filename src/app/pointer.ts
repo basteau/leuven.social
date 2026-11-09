@@ -1,12 +1,12 @@
 /**
- * Where the arrow that marks the avatar goes on screen. Over its head when the view is too far
+ * Where the diamond that marks the avatar goes on screen. Over its head when the view is too far
  * out for its figure to read, pointing down at it; at the edge of the screen, pointing toward it,
  * when it's off screen or under the controls round it, where it doubles as the way back. Pure, so
  * the shell only places it.
  */
 
 /**
- * How far in from each edge the edge arrow's disc (22 px radius, its shadow under it) keeps its
+ * How far in from each edge the edge diamond's disc (22 px radius, its shadow under it) keeps its
  * middle (px): clear of the view's controls down the end edge and of the menu button along the
  * bottom. Along the top it stays this far under whatever the top edge holds just then (the street
  * plate, the credit, the hint): the shell adds the height of that row.
@@ -25,9 +25,9 @@ export interface Pointer {
 }
 
 /**
- * The arrow for an avatar at (x, y) on a map `width` by `height` (px), whose figure is drawn
- * (`figure`) or not; null when the figure is on screen and needs no arrow. Within the insets
- * counts as off screen: an arrow over its head would sit under the menu button or off the edge.
+ * The diamond for an avatar at (x, y) on a map `width` by `height` (px), whose figure is drawn
+ * (`figure`) or not; null when the figure is on screen and needs no diamond. Within the insets
+ * counts as off screen: a diamond over its head would sit under the menu button or off the edge.
  */
 export function pointerFor(
   x: number,

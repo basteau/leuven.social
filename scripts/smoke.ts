@@ -204,7 +204,7 @@ async function expectBareMap(): Promise<void> {
   }
   await browser('wait', '--fn', `!document.getElementById('intro')`);
   const buttons = await evalJson<string[]>(
-    `JSON.stringify([...document.querySelectorAll('main button:not(.avatar-arrow)')].filter((b) => b.checkVisibility() && !b.closest('dialog')).map((b) => b.getAttribute('aria-label') ?? b.textContent))`,
+    `JSON.stringify([...document.querySelectorAll('main button:not(.avatar-diamond)')].filter((b) => b.checkVisibility() && !b.closest('dialog')).map((b) => b.getAttribute('aria-label') ?? b.textContent))`,
   );
   // Who you are (a guest's name and Join), the minimap (the way to the map), the view's rail, the
   // menu: nothing else.
@@ -223,13 +223,13 @@ async function expectBareMap(): Promise<void> {
   if (!you.endsWith('Join') || rest.join() !== expected.slice(1).join()) {
     throw new Error(`the map should show only ${expected.join(', ')}, not ${buttons.join(', ')}`);
   }
-  // And the arrow over the avatar, far out at the default view: a marker, not a control.
+  // And the diamond over the avatar, far out at the default view: a marker, not a control.
   const arrow = await evalJson<string>(
-    `JSON.stringify(document.querySelector('.avatar-arrow')?.hidden === false && document.querySelector('.avatar-arrow').dataset.edge)`,
+    `JSON.stringify(document.querySelector('.avatar-diamond')?.hidden === false && document.querySelector('.avatar-diamond').dataset.edge)`,
   );
-  if (arrow !== 'false') throw new Error(`the arrow over the avatar isn't showing (${arrow})`);
+  if (arrow !== 'false') throw new Error(`the diamond over the avatar isn't showing (${arrow})`);
   console.log(
-    'ok  loading screen in the HTML, then the map: Join, the minimap, the view’s rail, the menu and the arrow over you',
+    'ok  loading screen in the HTML, then the map: Join, the minimap, the view’s rail, the menu and the diamond over you',
   );
 }
 
@@ -262,7 +262,7 @@ async function expectFirstMinute(): Promise<void> {
   const said = await evalJson<string>(
     `JSON.stringify(document.querySelector('.hint')?.textContent ?? '')`,
   );
-  if (!said.includes('coral arrow')) throw new Error(`the first coach line says "${said}"`);
+  if (!said.includes('coral diamond')) throw new Error(`the first coach line says "${said}"`);
   const ringed = await evalJson<boolean>(
     `JSON.stringify(!!document.querySelector('.rail-zoom[data-coach]'))`,
   );

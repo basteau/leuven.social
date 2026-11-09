@@ -106,7 +106,7 @@ describe('drawMinimap', () => {
     expect(calls).toContain('drawImage -290 -310 600 600');
     expect(fills).toEqual(['#ff0000', '#00ff00', YOU]);
     expect(moves()).toBe(1);
-    expect(calls.filter((c) => c === 'arc')).toHaveLength(3);
+    expect(calls.filter((c) => c === 'arc')).toHaveLength(2);
     expect(calls.at(-1)).toBe('restore');
   });
 

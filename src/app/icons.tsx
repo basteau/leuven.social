@@ -106,16 +106,20 @@ export const MenuIcon = () => (
 );
 
 /**
- * The avatar's arrow: a coral arrowhead in ink, pointing down at it (rotated for the edge of
- * the screen), in the avatar's own shirt colour so it reads as "you".
+ * You, as a mark: a cut diamond in the avatar's shirt colour, three flat facets lit from the upper
+ * left as the toon ramp would, inked round like everything else on the map. Its long point stays
+ * a direction: down at the avatar over its head, turned toward it at the edge of the screen.
  */
-export const ArrowIcon = () => (
-  <svg width="26" height="30" viewBox="0 0 26 30" aria-hidden="true">
+export const DiamondIcon = () => (
+  <svg width="26" height="34" viewBox="0 0 26 34" aria-hidden="true">
+    <path d="M13 2 24 12 13 32 2 12Z" fill="var(--you)" />
+    <path d="M13 2 2 12H13Z" fill="#ffb7a1" />
+    <path d="M13 12H24L13 32Z" fill="#dc6147" />
     <path
-      d="M13 28 L3 14 H9 V3 H17 V14 H23 Z"
-      fill="var(--you, #fa8064)"
+      d="M13 2 24 12 13 32 2 12Z"
+      fill="none"
       stroke="var(--ink)"
-      strokeWidth="2.5"
+      strokeWidth="2.4"
       strokeLinejoin="round"
     />
   </svg>

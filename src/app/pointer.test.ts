@@ -4,7 +4,7 @@ import { pointerFor } from './pointer.ts';
 
 const inset = { top: 30, right: 20, bottom: 40, left: 10 };
 
-describe('the arrow over the avatar', () => {
+describe('the diamond over the avatar', () => {
   test('none while its figure is on screen', () => {
     expect(pointerFor(400, 300, 800, 600, true)).toBeNull();
   });

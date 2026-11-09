@@ -610,7 +610,7 @@ export function MapOverlay(props: Props) {
           <span className="hint-touch">
             Tap a street or square to go there or keep a mark.
           </span>{' '}
-          You’re the coral arrow.
+          You’re the coral diamond.
         </p>
       )}
 

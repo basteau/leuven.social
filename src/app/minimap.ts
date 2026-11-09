@@ -48,7 +48,7 @@ export const MAP_COLOURS: Record<Layer | 'ground' | 'ink' | 'outline', string> =
   outline: 'rgb(58 46 37 / 0.55)',
 };
 
-/** You, on every map: the coral of the avatar's shirt and the arrow over it. */
+/** You, on every map: the coral of the avatar's shirt and the diamond over it. */
 export const YOU = '#fa8064';
 
 /** The index's buckets are this many metres a side. */
@@ -178,8 +178,8 @@ export function drawCity(
 
 /**
  * The minimap for a frame: the city image turned so the view's way is up and moved so you are in
- * the middle, then the others as dots in their shirts' colours, then you, a paper dot with an
- * inked rim and a notch the way you face. The round frame is CSS's.
+ * the middle, then the others as dots in their shirts' colours, then you, the coral diamond with
+ * its long point the way you face. The round frame is CSS's.
  */
 export function drawMinimap(
   pen: Pen,
@@ -212,15 +212,16 @@ export function drawMinimap(
     pen.fill();
     pen.stroke();
   }
-  // You: a larger dot with a notch out the way you face.
+  // You: the diamond over your head on the street, its long point the way you face.
   pen.translate(view.x, view.z);
   pen.rotate(-view.facing);
   pen.fillStyle = YOU;
   pen.lineWidth *= 1.4;
   pen.beginPath();
-  pen.moveTo(0, dot * 2.6 * px);
-  pen.lineTo(dot * 1.3 * px, dot * 0.7 * px);
-  pen.arc(0, 0, dot * 1.5 * px, Math.PI * 0.25, Math.PI * 0.75, true);
+  pen.moveTo(0, dot * 2.7 * px);
+  pen.lineTo(dot * 1.4 * px, 0);
+  pen.lineTo(0, dot * -1.4 * px);
+  pen.lineTo(dot * -1.4 * px, 0);
   pen.closePath();
   pen.fill();
   pen.stroke();

@@ -124,7 +124,7 @@ const server = Bun.spawn([`${ROOT}node_modules/.bin/vite`, '--port', String(PORT
 
 const time = async () =>
   JSON.parse(await browser('eval', 'document.documentElement.dataset.time ?? ""')) as string;
-const HIDE = `const s = document.createElement('style'); s.textContent = '.hud, .avatar-arrow, .player-tags { visibility: hidden !important }'; document.head.append(s); 1`;
+const HIDE = `const s = document.createElement('style'); s.textContent = '.hud, .avatar-diamond, .player-tags { visibility: hidden !important }'; document.head.append(s); 1`;
 
 try {
   await Bun.sleep(1200);

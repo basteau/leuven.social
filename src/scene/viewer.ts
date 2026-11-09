@@ -121,7 +121,7 @@ export interface ViewerOptions {
   onAvatarUnavailable?: () => void;
   /**
    * Where the avatar is on the canvas (CSS px from its top left, possibly off it), and whether
-   * its figure is drawn there; called whenever either changes, for its arrow.
+   * its figure is drawn there; called whenever either changes, for its diamond.
    */
   onAvatarAt?: (x: number, y: number, figure: boolean) => void;
   /** The street or square under the avatar changed (null: none, or the view too far out). */
@@ -213,7 +213,7 @@ export interface Viewer {
 }
 
 const ROTATE_MS = 280;
-/** The avatar's arrow points this far over its feet (m): just over its head, drawn 1.3× life. */
+/** The avatar's diamond points this far over its feet (m): just over its head, drawn 1.3× life. */
 const OVER_HEAD = 2.7;
 /** Street furniture is made ahead for cells this near the view's middle (m). */
 const FURNISH_REACH = 700;
@@ -1026,7 +1026,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     avatar?.detail(detail, span);
     const shown = detail.avatar === 'figure';
     if (avatar) {
-      // Just over the avatar's head on screen, for its arrow to point at without covering the
+      // Just over the avatar's head on screen, for its diamond to point at without covering the
       // figure: only when that changes by a pixel.
       const [fx, fy, fz] = avatar.feet;
       at.set(fx, fy + OVER_HEAD, fz).project(camera);

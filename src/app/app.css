@@ -98,12 +98,12 @@ kbd {
 }
 
 /*
- * The arrow that marks the avatar. Over its head (its tip on the avatar, a slow bob) while the
+ * The diamond that marks the avatar. Over its head (its tip on the avatar, a slow bob) while the
  * view is too far out to see it; at the edge of the screen, on an inked paper disc pointing its
  * way, when it's off screen, where it's the way back. Placed by translate from the viewer's
  * frames, so a pan moves it without a layout.
  */
-.avatar-arrow {
+.avatar-diamond {
   position: absolute;
   inset-block-start: 0;
   inset-inline-start: 0;
@@ -111,50 +111,51 @@ kbd {
   border: 0;
   background: none;
   pointer-events: none;
-  -webkit-tap-highlight-color: transparent;
 }
 
-.avatar-arrow svg {
-  display: block;
+.avatar-diamond svg {
   translate: -50% calc(-100% - 6px);
   filter: drop-shadow(0 2px 0 color-mix(in oklch, var(--ink) 35%, transparent));
 }
 
-.avatar-arrow[data-edge='true'] {
+/* At the edge: the button is the disc, so its focus ring and press are a disc's too. */
+.avatar-diamond[data-edge='true'] {
   z-index: 1;
-  pointer-events: auto;
-  cursor: pointer;
-}
-
-/* At the edge: a disc, and the arrow in it turned toward the avatar. */
-.avatar-arrow[data-edge='true']::before {
-  position: absolute;
-  inset-block-start: -22px;
-  inset-inline-start: -22px;
+  display: grid;
+  place-items: center;
   inline-size: 44px;
   block-size: 44px;
+  margin-block-start: -22px;
+  margin-inline-start: -22px;
   border: var(--border) solid var(--ink);
   border-radius: 50%;
   background: var(--paper);
   box-shadow: var(--shadow-hard);
-  content: '';
+  pointer-events: auto;
+  cursor: pointer;
 }
 
-.avatar-arrow[data-edge='true'] svg {
-  position: relative;
-  translate: -50% -50%;
+/* The script places it by `translate`, so a press sinks by its margin. */
+.avatar-diamond[data-edge='true']:active {
+  margin-block-start: calc(var(--lift) - 23px);
+  background: var(--paper-press);
+  box-shadow: var(--shadow-pressed);
+}
+
+.avatar-diamond[data-edge='true'] svg {
+  translate: none;
   rotate: var(--turn);
-  scale: 0.7;
+  scale: 0.8;
   filter: none;
 }
 
 @media (prefers-reduced-motion: no-preference) {
-  .avatar-arrow[data-edge='false'] svg {
-    animation: arrow-bob 1.4s ease-in-out infinite alternate;
+  .avatar-diamond[data-edge='false'] svg {
+    animation: diamond-bob 1.4s ease-in-out infinite alternate;
   }
 }
 
-@keyframes arrow-bob {
+@keyframes diamond-bob {
   to {
     translate: -50% calc(-100% - 12px);
   }

@@ -73,7 +73,7 @@ import { STEP, runBlend } from './walker.ts';
  * on the ground within ROUTE_REACH, which walks or rides it there along a route. The one thing
  * that puts it anywhere at once is a building's door: beside a building with a room inside, from
  * any side, Enter takes it in, and Enter again back out to its door. The camera is pinned to it, gliding after it, until the person drags the map;
- * then the view is theirs until Space (or W A S D, or the edge arrow) brings it back. Animates
+ * then the view is theirs until Space (or W A S D, or the edge diamond) brings it back. Animates
  * only while something moves; otherwise the viewer renders on demand. The logic is pure and
  * tested elsewhere (avatar.ts, follow.ts, walker.ts, the grids and routes); this is the glue.
  */
@@ -217,7 +217,7 @@ export interface AvatarLayer {
   /** Whether a frame of its own is on its way, so the viewer needn't draw one. */
   readonly animating: boolean;
   readonly state: AvatarState;
-  /** Where its feet are drawn this frame (m), for the dither in front of it and its arrow. */
+  /** Where its feet are drawn this frame (m), for the dither in front of it and its diamond. */
   readonly feet: readonly [number, number, number];
   /** Walks toward a direction on screen while held: right and up, each from -1 to 1. */
   steer(right: number, up: number): void;
@@ -1009,7 +1009,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     avatar.rise = floor - host.groundAt(x, z);
     [feet[0], feet[1], feet[2]] = [x, floor, z];
     const onFoot = avatar.mode === 'foot' || (bikes?.busy ?? false);
-    // Drawn at every zoom, under its arrow when that's too far out to read it.
+    // Drawn at every zoom, under its diamond when that's too far out to read it.
     character.mesh.visible = onFoot;
     if (!character.mesh.visible) return;
     applyPose(
