@@ -14,7 +14,6 @@ import { createPortal } from 'react-dom';
 import { sound } from '../audio/sound.ts';
 import type { City } from '../data/city.ts';
 import { CITY_URL, loadCity } from '../data/load.ts';
-import type { Place } from '../data/places.ts';
 import { presetAt } from '../scene/daylight.ts';
 import type { Daylight, PresetId } from '../scene/daylight.ts';
 import type { PlayerPose, Refusal, RideState, RoomPlace, Viewer } from '../scene/viewer.ts';
@@ -45,6 +44,7 @@ import { createStore } from './store.ts';
 import type { Waypoint } from '../data/waypoints.ts';
 import type { LoadState } from './loading.ts';
 import { EDGE_INSET, pointerFor } from './pointer.ts';
+import type { Inset } from './pointer.ts';
 import { useShortcuts } from './shortcuts.ts';
 import { StreetSign } from './street-sign.tsx';
 import { ViewControls, focusQuietly } from './view-controls.tsx';
@@ -171,6 +171,28 @@ function cacheForOffline(): void {
     .catch(() => {});
 }
 
+/** Written for each frame that pans, so one object does for all of them. */
+const diamondInset: Inset = { ...EDGE_INSET };
+
+/** Puts the diamond by hand: it moves with every frame that pans, without a render for each. */
+function placeDiamond(
+  diamond: HTMLElement,
+  map: HTMLElement,
+  header: HTMLElement | null,
+  x: number,
+  y: number,
+  figure: boolean,
+): void {
+  diamondInset.top = EDGE_INSET.top + (header?.offsetHeight ?? 0);
+  const p = pointerFor(x, y, map.clientWidth, map.clientHeight, figure, diamondInset);
+  diamond.hidden = !p;
+  if (!p) return;
+  diamond.dataset.edge = p.edge ? 'true' : 'false';
+  diamond.tabIndex = p.edge ? 0 : -1;
+  diamond.style.translate = `${p.x}px ${p.y}px`;
+  diamond.style.setProperty('--turn', `${p.angle}rad`);
+}
+
 /**
  * Once a dialog over the map has shut, the keys are the map's again: focus goes there rather than
  * back to the button that opened it, where Space would open it again. In an effect, so the dialog
@@ -238,13 +260,6 @@ export function App() {
     const timer = setTimeout(() => setSaid(null), SAID_MS);
     return () => clearTimeout(timer);
   }, [said]);
-  /** Sound coming back is heard (rising); muting is silent, and says so. */
-  const toggleSoundRef = useRef(() => {
-    sound.setOn(!sound.on);
-    setSoundOn(sound.on);
-    sound.toggle(true);
-    say(sound.on ? 'Sound on' : 'Sound off');
-  });
   useEffect(() => sound.attach(), []);
   // Marks and the route being walked: each shown by the part that needs it, so the shell renders
   // only for a route starting or ending and the map opening.
@@ -427,6 +442,7 @@ export function App() {
         // Both are here; building the first frame is the device's work, not the network's.
         watch.stop();
         if (abort.signal.aborted) return;
+        let streetSeen = false;
         const viewer = createViewer({
           canvas,
           city: loaded,
@@ -439,18 +455,13 @@ export function App() {
             const off = viewerRef.current?.pinned() === false;
             setAway(off);
             if (!off) setLooking(null);
-            if (figure) setCoach((c) => (c.street ? c : { ...c, street: true }));
-            const diamond = diamondRef.current;
-            const top = EDGE_INSET.top + (headerRef.current?.offsetHeight ?? 0);
-            const inset = { ...EDGE_INSET, top };
-            const p = diamond && pointerFor(x, y, map.clientWidth, map.clientHeight, figure, inset);
-            if (!diamond) return;
-            diamond.hidden = !p;
-            if (!p) return;
-            diamond.dataset.edge = p.edge ? 'true' : 'false';
-            diamond.tabIndex = p.edge ? 0 : -1;
-            diamond.style.translate = `${p.x}px ${p.y}px`;
-            diamond.style.setProperty('--turn', `${p.angle}rad`);
+            if (figure && !streetSeen) {
+              streetSeen = true;
+              setCoach((c) => (c.street ? c : { ...c, street: true }));
+            }
+            if (diamondRef.current) {
+              placeDiamond(diamondRef.current, map, headerRef.current, x, y, figure);
+            }
           },
           onStreetChange: setStreet,
           onRoute: (target) => {
@@ -554,18 +565,71 @@ export function App() {
     if (ready) return removeIntro();
   }, [ready]);
 
+  /**
+   * What each command does, for the menu and the keys alike: thin calls into the viewer and the
+   * shell's state, made once, so the shortcuts can bind them once.
+   */
+  const [actions] = useState((): Record<Exclude<ActionId, 'help' | 'about'>, () => void> => ({
+    recentre: () => viewerRef.current?.recentre(),
+    door: () => viewerRef.current?.door(),
+    'zoom-in': () => viewerRef.current?.zoomBy(1.25),
+    'zoom-out': () => viewerRef.current?.zoomBy(0.8),
+    'turn-left': () => viewerRef.current?.rotate(-1),
+    'turn-right': () => viewerRef.current?.rotate(1),
+    reset: () => viewerRef.current?.resetView(),
+    run: () => {
+      runningRef.current = !runningRef.current;
+      setRunning(runningRef.current);
+      viewerRef.current?.run(runningRef.current);
+      const sprint = rideRef.current === 'riding';
+      say(runningRef.current ? (sprint ? 'Sprinting' : 'Running') : sprint ? 'Riding' : 'Walking');
+    },
+    ride: () => viewerRef.current?.ride('toggle'),
+    bell: () => viewerRef.current?.ride('bell'),
+    // Sound coming back is heard (rising); muting is silent, and says so.
+    sound: () => {
+      sound.setOn(!sound.on);
+      setSoundOn(sound.on);
+      sound.toggle(true);
+      say(sound.on ? 'Sound on' : 'Sound off');
+    },
+    time: () => {
+      const next = viewerRef.current?.nextTimeOfDay();
+      if (next) say(TIME_SAID[next]);
+    },
+    'pass-time': () => {
+      passingRef.current = !passingRef.current;
+      setPassing(passingRef.current);
+      viewerRef.current?.passTime(passingRef.current);
+      say(passingRef.current ? 'The day passes' : 'The day stands still');
+    },
+    minimap: () => {
+      minimapRef.current = !minimapRef.current;
+      setMinimap(minimapRef.current);
+      remember(MINIMAP_KEY, minimapRef.current ? '1' : '0');
+      say(minimapRef.current ? 'Minimap on' : 'Minimap off');
+    },
+    account: () => openAccount(),
+    'open-map': () => {
+      menuOpenRef.current = false;
+      setMenu((m) => ({ ...m, open: false }));
+      setMapOpen(true);
+    },
+    'stop-route': () => viewerRef.current?.cancelRoute(),
+  }));
+
   useShortcuts({
     app: appRef,
     viewer: viewerRef,
     running: runningRef,
-    openMap: () => openMapRef.current(),
+    openMap: actions['open-map'],
     routing: routingRef,
     onWalkKey: () => steppedRef.current(),
-    toggleSound: () => toggleSoundRef.current(),
-    toggleMinimap: () => toggleMinimapRef.current(),
+    toggleSound: actions.sound,
+    toggleMinimap: actions.minimap,
     openAccount,
-    nextTime: () => nextTimeRef.current(),
-    togglePassing: () => togglePassingRef.current(),
+    nextTime: actions.time,
+    togglePassing: actions['pass-time'],
     turnHold,
     openMenu,
     menuOpen: menuOpenRef,
@@ -573,30 +637,6 @@ export function App() {
     typeAhead: (key) => (typedRef.current += key),
   });
 
-  /** The next time of day, said by name; the day passing or standing still, said too. */
-  const nextTimeRef = useRef(() => {
-    const next = viewerRef.current?.nextTimeOfDay();
-    if (next) say(TIME_SAID[next]);
-  });
-  const togglePassingRef = useRef(() => {
-    passingRef.current = !passingRef.current;
-    setPassing(passingRef.current);
-    viewerRef.current?.passTime(passingRef.current);
-    say(passingRef.current ? 'The day passes' : 'The day stands still');
-  });
-
-  const toggleMinimapRef = useRef(() => {
-    minimapRef.current = !minimapRef.current;
-    setMinimap(minimapRef.current);
-    remember(MINIMAP_KEY, minimapRef.current ? '1' : '0');
-    say(minimapRef.current ? 'Minimap on' : 'Minimap off');
-  });
-
-  const openMapRef = useRef(() => {
-    menuOpenRef.current = false;
-    setMenu((m) => ({ ...m, open: false }));
-    setMapOpen(true);
-  });
   const closeMap = useCallback(() => setMapOpen(false), []);
   const [MapOverlay, setMapChunk] = useState(lazyMap);
   /** Its chunk didn't come: shut, said so, and a fresh download on the next try. */
@@ -606,14 +646,6 @@ export function App() {
     say('The map didn’t load. Try again.');
   }, [say]);
   useFocusWhenShut(mapOpen, mapRef);
-
-  const toggleRunRef = useRef(() => {
-    runningRef.current = !runningRef.current;
-    setRunning(runningRef.current);
-    viewerRef.current?.run(runningRef.current);
-    const sprint = rideRef.current === 'riding';
-    say(runningRef.current ? (sprint ? 'Sprinting' : 'Running') : sprint ? 'Riding' : 'Walking');
-  });
 
   // "Can't go there" stays until the next try, so nobody misses it.
   useEffect(() => {
@@ -635,26 +667,15 @@ export function App() {
     setLooking({ name, x, z });
     viewerRef.current?.lookAt(x, z);
   }, []);
-  /** What each of the menu's commands does: thin calls into the viewer and the shell's state. */
-  const [actions] = useState((): Record<Exclude<ActionId, 'help' | 'about'>, () => void> => ({
-    recentre: () => viewerRef.current?.recentre(),
-    door: () => viewerRef.current?.door(),
-    'zoom-in': () => viewerRef.current?.zoomBy(1.25),
-    'zoom-out': () => viewerRef.current?.zoomBy(0.8),
-    'turn-left': () => viewerRef.current?.rotate(-1),
-    'turn-right': () => viewerRef.current?.rotate(1),
-    reset: () => viewerRef.current?.resetView(),
-    run: () => toggleRunRef.current(),
-    ride: () => viewerRef.current?.ride('toggle'),
-    bell: () => viewerRef.current?.ride('bell'),
-    sound: () => toggleSoundRef.current(),
-    time: () => nextTimeRef.current(),
-    'pass-time': () => togglePassingRef.current(),
-    minimap: () => toggleMinimapRef.current(),
-    account: () => openAccount(),
-    'open-map': () => openMapRef.current(),
-    'stop-route': () => viewerRef.current?.cancelRoute(),
-  }));
+  /** A place or room chosen in the menu: the menu shuts and the view goes there. */
+  const seeFromMenu = useCallback(
+    ({ name, x, z }: { name: string; x: number; z: number }) => {
+      closeMenu();
+      sound.tap();
+      see(name, x, z);
+    },
+    [closeMenu, see],
+  );
   /** A command from the menu: the menu closes first, and focus goes to the map for its keys. */
   const run = useCallback(
     (action: ActionId) => {
@@ -675,17 +696,8 @@ export function App() {
       .then(setRooms)
       .catch(() => {});
   }, [menu.open]);
-  const roomPlaces = useMemo(
-    () => ({
-      list: rooms,
-      go: (room: RoomPlace) => {
-        closeMenu();
-        sound.tap();
-        see(room.name, room.x, room.z);
-      },
-    }),
-    [rooms, closeMenu, see],
-  );
+  const roomPlaces = useMemo(() => ({ list: rooms, go: seeFromMenu }), [rooms, seeFromMenu]);
+  const mailOff = !account.signedIn && account.mailOff === true;
   const commandState: CommandState = useMemo(
     () => ({
       ride,
@@ -697,26 +709,29 @@ export function App() {
       passing,
       minimap,
       signedIn: account.signedIn,
-      mailOff: !account.signedIn && account.mailOff === true,
+      mailOff,
       keys,
       mod,
     }),
-    [ride, door, running, routing, soundOn, time, passing, minimap, account, keys, mod],
+    [
+      ride,
+      door,
+      running,
+      routing,
+      soundOn,
+      time,
+      passing,
+      minimap,
+      account.signedIn,
+      mailOff,
+      keys,
+      mod,
+    ],
   );
   // Places by name: choosing one takes the view there, down to the street; you walk there.
   const places = useMemo(
-    () =>
-      placeCity
-        ? {
-            city: placeCity,
-            go: (place: Place) => {
-              closeMenu();
-              sound.tap();
-              see(place.name, place.x, place.z);
-            },
-          }
-        : undefined,
-    [placeCity, closeMenu, see],
+    () => (placeCity ? { city: placeCity, go: seeFromMenu } : undefined),
+    [placeCity, seeFromMenu],
   );
 
   // A pill goes once its bike, building or route does, the minimap when it's hidden. Pressed or
@@ -890,7 +905,7 @@ export function App() {
               city={placeCity}
               onOpen={() => {
                 sound.tap();
-                openMapRef.current();
+                actions['open-map']();
               }}
               onReach={() => void loadMap().catch(() => {})}
             />
@@ -954,7 +969,7 @@ export function App() {
             aria-keyshortcuts="M"
             onClick={() => {
               sound.tap();
-              openMapRef.current();
+              actions['open-map']();
             }}
             onPointerEnter={() => void loadMap().catch(() => {})}
           >
