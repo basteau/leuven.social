@@ -4,9 +4,10 @@
  * tests call it directly on port 0 with a database in memory.
  *
  *   /api/auth/*      better-auth, only the paths in PUBLIC_AUTH_PATHS
- *   POST /api/account  sign up with { username, password }, signed in on success
- *   GET  /api/me       { guest, name, outfit, at }: an account, or the guest this browser is
- *   PUT  /api/me       { outfit }: keeps it and tells everyone online
+ *   POST /api/auth/email-otp/send-verification-otp   { email }: mails a sign-in code
+ *   POST /api/auth/sign-in/email-otp                 { email, otp }: signs in or makes the account
+ *   GET  /api/me       { guest, name, outfit, at, fresh, mail }: an account, or this browser's guest
+ *   PUT  /api/me       { outfit } or { name }: keeps it and tells everyone online
  *   GET  /api/health   { ok, online, players, tickMs, tickMaxMs, bytesPerSecond }
  *   /ws                presence (world.ts); the session cookie decides the account, else the guest
  */
@@ -17,10 +18,24 @@ import * as RateLimit from '@portable/rate-limit';
 import { APIError } from 'better-auth';
 
 import { isOutfit } from '../src/net/protocol.ts';
-import { isUsername } from '../src/net/rules.ts';
-import { PUBLIC_AUTH_PATHS, createAuth, migrateAuth, syntheticEmail } from './auth.ts';
-import type { AuthConfig } from './auth.ts';
-import { createGuests, guestAccount, guestKey } from './guest.ts';
+import {
+  CODE_COOLDOWN_SECONDS,
+  CODE_LENGTH,
+  isEmail,
+  isUsername,
+  normaliseEmail,
+} from '../src/net/rules.ts';
+import {
+  PUBLIC_AUTH_PATHS,
+  SEND_CODE_PATH,
+  SIGN_IN_PATH,
+  createAuth,
+  migrateAuth,
+} from './auth.ts';
+import type { AuthConfig, NewUser } from './auth.ts';
+import { createGuests, guestAccount, guestKey, guestName } from './guest.ts';
+import { noMailer } from './mail.ts';
+import type { Mailer } from './mail.ts';
 import { randomOutfit } from './outfit.ts';
 import { createStore } from './store.ts';
 import { createWorld } from './world.ts';
@@ -54,13 +69,19 @@ export interface ServerConfig {
   secret: string;
   baseURL: string;
   trustedOrigins?: string[];
-  /** Per-IP limits on signing up and in. Off only in tests. */
+  /** Per-IP limits on signing in and the like. Off only in tests. */
   rateLimit?: boolean;
-  /** Keeps better-auth's warnings (a wrong password, say) out of the output, for tests. */
+  /** Keeps better-auth's warnings out of the output, for tests. */
   quiet?: boolean;
   /** Presence tick (ms) and how often a moving player's position is saved (ms). */
   tick?: number;
   saveEvery?: number;
+  /** Where sign-in codes go. Without one, none can be sent. */
+  mailer?: Mailer;
+  /** How many accounts one address may make in an hour. */
+  accountsPerHour?: number;
+  /** The rate limits' clock (ms), for tests. */
+  now?: () => number;
 }
 
 export interface RunningServer {
@@ -86,6 +107,11 @@ const SLICES = 2;
  * room to walk about without letting one script fill the streets.
  */
 const GUESTS_PER_ADDRESS = 12;
+const HOUR = 60 * 60 * 1000;
+/** The most codes that are mailed from one address in an hour: a campus shares a few. */
+const CODES_PER_ADDRESS = 30;
+/** Allowed tries are per code: the cap below is per person, across codes and addresses. */
+const WRONG_CODES = { limit: 10, period: 15 * 60 * 1000 };
 
 /**
  * better-auth limits sign-ins per IP from `x-real-ip`. nginx sets it in production; the server
@@ -110,6 +136,9 @@ export function originMatches(origin: string, pattern: string): boolean {
   return origin.startsWith(prefix) && /^\d+$/.test(origin.slice(prefix.length));
 }
 
+/** What a queue is left holding: the waiting matters, not how it went. */
+const settled = () => undefined;
+
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: API_HEADERS });
 
 /** An error in better-auth's shape, so the client reads every failure the same way. */
@@ -118,6 +147,14 @@ const problem = (status: number, code: string, message: string) => json({ code, 
 async function readJson(request: Request): Promise<Record<string, unknown> | null> {
   const body: unknown = await request.json().catch(() => null);
   return typeof body === 'object' && body !== null ? (body as Record<string, unknown>) : null;
+}
+
+/** The same request with another body: only what we checked gets through to better-auth. */
+function withBody(request: Request, body: unknown): Request {
+  const headers = new Headers(request.headers);
+  headers.set('content-type', 'application/json');
+  headers.delete('content-length');
+  return new Request(request.url, { method: 'POST', headers, body: JSON.stringify(body) });
 }
 
 export async function startServer(config: ServerConfig): Promise<RunningServer> {
@@ -131,10 +168,14 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
     trustedOrigins: config.trustedOrigins,
     rateLimit: config.rateLimit,
     quiet: config.quiet,
+    newUser: (headers) => newUser(headers),
   };
   await migrateAuth(authConfig);
   const auth = createAuth(authConfig);
   const store = createStore(db);
+  const mailer = config.mailer ?? noMailer;
+  const limited = config.rateLimit !== false;
+  const ownerOf = db.query<{ id: string }, [string]>('SELECT id FROM "user" WHERE username = ?');
   const world = createWorld({
     save: (saves) => store.savePositions(saves),
     saveEvery: config.saveEvery,
@@ -143,12 +184,47 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
   });
   const guests = createGuests(config.secret, new URL(config.baseURL).protocol === 'https:');
   // (A `take` of cost 0 reads what's left: it is always "allowed", so `remaining` is the test.)
-  // better-auth limits its own routes by address; sign-up goes through auth.api, which it doesn't
-  // limit. Only accounts made count: a campus shares a handful of addresses, and a name taken is
-  // no abuse. Failed sign-ins count per name too, so many addresses can't guess one password.
-  const signUps = RateLimit.create({ limit: 30, period: 60 * 60 * 1000 });
-  const wrongPasswords = RateLimit.create({ limit: 10, period: 15 * 60 * 1000 });
+  // Only accounts made count against an address: a campus shares a handful.
+  const newAccounts = RateLimit.create({ limit: config.accountsPerHour ?? 30, period: HOUR });
+  // A mail for every address costs us and annoys them: at most one every half a minute, five an
+  // hour, whoever asks. Always on, unlike the limits by address: it guards an account.
+  const codeWait = RateLimit.create({ limit: 1, period: CODE_COOLDOWN_SECONDS * 1000 });
+  const codesAnHour = RateLimit.create({ limit: 5, period: HOUR });
+  const codesFromAddress = RateLimit.create({ limit: CODES_PER_ADDRESS, period: HOUR });
+  const wrongCodes = RateLimit.create(WRONG_CODES);
+  const renames = RateLimit.create({ limit: 10, period: 60 * 1000 });
+  const at = () => new Date((config.now ?? Date.now)());
   const origins = [new URL(config.baseURL).origin, ...(config.trustedOrigins ?? [])];
+
+  /**
+   * Anything that hands out a name goes through one at a time: checking it's free and taking it
+   * are separate steps, and two sign-ups a millisecond apart mustn't both find the same one free.
+   */
+  let claiming: Promise<unknown> = Promise.resolve();
+  function inTurn<T>(run: () => Promise<T>): Promise<T> {
+    const result = claiming.then(run, run);
+    claiming = result.then(settled, settled);
+    return result;
+  }
+
+  /** What a new account is called: this browser's guest, joined up, with a number if taken. */
+  async function newUser(headers: Headers | undefined): Promise<NewUser> {
+    if (limited) {
+      const ip = clientKey(headers?.get('x-real-ip') ?? null);
+      if (!(await newAccounts.take(ip, { now: at() })).allowed) {
+        throw new APIError('TOO_MANY_REQUESTS', {
+          code: 'TOO_MANY_REQUESTS',
+          message: 'Too many new accounts from here. Try again later.',
+        });
+      }
+    }
+    const guestId = headers ? await guests.read({ headers }) : null;
+    const words = guestName(guestId ?? guests.mint()).replaceAll(' ', '');
+    let name = words;
+    for (let n = 2; ownerOf.get(name.toLowerCase()); n++) name = `${words}${n}`;
+    log.info('new player %s', name);
+    return { name, username: name.toLowerCase(), fresh: true };
+  }
 
   /** A browser always says where a request came from; one from another site is refused. */
   const fromUs = (request: Request) => {
@@ -157,39 +233,6 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
   };
 
   const session = (request: Request) => auth.api.getSession({ headers: request.headers });
-
-  async function signUp(request: Request): Promise<Response> {
-    const ip = clientKey(request.headers.get('x-real-ip'));
-    const guestId = await guests.read(request);
-    if (config.rateLimit !== false && (await signUps.take(ip, { cost: 0 })).remaining < 1) {
-      return problem(429, 'TOO_MANY_REQUESTS', 'Too many accounts from here; try again later.');
-    }
-    const body = await readJson(request);
-    const username = body?.username;
-    const password = body?.password;
-    if (typeof username !== 'string' || typeof password !== 'string') {
-      return problem(400, 'VALIDATION_ERROR', 'Send a username and a password.');
-    }
-    if (!isUsername(username)) return problem(400, 'INVALID_USERNAME', 'Username is invalid');
-    try {
-      const response = await auth.api.signUpEmail({
-        body: { email: syntheticEmail(username), password, name: username, username },
-        headers: request.headers,
-        asResponse: true,
-      });
-      response.headers.set('cache-control', 'no-store');
-      if (response.ok) {
-        log.info('new player %s', username);
-        if (config.rateLimit !== false) await signUps.take(ip);
-        await becomePlayer(guestId, response);
-      }
-      return response;
-    } catch (error) {
-      // The username plugin's checks throw even with asResponse.
-      if (error instanceof APIError) return json(error.body, error.statusCode);
-      throw error;
-    }
-  }
 
   /**
    * A guest's tabs carry on as the account they just signed into or made: their figure and sockets
@@ -210,39 +253,97 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
   }
 
   /**
-   * better-auth's own routes, with what it doesn't do: a cap on wrong passwords per name, and the
-   * map kept in step: signing in or up turns the guest into the player, and signing out turns them
-   * back. A new password closes the player's sockets; their other devices reconnect by themselves.
+   * Mails a sign-in code. The same answer whether or not the address has an account, and the same
+   * steps too: nothing looks it up. better-auth's own endpoint for this swallows a failed send, and
+   * a mail that didn't go must say so, so the code is made here and sent here.
+   */
+  async function sendCode(request: Request): Promise<Response> {
+    if (!mailer.ready) return problem(503, 'MAIL_OFF', 'Email sign-in isn’t switched on yet.');
+    const body = await readJson(request);
+    const email = typeof body?.email === 'string' ? normaliseEmail(body.email) : '';
+    if (!isEmail(email)) return problem(400, 'INVALID_EMAIL', 'Enter an email address.');
+    // Accounts from before email have no mailbox behind them; docs/MULTIPLAYER.md says what next.
+    if (email.endsWith('.invalid')) {
+      return problem(400, 'EMAIL_UNDELIVERABLE', 'That address can’t receive mail.');
+    }
+    const ip = clientKey(request.headers.get('x-real-ip'));
+    const now = at();
+    if (limited && (await codesFromAddress.take(ip, { cost: 0, now })).remaining < 1) {
+      return problem(429, 'TOO_MANY_REQUESTS', 'Too many codes from here. Try again later.');
+    }
+    const wait = await codeWait.take(email, { now });
+    if (!wait.allowed) {
+      return json(
+        {
+          code: 'CODE_ALREADY_SENT',
+          message: 'A code is on its way.',
+          retryAfter: Math.ceil(wait.retryAfter / 1000),
+        },
+        429,
+      );
+    }
+    if (!(await codesAnHour.take(email, { now })).allowed) {
+      await codeWait.take(email, { cost: -1, now });
+      return problem(429, 'TOO_MANY_REQUESTS', 'Too many codes for this address. Try again later.');
+    }
+    if (limited) await codesFromAddress.take(ip, { now });
+    const code = await auth.api.createVerificationOTP({ body: { email, type: 'sign-in' } });
+    try {
+      await mailer.send(email, code);
+    } catch (error) {
+      // Our failure, not theirs: it doesn't count against them.
+      await codeWait.take(email, { cost: -1, now });
+      await codesAnHour.take(email, { cost: -1, now });
+      if (limited) await codesFromAddress.take(ip, { cost: -1, now });
+      log.warn('a sign-in code didn’t go out: %s', error instanceof Error ? error.message : error);
+      return problem(502, 'MAIL_FAILED', 'Couldn’t send the email.');
+    }
+    return json({ success: true });
+  }
+
+  /** Signs in with a code, making the account if this address has none. */
+  async function signInWithCode(request: Request): Promise<Response> {
+    const body = await readJson(request);
+    const email = typeof body?.email === 'string' ? normaliseEmail(body.email) : '';
+    const otp = typeof body?.otp === 'string' ? body.otp : '';
+    if (!isEmail(email) || otp.length !== CODE_LENGTH || /\D/.test(otp)) {
+      return problem(400, 'INVALID_OTP', 'That code isn’t right.');
+    }
+    // Always on, unlike the limits by address: it guards an account, and is never noise.
+    if ((await wrongCodes.take(email, { cost: 0, now: at() })).remaining < 1) {
+      return problem(429, 'TOO_MANY_REQUESTS', 'Too many tries. Wait a while, then try again.');
+    }
+    const before = await session(request);
+    const guestId = await guests.read(request);
+    const response = await inTurn(() => auth.handler(withBody(request, { email, otp })));
+    response.headers.set('cache-control', 'no-store');
+    if (!response.ok) {
+      if (response.status === 400 || response.status === 403) {
+        await wrongCodes.take(email, { now: at() });
+      }
+      return response;
+    }
+    // Signing in over someone else's session: their sockets reconnect as whoever they now are.
+    if (before) world.drop(before.user.id);
+    await becomePlayer(guestId, response);
+    return response;
+  }
+
+  /**
+   * better-auth's own routes, with the map kept in step: signing in turns the guest into the
+   * player, and signing out turns them back.
    */
   async function authRoute(path: string, request: Request): Promise<Response> {
-    let name = '';
-    // Always on, unlike the limits by address: it guards an account, and is never noise.
-    if (path === '/sign-in/username') {
-      const body = (await readJson(request.clone())) as { username?: unknown } | null;
-      name = typeof body?.username === 'string' ? body.username.toLowerCase() : '';
-      if (name && (await wrongPasswords.take(name, { cost: 0 })).remaining < 1) {
-        return problem(429, 'TOO_MANY_REQUESTS', 'Too many tries. Wait a while, then try again.');
-      }
-    }
-    const changes = path === '/sign-out' || path === '/change-password';
-    const signingIn = path === '/sign-in/username';
-    const before = changes || signingIn ? await session(request) : null;
+    if (path === SEND_CODE_PATH) return sendCode(request);
+    if (path === SIGN_IN_PATH) return signInWithCode(request);
+    const before = path === '/sign-out' ? await session(request) : null;
     const guestId = await guests.read(request);
     const response = await auth.handler(request);
     response.headers.set('cache-control', 'no-store');
-    if (name && response.status === 401) await wrongPasswords.take(name);
-    if (!response.ok) return response;
-    if (path === '/change-password' && before) world.drop(before.user.id);
-    if (path === '/sign-out' && before) {
-      const id = guestId ?? guests.mint();
-      if (!guestId) response.headers.append('set-cookie', await guests.cookie(id));
-      world.signedOut(before.user.id, before.session.token, guestAccount(id));
-    }
-    if (signingIn) {
-      // Signing in over someone else's session: their sockets reconnect as whoever they now are.
-      if (before) world.drop(before.user.id);
-      await becomePlayer(guestId, response);
-    }
+    if (!response.ok || !before) return response;
+    const id = guestId ?? guests.mint();
+    if (!guestId) response.headers.append('set-cookie', await guests.cookie(id));
+    world.signedOut(before.user.id, before.session.token, guestAccount(id));
     return response;
   }
 
@@ -257,6 +358,7 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
         name: world.who(guest.userId)?.name ?? guest.name,
         outfit: guest.outfit,
         at: world.stateOf(guest.userId),
+        mail: mailer.ready,
       });
       // Every visit renews it: a guest ends a month after their last.
       reply.headers.append('set-cookie', await guests.cookie(id));
@@ -264,7 +366,9 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
     }
     const userId = current.user.id;
     if (request.method === 'PUT') {
-      const outfit = (await readJson(request))?.outfit;
+      const body = await readJson(request);
+      if (typeof body?.name === 'string') return rename(userId, body.name);
+      const outfit = body?.outfit;
       if (!isOutfit(outfit)) return problem(400, 'INVALID_OUTFIT', 'Send four 24-bit colours.');
       store.player(userId, () => outfit);
       store.saveOutfit(userId, outfit);
@@ -277,7 +381,31 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
       name: current.user.name,
       outfit: record.outfit,
       at: world.stateOf(userId) ?? record.at,
+      fresh: Boolean(current.user.fresh),
     });
+  }
+
+  /** Takes a new name, if it's free, and tells everyone who can see them. */
+  async function rename(userId: string, name: string): Promise<Response> {
+    if (!isUsername(name)) return problem(400, 'INVALID_USERNAME', 'That name won’t do.');
+    if (limited && !(await renames.take(userId, { now: at() })).allowed) {
+      return problem(429, 'TOO_MANY_REQUESTS', 'Too many changes. Wait a minute, then try again.');
+    }
+    const username = name.toLowerCase();
+    const free = await inTurn(async () => {
+      const owner = ownerOf.get(username)?.id;
+      if (owner && owner !== userId) return false;
+      const { internalAdapter } = await auth.$context;
+      // Only `name` when it's the same username in another case: it is already theirs.
+      await internalAdapter.updateUser(
+        userId,
+        owner ? { name, fresh: false } : { name, username, fresh: false },
+      );
+      return true;
+    });
+    if (!free) return problem(400, 'USERNAME_IS_ALREADY_TAKEN', 'That name is taken.');
+    world.setName(userId, name);
+    return json({ name });
   }
 
   async function route(
@@ -330,7 +458,6 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
       return authRoute(pathname.slice('/api/auth'.length), request);
     }
     if (pathname === '/api/health' && method === 'GET') return json({ ok: true, ...world.stats() });
-    if (pathname === '/api/account' && method === 'POST') return signUp(request);
     if (pathname === '/api/me' && (method === 'GET' || method === 'PUT')) return me(request);
     return problem(404, 'NOT_FOUND', 'Not found');
   }

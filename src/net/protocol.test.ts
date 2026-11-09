@@ -103,8 +103,8 @@ describe('server messages', () => {
   const messages: ServerMessage[] = [
     { type: 'welcome', you: 0 },
     { type: 'welcome', you: 0xffff_ffff },
-    { type: 'identity', guest: true, unseen: false, name: 'Guest Sunny Otter', outfit },
-    { type: 'identity', guest: true, unseen: true, name: 'Guest Sunny Otter 2', outfit },
+    { type: 'identity', guest: true, unseen: false, name: 'Sunny Otter', outfit },
+    { type: 'identity', guest: true, unseen: true, name: 'Sunny Otter 2', outfit },
     { type: 'identity', guest: false, unseen: false, name: 'Bram', outfit },
     { type: 'renamed', id: 12, name: 'Bram', outfit },
     { type: 'driving', on: true },

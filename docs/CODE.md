@@ -97,15 +97,15 @@ Errors that can reach a user carry a message written for them. `CityLoadError` a
 
 Each runtime dependency has to earn its place:
 
-| Package                                  | Why                                                                                                                                                                      |
-| ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `three`                                  | The 3D engine. Plain three.js rather than a wrapper keeps the bundle and the abstraction small.                                                                          |
-| `react`, `react-dom`                     | The app shell and its menu                                                                                                                                               |
-| `@portable/binary`, `@portable/compress` | The city file format, and the multiplayer wire format (`src/net/protocol.ts`)                                                                                            |
-| `@portable/websockets`                   | The browser's presence socket: reconnects with backoff, runs code on every (re)connect before queued writes, and treats a deliberate close as final. About 3 kB.         |
-| `better-auth`                            | Accounts on the server only: password hashing, sessions in a cookie, rate limits on sign-in, its tables migrated into our SQLite file. Security code we shouldn't write. |
-| `@portable/rate-limit`                   | Server only: how many presence messages a connection may send, and sign-ups per address                                                                                  |
-| `@portable/log`                          | Server only: namespaced logging, turned up with `DEBUG`                                                                                                                  |
+| Package                                  | Why                                                                                                                                                                                                                                            |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `three`                                  | The 3D engine. Plain three.js rather than a wrapper keeps the bundle and the abstraction small.                                                                                                                                                |
+| `react`, `react-dom`                     | The app shell and its menu                                                                                                                                                                                                                     |
+| `@portable/binary`, `@portable/compress` | The city file format, and the multiplayer wire format (`src/net/protocol.ts`)                                                                                                                                                                  |
+| `@portable/websockets`                   | The browser's presence socket: reconnects with backoff, runs code on every (re)connect before queued writes, and treats a deliberate close as final. About 3 kB.                                                                               |
+| `better-auth`                            | Accounts on the server only: one-time codes by email, sessions in a cookie, rate limits on sign-in, its tables migrated into our SQLite file. Security code we shouldn't write. Mail itself is a `fetch` to Resend (`server/mail.ts`), no SDK. |
+| `@portable/rate-limit`                   | Server only: how many presence messages a connection may send, and sign-ups per address                                                                                                                                                        |
+| `@portable/log`                          | Server only: namespaced logging, turned up with `DEBUG`                                                                                                                                                                                        |
 
 Dev tooling is Vite, oxlint, agent-browser (smoke test), `@portable/png` (icons) and type packages. Bun itself formats, type-checks and tests.
 

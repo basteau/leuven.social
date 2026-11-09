@@ -38,8 +38,10 @@ export interface MultiplayerHooks {
 }
 
 export interface Multiplayer {
-  signUp(name: string, password: string): Promise<void>;
-  signIn(name: string, password: string): Promise<void>;
+  sendCode(email: string): Promise<void>;
+  verifyCode(email: string, code: string): Promise<void>;
+  rename(name: string): Promise<void>;
+  nameFree(name: string): Promise<boolean | null>;
   signOut(): Promise<void>;
   /** Wears a look now and saves it a moment later. */
   dress(outfit: Outfit): void;
@@ -54,6 +56,9 @@ interface Other extends RosterEntry {
 
 export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multiplayer {
   let account: Account = { signedIn: false };
+  /** A new account yet to choose its name, and whether sign-in codes can be sent: as `me` said. */
+  let fresh = false;
+  let mailOff = false;
   /** What the socket last said about who we are, if it has yet. */
   let identity: Identity | null = null;
   /** The look on the avatar, to wear another only when it changed. */
@@ -244,6 +249,11 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
 
   /** The server says who this tab is now: the same, whichever tab caused it. */
   function apply(who: Identity | Me): void {
+    // Only `Me` knows these: the socket doesn't tell a new account or whether codes can be sent.
+    if ('fresh' in who) {
+      fresh = who.fresh;
+      mailOff = !who.mail;
+    }
     settle(
       who.guest
         ? {
@@ -251,8 +261,9 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
             name: who.name,
             outfit: who.outfit,
             unseen: 'unseen' in who && who.unseen,
+            mailOff,
           }
-        : { signedIn: true, name: who.name, outfit: who.outfit },
+        : { signedIn: true, name: who.name, outfit: who.outfit, fresh },
     );
     wear(who.outfit);
   }
@@ -278,7 +289,7 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
   const first = asked;
   void Accounts.me()
     .then((me) => {
-      // Signed in or up meanwhile (a password manager is quick): that answer is the one.
+      // Signed in meanwhile (a code pasted in a hurry): that answer is the one.
       if (disposed || asked !== first) return;
       if (!me) return;
       apply(me);
@@ -328,16 +339,16 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
   return {
     // Signing in and out change who your figure is on the server, so the figure and the socket
     // carry on as they are, and every tab of this browser hears it over its socket.
-    async signUp(name, password) {
+    sendCode: Accounts.sendCode,
+    async verifyCode(email, code) {
       asked++;
-      apply(await Accounts.signUp(name, password));
+      apply(await Accounts.verifyCode(email, code));
       expectIdentity(false);
     },
-    async signIn(name, password) {
-      asked++;
-      apply(await Accounts.signIn(name, password));
-      expectIdentity(false);
+    async rename(name) {
+      apply(await Accounts.rename(name));
     },
+    nameFree: Accounts.nameFree,
     async signOut() {
       await save();
       await Accounts.signOut();

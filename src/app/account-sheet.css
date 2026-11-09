@@ -1,8 +1,8 @@
 /* The account sheet's own styles, loaded with its chunk; the sheet itself is the menu's (app.css). */
 
 /*
- * Who you are: the account sheet is the menu's sheet, as tall as what it holds. Signed out, a name
- * and a password; signed in, a flat figure in your colours and a row of swatches a part.
+ * Who you are: the account sheet is the menu's sheet, as tall as what it holds. Signed out, an email
+ * and then its code; signed in, a flat figure in your colours and a row of swatches a part.
  */
 .menu.account {
   block-size: fit-content;
@@ -68,6 +68,25 @@
   border-color: oklch(52% 0.17 28);
 }
 
+/* Six digits in the middle, tabular so a typed code doesn't shuffle as it fills. */
+.field .code-field {
+  font-size: 1.5rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.25em;
+  text-align: center;
+}
+
+.name-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-s);
+}
+
+.name-row input {
+  flex: 1 1 9rem;
+  min-inline-size: 0;
+}
+
 .field small {
   color: color-mix(in oklch, var(--ink) 70%, var(--paper));
   font-size: 0.8125rem;
@@ -96,12 +115,25 @@
   cursor: pointer;
 }
 
-.account-switch:active {
+.account-switch:active:not(:disabled) {
   background: var(--paper-press);
 }
 
+.account-switch:disabled {
+  color: color-mix(in oklch, var(--ink) 55%, var(--paper));
+  cursor: default;
+  font-variant-numeric: tabular-nums;
+}
+
+.account-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-xs);
+}
+
 @media (hover: hover) and (pointer: fine) {
-  .account-switch:hover {
+  .account-switch:hover:not(:disabled) {
     text-decoration: underline;
   }
 }

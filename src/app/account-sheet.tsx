@@ -1,20 +1,31 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import type { CSSProperties, FormEvent } from 'react';
+import type { CSSProperties, FormEvent, RefObject } from 'react';
 
+import {
+  CODE_COOLDOWN_SECONDS,
+  CODE_LENGTH,
+  CODE_MINUTES,
+  MAX_EMAIL,
+  MAX_NAME,
+  MIN_NAME,
+  isUsername,
+} from '../net/rules.ts';
 import type { Outfit } from '../scene/viewer.ts';
 import { PARTS, css, surprise } from './outfits.ts';
 import './account-sheet.css';
 
 /**
- * Who you are on the map, in a sheet like the menu's: a guest, who you are for now and a name and
- * a password to join (or to sign back in); signed in, your look, chosen from a few colours a part
- * and worn at once, and a way out. Its own chunk, fetched when it is first opened.
+ * Who you are on the map, in a sheet like the menu's. A guest: who you are for now, and one flow
+ * to join or come back: an email, then the code it was sent, then, only for a new account, a name.
+ * Signed in: your name and your look, chosen from a few colours a part and worn at once, and a way
+ * out. Its own chunk, fetched when it is first opened. It stays mounted once opened, so a code
+ * asked for a moment ago is still waiting when the sheet is opened again.
  */
 
 /** Who you are on the map: signed in, or a guest with the name and look the server gave them. */
 export type Account =
-  | { signedIn: false; name?: string; outfit?: Outfit; unseen?: boolean }
-  | { signedIn: true; name: string; outfit: Outfit };
+  | { signedIn: false; name?: string; outfit?: Outfit; unseen?: boolean; mailOff?: boolean }
+  | { signedIn: true; name: string; outfit: Outfit; fresh?: boolean };
 
 export interface AccountSheetProps {
   open: boolean;
@@ -23,12 +34,18 @@ export interface AccountSheetProps {
   /** How many are on the map now, you included; null while not connected. */
   online: number | null;
   /** Each settles once done, or fails with a message written for the person. */
-  signUp(name: string, password: string): Promise<void>;
-  signIn(name: string, password: string): Promise<void>;
+  sendCode(email: string): Promise<void>;
+  verifyCode(email: string, code: string): Promise<void>;
+  rename(name: string): Promise<void>;
+  /** Whether a name is free; null when that can't be told. */
+  nameFree(name: string): Promise<boolean | null>;
   signOut(): Promise<void>;
   /** Wears a look now; it is saved a moment later. */
   dress(outfit: Outfit): void;
 }
+
+const messageOf = (failure: unknown) =>
+  failure instanceof Error ? failure.message : 'That didn’t work. Try again.';
 
 /** The figure, flat, in a look: what the swatches change, at a glance. */
 function Preview({ outfit }: { outfit: Outfit }) {
@@ -51,25 +68,150 @@ function Preview({ outfit }: { outfit: Outfit }) {
   );
 }
 
+const nameRules = `${MIN_NAME} to ${MAX_NAME} letters, digits, dots, dashes or underscores; no spaces.`;
+
+interface NameFormProps {
+  /** The name on the account now, which the field starts with. */
+  current: string;
+  /** A new account: the name is a suggestion and keeping it counts as choosing. */
+  fresh: boolean;
+  fieldRef?: RefObject<HTMLInputElement | null>;
+  save(name: string): Promise<void>;
+  nameFree(name: string): Promise<boolean | null>;
+  /** Saved: where focus and the news go next. */
+  onSaved?(): void;
+}
+
+/** A name to keep or change, said to be free or taken while it is typed. */
+function NameForm({ current, fresh, fieldRef, save, nameFree, onSaved }: NameFormProps) {
+  const uid = useId();
+  const [name, setName] = useState(current);
+  const [free, setFree] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  /** The check under way, and what was last typed: only its answer counts. */
+  const checking = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const latest = useRef(current);
+  const same = name.toLowerCase() === current.toLowerCase();
+
+  function typed(next: string) {
+    setName(next);
+    setFree(null);
+    setError(null);
+    latest.current = next;
+    clearTimeout(checking.current);
+    if (!isUsername(next) || next.toLowerCase() === current.toLowerCase()) return;
+    checking.current = setTimeout(() => {
+      void nameFree(next).then((answer) => {
+        if (latest.current === next) setFree(answer);
+      });
+    }, 250);
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await save(name.trim());
+      onSaved?.();
+    } catch (failure) {
+      setError(messageOf(failure));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const hint =
+    free === false ? 'That name is taken.' : free === true ? 'That name is free.' : nameRules;
+  return (
+    <form className="account-form" onSubmit={(event) => void submit(event)}>
+      <div className="field">
+        <label htmlFor={`${uid}-name`}>{fresh ? 'Your name' : 'Name'}</label>
+        <div className="name-row">
+          <input
+            ref={fieldRef}
+            id={`${uid}-name`}
+            name="username"
+            required
+            minLength={MIN_NAME}
+            maxLength={MAX_NAME}
+            pattern="[A-Za-z0-9_.\-]+"
+            title={nameRules}
+            autoComplete="username"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
+            enterKeyHint="done"
+            aria-describedby={`${uid}-hint`}
+            aria-invalid={free === false}
+            value={name}
+            onChange={(event) => typed(event.target.value)}
+          />
+          {!fresh && (
+            <button type="submit" className="action" disabled={busy || same}>
+              {busy ? 'Saving…' : 'Save'}
+            </button>
+          )}
+        </div>
+        <small id={`${uid}-hint`} aria-live="polite">
+          {hint}
+        </small>
+      </div>
+      {error && (
+        <p className="account-error" role="alert">
+          {error}
+        </p>
+      )}
+      {fresh && (
+        <button type="submit" className="action primary" disabled={busy || free === false}>
+          {busy ? 'Saving…' : 'Use this name'}
+        </button>
+      )}
+    </form>
+  );
+}
+
 export function AccountSheet(props: AccountSheetProps) {
   const { open, onClose, account, online } = props;
   const dialogRef = useRef<HTMLDialogElement>(null);
   const uid = useId();
-  const [joining, setJoining] = useState(true);
+  const [step, setStep] = useState<'email' | 'code'>('email');
+  const [email, setEmail] = useState('');
+  const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const nameRef = useRef<HTMLInputElement>(null);
+  /** Said to a screen reader as each step arrives. */
+  const [news, setNews] = useState('');
+  /** Seconds until another code may go out, counted down from when that is (ms). */
+  const [left, setLeft] = useState(0);
+  const waitUntil = useRef(0);
+  /** Takes the code's step away once the code has run out. */
+  const runningOut = useRef<ReturnType<typeof setTimeout>>(undefined);
+  /** Who this sheet last saw: signed in or out by another tab, a code in progress is moot. */
+  const [wasSignedIn, setWasSignedIn] = useState(account.signedIn);
+  if (wasSignedIn !== account.signedIn) {
+    setWasSignedIn(account.signedIn);
+    setStep('email');
+    setCode('');
+    setNews('');
+  }
+  /** A code tried already isn't sent again by itself; retyping it is on purpose. */
+  const lastTried = useRef('');
+  /** The next render should move focus: to the field of the new step, or the title. */
+  const focusNext = useRef(false);
+  const fieldRef = useRef<HTMLInputElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const close = () => dialogRef.current?.close();
 
   // The native dialog traps focus and closes on Escape; a click on the backdrop closes it too.
-  // With a keyboard, the name is where typing starts, as the menu's search is.
+  // With a keyboard, the field is where typing starts, as the menu's search is.
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!dialog) return;
     if (open && !dialog.open) {
       dialog.showModal();
-      if (globalThis.matchMedia?.('(pointer: fine)').matches) nameRef.current?.focus();
+      if (globalThis.matchMedia?.('(pointer: fine)').matches) fieldRef.current?.focus();
     } else if (!open && dialog.open) dialog.close();
   }, [open]);
   useEffect(() => {
@@ -94,22 +236,72 @@ export function AccountSheet(props: AccountSheetProps) {
       dialog.removeEventListener('close', closed);
     };
   }, [onClose]);
+  // After each step: into its field, or to the title once there's no field left to type in.
+  useEffect(() => {
+    if (!focusNext.current) return;
+    focusNext.current = false;
+    if (fieldRef.current) {
+      fieldRef.current.focus();
+      fieldRef.current.select();
+    } else titleRef.current?.focus({ focusVisible: true } as FocusOptions);
+  });
+  // The wait before another code, in seconds, while it can be seen.
+  useEffect(() => {
+    if (!open || step !== 'code') return;
+    const timer = setInterval(
+      () => setLeft(Math.max(0, Math.ceil((waitUntil.current - Date.now()) / 1000))),
+      1000,
+    );
+    return () => clearInterval(timer);
+  }, [open, step]);
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const [name, password] = [
-      String(form.get('name') ?? '').trim(),
-      String(form.get('password') ?? ''),
-    ];
+  async function send(address: string) {
     setBusy(true);
     setError(null);
     try {
-      await (joining ? props.signUp(name, password) : props.signIn(name, password));
-      // The form went with it: focus to the sheet's new title, which says who you are now.
-      titleRef.current?.focus({ focusVisible: true } as FocusOptions);
+      await props.sendCode(address);
+      waiting(address, CODE_COOLDOWN_SECONDS);
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : 'That didn’t work. Try again.');
+      const { code: why, retryAfter = 0 } = failure as { code?: string; retryAfter?: number };
+      // One went out a moment ago and is still good: on to where it can be typed.
+      if (why === 'sent') waiting(address, retryAfter);
+      else setError(messageOf(failure));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /** A code is on its way to `address`: the step to type it, and the wait for another. */
+  function waiting(address: string, seconds: number) {
+    setEmail(address);
+    waitUntil.current = Date.now() + seconds * 1000;
+    setLeft(seconds);
+    setStep('code');
+    setCode('');
+    lastTried.current = '';
+    setNews(`We sent a code to ${address}.`);
+    focusNext.current = true;
+    // Run out, it starts over with the address still there, whether the sheet is open or not.
+    clearTimeout(runningOut.current);
+    runningOut.current = setTimeout(() => {
+      setStep('email');
+      setCode('');
+      setError('That code ran out. Send a new one.');
+    }, CODE_MINUTES * 60_000);
+  }
+
+  async function verify(digits: string) {
+    if (digits.length !== CODE_LENGTH || busy) return;
+    lastTried.current = digits;
+    setBusy(true);
+    setError(null);
+    try {
+      await props.verifyCode(email, digits);
+      clearTimeout(runningOut.current);
+      focusNext.current = true;
+    } catch (failure) {
+      setError(messageOf(failure));
+      fieldRef.current?.select();
     } finally {
       setBusy(false);
     }
@@ -122,7 +314,7 @@ export function AccountSheet(props: AccountSheetProps) {
       // Nothing left to do here: back to the map, as a guest (the app says so).
       close();
     } catch (failure) {
-      setError(failure instanceof Error ? failure.message : 'That didn’t work. Try again.');
+      setError(messageOf(failure));
     } finally {
       setBusy(false);
     }
@@ -139,12 +331,21 @@ export function AccountSheet(props: AccountSheetProps) {
           ? 'One other person is in Leuven right now.'
           : `${others} others are in Leuven right now.`;
 
+  const fresh = account.signedIn && account.fresh;
+  const title = account.signedIn
+    ? fresh
+      ? 'Pick your name'
+      : account.name
+    : step === 'code'
+      ? 'Check your email'
+      : 'Join Leuven';
+
   return (
     <dialog ref={dialogRef} className="menu account" aria-labelledby={`${uid}-title`}>
       <div className="menu-panel">
         <header className="menu-head">
           <h2 ref={titleRef} id={`${uid}-title`} className="menu-title" tabIndex={-1}>
-            {account.signedIn ? account.name : joining ? 'Join Leuven' : 'Welcome back'}
+            {title}
           </h2>
           <button type="button" className="menu-close" aria-label="Close" onClick={close}>
             <svg
@@ -163,7 +364,25 @@ export function AccountSheet(props: AccountSheetProps) {
           </button>
         </header>
         <div className="menu-body account-body">
-          {account.signedIn ? (
+          <output className="sr-only">{news}</output>
+          {account.signedIn && fresh && (
+            <>
+              <p className="menu-lede">
+                This is the name everyone sees over your head. Keep it, or pick another that’s yours
+                alone.
+              </p>
+              <NameForm
+                key={account.name}
+                current={account.name}
+                fresh
+                fieldRef={fieldRef}
+                save={props.rename}
+                nameFree={props.nameFree}
+                onSaved={() => (focusNext.current = true)}
+              />
+            </>
+          )}
+          {account.signedIn && !fresh && (
             <>
               <div className="account-you">
                 <Preview outfit={account.outfit} />
@@ -171,6 +390,13 @@ export function AccountSheet(props: AccountSheetProps) {
                   This is you on the map. Pick your colours: everyone sees them at once. {here}
                 </p>
               </div>
+              <NameForm
+                key={account.name}
+                current={account.name}
+                fresh={false}
+                save={props.rename}
+                nameFree={props.nameFree}
+              />
               {PARTS.map(({ part, label, swatches }) => (
                 <fieldset key={part} className="swatches">
                   <legend>{label}</legend>
@@ -217,8 +443,21 @@ export function AccountSheet(props: AccountSheetProps) {
                 </p>
               )}
             </>
-          ) : (
-            <form className="account-form" onSubmit={(event) => void submit(event)}>
+          )}
+          {!account.signedIn && account.mailOff && (
+            <p className="menu-lede">
+              Email sign-in isn’t switched on yet. You can keep exploring as{' '}
+              {account.name ? <strong>{account.name}</strong> : 'a guest'}.
+            </p>
+          )}
+          {!account.signedIn && !account.mailOff && step === 'email' && (
+            <form
+              className="account-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void send(email.trim());
+              }}
+            >
               <p className="menu-lede">
                 {account.name && (
                   <>
@@ -226,44 +465,29 @@ export function AccountSheet(props: AccountSheetProps) {
                     <strong>{account.name}</strong>
                     {account.unseen
                       ? ', but so many guests have come from your connection that others can’t see you. '
-                      : ', and everyone can see you. '}
+                      : '. '}
                   </>
                 )}
-                {joining
-                  ? 'Pick a name and a password to keep one of your own, in your own colours. You’ll carry on from here, and come back where you left off.'
-                  : 'Your name and password, and you’ll carry on from here under your own name.'}{' '}
-                {here}
+                Join to keep a name and colours of your own, and carry on from here. No password: we
+                email you a code.
               </p>
               <label className="field">
-                <span>Name</span>
+                <span>Email</span>
                 <input
-                  ref={nameRef}
-                  name="name"
+                  ref={fieldRef}
+                  name="email"
+                  type="email"
                   required
-                  minLength={3}
-                  maxLength={20}
-                  pattern="[A-Za-z0-9_.\-]+"
-                  title="3 to 20 letters, digits, dots, dashes or underscores"
-                  autoComplete="username"
+                  maxLength={MAX_EMAIL}
+                  autoComplete="email"
                   autoCapitalize="none"
                   autoCorrect="off"
                   spellCheck={false}
-                  enterKeyHint="next"
+                  inputMode="email"
+                  enterKeyHint="send"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
                 />
-                <small>3 to 20 letters, digits, dots, dashes or underscores; no spaces.</small>
-              </label>
-              <label className="field">
-                <span>Password</span>
-                <input
-                  name="password"
-                  type="password"
-                  required
-                  minLength={joining ? 8 : 1}
-                  maxLength={128}
-                  autoComplete={joining ? 'new-password' : 'current-password'}
-                  enterKeyHint="go"
-                />
-                {joining && <small>At least 8 characters.</small>}
               </label>
               {error && (
                 <p className="account-error" role="alert">
@@ -271,18 +495,76 @@ export function AccountSheet(props: AccountSheetProps) {
                 </p>
               )}
               <button type="submit" className="action primary" disabled={busy}>
-                {busy ? (joining ? 'Joining…' : 'Signing in…') : joining ? 'Join' : 'Sign in'}
+                {busy ? 'Sending…' : 'Send code'}
               </button>
-              <button
-                type="button"
-                className="account-switch"
-                onClick={() => {
-                  setJoining((j) => !j);
-                  setError(null);
-                }}
-              >
-                {joining ? 'Already have a name? Sign in' : 'New here? Pick a name'}
+            </form>
+          )}
+          {!account.signedIn && !account.mailOff && step === 'code' && (
+            <form
+              className="account-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void verify(code);
+              }}
+            >
+              <p className="menu-lede">
+                We sent a six-digit code to <strong>{email}</strong>. It works for {CODE_MINUTES}{' '}
+                minutes.
+              </p>
+              <label className="field">
+                <span>Code</span>
+                <input
+                  ref={fieldRef}
+                  className="code-field"
+                  name="code"
+                  required
+                  autoComplete="one-time-code"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  enterKeyHint="go"
+                  value={code}
+                  onChange={(event) => {
+                    // Not `maxLength`: a pasted "123 456" must arrive whole to be cleaned up.
+                    const digits = event.target.value.replace(/\D/g, '').slice(0, CODE_LENGTH);
+                    setCode(digits);
+                    setError(null);
+                    if (digits.length === CODE_LENGTH && digits !== lastTried.current) {
+                      void verify(digits);
+                    }
+                  }}
+                />
+              </label>
+              {error && (
+                <p className="account-error" role="alert">
+                  {error}
+                </p>
+              )}
+              <button type="submit" className="action primary" disabled={busy}>
+                {busy ? 'Checking…' : 'Continue'}
               </button>
+              <div className="account-links">
+                <button
+                  type="button"
+                  className="account-switch"
+                  disabled={busy || left > 0}
+                  onClick={() => void send(email)}
+                >
+                  {left > 0 ? `Send a new code in ${left} s` : 'Send a new code'}
+                </button>
+                <button
+                  type="button"
+                  className="account-switch"
+                  onClick={() => {
+                    clearTimeout(runningOut.current);
+                    setStep('email');
+                    setError(null);
+                    setNews('');
+                    focusNext.current = true;
+                  }}
+                >
+                  Use a different email
+                </button>
+              </div>
             </form>
           )}
         </div>

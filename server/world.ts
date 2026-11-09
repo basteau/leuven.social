@@ -104,7 +104,7 @@ export interface World {
   /** A message from a connection; resolves once it has been applied or dropped. */
   receive(id: number, data: string | Uint8Array): Promise<void>;
   disconnect(id: number): void;
-  /** A new password: every socket of theirs off the map, to reconnect if they may. */
+  /** Someone signed in over them: every socket of theirs off the map, to reconnect if they may. */
   drop(userId: string): void;
   /**
    * A guest (`guestKey`, their `userId`) signed in or up as `account`: the same figure carries on
@@ -117,6 +117,8 @@ export interface World {
   who(userId: string): Account | null;
   /** A player changed colours; whoever can see them hears it if they are online. */
   setOutfit(userId: string, outfit: Outfit): void;
+  /** A player took another name; their tabs and whoever can see them hear it if they are online. */
+  setName(userId: string, name: string): void;
   /** Where a player is now, a guest also for a while after they left; null when neither. */
   stateOf(userId: string): PlayerState | null;
   /** Sends what changed since the last tick and saves the ones due. */
@@ -774,6 +776,14 @@ export function createWorld(options: WorldOptions = {}): World {
       const frame = encodeServerMessage({ type: 'outfit', id: figure.id, outfit });
       for (const tab of figure.tabs) deliver(tab, frame);
       toSeers(figure, { type: 'outfit', id: figure.id, outfit });
+    },
+
+    setName(userId, name) {
+      const figure = people.get(userId);
+      if (!figure) return;
+      figure.account = { ...figure.account, name };
+      for (const tab of figure.tabs) introduce(tab);
+      toSeers(figure, { type: 'renamed', id: figure.id, name, outfit: figure.account.outfit });
     },
 
     stateOf(userId) {

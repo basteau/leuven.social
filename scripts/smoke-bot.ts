@@ -1,15 +1,17 @@
 /**
- * Another player for the smoke test: an account made over HTTP and a presence socket that walks a
- * slow circle round a spot and writes down what it hears. It is first on the map at its address, so
- * its tab drives the figure without needing to say so. Headless browsers side by side don't
- * animate (their pages count as hidden), so the second player is this script, speaking the same
- * protocol the page does (src/net/protocol.ts).
+ * Another person for the smoke test: a guest with a presence socket, walking a slow circle round a
+ * spot and writing down what it hears. It is first on the map at its address, so its tab drives
+ * the figure without needing to say so. Headless browsers side by side don't animate (their pages
+ * count as hidden), so the second person is this script, speaking the same protocol the page does
+ * (src/net/protocol.ts).
  */
 
 import { decodeServerMessage, encodeClientMessage } from '../src/net/protocol.ts';
 import type { Outfit, ServerMessage } from '../src/net/protocol.ts';
 
 export interface Bot {
+  /** Who the server says it is, numbered if another guest online drew the same two words. */
+  name: string;
   /** Everything the server said to it, oldest first. */
   heard: ServerMessage[];
   /** The players it saw join or become someone, by name, as they now are. */
@@ -23,32 +25,23 @@ export interface Bot {
   close(): void;
 }
 
-/** Signs up as `name` on the server at `api` (as the page at `origin` would) and walks round (x, z). */
+/** Connects to the server at `api` as a guest (as the page at `origin` would) and walks round (x, z). */
 export async function startBot(
   api: string,
   origin: string,
-  name: string,
   [x, z]: [number, number],
 ): Promise<Bot> {
-  const headers = { 'content-type': 'application/json', origin };
-  const response = await fetch(`${api}/api/account`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ username: name, password: 'smoke-test-password' }),
-  });
-  if (!response.ok) throw new Error(`the bot couldn't sign up: ${response.status}`);
-  const cookie = response.headers
-    .getSetCookie()
-    .map((c) => c.split(';')[0])
-    .join('; ');
   const socket = new WebSocket(`${api.replace(/^http/, 'ws')}/ws`, {
-    headers: { cookie, origin },
+    headers: { origin },
   } as unknown as string[]);
   socket.binaryType = 'arraybuffer';
   const heard: ServerMessage[] = [];
+  let listened: () => void;
+  const identified = new Promise<void>((resolve) => (listened = resolve));
   socket.addEventListener('message', (event) => {
     const message = decodeServerMessage(new Uint8Array(event.data as ArrayBuffer));
     if (message) heard.push(message);
+    if (message?.type === 'identity') listened();
   });
   await new Promise<void>((resolve, reject) => {
     socket.addEventListener('open', () => resolve(), { once: true });
@@ -56,6 +49,8 @@ export async function startBot(
       once: true,
     });
   });
+  await identified;
+  const name = heard.find((m) => m.type === 'identity')!.name;
   const start = performance.now();
   const walk = setInterval(() => {
     const a = ((performance.now() - start) / 1000) * 0.5;
@@ -79,6 +74,7 @@ export async function startBot(
     return [...ids.values()];
   };
   return {
+    name,
     heard,
     joined,
     idOf(wanted) {
