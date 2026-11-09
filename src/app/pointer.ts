@@ -6,10 +6,12 @@
  */
 
 /**
- * How far in from each edge the edge arrow stays (px): clear of the street plate and the credits
- * along the top, the view's controls down the end edge and the pills along the bottom.
+ * How far in from each edge the edge arrow's disc (22 px radius, its shadow under it) keeps its
+ * middle (px): clear of the view's controls down the end edge and of the menu button along the
+ * bottom. Along the top it stays this far under whatever the top edge holds just then (the street
+ * plate, the credit, the hint): the shell adds the height of that row.
  */
-export const EDGE_INSET = { top: 76, right: 88, bottom: 88, left: 32 } as const;
+export const EDGE_INSET = { top: 28, right: 96, bottom: 96, left: 32 } as const;
 export type Inset = { top: number; right: number; bottom: number; left: number };
 
 export interface Pointer {

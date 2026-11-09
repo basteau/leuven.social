@@ -43,7 +43,7 @@ import { loadStep, stallWatch, unlessAborted } from './loading.ts';
 import { createStore } from './store.ts';
 import type { Waypoint } from '../data/waypoints.ts';
 import type { LoadState } from './loading.ts';
-import { pointerFor } from './pointer.ts';
+import { EDGE_INSET, pointerFor } from './pointer.ts';
 import { useShortcuts } from './shortcuts.ts';
 import { StreetSign } from './street-sign.tsx';
 import { ViewControls } from './view-controls.tsx';
@@ -188,6 +188,8 @@ export function App() {
   const [blocked, setBlocked] = useState<Refusal | null>(null);
   /** The arrow that marks the avatar, placed by hand: it moves with every frame that pans. */
   const arrowRef = useRef<HTMLButtonElement>(null);
+  /** The top row: what the arrow at the edge stays below. */
+  const headerRef = useRef<HTMLElement>(null);
   const [running, setRunning] = useState(false);
   const runningRef = useRef(running);
   /** Whether the avatar's code failed to download, and whether the view is close enough to show it. */
@@ -449,7 +451,9 @@ export function App() {
             if (!off) setLooking(null);
             if (figure) setCoach((c) => (c.street ? c : { ...c, street: true }));
             const arrow = arrowRef.current;
-            const p = arrow && pointerFor(x, y, map.clientWidth, map.clientHeight, figure);
+            const top = EDGE_INSET.top + (headerRef.current?.offsetHeight ?? 0);
+            const inset = { ...EDGE_INSET, top };
+            const p = arrow && pointerFor(x, y, map.clientWidth, map.clientHeight, figure, inset);
             if (!arrow) return;
             arrow.hidden = !p;
             if (!p) return;
@@ -798,7 +802,7 @@ export function App() {
         </button>
       </div>
 
-      <header className="hud hud-top">
+      <header ref={headerRef} className="hud hud-top">
         {/* Where you are, once the view is close enough to show you: the only plate on screen. */}
         <StreetSign name={inside ? `${inside.room} · ${inside.floor}` : street} />
         {ready && (

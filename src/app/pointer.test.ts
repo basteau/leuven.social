@@ -37,7 +37,7 @@ describe('the arrow over the avatar', () => {
     expect(corner.y).toBeGreaterThanOrEqual(30 - 1e-9);
     expect(Math.min(corner.x - 10, corner.y - 30)).toBeCloseTo(0);
     // With the HUD's own insets by default.
-    expect(pointerFor(2000, 300, 800, 600, true)!.x).toBe(800 - 88);
+    expect(pointerFor(2000, 300, 800, 600, true)!.x).toBe(800 - 96);
   });
 
   test('at the edge too while it stands under the controls round the screen', () => {
@@ -51,8 +51,8 @@ describe('the arrow over the avatar', () => {
       expect(corner.angle).toBeGreaterThan(-Math.PI / 2);
       expect(corner.angle).toBeLessThan(0);
     }
-    // Under the street plate along the top, with the HUD's own insets.
-    expect(pointerFor(400, 40, 800, 600, true)).toMatchObject({ y: 76, edge: true });
+    // Under the top edge, with the HUD's own inset (the shell adds the top row's height).
+    expect(pointerFor(400, 10, 800, 600, true)).toMatchObject({ y: 28, edge: true });
     // Just inside the rectangle, it is on screen as ever.
     expect(pointerFor(780, 560, 800, 600, true, inset)).toBeNull();
     expect(pointerFor(10, 30, 800, 600, false, inset)).toMatchObject({ edge: false });

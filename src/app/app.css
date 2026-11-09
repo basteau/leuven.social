@@ -120,6 +120,7 @@ kbd {
 }
 
 .avatar-arrow[data-edge='true'] {
+  z-index: 1;
   pointer-events: auto;
   cursor: pointer;
 }
