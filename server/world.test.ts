@@ -761,9 +761,27 @@ describe('createWorld', () => {
         true,
       );
       world.disconnect(b.id);
+      // The room goes to the guest who has waited longest, not to whoever comes next.
+      expect(ofType(c.connection.messages, 'identity').at(-1)?.unseen).toBe(false);
       expect(ofType(join(null, { address: 'x' }).connection.messages, 'identity')[0]?.unseen).toBe(
-        false,
+        true,
       );
+    });
+
+    test('a guest watching unseen goes on the map when one from its address leaves', async () => {
+      const { join, move, world } = setup({ guestsPerAddress: 1 });
+      const a = join(null, { address: 'x' });
+      const b = join(null, { address: 'x' });
+      const c = join(null, { address: 'x' });
+      const unseen = (g: typeof a) => ofType(g.connection.messages, 'identity').at(-1)?.unseen;
+      expect([unseen(b), unseen(c)]).toEqual([true, true]);
+      world.disconnect(a.id);
+      // One leaving makes room for one: the next waits on.
+      expect([unseen(b), unseen(c)]).toEqual([false, true]);
+      await move(b.id, { x: 5 });
+      expect(world.stateOf(b.account.userId)).not.toBeNull();
+      await move(c.id, { x: 6 });
+      expect(world.stateOf(c.account.userId)).toBeNull();
     });
 
     test('signing in: the same figure carries on under the account’s name', async () => {

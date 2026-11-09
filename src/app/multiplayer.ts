@@ -173,8 +173,12 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
         forget();
       },
       onIdentity(next) {
+        // Let on the map after waiting unseen: the server dropped what we sent, and a figure
+        // standing still wouldn't send it again.
+        const letIn = identity?.unseen && !next.unseen;
         identity = next;
         apply(next);
+        if (letIn && last) presence?.send(last);
       },
       onRenamed: (id, name, outfit) => restyle(id, { name, outfit }),
       onOwn(state) {

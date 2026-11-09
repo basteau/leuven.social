@@ -404,6 +404,18 @@ export function createWorld(options: WorldOptions = {}): World {
     const count = guestsFrom.get(address) ?? 0;
     if (count <= 1) guestsFrom.delete(address);
     else guestsFrom.set(address, count - 1);
+    if (count === guestsPerAddress) letIn(address);
+  };
+
+  /** Room on an address: the first of its guests still watching unseen goes on the map. */
+  const letIn = (address: string) => {
+    for (const figure of people.values()) {
+      if (!figure.hidden || figure.address !== address) continue;
+      figure.hidden = false;
+      guestsFrom.set(address, (guestsFrom.get(address) ?? 0) + 1);
+      for (const tab of figure.tabs) introduce(tab);
+      return;
+    }
   };
 
   /** The last tab of a figure went. It leaves the map; a guest is remembered a while. */
