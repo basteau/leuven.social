@@ -32,10 +32,21 @@ export interface Daylight {
 type Keyframe = Omit<Daylight, 'shadow'>;
 
 /**
- * Moonlight and the sky's fill at night: enough that the roofs keep their shapes and colours, the
- * moon under the sky so its shadow is a hint, not a slab across the street.
+ * The whole of the night, midnight to 5:30 and 22:00 on: moonlight and the sky's fill enough that
+ * the roofs keep their shapes and colours, the moon under the sky so its shadow is a hint, not a
+ * slab across the street.
  */
-const NIGHT = { moon: 0.55, sky: 1 } as const;
+const NIGHT: Omit<Keyframe, 'hour'> = {
+  sunDirection: [0.45, 0.55, 0.5],
+  sun: 0xa8bff0,
+  sunIntensity: 0.55,
+  sky: 0x5468a0,
+  skyIntensity: 1,
+  bounce: 0x2a2e48,
+  horizon: 0x1f2a4c,
+  top: 0x0c1428,
+  night: 1,
+};
 
 /**
  * How much of the sun a shadow takes away, from how strong the sun is: all of it from `SHADOW_FULL`
@@ -64,30 +75,8 @@ export const shadowWeight = (sunIntensity: number): number => {
  * with so little of either nothing casts a shadow to be seen swinging.
  */
 const KEYFRAMES: readonly Keyframe[] = [
-  {
-    hour: 0,
-    sunDirection: [0.45, 0.55, 0.5],
-    sun: 0xa8bff0,
-    sunIntensity: NIGHT.moon,
-    sky: 0x5468a0,
-    skyIntensity: NIGHT.sky,
-    bounce: 0x2a2e48,
-    horizon: 0x1f2a4c,
-    top: 0x0c1428,
-    night: 1,
-  },
-  {
-    hour: 5.5,
-    sunDirection: [0.45, 0.55, 0.5],
-    sun: 0xa8bff0,
-    sunIntensity: NIGHT.moon,
-    sky: 0x5468a0,
-    skyIntensity: NIGHT.sky,
-    bounce: 0x2a2e48,
-    horizon: 0x1f2a4c,
-    top: 0x0c1428,
-    night: 1,
-  },
+  { hour: 0, ...NIGHT },
+  { hour: 5.5, ...NIGHT },
   {
     hour: 7,
     // As at dusk: low, but not grazing.
@@ -164,30 +153,8 @@ const KEYFRAMES: readonly Keyframe[] = [
     top: 0x1c2448,
     night: 0.85,
   },
-  {
-    hour: 22,
-    sunDirection: [0.45, 0.55, 0.5],
-    sun: 0xa8bff0,
-    sunIntensity: NIGHT.moon,
-    sky: 0x5468a0,
-    skyIntensity: NIGHT.sky,
-    bounce: 0x2a2e48,
-    horizon: 0x1f2a4c,
-    top: 0x0c1428,
-    night: 1,
-  },
-  {
-    hour: 24,
-    sunDirection: [0.45, 0.55, 0.5],
-    sun: 0xa8bff0,
-    sunIntensity: NIGHT.moon,
-    sky: 0x5468a0,
-    skyIntensity: NIGHT.sky,
-    bounce: 0x2a2e48,
-    horizon: 0x1f2a4c,
-    top: 0x0c1428,
-    night: 1,
-  },
+  { hour: 22, ...NIGHT },
+  { hour: 24, ...NIGHT },
 ];
 
 /** The street lamps come on at this much night (dusk), and are full at 1. */
@@ -206,9 +173,9 @@ export type PresetId = (typeof PRESETS)[number]['id'];
 /** The preset nearest an hour of the day, by name. */
 export function presetAt(hour: number): PresetId {
   const h = wrapHour(hour);
+  const gap = (q: { hour: number }) => Math.min(Math.abs(h - q.hour), 24 - Math.abs(h - q.hour));
   let best: (typeof PRESETS)[number] = PRESETS[0];
   for (const p of PRESETS) {
-    const gap = (q: { hour: number }) => Math.min(Math.abs(h - q.hour), 24 - Math.abs(h - q.hour));
     if (gap(p) < gap(best)) best = p;
   }
   return best.id;
