@@ -39,6 +39,7 @@ import {
 import type { CanopyBay, Mast, RailParapet, Track } from './rails.ts';
 import {
   addDeckFrame,
+  addDeckPaint,
   addDeckSurface,
   addParapet,
   addPortals,
@@ -80,6 +81,8 @@ export interface Cell {
   parapets: Float32Array[];
   /** Every ramp on the map: a wall stops where it meets another's roadway. */
   allRamps: readonly Ramp[];
+  /** Every carriageway on the map: a deck's road is the colour of the road it comes from. */
+  allCarriageways: readonly Carriageway[];
   /** Held-up decks, whole, in the cell of their first point. */
   decks: Deck[];
   ramps: Ramp[];
@@ -159,6 +162,7 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
           parapets: [],
           decks: [],
           allRamps: city.ramps,
+          allCarriageways: city.carriageways,
           ramps: [],
           tunnels: [],
           nearDecks: [],
@@ -373,7 +377,7 @@ export function buildCell(
   for (const d of cell.decks) {
     addDeckFrame(mesh, lines, d, terrain);
     mesh.drape = terrain.decks;
-    addDeckSurface(mesh, d);
+    addDeckSurface(mesh, d, cell.allCarriageways);
     mesh.drape = terrain;
   }
   for (const r of cell.ramps) addRampWalls(mesh, lines, r, terrain, cell.allRamps);
@@ -408,6 +412,9 @@ export function buildCell(
   mesh.drape = terrain;
   addFinePaint(mesh, cell.ground.markings);
   addFieldLines(mesh, cell.ground.fields);
+  mesh.drape = terrain.decks;
+  for (const d of cell.decks) addDeckPaint(mesh, d);
+  mesh.drape = terrain;
   onTheSlab(mesh, area, cell.bounds, () =>
     addKerbs(mesh, cell.ground.carriageways, cell.bounds, area),
   );

@@ -5,6 +5,7 @@ import { FLAT_GRID, landform } from '../data/terrain.ts';
 import { deckStrip } from '../data/structures.ts';
 import {
   addDeckFrame,
+  addDeckPaint,
   addDeckSurface,
   addParapet,
   addPortals,
@@ -103,16 +104,107 @@ describe('bridges and tunnels', () => {
       addRampWalls(mesh, new LineBuilder(), ramp, carved, others);
       return mesh.indices;
     };
+    // The tip's two faces stand whatever the walls do.
+    const tip = 12;
     const alone = count([ramp, far]);
     expect(alone).toBe(count([]));
     // Near enough to look at the walls length by length, too far to cover either: both stand whole.
     expect(count([{ ...ramp, line: Float32Array.of(0, 5.8, 40, 5.8) }])).toBe(alone);
     // Over the one on the side it lies: that side goes.
-    expect(count([ramp, beside])).toBe(alone / 2);
+    expect(count([ramp, beside])).toBe(tip + (alone - tip) / 2);
     // At another height it's a step, and the wall stays.
     expect(count([ramp, { ...beside, rise: Float32Array.of(-3, -3) }])).toBe(alone);
     // Partly along it: the wall stops where it starts, one length either side.
-    expect(count([{ ...beside, line: Float32Array.of(10, 4, 20, 4) }])).toBe(alone + alone / 2);
+    expect(count([{ ...beside, line: Float32Array.of(10, 4, 20, 4) }])).toBe(
+      tip + ((alone - tip) * 3) / 2,
+    );
+  });
+
+  test("a ramp's high end is faced both ways: seen from under its deck it was a hole", () => {
+    const up = {
+      line: Float32Array.of(0, 0, 40, 0),
+      rise: Float32Array.of(3, 0),
+      half: 3,
+      rail: false,
+    };
+    const down = { ...up, rise: Float32Array.of(-3, 0) };
+    const carved = landform(FLAT_GRID, [up, down], []);
+    const faces = (ramp: typeof up) => {
+      const mesh = new MeshBuilder();
+      addRampWalls(mesh, new LineBuilder(), ramp, carved);
+      return mesh.indices;
+    };
+    const flat = { ...up, rise: Float32Array.of(0, 0) };
+    expect(faces(flat)).toBe(0);
+    // A cutting has its floor at the tip, so no face; the rising one has its two more.
+    expect(faces(up)).toBeGreaterThan(0);
+    expect(faces(down)).toBeGreaterThan(0);
+  });
+
+  test('even a step too low to wall is faced, or the ground under the road shows in it', () => {
+    const low = {
+      line: Float32Array.of(0, 0, 40, 0),
+      rise: Float32Array.of(0.1, 0.1),
+      half: 3,
+      rail: false,
+    };
+    const mesh = new MeshBuilder();
+    addRampWalls(mesh, new LineBuilder(), low, landform(FLAT_GRID, [low], []));
+    expect(mesh.indices).toBeGreaterThan(12);
+  });
+
+  test("a cutting's wall reaches past the road layers, its kerb only once it is deep", () => {
+    const cut = {
+      line: Float32Array.of(0, 0, 40, 0),
+      rise: Float32Array.of(-0.5, -0.5),
+      half: 3,
+      rail: false,
+    };
+    const carved = landform(FLAT_GRID, [cut], []);
+    const [mesh, lines] = [new MeshBuilder(), new LineBuilder()];
+    addRampWalls(mesh, lines, cut, carved);
+    const { box } = measure(mesh);
+    expect(box.max.y).toBeCloseTo(0.156, 3);
+    expect(lines.segments).toBe(0);
+    const deep = { ...cut, rise: Float32Array.of(-4, -4) };
+    const inked = new LineBuilder();
+    addRampWalls(new MeshBuilder(), inked, deep, landform(FLAT_GRID, [deep], []));
+    expect(inked.segments).toBeGreaterThan(0);
+  });
+
+  test("a deck's road is the colour of the road it comes from, and dashed down the middle", () => {
+    const road = {
+      kind: 'main' as const,
+      surface: 'asphalt' as const,
+      ring: Float32Array.of(20, -5, 40, -5, 40, 5, 20, 5),
+    };
+    const span = {
+      carries: 'road' as const,
+      ring: Float32Array.of(0, -4, 20, -4, 20, 4, 0, 4),
+      axis: Float32Array.of(-2, 0, 22, 0),
+      rise: Float32Array.of(5, 5),
+      piers: new Float32Array(0),
+      lanes: [{ width: 6.4, surface: 'asphalt' as const, line: Float32Array.of(0, 0, 20, 0) }],
+    };
+    const colours = (carriageways: (typeof road)[]) => {
+      const mesh = new MeshBuilder();
+      addDeckSurface(mesh, span, carriageways as never);
+      const colour = unindexed(mesh.build()).getAttribute('color');
+      return colour.getX(colour.count - 1);
+    };
+    expect(colours([road])).not.toBe(colours([]));
+    expect(colours([{ ...road, kind: 'cycleway' as never }])).toBe(colours([]));
+    const paint = new MeshBuilder();
+    addDeckPaint(paint, span);
+    expect(paint.indices).toBe(3 * 6);
+    const narrow = new MeshBuilder();
+    addDeckPaint(narrow, { ...span, lanes: [{ ...span.lanes[0]!, width: 2 }] });
+    expect(narrow.indices).toBe(0);
+    addDeckPaint(narrow, {
+      ...span,
+      lanes: [{ ...span.lanes[0]!, line: Float32Array.of(0, 0, 0, 0, 20, 0) }],
+    });
+    expect(narrow.indices).toBe(3 * 6);
   });
 
   test('a tunnel has a portal only at a mouth that opens', () => {

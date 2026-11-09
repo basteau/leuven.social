@@ -1,14 +1,15 @@
 import { ShapeUtils, Vector2 } from 'three';
 
 import { CYCLE_LANE } from '../data/city.ts';
-import type { Deck, Ramp, Tank, Tunnel } from '../data/city.ts';
+import type { Carriageway, Deck, Ramp, Tank, Tunnel } from '../data/city.ts';
+import { pointInRing } from '../data/geometry.ts';
 import { deckEnds, deckSides } from '../data/structures.ts';
 import { mitres } from '../data/terrain.ts';
 import type { Terrain } from '../data/terrain.ts';
 import { LAYER_Y } from './ground.ts';
 import type { LineBuilder, MeshBuilder, V3 } from './mesh-builder.ts';
 import { SURFACE, SURFACE_OF } from './paint.ts';
-import { GROUND, STRUCTURES, SURFACE_COLOURS, carriagewayColor } from './palette.ts';
+import { GROUND, PAINT, STRUCTURES, SURFACE_COLOURS, carriagewayColor } from './palette.ts';
 
 const UP: V3 = [0, 1, 0];
 /** Parapets: a low wall a little over waist height, from the deck (road level) up (m). */
@@ -153,6 +154,19 @@ function touches(a: Ramp, b: Ramp): boolean {
   return p[0] <= q[2] && q[0] <= p[2] && p[1] <= q[3] && q[1] <= p[3];
 }
 
+/** How far past a lane's end to look for the road it's part of (m). */
+const PAST_END = 3;
+/** Roads on a deck get a dashed centre line from this wide (m), this long and this often. */
+const DASHED_FROM = 6;
+const DASH = 2.5;
+const DASH_EVERY = 7.5;
+const DASH_WIDE = 0.14;
+/** A rise too small to wall still leaves a step in the ground: faces down to this (m). */
+const STEP_MIN = 0.02;
+/** A cutting's kerb starts this deep (m), and grows with it: thinner, it can't cast a shadow. */
+const KERB_FROM = 1.2;
+const KERB_GROWS = 0.4;
+
 const cuttingFloor = (g: number, r: number) => g + Math.min(r, 0) + LAYER_Y.roads;
 
 const pointAt = (ring: ArrayLike<number>, i: number): [number, number] => [
@@ -161,7 +175,11 @@ const pointAt = (ring: ArrayLike<number>, i: number): [number, number] => [
 ];
 
 /** A deck's surface: its outline over its ground, and its ways as ribbons of their own. */
-export function addDeckSurface(mesh: MeshBuilder, deck: Deck): void {
+export function addDeckSurface(
+  mesh: MeshBuilder,
+  deck: Deck,
+  carriageways: readonly Carriageway[] = [],
+): void {
   const contour = Array.from(
     { length: deck.ring.length / 2 },
     (_, i) => new Vector2(...pointAt(deck.ring, i)),
@@ -178,7 +196,9 @@ export function addDeckSurface(mesh: MeshBuilder, deck: Deck): void {
   for (const { width, line, surface } of deck.lanes) {
     const half = width / 2;
     const color =
-      width <= CYCLE_LANE ? carriagewayColor('cycleway', 'asphalt') : SURFACE_COLOURS[surface];
+      width <= CYCLE_LANE
+        ? carriagewayColor('cycleway', 'asphalt')
+        : (roadRunningOn(line, carriageways) ?? SURFACE_COLOURS[surface]);
     for (let i = 0; i + 3 < line.length; i += 2) {
       const [ax, az, bx, bz] = [line[i]!, line[i + 1]!, line[i + 2]!, line[i + 3]!];
       const len = Math.hypot(bx - ax, bz - az);
@@ -194,6 +214,60 @@ export function addDeckSurface(mesh: MeshBuilder, deck: Deck): void {
         UP,
         -SURFACE_OF[surface],
       );
+    }
+  }
+}
+
+/** The colour of the road a lane runs on from, past either end of it: a deck is that road still. */
+function roadRunningOn(
+  line: ArrayLike<number>,
+  carriageways: readonly Carriageway[],
+): number | undefined {
+  const n = line.length / 2;
+  for (const [i, j] of [
+    [0, 1],
+    [n - 1, n - 2],
+  ] as const) {
+    const [x, z] = pointAt(line, i);
+    const [ox, oz] = pointAt(line, j);
+    const length = Math.hypot(x - ox, z - oz) || 1;
+    const [px, pz] = [x + ((x - ox) / length) * PAST_END, z + ((z - oz) / length) * PAST_END];
+    const on = carriageways.find((c) => c.kind !== 'cycleway' && pointInRing(c.ring, px, pz));
+    if (on) return carriagewayColor(on.kind, on.surface);
+  }
+  return undefined;
+}
+
+/** A lane's dashes down its middle, as the road it comes from has them. */
+export function addDeckPaint(mesh: MeshBuilder, deck: Deck): void {
+  const y = LAYER_Y.carriageways + 0.01;
+  for (const { width, line } of deck.lanes) {
+    if (width < DASHED_FROM) continue;
+    let run = 0;
+    for (let i = 0; i + 3 < line.length; i += 2) {
+      const [ax, az, bx, bz] = [line[i]!, line[i + 1]!, line[i + 2]!, line[i + 3]!];
+      const len = Math.hypot(bx - ax, bz - az);
+      if (len < 1e-6) continue;
+      const [ux, uz] = [(bx - ax) / len, (bz - az) / len];
+      const [nx, nz] = [uz * (DASH_WIDE / 2), -ux * (DASH_WIDE / 2)];
+      const first = Math.ceil(run / DASH_EVERY) * DASH_EVERY - run;
+      for (let at = first; at + DASH <= len; at += DASH_EVERY) {
+        const [x0, z0, x1, z1] = [
+          ax + ux * at,
+          az + uz * at,
+          ax + ux * (at + DASH),
+          az + uz * (at + DASH),
+        ];
+        mesh.quad(
+          [x0 + nx, y, z0 + nz],
+          [x1 + nx, y, z1 + nz],
+          [x1 - nx, y, z1 - nz],
+          [x0 - nx, y, z0 - nz],
+          PAINT.line,
+          UP,
+        );
+      }
+      run += len;
     }
   }
 }
@@ -281,7 +355,7 @@ export function addRampWalls(
   const [drape, lineDrape] = [mesh.drape, lines.drape];
   mesh.drape = lines.drape = null;
   for (let i = 0; i + 1 < edges.length; i++) {
-    if (Math.abs(rise[i]!) < 0.25 && Math.abs(rise[i + 1]!) < 0.25) continue;
+    if (Math.abs(rise[i]!) < STEP_MIN && Math.abs(rise[i + 1]!) < STEP_MIN) continue;
     for (const side of [0, 2] as const) {
       const [x0, z0] = [edges[i]![side], edges[i]![side + 1]!];
       const [x1, z1] = [edges[i + 1]![side], edges[i + 1]![side + 1]!];
@@ -347,25 +421,50 @@ export function addRampWalls(
     } else {
       // A cutting's wall: from its floor up past the ground, facing in.
       // The lip fades as the cutting comes up to the ground, so a ramp ends level with the road.
-      const lip = (g: number, r: number) => g + Math.min(KERB_TOP, -Math.min(r, 0) * 0.25);
+      const lip = (g: number, r: number) =>
+        g + Math.min(KERB_TOP, Math.max(0, -Math.min(r, 0) - KERB_FROM) * KERB_GROWS);
+      // Up past the street's own layers, or what lies under them shows over the top of it.
+      const wallTop = (g: number, r: number) => Math.max(lip(g, r), g + LAYER_Y.carriageways);
       mesh.quad(
         [ax, cuttingFloor(ga, ra), az],
         [bx, cuttingFloor(gb, rb), bz],
-        [bx, lip(gb, rb), bz],
-        [ax, lip(ga, ra), az],
+        [bx, wallTop(gb, rb), bz],
+        [ax, wallTop(ga, ra), az],
         STRUCTURES.retaining,
         [-ox, 0, -oz],
       );
-      mesh.quad(
-        [ax, ga, az],
-        [bx, gb, bz],
-        [bx, lip(gb, rb), bz],
-        [ax, lip(ga, ra), az],
-        STRUCTURES.retaining,
-        [ox, 0, oz],
-      );
-      if (Math.max(-ra, -rb) > 0.8) lines.segment([ax, lip(ga, ra), az], [bx, lip(gb, rb), bz]);
+      // Its outside and its ink only where there's a kerb to have them.
+      if (lip(ga, ra) > ga || lip(gb, rb) > gb) {
+        mesh.quad(
+          [ax, ga, az],
+          [bx, gb, bz],
+          [bx, lip(gb, rb), bz],
+          [ax, lip(ga, ra), az],
+          STRUCTURES.retaining,
+          [ox, 0, oz],
+        );
+        lines.segment([ax, lip(ga, ra), az], [bx, lip(gb, rb), bz]);
+      }
     }
+  }
+  addRampTip();
+  /**
+   * The high end of a ramp, faced on both sides: it stops under its deck, in a step up from the
+   * ground there, and seen from the far side of the deck there was only the sky behind it.
+   */
+  function addRampTip(): void {
+    const top = rise[0]!;
+    if (top <= STEP_MIN) return;
+    const [lx, lz, rx, rz] = edges[0]!;
+    const [gl, gr] = [terrain.plain(lx, lz), terrain.plain(rx, rz)];
+    const face: [V3, V3, V3, V3] = [
+      [lx, gl, lz],
+      [rx, gr, rz],
+      [rx, gr + top + LAYER_Y.roads, rz],
+      [lx, gl + top + LAYER_Y.roads, lz],
+    ];
+    const [ux, uz] = [line[2]! - line[0]!, line[3]! - line[1]!];
+    for (const side of [1, -1]) mesh.quad(...face, STRUCTURES.retaining, [ux * side, 0, uz * side]);
   }
   [mesh.drape, lines.drape] = [drape, lineDrape];
 }
