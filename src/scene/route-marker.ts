@@ -74,8 +74,15 @@ function ring(mesh: MeshBuilder, ground: Ground, x: number, z: number): void {
   }
 }
 
-/** The hint along `route`, on the ground `ground` gives (level by default). */
-export function routeMarker(route: Float32Array, ground: Ground = () => 0): RouteMarker {
+/**
+ * The hint along `route`, on the ground `ground` gives (level by default). The ring stands at
+ * `end`, where the walk really ends when this route is only a leg of it; else at the route's end.
+ */
+export function routeMarker(
+  route: Float32Array,
+  ground: Ground = () => 0,
+  end: readonly [number, number] = [route.at(-2)!, route.at(-1)!],
+): RouteMarker {
   const mesh = new MeshBuilder();
   const dots: number[] = [];
   let total = 0;
@@ -95,7 +102,7 @@ export function routeMarker(route: Float32Array, ground: Ground = () => 0): Rout
     }
     walked += length;
   }
-  const [x, z] = [route.at(-2)!, route.at(-1)!];
+  const [x, z] = end;
   ring(mesh, ground, x, z);
   disc(mesh, ground, x, z, CENTRE, DOT_SIDES);
   return { geometry: mesh.build({ keep: true }), dots: Float32Array.from(dots) };

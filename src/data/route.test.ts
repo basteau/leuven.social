@@ -160,6 +160,13 @@ describe('legsToward', () => {
     }
   });
 
+  test('within one route’s reach, the whole way first, and legs if it isn’t found', () => {
+    const legs = legsToward(0, 0, ROUTE_REACH, 0);
+    expect(legs[0]).toEqual([ROUTE_REACH, 0, true]);
+    expect(legs[1]![2]).toBe(false);
+    expect(legsToward(0, 0, ROUTE_REACH + 1, 0)[0]![2]).toBe(false);
+  });
+
   test('tries to either side, for when the way straight on is over the river', () => {
     const legs = legsToward(0, 0, 0, 1000);
     expect(legs.some(([x]) => x > 50)).toBe(true);

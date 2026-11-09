@@ -23,7 +23,7 @@ import type { City } from '../data/city.ts';
 import { DOOR_HALF } from '../data/room-grid.ts';
 import type { Room } from '../data/rooms.ts';
 import type { Presence } from '../data/presence.ts';
-import { ROUTE_REACH, Router, TAP_REACH, legsToward } from '../data/route.ts';
+import { Router, TAP_REACH, legsToward } from '../data/route.ts';
 import type { Terrain } from '../data/terrain.ts';
 import { WalkGrid } from '../data/walkable.ts';
 import { avatarState, createAvatar, stepAvatar } from './avatar.ts';
@@ -70,7 +70,7 @@ import { STEP, followRoute, runBlend } from './walker.ts';
  * first frame is drawn; the avatar it draws is on Grote Markt from the start.
  *
  * One way to move, on foot or on a bike: W A S D by the screen (Shift runs or sprints), or a tap
- * on the ground within ROUTE_REACH, which walks or rides it there along a route. The one thing
+ * on the ground or Go here on the map, which walk or ride it there the same way. The one thing
  * that puts it anywhere at once is a building's door: beside a building with a room inside, from
  * any side, Enter takes it in, and Enter again back out to its door. The camera is pinned to it,
  * gliding after it, until the person drags the map; then the view is theirs until Space (or
@@ -81,7 +81,7 @@ import { STEP, followRoute, runBlend } from './walker.ts';
 
 /** How many places round a tap's spot are tried before it's refused. */
 const TRIES = 8;
-/** A tap this far off (m) that no route reaches is a long way round: too far, not nowhere. */
+/** A spot this far off (m) that no route reaches is a long way round: no way, not no ground. */
 const DETOUR = 80;
 /** A spot picked on the full map goes to the street within this of it (m). */
 const NAVIGATE_SNAP = 30;
@@ -146,8 +146,8 @@ const idle = (run: () => void): number =>
 const cancelIdle = (handle: number) =>
   'cancelIdleCallback' in globalThis ? cancelIdleCallback(handle) : clearTimeout(handle);
 
-/** Why a tap sent the avatar nowhere: no ground to stand on there, or too far to go. */
-export type Refusal = 'closed' | 'far';
+/** Why the avatar was sent nowhere: no ground to stand on there, or no way found to it. */
+export type Refusal = 'closed' | 'noway';
 
 export interface AvatarHost {
   scene: Scene;
@@ -687,12 +687,16 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     return false;
   }
 
+  /** Where the walk ends when the next route is only a leg of it: the ring stands there. */
+  let ringAt: readonly [number, number] | undefined;
+
   function follow(route: Float32Array): void {
     followRoute(avatar.walker, route);
     sounds.routeStart();
     hint.geometry.dispose();
     const floorY = feet[1];
-    marker = routeMarker(route, room ? () => floorY : ground);
+    marker = routeMarker(route, room ? () => floorY : ground, ringAt);
+    ringAt = undefined;
     hint.geometry = marker.geometry;
     hint.visible = true;
     picked = true;
@@ -824,37 +828,29 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       if (!Number.isNaN(tx)) refuse(tx, tz, 'closed');
       return;
     }
-    if (away(...at) > ROUTE_REACH) refuse(...at, 'far');
-    else if (room) leaveFor(at, room);
-    else routeOrRefuse(...at);
+    if (room) leaveFor(at, room);
+    else headFor(...at);
   }
 
   /**
-   * A route to a spot, or says why there's none. One the router can't find so far off is a long
-   * way round: too far, not nowhere, and not worth another search (a failed one fills its window).
-   */
-  function routeOrRefuse(x: number, z: number): boolean {
-    const far = away(x, z) > DETOUR;
-    if (walkTo(x, z, TAP_REACH, far ? 1 : TRIES)) return true;
-    refuse(x, z, far ? 'far' : 'closed');
-    return false;
-  }
-
-  /**
-   * A route to a spot however far it is, in legs one route long: each leg walked, the next is set
-   * off on (`nextLeg`). Says why if there's no way even to start. A route's own limit (the
-   * router's window) shouldn't be something a person walking across town has to know.
+   * The one way to send the avatar somewhere, for a tap and for Go here alike: a route to the
+   * spot however far it is, in legs where it's further than one route reaches, each set off on
+   * when the last is walked (`nextLeg`). Says why if there's no way. A route's own limit (the
+   * router's window) shouldn't be something a person walking across town has to know, and only
+   * close by are the places round a spot worth trying: a failed search fills its window.
    */
   function headFor(x: number, z: number, legs = 0): boolean {
     const w = avatar.walker;
     for (const [lx, lz, final] of legsToward(w.x, w.z, x, z)) {
-      if (!walkTo(lx, lz, TAP_REACH, final ? TRIES : 1)) continue;
+      ringAt = final ? undefined : [x, z];
+      if (!walkTo(lx, lz, TAP_REACH, final && away(x, z) <= DETOUR ? TRIES : 1)) continue;
       const end = w.route!;
       trip = final ? null : { to: [x, z], leg: [end.at(-2)!, end.at(-1)!], legs };
       return true;
     }
+    ringAt = undefined;
     trip = null;
-    refuse(x, z, legs ? 'closed' : 'far');
+    refuse(x, z, away(x, z) > DETOUR ? 'noway' : 'closed');
     return false;
   }
 
@@ -865,7 +861,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     trip = null;
     if (away(...leg) >= LEG_ARRIVED) return;
     if (legs < MAX_LEGS) headFor(...to, legs + 1);
-    else refuse(...to, 'far');
+    else refuse(...to, 'noway');
   }
 
   /** In a room: out through its door, and on to `at` once outside. */

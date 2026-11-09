@@ -12,13 +12,13 @@ export type RouteGrid = Pick<
   'cols' | 'rows' | 'cellAt' | 'centre' | 'open' | 'walkable' | 'nearest' | 'around'
 >;
 
-/** The furthest a tap sends the avatar (m): it walks there, never jumps. */
+/** The furthest one route goes (m), drawn whole; further off, the walk goes in legs. */
 export const ROUTE_REACH = 625;
 /** How far the open ground a tap means may lie from where it lands (m). */
 export const TAP_REACH = 8;
 /** How far past the box around both ends a route may wander (m). */
 const MARGIN = 60;
-/** Largest window side, in cells: the furthest tap, either end a little off, and the margins. */
+/** Largest window side, in cells: the longest route, either end a little off, and the margins. */
 const MAX_WINDOW = Math.ceil((ROUTE_REACH + 2 * TAP_REACH + 2 * MARGIN) / WALK_CELL);
 /** Extra cost of a step next to a wall or kerb, so routes keep off the facades. */
 const EDGE_COST = 0.7;
@@ -271,10 +271,11 @@ const LEG_TURNS = [0, 25, -25, 50, -50, 80, -80];
 const LEG_SHARES = [1, 0.6];
 
 /**
- * Where to head for a spot further off than a route reaches, best first: a point a leg's length
- * toward it, then the same to either side and at shorter stretches, for when that point is over
- * a river or the tracks. Within a leg, the spot itself. Each is `[x, z, last]`. Pure, so a walk
- * across town is just routes, one after another.
+ * Where to head for a spot, best first. Within a leg, the spot itself. Further, a point a leg's
+ * length toward it, then the same to either side and at shorter stretches, for when that point
+ * is over a river or the tracks; but within one route's reach the spot itself comes first, so
+ * the whole way shows. Each is `[x, z, last]`. Pure, so a walk across town is just routes, one
+ * after another.
  */
 export function legsToward(
   fromX: number,
@@ -284,13 +285,15 @@ export function legsToward(
 ): [number, number, boolean][] {
   const [dx, dz] = [toX - fromX, toZ - fromZ];
   const far = Math.hypot(dx, dz);
-  if (far <= LEG) return [[toX, toZ, true]];
+  const whole: [number, number, boolean] = [toX, toZ, true];
+  if (far <= LEG) return [whole];
   const towards = Math.atan2(dz, dx);
-  return LEG_SHARES.flatMap((share) =>
+  const legs = LEG_SHARES.flatMap((share) =>
     LEG_TURNS.map((turn): [number, number, boolean] => {
       const angle = towards + (turn * Math.PI) / 180;
       const length = LEG * share;
       return [fromX + Math.cos(angle) * length, fromZ + Math.sin(angle) * length, false];
     }),
   );
+  return far <= ROUTE_REACH ? [whole, ...legs] : legs;
 }

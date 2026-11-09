@@ -382,7 +382,7 @@ async function expectFinding(): Promise<void> {
   const hint = await evalJson<string>(
     `JSON.stringify(document.querySelector('.hint')?.textContent)`,
   );
-  if (hint.includes('Too far')) throw new Error(`Go here to a far mark said "${hint}"`);
+  if (hint.includes('Can’t')) throw new Error(`Go here to a far mark said "${hint}"`);
   await holdKeys(['Escape'], 0);
   await browser('wait', '--fn', `!(${STOP})`);
   console.log('ok  Go here to a mark across town sets off, in legs');
@@ -809,6 +809,16 @@ async function expectWalking(): Promise<void> {
   for (let i = 0; i < 16; i++) await browser('press', '-');
   await browser('wait', '--fn', `${canvasData('avatar')} === 'false'`);
   await expectHealthyPage('desktop zoomed back out');
+  // From out here a tap can land further off than one route reaches: it goes there all the same.
+  await tapAt(1180, 160);
+  await browser('wait', '--timeout', '5000', '--fn', STOP);
+  const said = await evalJson<string>(
+    `JSON.stringify(document.querySelector('.hint')?.textContent ?? '')`,
+  );
+  if (said.includes('Can’t')) throw new Error(`a tap across town said "${said}"`);
+  await holdKeys(['Escape'], 0);
+  await browser('wait', '--fn', `!(${STOP})`);
+  console.log('ok  a tap across town sets off, as Go here does');
 }
 
 /** Whether a house stands between a spot on the ground and the north-up camera, 35.26° up. */

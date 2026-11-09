@@ -826,8 +826,8 @@ export function App() {
           changes are announced.
         */}
         <output className="hint">
-          {blocked === 'far' ? (
-            'Too far to tap. Open the map and choose Go here.'
+          {blocked === 'noway' ? (
+            'Can’t find a way there. Try somewhere closer.'
           ) : blocked ? (
             'Can’t go there. Pick a street or square.'
           ) : roomsFailed ? (

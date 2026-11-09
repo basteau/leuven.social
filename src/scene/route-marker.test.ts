@@ -66,3 +66,11 @@ test('on a slope, every dot and the ring lie on the ground', () => {
   }
   expect(position.count).toBe(marker.dots.length * DOT_VERTICES + TARGET_VERTICES);
 });
+
+test('the ring can stand further on than the route, where a walk in legs really ends', () => {
+  const marker = routeMarker(Float32Array.of(0, 0, 20, 0), undefined, [500, 40]);
+  const position = unindexed(marker.geometry).getAttribute('position');
+  const ring = bounds(position, position.count - TARGET_VERTICES, TARGET_VERTICES);
+  expect(ring.x).toBeCloseTo(500, 0);
+  expect(ring.z).toBeCloseTo(40, 0);
+});

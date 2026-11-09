@@ -114,7 +114,7 @@ export interface ViewerOptions {
   canvas: HTMLCanvasElement;
   city: City;
   reducedMotion: boolean;
-  /** A tap the avatar can't go to (no ground there, or too far): a greyed marker shakes too. */
+  /** A spot the avatar can't go to (no ground there, or no way to it): a greyed marker shakes too. */
   onBlocked?: (why: Refusal) => void;
   /** The avatar's code couldn't be downloaded (it loads once the first frame is drawn). */
   onAvatarUnavailable?: () => void;
@@ -195,7 +195,7 @@ export interface Viewer {
   passTime(on: boolean): void;
   /** Sets the clock to an hour of the day, for tools that look at one (`scripts/shots.ts`). */
   setHour(hour: number): void;
-  /** Walks (or rides) to a spot along a route, as a tap does, from anywhere in reach. */
+  /** Walks (or rides) to a spot along a route, as a tap does, however far it is. */
   navigateTo(x: number, z: number): void;
   /** Lets go of the route being walked to a picked spot, if any. */
   cancelRoute(): void;
