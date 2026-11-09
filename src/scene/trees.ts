@@ -82,7 +82,7 @@ const UNITS = Array.from({ length: 64 }, (_, i) => i);
  * than the model: the LiDAR trees are spaced by crown size, so a canopy closes with as few trees
  * as possible. Some are slimmer, some broader.
  */
-export function treeSize(seed: number, height = 0): { scale: number; wide: number } {
+function treeSize(seed: number, height = 0): { scale: number; wide: number } {
   const scale = height > 0 ? treeScale(height) : 0.8 + pick([0, 0.15, 0.3, 0.45], seed);
   return { scale, wide: 1.2 * scale ** 0.8 * pick([0.86, 0.94, 1, 1.06, 1.14], seed * 3) };
 }
@@ -117,11 +117,11 @@ export function addTree(
   const { scale, wide } = treeSize(seed, height);
   const turn = (seed * 2.399) % (Math.PI * 2);
   const [c, s] = [Math.cos(turn), Math.sin(turn)];
-  for (const [part, shape, color, centreY, spread] of [
-    ['trunk', TRUNK, TREE.trunk, 1.5, trunkFoot(seed, height) / TRUNK_BASE],
-    ['crown', CROWN, crownColor(seed, height || scale * MODEL_HEIGHT), CROWN_Y, wide],
-  ] as const) {
-    if (!parts.includes(part)) continue;
+  for (const part of parts) {
+    const [shape, color, centreY, spread] =
+      part === 'trunk'
+        ? [TRUNK, TREE.trunk, 1.5, trunkFoot(seed, height) / TRUNK_BASE]
+        : [CROWN, crownColor(seed, height || scale * MODEL_HEIGHT), CROWN_Y, wide];
     const place = ([px, py, pz]: V3): V3 => [
       x + (px * c + pz * s) * spread,
       py * scale,
@@ -181,8 +181,7 @@ export function addPuffs(
   const count = Math.round(Math.min(PUFF.max, Math.max(PUFF.min, 6 + across * 1.1)));
   const [cy, r] = [ground + CROWN_Y * scale, across * (shape === 'column' ? 0.62 : 0.5)];
   const unit = (salt: number) => pick(UNITS, seed * 7 + salt) / (UNITS.length - 1);
-  // Its colour by what OSM says it is: a conifer dark and blue, a willow a yellow green. Always
-  // a green: a copper beech is drawn as any other broadleaf.
+  // Its colour by what OSM says it is: a conifer dark and blue, a willow a yellow green.
   const own = toOklab(crownColor(seed, grown));
   const base: [number, number, number] =
     shape === 'conifer'

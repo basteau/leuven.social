@@ -62,7 +62,7 @@ import type { PlayersView, Roster } from './players.ts';
 import { passedVertices, routeMarker } from './route-marker.ts';
 import type { RouteMarker } from './route-marker.ts';
 import { walkSolids } from './solids.ts';
-import { STEP, runBlend } from './walker.ts';
+import { STEP, followRoute, runBlend } from './walker.ts';
 
 /**
  * The avatar in the scene: its figure, its route hint, a refused spot's marker, the camera
@@ -691,10 +691,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
   }
 
   function follow(route: Float32Array): void {
-    const w = avatar.walker;
-    w.route = route;
-    w.next = 1;
-    w.travelled = 0;
+    followRoute(avatar.walker, route);
     sounds.routeStart();
     hint.geometry.dispose();
     const floorY = feet[1];

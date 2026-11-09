@@ -23,6 +23,13 @@ test('every surface is balanced GLSL with its codes filled in', () => {
   }
 });
 
+test('no comment ships in a shader string', () => {
+  for (const [name, source] of Object.entries(sources)) {
+    expect([name, source.includes('//')]).toEqual([name, false]);
+    expect([name, source.includes('/*')]).toEqual([name, false]);
+  }
+});
+
 test('each surface defines the function the dispatcher calls', () => {
   for (const [source, names] of [
     [ROOF_SURFACES, ['paneSurface', 'flatRoof', 'pitchedRoof']],

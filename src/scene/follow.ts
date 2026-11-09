@@ -9,7 +9,7 @@ import { decay } from './motion.ts';
  */
 
 /** Half-life (s) of the target's glide to the avatar, or to a place. */
-export const FOLLOW_EASE = 0.18;
+const FOLLOW_EASE = 0.18;
 /** Close enough (m): the glide has arrived. */
 const ARRIVED = 0.01;
 /** The target leads the avatar by this much of its travel (s), so the street ahead shows. */

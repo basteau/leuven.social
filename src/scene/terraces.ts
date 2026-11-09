@@ -108,7 +108,7 @@ export const PARASOL_RIM = 2.5;
 const VALANCE = 0.16;
 /** The pole's half width, and the weighted foot's half width and height (m). */
 const POLE = 0.05;
-export const PARASOL_FOOT = 0.28;
+const PARASOL_FOOT = 0.28;
 const FOOT_HEIGHT = 0.12;
 
 /** An upright box square to the parasol's row: four sides and, if asked, a top. */

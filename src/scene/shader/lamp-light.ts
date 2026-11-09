@@ -1,6 +1,8 @@
 import { DataTexture, LinearFilter, RGBAFormat, Vector2, Vector4 } from 'three';
 import type { Texture } from 'three';
 
+import type { LightField } from '../lamp-light.ts';
+
 /** What every material lit by the street lamps reads (`LAMP_FRAGMENT`). */
 export interface LampLight {
   map: { value: Texture };
@@ -32,19 +34,7 @@ export function lampLight(): LampLight {
 }
 
 /** The baked light (lamp-light.ts) as a texture the shaders can sample, filtered smooth. */
-export function setLightField(
-  light: LampLight,
-  field: {
-    data: Uint8Array;
-    width: number;
-    height: number;
-    minX: number;
-    minZ: number;
-    texel: number;
-    low: number;
-    high: number;
-  },
-): void {
+export function setLightField(light: LampLight, field: LightField): void {
   const texture = new DataTexture(
     field.data as Uint8Array<ArrayBuffer>,
     field.width,

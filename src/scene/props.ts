@@ -91,7 +91,7 @@ export type Open = (x: number, z: number) => boolean;
  * A bike's frame stood on the drawn ground: sheared onto the plane through the ground under its
  * two wheels (`slopeThrough`), so both tyres touch it on a slope or across a kerb.
  */
-export function standBike(f: Frame, steer: number, ground: Ground, lift: number): Frame {
+function standBike(f: Frame, steer: number, ground: Ground, lift: number): Frame {
   const [rx, , rz] = at(f, 0, -AXLE, 0);
   const [fx, , fz] = at(steered(f, steer), 0, AXLE - STEERING, 0);
   return { ...f, slope: slopeThrough(ground, lift, [rx, rz], [fx, fz]) };

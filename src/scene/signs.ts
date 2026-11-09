@@ -35,7 +35,7 @@ export const signHeight = (top: number): number =>
 
 // The symbols' own colours, beside each kind's two (FRONTS): kept here, with the shapes, so the
 // palette the first frame loads doesn't carry them.
-const PAPER = 0xf6eedc;
+export const PAPER = 0xf6eedc;
 const GOLD = 0xe8b94a;
 const DARK_GOLD = 0xc48a2c;
 const LOAF = 0xd99a52;

@@ -185,12 +185,7 @@ export function addProp(mesh: MeshBuilder, lines: LineBuilder, p: RoomProp, heig
 const lerp = (p: number, q: number, t: number) => p + (q - p) * t;
 
 /** A flight of steps from its floor's level up `rise` metres. */
-export function addStair(
-  mesh: MeshBuilder,
-  lines: LineBuilder,
-  corners: number[],
-  rise: number,
-): void {
+function addStair(mesh: MeshBuilder, lines: LineBuilder, corners: number[], rise: number): void {
   const steps = Math.max(2, Math.round(rise / STEP));
   const [ax, az, bx, bz, cx, cz, dx, dz] = corners as [
     number,

@@ -869,6 +869,12 @@ export function createViewer(options: ViewerOptions): Viewer {
     // From above a trunk's shadow hides in its crown's; close to the street it doesn't, and a
     // lamp's or a bench's shadow is more than a texel.
     const fromStreet = detail.streetShadows;
+    const drawFurniture = (mesh: Mesh, inView: boolean, casts: boolean) => {
+      mesh.layers.mask = (inView ? VIEW_LAYER : 0) | (casts ? SHADOW_LAYER : 0);
+      mesh.visible = (inView || casts) && propsShown && corners(mesh.geometry) > 0;
+      if (mesh.visible && inView) draw(mesh);
+      if (mesh.visible && casts) draw(mesh);
+    };
     for (const entry of cells) {
       const { box, objects, detail: marks, trunksFrom, shadowFrom, fineVertices } = entry;
       const [surfaces, outlines, casters] = objects as [Mesh?, Mesh?, Mesh?];
@@ -897,12 +903,9 @@ export function createViewer(options: ViewerOptions): Viewer {
         puffs.layers.mask = (inView ? 1 << PUFF_LAYER : 0) | (casts ? SHADOW_LAYER : 0);
         puffs.visible = inView || casts;
         const puffCount = (puffs.geometry as InstancedBufferGeometry).instanceCount * 2;
-        for (const shown of [inView, casts]) {
-          if (shown) {
-            calls++;
-            triangles += puffCount;
-          }
-        }
+        const passes = (inView ? 1 : 0) + (casts ? 1 : 0);
+        calls += passes;
+        triangles += puffCount * passes;
       }
       // Lanterns only up close: from afar the light they throw (the baked field) says it all.
       if (glow) {
@@ -917,13 +920,8 @@ export function createViewer(options: ViewerOptions): Viewer {
       }
       // Up close, `prepare` has built it for every cell in view or casting.
       const furnitureCasts = casts && fromStreet;
-      for (const mesh of [furniture, entry.awnings]) {
-        if (!mesh) continue;
-        mesh.layers.mask = (inView ? VIEW_LAYER : 0) | (furnitureCasts ? SHADOW_LAYER : 0);
-        mesh.visible = (inView || furnitureCasts) && propsShown && corners(mesh.geometry) > 0;
-        if (mesh.visible && inView) draw(mesh);
-        if (mesh.visible && furnitureCasts) draw(mesh);
-      }
+      if (furniture) drawFurniture(furniture, inView, furnitureCasts);
+      if (entry.awnings) drawFurniture(entry.awnings, inView, furnitureCasts);
     }
     counted.calls = calls;
     counted.triangles = triangles;

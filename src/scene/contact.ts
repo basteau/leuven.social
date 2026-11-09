@@ -11,16 +11,29 @@ import type { MeshBuilder, V3 } from './mesh-builder.ts';
  * tapers to nothing over its own reach instead of stopping in a square block.
  */
 
-/** How far a wall's band reaches out over the ground (m), and how high it lies over the terrain. */
+/**
+ * How far a wall's band reaches out over the ground (m), how high it lies over the terrain, the
+ * shortest wall that gets one, the longest piece it is cut into so it follows the ground, and the
+ * longest mitre at a sharp fold, in reaches.
+ */
 export const CONTACT = { reach: 0.55, lift: 0.225, shortest: 0.6, piece: 12, miter: 1.5 } as const;
 
-const key = (x: number, z: number) => `${Math.round(x * 10)},${Math.round(z * 10)}`;
+/** A footprint corner as one number, in the city file's decimetres, each offset to be positive. */
+const cornerKey = (x: number, z: number) =>
+  (Math.round(x * 10) + 2 ** 20) * 2 ** 21 + (Math.round(z * 10) + 2 ** 20);
+/** An edge from one corner id to another: a cell's corners are numbered well under 2^22. */
+const edgeKey = (a: number, b: number) => a * 2 ** 22 + b;
+
+const UP: V3 = [0, 1, 0];
 
 interface Wall {
   ax: number;
   az: number;
   bx: number;
   bz: number;
+  /** The corner ids of its two ends. */
+  a: number;
+  b: number;
   length: number;
   /** Out of the building, unit length. */
   nx: number;
@@ -40,34 +53,42 @@ export function addContacts(
   buildings: readonly Pick<Building, 'ring' | 'tier'>[],
   ground: (x: number, z: number) => number,
 ): void {
-  const near = buildings.filter((b) => b.tier !== 'fringe');
-  const eachEdge = (visit: (ax: number, az: number, bx: number, bz: number) => void) => {
-    for (const { ring } of near) {
-      for (let i = 0; i < ring.length; i += 2) {
-        const j = (i + 2) % ring.length;
-        visit(ring[i]!, ring[i + 1]!, ring[j]!, ring[j + 1]!);
-      }
-    }
+  const ids = new Map<number, number>();
+  const idAt = (x: number, z: number) => {
+    const k = cornerKey(x, z);
+    let id = ids.get(k);
+    if (id === undefined) ids.set(k, (id = ids.size));
+    return id;
   };
-  const edges = new Set<string>();
-  eachEdge((ax, az, bx, bz) => edges.add(`${key(ax, az)}>${key(bx, bz)}`));
+  const edges = new Set<number>();
+  const sides: Omit<Wall, 'length' | 'nx' | 'nz'>[] = [];
+  for (const { ring, tier } of buildings) {
+    if (tier === 'fringe') continue;
+    for (let i = 0; i < ring.length; i += 2) {
+      const j = (i + 2) % ring.length;
+      const [ax, az, bx, bz] = [ring[i]!, ring[i + 1]!, ring[j]!, ring[j + 1]!];
+      const [a, b] = [idAt(ax, az), idAt(bx, bz)];
+      edges.add(edgeKey(a, b));
+      sides.push({ ax, az, bx, bz, a, b });
+    }
+  }
   const walls: Wall[] = [];
-  const startingAt = new Map<string, Wall>();
-  const endingAt = new Map<string, Wall>();
-  eachEdge((ax, az, bx, bz) => {
+  const startingAt = new Map<number, Wall>();
+  const endingAt = new Map<number, Wall>();
+  for (const side of sides) {
+    const { ax, az, bx, bz, a, b } = side;
     const length = Math.hypot(bx - ax, bz - az);
     // Its neighbour walks this edge the other way round: a party wall has nothing to darken.
-    if (length < CONTACT.shortest || edges.has(`${key(bx, bz)}>${key(ax, az)}`)) return;
-    const wall = { ax, az, bx, bz, length, nx: (bz - az) / length, nz: -(bx - ax) / length };
+    if (length < CONTACT.shortest || edges.has(edgeKey(b, a))) continue;
+    const wall = { ax, az, bx, bz, a, b, length, nx: (bz - az) / length, nz: -(bx - ax) / length };
     walls.push(wall);
-    startingAt.set(key(ax, az), wall);
-    endingAt.set(key(bx, bz), wall);
-  });
+    startingAt.set(a, wall);
+    endingAt.set(b, wall);
+  }
   const lifted = (x: number, z: number): V3 => [x, ground(x, z) + CONTACT.lift, z];
-  const up: V3 = [0, 1, 0];
   for (const w of walls) {
-    const before = endingAt.get(key(w.ax, w.az));
-    const after = startingAt.get(key(w.bx, w.bz));
+    const before = endingAt.get(w.a);
+    const after = startingAt.get(w.b);
     const square = [w.nx * CONTACT.reach, w.nz * CONTACT.reach] as const;
     const [startX, startZ] = before ? miter(before, w) : square;
     const [endX, endZ] = after ? miter(w, after) : square;
@@ -101,7 +122,7 @@ export function addContacts(
         lifted(ox1, oz1),
         lifted(ox0, oz0),
         0,
-        up,
+        UP,
         [1, 1, 0, 0],
       );
     }
@@ -130,7 +151,6 @@ export function addShores(
     (Math.abs(az - bz) < 1e-3 &&
       (Math.abs(az - within.minZ) < 1e-3 || Math.abs(az - within.maxZ) < 1e-3));
   const at = (x: number, z: number): V3 => [x, ground(x, z) + SHORE.y, z];
-  const up: V3 = [0, 1, 0];
   for (const [r, ring] of water.entries()) {
     const inward = signedArea(ring) > 0 ? -1 : 1;
     for (let i = 0; i < ring.length; i += 2) {
@@ -157,7 +177,7 @@ export function addShores(
           at(x1 + ux * SHORE.lip, z1 + uz * SHORE.lip),
           at(x0 + ux * SHORE.lip, z0 + uz * SHORE.lip),
           SHORE.stone,
-          up,
+          UP,
         );
         dark.quad(
           at(x0 + ux * SHORE.lip, z0 + uz * SHORE.lip),
@@ -165,7 +185,7 @@ export function addShores(
           at(x1 + ux * SHORE.reach, z1 + uz * SHORE.reach),
           at(x0 + ux * SHORE.reach, z0 + uz * SHORE.reach),
           0,
-          up,
+          UP,
           [0.8, 0.8, 0, 0],
         );
       }
@@ -190,7 +210,6 @@ export function addTreePits(
   ground: (x: number, z: number) => number,
   layer: (x: number, z: number) => number,
 ): void {
-  const up: V3 = [0, 1, 0];
   for (let i = 0; i < trees.length; i += stride) {
     const [x, z] = [trees[i]!, trees[i + 1]!];
     const under = layer(x, z);
@@ -205,7 +224,7 @@ export function addTreePits(
         [x + half, y + over, z + half],
         [x - half, y + over, z + half],
         color,
-        up,
+        UP,
       );
     square(PIT.half + PIT.edge, PIT.stone);
     square(PIT.half, PIT.soil, 0.004);

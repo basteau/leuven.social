@@ -7,13 +7,13 @@
 import { pointInRing } from './geometry.ts';
 
 /** Walls shorter than this (m) front nothing: corners, bay windows, survey noise. */
-export const MIN_WALL = 1;
+const MIN_WALL = 1;
 /** A front's point stays this far (m) from its wall's ends: half of MIN_WALL at most. */
 const MARGIN = 0.5;
 /** How far a point may lie outside every footprint (m) and still take the nearest one. */
-export const FOOTPRINT_REACH = 3;
+const FOOTPRINT_REACH = 3;
 /** A front wall lies within this distance (m) of its street's centre line. */
-export const FRONT_REACH = 40;
+const FRONT_REACH = 40;
 /** A wall fronts its square, or public ground, when this far in front of it (m) is. */
 const FRONT = 2;
 /** A wall faces a street when its normal is within 60° of the way to the street. */

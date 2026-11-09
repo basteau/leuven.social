@@ -294,7 +294,7 @@ function bikeLight(mesh: Builder, lampX: number, lampY: number, tailX: number, t
 }
 
 /** How far over the drawn surface the wheels ride, so they never sink in it (m). */
-export const RIDE_HEIGHT = 0.03;
+const RIDE_HEIGHT = 0.03;
 
 /**
  * The vertex shader's share of the parts: the figure's bones and the bike's wheels and crank turn
@@ -302,10 +302,13 @@ export const RIDE_HEIGHT = 0.03;
  * body's material, its ink's and its x-ray's.
  */
 export function riderVertexShader(vertexShader: string): string {
-  return vertexShader
-    .replace(
-      '#include <common>',
-      `#include <common>
+  return (
+    vertexShader
+      // `turn` turns a point about the joint at (x, y) across the bike by a: positive carries
+      // what hangs below it ahead.
+      .replace(
+        '#include <common>',
+        `#include <common>
       attribute float facade;
       attribute vec3 shirt;
       attribute vec3 shorts;
@@ -319,7 +322,6 @@ export function riderVertexShader(vertexShader: string): string {
       float harm(float a, float c1, float s1, float c2, float s2, float c3, float s3, float q) {
         return a + c1 * cos(q) + s1 * sin(q) + c2 * cos(2.0 * q) + s2 * sin(2.0 * q) + c3 * cos(3.0 * q) + s3 * sin(3.0 * q);
       }
-      // Turns a point about the joint at (x, y) across the bike, by a: positive carries what hangs below it ahead.
       void turn(inout vec3 p, float x, float y, float a) {
         vec2 d = vec2(p.x - x, p.y - y);
         float c = cos(a);
@@ -327,17 +329,18 @@ export function riderVertexShader(vertexShader: string): string {
         p.x = x + d.x * c - d.y * s;
         p.y = y + d.x * s + d.y * c;
       }`,
-    )
-    .replace(
-      '#include <begin_vertex>',
-      `#include <begin_vertex>
+      )
+      .replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
       float part = floor(facade);
       if (part >= ${RIDER}.0) {${RIDER_GLSL}
       }
       vPart = part;
       vFade = 1.0 - fract(facade);
       vState = state;`,
-    );
+      )
+  );
 }
 
 /** The instance's colours swapped in for the figure's and the frame's tints, each times its shade. */
@@ -406,11 +409,11 @@ function riderMaterials(kit: RiderKit): {
         varying vec4 vState;
         ${kit.bayer}`,
       )
+      // The beam: a pool of light on the street, dithered out towards its edges, at night; the
+      // halos round the lamps the same, the reflector's with the brakes too.
       .replace(
         '#include <clipping_planes_fragment>',
         `#include <clipping_planes_fragment>
-        // The beam: a pool of light on the street, dithered out towards its edges, at night; the
-        // halos round the lamps the same, the reflector's with the brakes too.
         float dither = bayer4(gl_FragCoord.xy);
         if (vPart == ${PART.beam}.0 && dither >= uNight * vFade * 0.75) discard;
         if (vPart == ${PART.halo}.0 && dither >= uNight * vFade) discard;

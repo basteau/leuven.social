@@ -6,7 +6,7 @@ import { FRONTS } from './palette.ts';
 /**
  * The light of the street lamps and the lit shop fronts, baked into one texture over the city:
  * red, green and blue the light that falls there, alpha the height of the ground under it, so the
- * shaders can leave off 7 m up (LAMP_FRAGMENT in facade-material.ts). A surface multiplies it by
+ * shaders can leave off 7 m up (`LAMP_FRAGMENT` in shader/lamp-light.ts). A surface multiplies it by
  * its own colour, so whatever is under a lamp is lit, walls, bikes and setts alike, where a mesh
  * of light would cover them, and stop dead at a kerb's few centimetres.
  */
@@ -29,7 +29,7 @@ export const FRONT_RAY = {
 } as const;
 
 /** The ground lit round a floodlit church or hall: a splash this far out, every so many metres. */
-export const FLOOD = { every: 9, out: 2.5, radius: 13, light: [0.16, 0.12, 0.07] } as const;
+const FLOOD = { every: 9, out: 2.5, radius: 13, light: [0.16, 0.12, 0.07] } as const;
 
 export interface LightField {
   data: Uint8Array;
@@ -67,16 +67,11 @@ export function bakeLight(
   const width = Math.ceil((Math.max(...city.area.map((a) => a.maxX)) - minX) / LIGHT_TEXEL);
   const height = Math.ceil((Math.max(...city.area.map((a) => a.maxZ)) - minZ) / LIGHT_TEXEL);
   const data = new Uint8Array(width * height * 4);
-  // What adds up, kept as floats so overlapping lamps sum before `fill` flattens them.
+  // What adds up, kept as floats so overlapping lamps sum before `filled` flattens them.
   const light = new Float32Array(width * height * 3);
   const [low, high] = [terrain.lowest - 1, terrain.highest + 1];
 
-  const splat = (
-    x: number,
-    z: number,
-    radius: number,
-    [r, g, b]: readonly [number, number, number] | readonly number[],
-  ) => {
+  const splat = (x: number, z: number, radius: number, [r, g, b]: readonly number[]) => {
     const ground = Math.max(1, Math.round(((terrain.height(x, z) - low) / (high - low)) * 255));
     // The ground's height a little past the light, so the filter never mixes it with nothing.
     const reach = Math.ceil(radius / LIGHT_TEXEL) + 2;
@@ -99,10 +94,10 @@ export function bakeLight(
         const d2 = u * u + v * v;
         if (d2 >= 1) continue;
         const fall = (1 - d2) * (1 - d2);
-        const at = i + j * width;
-        light[at * 3] = light[at * 3]! + r! * fall;
-        light[at * 3 + 1] = light[at * 3 + 1]! + g! * fall;
-        light[at * 3 + 2] = light[at * 3 + 2]! + b! * fall;
+        const at = (i + j * width) * 3;
+        light[at] = light[at]! + r! * fall;
+        light[at + 1] = light[at + 1]! + g! * fall;
+        light[at + 2] = light[at + 2]! + b! * fall;
       }
     }
   };
@@ -119,9 +114,9 @@ export function bakeLight(
       const [bx, bz] = [ring[j]!, ring[j + 1]!];
       const length = Math.hypot(bx - ax, bz - az);
       const steps = Math.floor(length / FLOOD.every);
+      const [nx, nz] = [(bz - az) / (length || 1), (ax - bx) / (length || 1)];
       for (let k = 0; k <= steps; k++) {
         const t = steps ? k / steps : 0.5;
-        const [nx, nz] = [(bz - az) / (length || 1), (ax - bx) / (length || 1)];
         splat(
           ax + (bx - ax) * t + nx * FLOOD.out,
           az + (bz - az) * t + nz * FLOOD.out,

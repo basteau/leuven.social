@@ -15,11 +15,12 @@ import { DOOR_PLANT, END_GAP, MIN_ROOM, awningRoom, doorPlants } from '../data/a
 import { CAFE_TABLE, TERRACE, frontPoint } from '../data/shops.ts';
 import type { FrontPoint } from '../data/shops.ts';
 import type { MeshBuilder, V3 } from './mesh-builder.ts';
-import { FRONTS, GUESTS, PROPS, pick } from './palette.ts';
+import { FRONTS, GARDEN, GUESTS, PROPS, pick } from './palette.ts';
 import { at as frameAt, away, box, panel, prism } from './prop-shapes.ts';
 import type { Frame } from './prop-shapes.ts';
 import {
   LOW_EDGE,
+  PAPER,
   addBanner,
   addBarberPole,
   addFlags,
@@ -40,8 +41,6 @@ import {
 const REACH = 1;
 const SLOPE = 0.4;
 const VALANCE = 0.2;
-const PAPER = 0xf6eedc;
-const WOOD = 0x9a6a42;
 const WICKER = 0xc9a46a;
 const CHALK = 0x2f3b38;
 /** Fronts that put a menu board on the pavement. */
@@ -119,9 +118,9 @@ export function addTerrace(mesh: MeshBuilder, p: FrontPoint, kind: ShopKind, see
   const [x, z] = [p.x + p.nx * TERRACE.out, p.z + p.nz * TERRACE.out];
   const color = FRONTS[kind].canvas;
   const layout = roll(seed * 3 + 11);
+  const f: Frame = { x, z, fx: p.nx, fz: p.nz, scale: 1 };
   if (kind === 'bar' && layout < 0.55) {
     // Standing tables: a tall round top on a post, two glasses and nobody sitting.
-    const f: Frame = { x, z, fx: p.nx, fz: p.nz, scale: 1 };
     for (const u of [-0.55, 0.55]) {
       prism(mesh, f, [u, 0], [0.32, 0.32], [1.08, 1.12], PAPER, 1, 6);
       box(mesh, f, [u - 0.04, u + 0.04], [-0.04, 0.04], [0, 1.08], PROPS.iron, false);
@@ -137,8 +136,7 @@ export function addTerrace(mesh: MeshBuilder, p: FrontPoint, kind: ShopKind, see
     addCafeTable(mesh, x, z, p.nx, p.nz, 2, WICKER, seed, true);
   } else {
     // A long communal table with a bench each side.
-    const f: Frame = { x, z, fx: p.nx, fz: p.nz, scale: 1 };
-    box(mesh, f, [-0.95, 0.95], [-0.2, 0.2], [0.9, 0.95], WOOD);
+    box(mesh, f, [-0.95, 0.95], [-0.2, 0.2], [0.9, 0.95], PROPS.wood);
     box(mesh, f, [-0.5, 0.5], [-0.12, 0.12], [0, 0.9], PROPS.iron, false);
     for (const v of [-0.34, 0.34]) box(mesh, f, [-0.9, 0.9], [v - 0.1, v + 0.1], [0, 0.5], color);
   }
@@ -163,7 +161,7 @@ export function addBoard(mesh: MeshBuilder, f: Frame): void {
       frameAt(f, s * 0.3, -0.32, 0),
       frameAt(f, s * 0.3, 0.32, 0),
       frameAt(f, s * 0.3, 0, 0.95),
-      WOOD,
+      PROPS.wood,
       away(f, s, 0, 0),
     );
   }
@@ -194,7 +192,7 @@ export function addDoorPlant(mesh: MeshBuilder, f: Frame, seed: number): void {
   prism(mesh, f, [0, 0], [r * 1.25, r * 1.25], [0.5, 1.6], BAY[(seed >> 1) % 2]!, 0.15, 6);
 }
 
-const BARREL = { wood: 0x8a5a36, hoop: 0x3b4150 } as const;
+const BARREL = { wood: 0x8a5a36, hoop: PROPS.iron } as const;
 
 /**
  * A beer barrel on end by a bar's door, bellied, with two iron hoops, as Belgian cafés stand
@@ -231,7 +229,6 @@ export function addCrates(mesh: MeshBuilder, f: Frame, seed: number): void {
 
 /** Zinc buckets, and the flowers in them. */
 const ZINC = 0x9aa3a8;
-const FLOWERS = [0xe0567a, 0xf2cf5b, 0xf6eedc, 0xd2453f, 0xb57ad0] as const;
 const STEMS = 0x4f8a45;
 
 /**
@@ -246,7 +243,7 @@ export function addBuckets(mesh: MeshBuilder, f: Frame, seed: number): void {
   ].entries()) {
     prism(mesh, f, [u!, v!], [0.1, 0.1], [0, 0.32 + h!], ZINC, 1.2, 6, false);
     prism(mesh, f, [u!, v!], [0.13, 0.13], [0.32 + h!, 0.5 + h!], STEMS, 1.15, 6, false);
-    const bunch = FLOWERS[(seed + i) % FLOWERS.length]!;
+    const bunch = GARDEN.flowers[(seed + i) % GARDEN.flowers.length]!;
     prism(mesh, f, [u!, v!], [0.15, 0.15], [0.5 + h!, 0.68 + h!], bunch, 0.5, 6);
   }
 }
@@ -502,7 +499,7 @@ export function addStorefronts(
     }
     if (front.terrace) {
       mesh.lift = ground(p.x + p.nx * TERRACE.out, p.z + p.nz * TERRACE.out);
-      addTerrace(mesh, p, front.kind, front.building * 31 + Math.round(front.along * 10));
+      addTerrace(mesh, p, kind, front.building * 31 + Math.round(front.along * 10));
     }
   }
   [mesh.lift, awnings.lift] = [lift, awningLift];

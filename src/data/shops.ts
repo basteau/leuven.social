@@ -61,7 +61,7 @@ export const TERRACE = { u: 1.15, v: 0.45, out: 0.75 } as const;
  */
 export const CAFE_TABLE = { chair: 0.85, reach: 1.15 } as const;
 /** A terrace leaves this much pavement (m) clear between it and the carriageway. */
-export const WALKWAY = 1.5;
+const WALKWAY = 1.5;
 
 /** What a terrace covers on the ground, from the middle of its table outward. */
 export function terraceFootprint(p: FrontPoint): Footprint {
@@ -202,7 +202,7 @@ export function markShopFronts(buildings: Building[], fronts: readonly ShopFront
 }
 
 /** Buildings smaller than this (m²) are no public place's: a porter's lodge, a bike shed. */
-export const MIN_PLACE_AREA = 80;
+const MIN_PLACE_AREA = 80;
 
 /**
  * The public places read off the buildings rather than a point: a building whose own `building`

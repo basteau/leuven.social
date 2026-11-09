@@ -1,6 +1,13 @@
-/** Pure 2D polygon helpers on flat [x0, z0, x1, z1, …] rings. */
+/** Pure 2D polygon helpers on flat [x0, z0, x1, z1, …] rings, and the grid maps they fill. */
 
 import type { Bounds } from './city.ts';
+
+/** Adds `value` to the list under `key`, starting one for a key not seen before. */
+export function pushTo<K, V>(lists: Map<K, V[]>, key: K, value: V): void {
+  const list = lists.get(key);
+  if (list) list.push(value);
+  else lists.set(key, [value]);
+}
 
 /** Shoelace area in (x, z); positive means counter-clockwise in this project's convention. */
 export function signedArea(ring: ArrayLike<number>): number {
