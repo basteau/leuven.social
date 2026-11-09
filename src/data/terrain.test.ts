@@ -6,10 +6,11 @@ import {
   Terrain,
   clipPolygon,
   clipStep,
+  harmonised,
   landform,
   stripRings,
 } from './terrain.ts';
-import type { Corner, GroundStep } from './terrain.ts';
+import type { Corner, GroundStep, Strip } from './terrain.ts';
 
 // A 3 × 3 grid of 10 m squares anchored at (-10, -10): a slope up to the east and a bump at
 // node (1, 1), which sits on the origin.
@@ -323,6 +324,8 @@ const heightsAt = (pieces: readonly (readonly Corner[])[]) => {
   return Number.NaN;
 };
 
+const mix = (a: number, b: number, t: number) => a + (b - a) * t;
+
 describe('the steps in the ground', () => {
   const up = {
     line: Float32Array.of(0, 0, 40, 0),
@@ -447,14 +450,26 @@ describe('the steps in the ground', () => {
     expect(heightsAt(parts)).toBeCloseTo(ground.height(...([inside[0], inside[2]] as const)), 6);
   });
 
-  test('a strip that folds over itself leaves that length out, not a tangle', () => {
-    const fold = {
-      line: Float32Array.of(0, 0, 0.01, 0, 0.02, 0),
-      rise: Float32Array.of(3, 3, 3),
-      half: 3,
+  test('a strip of no length is nothing', () => {
+    const point = { line: Float32Array.of(5, 5, 5, 5), rise: Float32Array.of(3, 3), half: 3 };
+    expect(stripRings(point)).toEqual([]);
+  });
+
+  test('a bend tighter than the strip is wide leaves no hole in the road', () => {
+    // A hairpin: its mitred ends cross, so the middle length is squared off and its wedges filled.
+    const hairpin = {
+      line: Float32Array.of(0, 0, 30, 0, 32, 3, 30, 6, 0, 6),
+      rise: Float32Array.of(2, 2, 2, 2, 2),
+      half: 4,
     };
-    expect(stripRings({ ...fold, line: Float32Array.of(5, 5, 5, 5) })).toEqual([]);
-    expect(stripRings(fold).length).toBeLessThanOrEqual(4);
+    const ground = landform(FLAT_GRID, [hairpin], []);
+    for (let i = 0; i + 3 < hairpin.line.length; i += 2) {
+      for (const t of [0.1, 0.5, 0.9]) {
+        const x = mix(hairpin.line[i]!, hairpin.line[i + 2]!, t);
+        const z = mix(hairpin.line[i + 1]!, hairpin.line[i + 3]!, t);
+        expect(ground.height(x, z)).toBe(2);
+      }
+    }
   });
 
   test('a piece whose first diagonal lies outside it splits along the other', () => {
@@ -466,6 +481,76 @@ describe('the steps in the ground', () => {
       right: Float32Array.of(8, 0.01),
     };
     expect(stripRings(kite)).toHaveLength(2);
+  });
+
+  test('two carriageways side by side at nearly one height are one roadway', () => {
+    // The same road twice, one falling a little faster: 0.2 m apart half way down.
+    const one = {
+      line: Float32Array.of(-1.5, 0, 0, 0, 60, 0),
+      rise: Float32Array.of(4, 4, 0),
+      half: 4,
+    };
+    const other = {
+      ...one,
+      line: Float32Array.of(-1.5, 7, 0, 7, 60, 7),
+      rise: Float32Array.of(4, 4, 0.4),
+    };
+    const [a, b] = harmonised([one, other]);
+    // The lower takes the higher's height all along, and comes down to its own end.
+    expect(a!.rise.length).toBeGreaterThan(3);
+    expect(b).toBe(other);
+    expect(a!.rise.at(-1)).toBe(0);
+    const ground = landform(FLAT_GRID, [one, other], []);
+    for (let x = 4; x < 50; x += 5) {
+      expect(ground.height(x, 1)).toBeCloseTo(ground.height(x, 6), 2);
+    }
+    // And between them there is no step left to draw.
+    const between = ground.steps().filter(({ az, bz, ax, bx }) => {
+      const [x, z] = [(ax + bx) / 2, (az + bz) / 2];
+      return z > 2 && z < 5 && x > 2 && x < 50;
+    });
+    expect(between).toEqual([]);
+  });
+
+  test('two levels stay two: further apart than a kerb, the step between them stands', () => {
+    const high = {
+      line: Float32Array.of(-1.5, 0, 0, 0, 60, 0),
+      rise: Float32Array.of(5, 5, 5),
+      half: 4,
+    };
+    const low = {
+      ...high,
+      line: Float32Array.of(-1.5, 7, 0, 7, 60, 7),
+      rise: Float32Array.of(3, 3, 3),
+    };
+    expect(harmonised([high, low])).toEqual([high, low]);
+    // A rise beside a cutting is no one road either, however near in height.
+    const shallow = { ...high, rise: Float32Array.of(0.2, 0.2, 0.2) };
+    const cutting = { ...low, rise: Float32Array.of(-0.2, -0.2, -0.2) };
+    expect(harmonised([shallow, cutting])).toEqual([shallow, cutting]);
+    // Nor are two strips nowhere near each other.
+    const far = { ...low, line: Float32Array.of(-1.5, 300, 0, 300, 60, 300) };
+    expect(harmonised([high, far])).toEqual([high, far]);
+  });
+
+  test('a matched strip keeps the reach it had to each side', () => {
+    const one = {
+      line: Float32Array.of(-1.5, 0, 0, 0, 60, 0),
+      rise: Float32Array.of(4, 4, 0),
+      half: 4,
+      left: Float32Array.of(4, 4, 2),
+      right: Float32Array.of(3, 3, 3),
+    };
+    const other = {
+      line: Float32Array.of(-1.5, 6, 0, 6, 60, 6),
+      rise: Float32Array.of(4, 4, 0.5),
+      half: 4,
+    };
+    const [a] = harmonised<Strip>([one, other]);
+    expect(a!.left!.length).toBe(a!.line.length / 2);
+    expect(a!.left![0]).toBe(4);
+    expect(a!.left![a!.left!.length - 1]).toBe(2);
+    expect(Array.from(a!.right!).every((v) => v === 3)).toBe(true);
   });
 
   test('a step can be cut to the part of a height', () => {

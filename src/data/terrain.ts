@@ -378,7 +378,80 @@ export function mitres(line: ArrayLike<number>, half: number): Float32Array {
   return out;
 }
 
-/** A segment's two ends as flat triangles, split along whichever diagonal lies inside it. */
+/** One flat triangle of a strip, stored counter-clockwise; a sliver is no piece of ground. */
+function addPiece(
+  quads: Quad[],
+  x: readonly [number, number, number],
+  z: readonly [number, number, number],
+  rises: readonly [number, number, number],
+  strength: number,
+): void {
+  const twice = (x[1] - x[0]) * (z[2] - z[0]) - (x[2] - x[0]) * (z[1] - z[0]);
+  if (Math.abs(twice) <= MIN_AREA) return;
+  const [xs, zs, rs] =
+    twice < 0
+      ? ([
+          [x[2], x[1], x[0]],
+          [z[2], z[1], z[0]],
+          [rises[2], rises[1], rises[0]],
+        ] as const)
+      : ([x, z, rises] as const);
+  quads.push({
+    x: xs,
+    z: zs,
+    rises: rs,
+    minX: Math.min(...xs),
+    minZ: Math.min(...zs),
+    maxX: Math.max(...xs),
+    maxZ: Math.max(...zs),
+    strength,
+    seen: 0,
+  });
+}
+
+/**
+ * A segment between two cross-sections as two flat triangles, split along whichever diagonal lies
+ * inside it. False if neither does: its ends cross, as mitred ends do round a bend tighter than
+ * the strip is wide.
+ */
+function addSegment(
+  quads: Quad[],
+  x: readonly number[],
+  z: readonly number[],
+  r: readonly number[],
+  strength: number,
+): boolean {
+  const twice = (a: number, b: number, c: number) =>
+    (x[b]! - x[a]!) * (z[c]! - z[a]!) - (x[c]! - x[a]!) * (z[b]! - z[a]!);
+  // The corners go round one way or the other, as a segment can run either way across the map.
+  const facing = twice(0, 1, 2) + twice(0, 2, 3) < 0 ? -1 : 1;
+  const halves = [
+    [
+      [0, 1, 2],
+      [0, 2, 3],
+    ],
+    [
+      [0, 1, 3],
+      [1, 2, 3],
+    ],
+  ].find((pair) => pair.every(([a, b, c]) => twice(a!, b!, c!) * facing > MIN_AREA));
+  for (const [a, b, c] of halves ?? []) {
+    addPiece(
+      quads,
+      [x[a!]!, x[b!]!, x[c!]!],
+      [z[a!]!, z[b!]!, z[c!]!],
+      [r[a!]!, r[b!]!, r[c!]!],
+      strength,
+    );
+  }
+  return halves !== undefined;
+}
+
+/**
+ * A strip as flat triangles: each segment between its two mitred ends. Where those cross, the
+ * segment is squared off at both ends instead, and the wedges that leaves to its neighbours'
+ * mitres are filled, so no length of a strip is ever left out as a hole in the road.
+ */
 function stripQuads(strip: Strip): Quad[] {
   const { line, rise } = strip;
   const n = line.length / 2;
@@ -394,42 +467,53 @@ function stripQuads(strip: Strip): Quad[] {
       across[i * 2 + 3]!,
     ];
     const [ax, az, bx, bz] = [line[i * 2]!, line[i * 2 + 1]!, line[i * 2 + 2]!, line[i * 2 + 3]!];
+    const length = Math.hypot(bx - ax, bz - az);
+    if (length < 1e-3) continue;
     const [la, lb, ra, rb] = [left(i), left(i + 1), right(i), right(i + 1)];
-    const x = [ax + ox * la, bx + px * lb, bx - px * rb, ax - ox * ra];
-    const z = [az + oz * la, bz + pz * lb, bz - pz * rb, az - oz * ra];
-    const r = [rise[i]!, rise[i + 1]!, rise[i + 1]!, rise[i]!];
-    const strength = Math.max(Math.abs(rise[i]!), Math.abs(rise[i + 1]!));
-    const twice = (a: number, b: number, c: number) =>
-      (x[b]! - x[a]!) * (z[c]! - z[a]!) - (x[c]! - x[a]!) * (z[b]! - z[a]!);
-    // The corners go round one way or the other, as a segment can run either way across the map.
-    const facing = twice(0, 1, 2) + twice(0, 2, 3) < 0 ? -1 : 1;
-    const sound = (a: number, b: number, c: number) => twice(a, b, c) * facing > MIN_AREA;
-    const halves = [
-      [
-        [0, 1, 2],
-        [0, 2, 3],
-      ],
-      [
-        [0, 1, 3],
-        [1, 2, 3],
-      ],
-    ].find((pair) => pair.every(([a, b, c]) => sound(a!, b!, c!)));
-    for (const [a0, b0, c0] of halves ?? []) {
-      // Stored counter-clockwise, whichever way the segment ran.
-      const [a, b, c] = facing < 0 ? [c0!, b0!, a0!] : [a0!, b0!, c0!];
-      const xs = [x[a]!, x[b]!, x[c]!] as const;
-      const zs = [z[a]!, z[b]!, z[c]!] as const;
-      quads.push({
-        x: xs,
-        z: zs,
-        rises: [r[a]!, r[b]!, r[c]!],
-        minX: Math.min(...xs),
-        minZ: Math.min(...zs),
-        maxX: Math.max(...xs),
-        maxZ: Math.max(...zs),
+    const [r0, r1] = [rise[i]!, rise[i + 1]!];
+    const r = [r0, r1, r1, r0];
+    const strength = Math.max(Math.abs(r0), Math.abs(r1));
+    // Its mitred corners: left and right of its start, left and right of its end.
+    const mitred = [
+      [ax + ox * la, az + oz * la],
+      [bx + px * lb, bz + pz * lb],
+      [bx - px * rb, bz - pz * rb],
+      [ax - ox * ra, az - oz * ra],
+    ] as const;
+    if (
+      addSegment(
+        quads,
+        mitred.map((p) => p[0]),
+        mitred.map((p) => p[1]),
+        r,
         strength,
-        seen: 0,
-      });
+      )
+    ) {
+      continue;
+    }
+    // Square to itself, as `mitres` is on a straight line: to the left is (dz, -dx).
+    const [sx, sz] = [(bz - az) / length, -(bx - ax) / length];
+    const square = [
+      [ax + sx * la, az + sz * la],
+      [bx + sx * lb, bz + sz * lb],
+      [bx - sx * rb, bz - sz * rb],
+      [ax - sx * ra, az - sz * ra],
+    ] as const;
+    addSegment(
+      quads,
+      square.map((p) => p[0]),
+      square.map((p) => p[1]),
+      r,
+      strength,
+    );
+    for (const [corner, cx, cz, level] of [
+      [0, ax, az, r0],
+      [1, bx, bz, r1],
+      [2, bx, bz, r1],
+      [3, ax, az, r0],
+    ] as const) {
+      const [m, q] = [mitred[corner], square[corner]];
+      addPiece(quads, [cx, m[0], q[0]], [cz, m[1], q[1]], [level, level, level], Math.abs(level));
     }
   }
   return quads;
@@ -689,6 +773,167 @@ class Carved extends Terrain {
   }
 }
 
+/** Strips side by side within this of each other's height are one roadway (m). */
+const ONE_ROAD = 0.6;
+/** How far apart two strips' edges may lie and still be side by side (m). */
+const BESIDE = 0.5;
+/** A strip takes its neighbour's height this often along it (m). */
+const MATCH_STEP = 2;
+/** What a point must add to stay, once heights are matched: sideways, in height, in reach (m). */
+const ADDS = { aside: 0.01, rise: 0.01, reach: 0.02 } as const;
+
+/** A strip's height and reach at the point of its line nearest (x, z), and how far that is. */
+function nearestOn(
+  strip: Strip,
+  x: number,
+  z: number,
+): { away: number; rise: number; reach: number } {
+  const { line, rise } = strip;
+  let best = { away: Infinity, rise: 0, reach: 0 };
+  for (let i = 0; i + 3 < line.length; i += 2) {
+    const [ax, az] = [line[i]!, line[i + 1]!];
+    const [dx, dz] = [line[i + 2]! - ax, line[i + 3]! - az];
+    const t = Math.min(1, Math.max(0, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz || 1)));
+    const away = Math.hypot(ax + dx * t - x, az + dz * t - z);
+    if (away >= best.away) continue;
+    const k = i / 2;
+    const side = (reach: ArrayLike<number> | undefined) =>
+      reach ? reach[k]! + (reach[k + 1]! - reach[k]!) * t : strip.half;
+    best = {
+      away,
+      rise: rise[k]! + (rise[k + 1]! - rise[k]!) * t,
+      reach: Math.max(side(strip.left), side(strip.right)),
+    };
+  }
+  return best;
+}
+
+/** A strip with a point at least every `MATCH_STEP`, as plain arrays. */
+function dense(strip: Strip) {
+  const out = {
+    line: [] as number[],
+    rise: [] as number[],
+    left: [] as number[],
+    right: [] as number[],
+  };
+  const n = strip.line.length / 2;
+  const at = (values: ArrayLike<number> | undefined, i: number) => values?.[i] ?? strip.half;
+  for (let i = 0; i < n; i++) {
+    const [x, z] = [strip.line[i * 2]!, strip.line[i * 2 + 1]!];
+    if (i > 0) {
+      const [px, pz] = [strip.line[i * 2 - 2]!, strip.line[i * 2 - 1]!];
+      const parts = Math.ceil(Math.hypot(x - px, z - pz) / MATCH_STEP);
+      for (let k = 1; k < parts; k++) {
+        const t = k / parts;
+        out.line.push(px + (x - px) * t, pz + (z - pz) * t);
+        out.rise.push(mix(strip.rise[i - 1]!, strip.rise[i]!, t));
+        out.left.push(mix(at(strip.left, i - 1), at(strip.left, i), t));
+        out.right.push(mix(at(strip.right, i - 1), at(strip.right, i), t));
+      }
+    }
+    out.line.push(x, z);
+    out.rise.push(strip.rise[i]!);
+    out.left.push(at(strip.left, i));
+    out.right.push(at(strip.right, i));
+  }
+  return out;
+}
+
+/** Which points of a dense strip say something the line between their neighbours doesn't. */
+function telling(strip: ReturnType<typeof dense>): number[] {
+  const n = strip.rise.length;
+  const keep = new Set([0, Math.min(1, n - 1), n - 1]);
+  const between = (a: number, b: number) => {
+    const [ax, az, bx, bz] = [
+      strip.line[a * 2]!,
+      strip.line[a * 2 + 1]!,
+      strip.line[b * 2]!,
+      strip.line[b * 2 + 1]!,
+    ];
+    const [dx, dz] = [bx - ax, bz - az];
+    let [worst, at] = [1, -1];
+    for (let i = a + 1; i < b; i++) {
+      const [x, z] = [strip.line[i * 2]!, strip.line[i * 2 + 1]!];
+      const t = Math.min(
+        1,
+        Math.max(0, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz || 1)),
+      );
+      const off = (values: readonly number[]) =>
+        Math.abs(values[i]! - mix(values[a]!, values[b]!, t));
+      const adds = Math.max(
+        Math.hypot(ax + dx * t - x, az + dz * t - z) / ADDS.aside,
+        off(strip.rise) / ADDS.rise,
+        off(strip.left) / ADDS.reach,
+        off(strip.right) / ADDS.reach,
+      );
+      if (adds > worst) [worst, at] = [adds, i];
+    }
+    if (at < 0) return;
+    keep.add(at);
+    between(a, at);
+    between(at, b);
+  };
+  const ends = [...keep].toSorted((a, b) => a - b);
+  for (let i = 0; i + 1 < ends.length; i++) between(ends[i]!, ends[i + 1]!);
+  return [...keep].toSorted((a, b) => a - b);
+}
+
+/**
+ * Strips that run side by side at nearly one height, as one roadway: each takes the higher of the
+ * two (the deeper, in a cutting) wherever they're within `ONE_ROAD` of each other, so the ground
+ * has no seam of a few centimetres between a road's two carriageways or a cycle track beside it.
+ * Further apart than that they're two levels, and the step between them stays. A strip keeps its
+ * first two points (the height of the deck or tunnel it meets) and its last (the ground).
+ */
+export function harmonised<S extends Strip>(strips: readonly S[]): S[] {
+  const boxes = strips.map((strip) => {
+    let [minX, minZ, maxX, maxZ, reach] = [Infinity, Infinity, -Infinity, -Infinity, strip.half];
+    for (let i = 0; i + 1 < strip.line.length; i += 2) {
+      [minX, maxX] = [Math.min(minX, strip.line[i]!), Math.max(maxX, strip.line[i]!)];
+      [minZ, maxZ] = [Math.min(minZ, strip.line[i + 1]!), Math.max(maxZ, strip.line[i + 1]!)];
+      reach = Math.max(reach, strip.left?.[i / 2] ?? 0, strip.right?.[i / 2] ?? 0);
+    }
+    const pad = reach + BESIDE;
+    return [minX - pad, minZ - pad, maxX + pad, maxZ + pad] as const;
+  });
+  return strips.map((strip, at) => {
+    const [x0, z0, x1, z1] = boxes[at]!;
+    const others = strips.filter((_, k) => {
+      const b = boxes[k]!;
+      return k !== at && b[0] <= x1 && b[2] >= x0 && b[1] <= z1 && b[3] >= z0;
+    });
+    if (!others.length) return strip;
+    const fine = dense(strip);
+    let matched = false;
+    for (let i = 2; i < fine.rise.length - 1; i++) {
+      const [x, z, own] = [fine.line[i * 2]!, fine.line[i * 2 + 1]!, fine.rise[i]!];
+      const reach = Math.max(fine.left[i]!, fine.right[i]!);
+      for (const other of others) {
+        const beside = nearestOn(other, x, z);
+        if (beside.away > beside.reach + reach + BESIDE) continue;
+        // One on a rise and one in a cutting are no one road, however near in height.
+        if (beside.rise * own < 0 || Math.abs(beside.rise - own) >= ONE_ROAD) continue;
+        if (Math.abs(beside.rise) > Math.abs(fine.rise[i]!)) {
+          fine.rise[i] = beside.rise;
+          matched = true;
+        }
+      }
+    }
+    if (!matched) return strip;
+    const keep = telling(fine);
+    const sides = strip.left && strip.right;
+    return {
+      ...strip,
+      line: Float32Array.from(keep.flatMap((i) => [fine.line[i * 2]!, fine.line[i * 2 + 1]!])),
+      rise: Float32Array.from(keep, (i) => fine.rise[i]!),
+      ...(sides && {
+        left: Float32Array.from(keep, (i) => fine.left[i]!),
+        right: Float32Array.from(keep, (i) => fine.right[i]!),
+      }),
+    };
+  });
+}
+
 /**
  * The ground the city stands on: the landform with `ramps` carved into it, its tracks on the
  * ramps that carry them (`rails`), and its decks' surface (`decks`).
@@ -698,7 +943,9 @@ export function landform(
   ramps: readonly (Strip & { rail?: boolean })[],
   decks: readonly Strip[],
 ): Terrain {
-  const ground = new Carved(grid, ramps);
+  // Roads and paths side by side are one roadway; the tracks keep to their own.
+  const roads = harmonised(ramps.filter((r) => !r.rail));
+  const ground = new Carved(grid, [...roads, ...ramps.filter((r) => r.rail)]);
   ground.rails = new Carved(
     grid,
     ramps.filter((r) => r.rail),

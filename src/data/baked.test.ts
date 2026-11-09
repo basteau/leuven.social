@@ -7,7 +7,7 @@ import { bikesIn } from './props.ts';
 import { parseRooms, roomProblems } from './rooms.ts';
 import { StreetIndex } from './streets.ts';
 import { deckStrip } from './structures.ts';
-import { landform, stripRings } from './terrain.ts';
+import { landform } from './terrain.ts';
 
 // Guards the committed city file: it must decode, match the area and stay plausible.
 test('public/data/city.bin decodes into a plausible Leuven', async () => {
@@ -84,6 +84,9 @@ test('public/data/rooms.json fits the landmarks in city.bin', async () => {
   expect(rooms.some((r) => r.floors.length > 1)).toBe(true);
 });
 
+/** Metres of seam under 0.3 m left between ramps on the map: 1,567 before heights were matched. */
+const SEAMS_LEFT = 1400;
+
 // Guards the shapes the ground makes: a wall in a road is the thing to catch, and it can't be seen
 // from any one line of code. The number only comes down; it's the wall left where a road surface
 // lies at one height across both sides of it.
@@ -108,19 +111,30 @@ test('the ground steps only where it steps', async () => {
     );
   }
   expect(total).toBeGreaterThan(5000);
-  // Of 1,200 pieces of ramp, the few that fold over a sharp bend are all that's left out.
-  let [lengths, pieces] = [0, 0];
-  for (const ramp of city.ramps) {
+  // No length of any ramp is left out: along each one's line the ground is lifted or sunk.
+  for (const ramp of city.ramps.filter((r) => !r.rail)) {
     for (let i = 0; i + 3 < ramp.line.length; i += 2) {
-      if (
-        Math.hypot(ramp.line[i + 2]! - ramp.line[i]!, ramp.line[i + 3]! - ramp.line[i + 1]!) > 1e-3
-      ) {
-        lengths++;
+      const [ax, az] = [ramp.line[i]!, ramp.line[i + 1]!];
+      const [bx, bz] = [ramp.line[i + 2]!, ramp.line[i + 3]!];
+      const [ra, rb] = [ramp.rise[i / 2]!, ramp.rise[i / 2 + 1]!];
+      for (const t of [0.25, 0.5, 0.75]) {
+        if (Math.abs(ra + (rb - ra) * t) < 0.2) continue;
+        const [x, z] = [ax + (bx - ax) * t, az + (bz - az) * t];
+        expect(ground.height(x, z) - ground.plain(x, z)).not.toBe(0);
       }
     }
-    pieces += stripRings(ramp).length / 2;
   }
-  expect(lengths - pieces).toBeLessThanOrEqual(6);
+  // Seams of a few centimetres between ramps side by side: what's left once their heights are
+  // matched, and drawn as the road's own. This only comes down.
+  let seams = 0;
+  for (const { ax, az, bx, bz, high, low } of steps) {
+    const between = Math.min(Math.abs(low[0]), Math.abs(low[1])) > 1e-6;
+    const sunk = Math.min(Math.abs(high[0]), Math.abs(high[1])) > 1e-6;
+    if (between && sunk && Math.max(high[0] - low[0], high[1] - low[1]) < 0.3) {
+      seams += Math.hypot(bx - ax, bz - az);
+    }
+  }
+  expect(seams).toBeLessThan(SEAMS_LEFT);
   // Every ramp lies wider than nothing, and reaches as far as it says at every point.
   for (const ramp of city.ramps) {
     const n = ramp.line.length / 2;
