@@ -27,7 +27,7 @@
  * Tanks are a height in decimetres and a footprint each; parapets are open lines.
  * Street names are a table of strings, then each street as its name's place in the table and a
  * centre line, then one number per plaza: 0 for none, else its name's place plus one.
- * Decks, ramps and tunnels (v29) close the file: rings and lines as elsewhere, rises in zigzag decimetres.
+ * Decks, ramps and tunnels (v29) close the file: rings and lines as elsewhere, rises in zigzag decimetres; a ramp's two reaches where a road's width varies (v30).
  * Church towers (v13) come next, as few as there are churches with one: each is its building's
  * place in the list (the change from the tower before), its centre (zigzag decimetres), radius,
  * wall top and tip (decimetres). The decoder hangs each on its building as `tower`.
@@ -86,7 +86,7 @@ const MAGIC = 'LVN1';
 // neighbour. v16: a byte per bike rack, its fill (`Prop.fill`). v17: the shop fronts. v18: pitch surfaces
 // and the fields painted on them, after the polygon layers. v25: more kinds of front, public
 // places among them. v26: those, and no ways for the traffic. Bump the cache in public/sw.js with it.
-const VERSION = 29;
+const VERSION = 30;
 const DM = 10; // units per metre
 const GROUND = 20; // terrain heights per metre: 5 cm
 const ZIGZAG = { encoding: 'zigzag' } as const;
@@ -207,9 +207,11 @@ function writeStructures(w: Binary.Writer, city: City): void {
   w.varint(city.ramps.length);
   at = origin();
   for (const ramp of city.ramps) {
-    w.varint((Math.round(ramp.half * DM) << 1) | (ramp.rail ? 1 : 0));
+    const sides = ramp.left && ramp.right ? [ramp.left, ramp.right] : null;
+    w.varint((Math.round(ramp.half * DM) << 2) | (sides ? 2 : 0) | (ramp.rail ? 1 : 0));
     writeRing(w, ramp.line, at);
     writeRises(w, ramp.rise);
+    for (const side of sides ?? []) writeRises(w, side);
   }
   w.varint(city.tunnels.length);
   at = origin();
@@ -246,12 +248,13 @@ function readStructures(r: Binary.Reader): Pick<City, 'decks' | 'ramps' | 'tunne
   const ramps = Array.from({ length: r.varint() }, (): Ramp => {
     const packed = r.varint();
     const line = readRing(r, at);
-    return {
-      half: (packed >> 1) / DM,
-      rail: (packed & 1) === 1,
-      line,
-      rise: readRises(r, pointCount(line)),
-    };
+    const rise = readRises(r, pointCount(line));
+    const ramp: Ramp = { half: (packed >> 2) / DM, rail: (packed & 1) === 1, line, rise };
+    if (packed & 2) {
+      ramp.left = readRises(r, pointCount(line));
+      ramp.right = readRises(r, pointCount(line));
+    }
+    return ramp;
   });
   at = origin();
   const tunnels = Array.from({ length: r.varint() }, (): Tunnel => {

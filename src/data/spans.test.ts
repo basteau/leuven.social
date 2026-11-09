@@ -116,6 +116,38 @@ describe('how wide a ramp is', () => {
   });
 });
 
+describe('how a road ramp fits its road', () => {
+  const roads = [road([-200, 0, 0, 0]), bridge([0, 0, 30, 0]), road([30, 0, 230, 0])];
+  const tracks = [rail([15, -100, 15, 100])];
+  const planFor = (roadHalf: SpanGround['roadHalf']) =>
+    planSpans(roads, tracks, [ring(0, -10, 30, 10)], { ...open, roadHalf }).ramps[0]!;
+
+  test('a road of one width needs nothing of its own', () => {
+    const ramp = planFor(() => 3);
+    expect(ramp.left).toBeUndefined();
+  });
+
+  test('its two sides follow the kerbs, each on its own', () => {
+    const ramp = planFor((x, _z, nx) => (nx > 0 ? 4 : x < -40 ? 2 : 4));
+    expect(ramp.left).toBeDefined();
+    expect(ramp.left!.length).toBe(ramp.line.length / 2);
+    expect(ramp.right!.length).toBe(ramp.line.length / 2);
+    expect(Math.min(...ramp.right!, ...ramp.left!)).toBeGreaterThanOrEqual(1.2);
+    expect(new Set([...ramp.left!].map((v) => v.toFixed(1))).size).toBeGreaterThan(1);
+  });
+
+  test('a junction it passes does not flare it out', () => {
+    const ramp = planFor((x, _z, nx, nz) => (Math.abs(x + 30) < 4 ? 14 : nx + nz > 0 ? 3 : 5));
+    for (const v of [...ramp.left!, ...ramp.right!]) expect(v).toBeLessThanOrEqual(6.5 + 1e-6);
+  });
+
+  test('where no surface was read it keeps to the usual', () => {
+    const ramp = planFor((x) => (x < -30 && x > -60 ? 0 : x > -30 ? 3 : 5));
+    expect(ramp.left).toBeDefined();
+    expect(Math.min(...ramp.left!)).toBeGreaterThanOrEqual(3);
+  });
+});
+
 describe('a bridge over water', () => {
   test('arches, its ends at the ground, with no ramp', () => {
     const wet: SpanGround = { ...open, water: () => true };

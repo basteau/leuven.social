@@ -81,6 +81,14 @@ const SAME_SPAN = 5;
 /** How often a ramp's width is read along it (m), and which of the readings counts, of 0 to 1. */
 const WIDTH_STEP = 4;
 const TYPICAL_WIDTH = 0.6;
+/** A ramp is kept this much wider than usual at most on either side (m): a junction isn't road. */
+const FLARE = 1;
+/** How fast a ramp widens (m a metre). */
+const WIDENS = 0.12;
+/** How narrow a side of a road ramp gets (m). */
+const MIN_SIDE = 1.2;
+/** A change of width smaller than this (m) keeps no point of its own. */
+const WIDTH_TIDY = 0.35;
 
 const off = (value: string | undefined) => value === undefined || value === 'no';
 const key = (x: number, z: number) => `${Math.round(x * 5)},${Math.round(z * 5)}`;
@@ -97,6 +105,10 @@ export function carriesOf(tags: Tags): Carries | null {
   if (!highway || highway === 'proposed' || highway === 'construction') return null;
   return PATH_WAYS.has(highway) ? 'path' : 'road';
 }
+
+/** One side of a road ramp at a reading of the road's surface, or as usual if there's none. */
+const fit = (value: number, typical: number) =>
+  Math.min(typical + FLARE, value > 0 ? value + 0.2 : typical + 0.2);
 
 const lanesWidth = (tags: Tags) => {
   const lanes = Number.parseFloat(tags.lanes ?? '');
@@ -492,6 +504,103 @@ export function planSpans(
     return Math.min(fallback + 2.5, Math.max(1.8, typical + 0.2));
   };
 
+  /**
+   * A road ramp's two sides, read off the road surface along it, so its walls run on the kerbs
+   * instead of down the road. Null if it's one width all along. A junction it passes, far wider
+   * than the road, is left out; and a point is kept only where the width bends.
+   */
+  const fitToRoad = (line: readonly number[], rise: ArrayLike<number>, half: number) => {
+    const run = lineLength(line);
+    const risen = (at: number) => {
+      let [walked, i] = [0, 0];
+      for (; i + 3 < line.length; i += 2) {
+        const len = Math.hypot(line[i + 2]! - line[i]!, line[i + 3]! - line[i + 1]!);
+        if (walked + len >= at) {
+          const k = i / 2;
+          return rise[k]! + (rise[k + 1]! - rise[k]!) * ((at - walked) / (len || 1));
+        }
+        walked += len;
+      }
+      return rise[rise.length - 1]!;
+    };
+    // Every point of the line, and a reading each few metres between them.
+    const stops = new Set([0, run]);
+    for (let at = WIDTH_STEP; at < run; at += WIDTH_STEP) stops.add(at);
+    let walked = 0;
+    for (let i = 0; i + 3 < line.length; i += 2) {
+      walked += Math.hypot(line[i + 2]! - line[i]!, line[i + 3]! - line[i + 1]!);
+      stops.add(Math.min(run, walked));
+    }
+    const samples = [...stops]
+      .toSorted((a, b) => a - b)
+      .map((at) => {
+        const [x, z, ux, uz] = pointAlong(line, at);
+        const read = (sx: number, sz: number) => ground.roadHalf(x, z, sx, sz, 14);
+        return { at, x, z, left: read(uz, -ux), right: read(-uz, ux) };
+      });
+    const usual = (side: 'left' | 'right') => {
+      const known = samples.map((p) => p[side]).filter((v) => v > 0);
+      return known.length
+        ? known.toSorted((a, b) => a - b)[Math.floor(known.length * TYPICAL_WIDTH)]!
+        : half;
+    };
+    const [usualL, usualR] = [usual('left'), usual('right')];
+    const eased = (side: 'left' | 'right', typical: number) => {
+      const raw = samples.map((p) => Math.max(MIN_SIDE, fit(p[side], typical)));
+      // A lone reading (a driveway, a parked bay) is no change in the road.
+      const out = raw.map(
+        (v, i) =>
+          [raw[Math.max(0, i - 1)]!, v, raw[Math.min(raw.length - 1, i + 1)]!].toSorted(
+            (a, b) => a - b,
+          )[1]!,
+      );
+      // And a road widens over a length, never in a jump: that's a fold in the ground.
+      for (let i = 1; i < out.length; i++) {
+        const room = (samples[i]!.at - samples[i - 1]!.at) * WIDENS;
+        out[i] = Math.min(out[i]!, out[i - 1]! + room);
+      }
+      for (let i = out.length - 2; i >= 0; i--) {
+        const room = (samples[i + 1]!.at - samples[i]!.at) * WIDENS;
+        out[i] = Math.min(out[i]!, out[i + 1]! + room);
+      }
+      return out;
+    };
+    const left = eased('left', usualL);
+    const right = eased('right', usualR);
+    // Douglas–Peucker on the two widths: what's left is where either really changes.
+    const keep = new Set([0, samples.length - 1]);
+    const split = (a: number, b: number) => {
+      let [worst, at] = [WIDTH_TIDY, -1];
+      for (let i = a + 1; i < b; i++) {
+        const t = (samples[i]!.at - samples[a]!.at) / (samples[b]!.at - samples[a]!.at || 1);
+        for (const side of [left, right]) {
+          const miss = Math.abs(side[i]! - (side[a]! + (side[b]! - side[a]!) * t));
+          if (miss > worst) [worst, at] = [miss, i];
+        }
+      }
+      if (at < 0) return;
+      keep.add(at);
+      split(a, at);
+      split(at, b);
+    };
+    split(0, samples.length - 1);
+    // The line's own bends stay, or the ramp would cut its corners.
+    const bends = simplifyLine(line, TIDY);
+    samples.forEach((p, i) => {
+      if (pairs(bends).some(([x, z]) => Math.hypot(x - p.x, z - p.z) < 0.01)) keep.add(i);
+    });
+    const kept = [...keep].toSorted((a, b) => a - b);
+    const flat = (side: readonly number[]) =>
+      kept.every((i) => Math.abs(side[i]! - half) < WIDTH_TIDY);
+    if (flat(left) && flat(right)) return null;
+    return {
+      line: kept.flatMap((i) => [samples[i]!.x, samples[i]!.z]),
+      rise: kept.map((i) => risen(samples[i]!.at)),
+      left: kept.map((i) => left[i]!),
+      right: kept.map((i) => right[i]!),
+    };
+  };
+
   /** A ramp from `tip` outward along the road, falling or rising to the ground, if it can. */
   const addRamp = (
     tip: [number, number],
@@ -521,12 +630,20 @@ export function planSpans(
     const rise = fallingRise(line, peak);
     const along = Math.hypot(tip[0] - into[0], tip[1] - into[1]) || 1;
     const [ix, iz] = [(into[0] - tip[0]) / along, (into[1] - tip[1]) / along];
-    ramps.push({
-      line: Float32Array.of(tip[0] + ix * overlap, tip[1] + iz * overlap, ...line),
-      rise: Float32Array.of(peak, ...rise),
-      half: widthOf(line, way, carries),
+    const half = widthOf(line, way, carries);
+    const fitted = carries === 'road' ? fitToRoad(line, rise, half) : null;
+    const [points, rises] = fitted ? [fitted.line, fitted.rise] : [line, Array.from(rise)];
+    const ramp: Ramp = {
+      line: Float32Array.of(tip[0] + ix * overlap, tip[1] + iz * overlap, ...points),
+      rise: Float32Array.of(peak, ...rises),
+      half,
       rail: carries === 'rail',
-    });
+    };
+    if (fitted) {
+      ramp.left = Float32Array.of(fitted.left[0]!, ...fitted.left);
+      ramp.right = Float32Array.of(fitted.right[0]!, ...fitted.right);
+    }
+    ramps.push(ramp);
     return length;
   };
 

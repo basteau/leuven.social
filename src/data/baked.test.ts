@@ -6,6 +6,8 @@ import { unpackCity } from './format.ts';
 import { bikesIn } from './props.ts';
 import { parseRooms, roomProblems } from './rooms.ts';
 import { StreetIndex } from './streets.ts';
+import { deckStrip } from './structures.ts';
+import { landform, stripRings } from './terrain.ts';
 
 // Guards the committed city file: it must decode, match the area and stay plausible.
 test('public/data/city.bin decodes into a plausible Leuven', async () => {
@@ -80,4 +82,50 @@ test('public/data/rooms.json fits the landmarks in city.bin', async () => {
     expect(roomProblems(room, building)).toEqual([]);
   }
   expect(rooms.some((r) => r.floors.length > 1)).toBe(true);
+});
+
+// Guards the shapes the ground makes: a wall in a road is the thing to catch, and it can't be seen
+// from any one line of code. The number only comes down; it's the wall left where a road surface
+// lies at one height across both sides of it.
+test('the ground steps only where it steps', async () => {
+  const response = await fetch(new URL('../../public/data/city.bin', import.meta.url));
+  const city = await unpackCity(new Uint8Array(await response.arrayBuffer()));
+  const ground = landform(city.terrain, city.ramps, city.decks.map(deckStrip));
+  const steps = ground.steps();
+  let total = 0;
+  for (const { ax, az, bx, bz, high, low } of steps) {
+    total += Math.hypot(bx - ax, bz - az);
+    // Each is what it says: the heights on its two sides are those it was found between.
+    const length = Math.hypot(bx - ax, bz - az) || 1;
+    const [rx, rz] = [(bz - az) / length, -(bx - ax) / length];
+    const [mx, mz] = [(ax + bx) / 2, (az + bz) / 2];
+    const lowSide = ground.height(mx + rx * 0.03, mz + rz * 0.03) - ground.plain(mx, mz);
+    const highSide = ground.height(mx - rx * 0.03, mz - rz * 0.03) - ground.plain(mx, mz);
+    // A step tapering away at one end has next to no drop at its middle.
+    if ((high[0] - low[0] + high[1] - low[1]) / 2 > 0.1) expect(highSide).toBeGreaterThan(lowSide);
+    expect(Math.abs(lowSide - (low[0] + low[1]) / 2)).toBeLessThan(
+      Math.abs(high[0] - low[0]) + Math.abs(high[1] - low[1]) + 0.5,
+    );
+  }
+  expect(total).toBeGreaterThan(5000);
+  // Of 1,200 pieces of ramp, the few that fold over a sharp bend are all that's left out.
+  let [lengths, pieces] = [0, 0];
+  for (const ramp of city.ramps) {
+    for (let i = 0; i + 3 < ramp.line.length; i += 2) {
+      if (
+        Math.hypot(ramp.line[i + 2]! - ramp.line[i]!, ramp.line[i + 3]! - ramp.line[i + 1]!) > 1e-3
+      ) {
+        lengths++;
+      }
+    }
+    pieces += stripRings(ramp).length / 2;
+  }
+  expect(lengths - pieces).toBeLessThanOrEqual(6);
+  // Every ramp lies wider than nothing, and reaches as far as it says at every point.
+  for (const ramp of city.ramps) {
+    const n = ramp.line.length / 2;
+    expect(ramp.rise.length).toBe(n);
+    if (ramp.left) expect(ramp.left.length).toBe(n);
+    if (ramp.right) expect(ramp.right.length).toBe(n);
+  }
 });

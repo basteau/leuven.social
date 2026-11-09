@@ -2,7 +2,7 @@
 // and everything under /data/ (the city, the rooms) are network-first, so a rebake
 // or a new icon shows up on the next online visit. Bump CACHE to drop everything after a format
 // change.
-const CACHE = 'leuven-v29'; // city format v29: decks, ramps and tunnels
+const CACHE = 'leuven-v30'; // city format v30: ramps as wide as their roads
 /** How long a page waits on the network (ms) before opening from the cache. */
 const PAGE_PATIENCE = 4000;
 

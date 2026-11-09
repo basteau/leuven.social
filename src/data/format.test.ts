@@ -119,6 +119,8 @@ const city: City = {
       line: Float32Array.of(95, 85, 120, 85),
       rise: Float32Array.of(5.2, 0),
       half: 6.5,
+      left: Float32Array.of(6.5, 4),
+      right: Float32Array.of(6, 3.5),
       rail: false,
     },
     { line: Float32Array.of(0, 200, 0, 300), rise: Float32Array.of(-6.8, 0), half: 3, rail: true },
