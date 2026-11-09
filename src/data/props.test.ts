@@ -16,6 +16,7 @@ import {
   discInFootprint,
   turnOf,
   footprintsOverlap,
+  pathStrip,
   placeProps,
   propFootprint,
   propFromOsm,
@@ -312,7 +313,15 @@ function street(): Surroundings {
   edges.add([-100, -6, 100, -6], false);
   const squares = new RingIndex();
   squares.add([-30, 6, 30, 6, 30, 40, -30, 40]);
-  return { roads, solid, water, edges, squares, trunks: [[-40, -4, 0.5]] };
+  return {
+    roads,
+    cyclePaths: new Shapes(),
+    solid,
+    water,
+    edges,
+    squares,
+    trunks: [[-40, -4, 0.5]],
+  };
 }
 
 const point = (x: number, z: number, tags: PropPoint['tags']): PropPoint => ({ x, z, tags });
@@ -551,4 +560,33 @@ test('a rack mapped off the road never crosses it to the far pavement', () => {
   // Mapped on the carriageway, it still may go to either pavement.
   const mapped = placeProps([point(5, 3.5, { ...RACK, capacity: '2' })], street());
   expect(mapped.props[0]!.z).toBeGreaterThan(4);
+});
+
+test('a rack keeps off a cycle path OSM alone maps, and on its side of it', () => {
+  const s = street();
+  for (const ring of pathStrip([-100, 14, 100, 14], 2.5)) s.cyclePaths.ring(ring);
+  // Mapped on the path: it moves off it, to either side.
+  const moved = placeProps([point(70, 14.1, { ...RACK, capacity: '2' })], {
+    ...s,
+    water: new Shapes(),
+  });
+  const rack = propFootprint(moved.props[0]!);
+  expect(onDrawnRoad(rack, s.cyclePaths, s.squares)).toBe(false);
+  expect(Math.abs(moved.props[0]!.z - 14)).toBeGreaterThan(1.25);
+  // A path under a square is no path: the rack on the square stays where it is.
+  const square = placeProps([point(0, 14, { ...RACK, capacity: '2' })], s);
+  expect([square.props[0]!.x, square.props[0]!.z]).toEqual([0, 14]);
+  // Mapped beside it with no room there, it goes rather than cross the path.
+  const beside = street();
+  for (const ring of pathStrip([-100, 14, 100, 14], 2.5)) beside.cyclePaths.ring(ring);
+  beside.solid.ring([-100, 10, 100, 10, 100, 12.4, -100, 12.4]);
+  const none = placeProps([point(70, 12.5, { ...RACK, capacity: '2' })], {
+    ...beside,
+    water: new Shapes(),
+  });
+  expect(none.props).toEqual([]);
+});
+
+test('a path strip is a rectangle over each stretch, none for a repeated point', () => {
+  expect(pathStrip([0, 0, 10, 0, 10, 0], 2)).toEqual([[0, 1, 10, 1, 10, -1, 0, -1]]);
 });

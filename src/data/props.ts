@@ -572,10 +572,25 @@ export function onDrawnRoad(f: Footprint, roads: Shapes, squares: RingIndex): bo
   });
 }
 
+/** Rectangles covering a path (flat [x, z, …]) `width` metres across, a ring for each stretch. */
+export function pathStrip(line: ArrayLike<number>, width: number): number[][] {
+  const out: number[][] = [];
+  for (let i = 0; i + 3 < line.length; i += 2) {
+    const [ax, az, bx, bz] = [line[i]!, line[i + 1]!, line[i + 2]!, line[i + 3]!];
+    const length = Math.hypot(bx - ax, bz - az);
+    if (length === 0) continue;
+    const [nx, nz] = [(-(bz - az) / length) * (width / 2), ((bx - ax) / length) * (width / 2)];
+    out.push([ax + nx, az + nz, bx + nx, bz + nz, bx - nx, bz - nz, ax - nx, az - nz]);
+  }
+  return out;
+}
+
 /** What the bake knows about the ground round a prop. */
 export interface Surroundings {
   /** Carriageways and cycle tracks: their edges are kerbs; props keep off them where they can. */
   roads: Shapes;
+  /** Cycle paths only OSM maps, the width they're drawn (`pathStrip`): no rack stands on one. */
+  cyclePaths: Shapes;
   /** Footprints and tanks (areas) and bridge parapets (lines): nothing stands in them. */
   solid: Shapes;
   /** Rivers, ponds and basins: only monuments stand in them (Fonske, Fiere Margriet). */
@@ -732,6 +747,7 @@ export function placeProps(points: readonly PropPoint[], around: Surroundings): 
       continue;
     }
     const onRoad = around.roads.contains(c.x, c.z);
+    const onCyclePath = around.cyclePaths.contains(c.x, c.z);
     // Mapped inside a footprint, its one way out is through the wall.
     const walledIn = around.solid.contains(c.x, c.z);
     const clear = (f: Footprint, strict: boolean) => {
@@ -739,11 +755,19 @@ export function placeProps(points: readonly PropPoint[], around: Surroundings): 
       // kerb itself all the room it needs from the road (a pavement is narrow enough), along the
       // street, never through a house to the garden behind it.
       if (c.kind === 'bikes') {
-        if (!strict || onDrawnRoad(grow(f, KERB_ROOM), around.roads, around.squares)) return false;
+        if (!strict) return false;
+        const room = grow(f, KERB_ROOM);
+        if (
+          onDrawnRoad(room, around.roads, around.squares) ||
+          onDrawnRoad(room, around.cyclePaths, around.squares)
+        ) {
+          return false;
+        }
         if (!walledIn && edgeBetween(around.solid, c.x, c.z, f.x, f.z)) return false;
         // Mapped off the road it stays on its own side of it: the pavement across a carriageway
         // is someone else's rack.
         if (!onRoad && edgeBetween(around.roads, c.x, c.z, f.x, f.z)) return false;
+        if (!onCyclePath && edgeBetween(around.cyclePaths, c.x, c.z, f.x, f.z)) return false;
       }
       const room = grow(f, CLEARANCE);
       const reach = radius(room);

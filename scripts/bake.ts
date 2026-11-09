@@ -52,6 +52,7 @@ import {
   RingIndex,
   Shapes,
   discInFootprint,
+  pathStrip,
   placeProps,
   propFootprint,
   rackFill,
@@ -507,6 +508,21 @@ for (const { role, ring } of zones.faces) {
   for (const r of clipRingToArea(normalizeRing(ring.flat()), AREA))
     if (r.length >= 6) kerbs.ring(r);
 }
+// The cycle paths only OSM maps, the width they're drawn: racks keep off them (the others'
+// tracks are in `kerbs`). Only racks read these, so a lamp or bench doesn't start lining up with one.
+const cyclePaths = new Shapes();
+for (const f of osmRoads.features) {
+  const tags = f.properties;
+  const cycle =
+    tags.highway === 'cycleway' || (tags.highway === 'path' && tags.bicycle === 'designated');
+  const style = cycle && f.geometry.type === 'LineString' ? pathFromOsm(tags) : null;
+  if (!style) continue;
+  for (const piece of AREA.flatMap((rect) => clipLine(lineOf(f), rect))) {
+    for (const shown of uncoveredPieces(piece, (x, z) => hard.contains(x, z))) {
+      for (const ring of pathStrip(shown, style.width)) cyclePaths.ring(ring);
+    }
+  }
+}
 const solid = new Shapes();
 for (const ring of [...buildings.map((b) => b.ring), ...tanks.map((t) => t.ring)]) solid.ring(ring);
 const pools = new Shapes();
@@ -526,6 +542,7 @@ const placed = placeProps(
   }),
   {
     roads: kerbs,
+    cyclePaths,
     solid,
     water: pools,
     edges,
