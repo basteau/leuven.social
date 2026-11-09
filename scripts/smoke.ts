@@ -510,7 +510,8 @@ async function expectPlayers(): Promise<void> {
       () => bot.heard.some((m) => m.type === 'leaves'),
       'the bot seeing smoke-anna leave',
     );
-    await browser('press', 'Escape');
+    // The sheet shuts itself; no Escape, which would hide the page, and a hidden page's frames stop.
+    await browser('wait', '--fn', `!document.querySelector('dialog.account')?.open`);
     console.log('ok  signed out: a guest again, and gone for the others');
   } finally {
     bot.close();
@@ -922,7 +923,6 @@ try {
   await expectNoCovering('desktop 1280×800');
   await expectMenu();
   await expectMap();
-  await expectViewControls();
   // Exercise every control once, then check nothing broke.
   await browser('press', 'e');
   await browser('press', 'r');
@@ -967,8 +967,9 @@ try {
   await expectRiding();
   await expectRoom();
   await expectPlayers();
-  // Last on the desktop: a look at Oude Markt builds what's round it, which would count against
-  // the whole-city geometry the checks above measure along their own walk.
+  // Last on the desktop: a drag and a look at Oude Markt build what's round them, which would
+  // count against the whole-city geometry the checks above measure along their own walk.
+  await expectViewControls();
   await expectFinding();
 
   await browser('set', 'viewport', '390', '844');
