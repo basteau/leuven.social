@@ -53,10 +53,22 @@ test('a curved run spreads its bays over its facets, in whole bays on each', () 
   expect(fitRun([9], 3)).toEqual([3]);
 });
 
-test('a facet too short for a window carries its share on to the next', () => {
-  // Facets 1 m long, 3 m aim: none would get a window on their own, yet a long enough one
-  // after them picks up what they owed.
-  expect(fitRun([1, 1, 1, 3.5], 3)).toEqual([0, 0, 0, 2]);
+test('a facet too short for a window leaves its share to the next, up to what that one holds', () => {
+  // Facets 1 m long, 3 m aim: none gets a window, and what they owed never crams the next one.
+  expect(fitRun([1, 1, 1, 3.5], 3)).toEqual([0, 0, 0, 1]);
+  // Two walls of a run keep the total the whole length would.
+  expect(fitRun([3, 3, 3], 3)).toEqual([1, 1, 1]);
+});
+
+test('a run never crams a facet with more bays than it could hold spaced as one', () => {
+  // A short run of narrow facets after a long one: what was due carries on, but a 1.7 m pier
+  // takes one window at most, however much the run is owed.
+  const fit = fitRun([1, 1, 1, 1, 1, 1, 1.7], 2.5);
+  expect(fit[6]).toBe(1);
+  for (const [i, bays] of fit.entries()) {
+    const length = [1, 1, 1, 1, 1, 1, 1.7][i]!;
+    expect(bays === 0 || length / bays >= 1.2).toBe(true);
+  }
 });
 
 test('a page mixes wall and building, and always fits the byte', () => {

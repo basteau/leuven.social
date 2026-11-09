@@ -42,11 +42,19 @@ const NIGHT = { moon: 0.55, sky: 1 } as const;
  * up, none at `SHADOW_GONE` and under. A low sun's light is mostly the sky's, so a shadow melts
  * away with the sun instead of staying near-black until the sun is switched off. No cost: it is
  * one uniform (`LightShadow.intensity`), and the toon ramp still shades faces by the sun's angle.
+ * The ramp bends at `SHADOW_KNEE`: a sun as weak as the evening's weighs a fifth of a shadow, not
+ * half. At 20:00 the low sun still laid hard bands of the next block's roofline across a wall, half
+ * as dark as by day, with the light all but gone; the moon's shadow stays a faint hint under it.
  */
 export const SHADOW_FULL = 1.7;
 export const SHADOW_GONE = 0.3;
-export const shadowWeight = (sunIntensity: number): number =>
-  Math.min(1, Math.max(0, (sunIntensity - SHADOW_GONE) / (SHADOW_FULL - SHADOW_GONE)));
+export const SHADOW_KNEE = { sun: 1, weight: 0.2 } as const;
+export const shadowWeight = (sunIntensity: number): number => {
+  const { sun, weight } = SHADOW_KNEE;
+  if (sunIntensity <= sun)
+    return (Math.max(0, sunIntensity - SHADOW_GONE) / (sun - SHADOW_GONE)) * weight;
+  return Math.min(1, weight + ((1 - weight) * (sunIntensity - sun)) / (SHADOW_FULL - sun));
+};
 
 /**
  * The keyframes, clockwise: night, dawn from the east, a pale morning, midday from the south,

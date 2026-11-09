@@ -226,10 +226,13 @@ export const SURFACE_COLOURS: Record<Surface, number> = {
 };
 
 /**
- * A carriageway's colour: its surface's, except that asphalt darkens on the ring and main roads
- * and cycle tracks are Flemish red asphalt.
+ * A carriageway's colour: its surface's, except that asphalt darkens on the ring and main roads,
+ * cycle tracks are Flemish red asphalt, and a pedestrian street's setts are the squares' own, so
+ * where a square's polygon ends in the same stones no line runs across them (under a lamp, a
+ * square's corner read as a beam of light).
  */
 export function carriagewayColor(kind: CarriagewayKind, surface: Surface): number {
+  if (kind === 'pedestrian' && surface === 'sett') return GROUND.plaza;
   if (surface !== 'asphalt') return SURFACE_COLOURS[surface];
   return kind === 'main' ? 0x77746f : kind === 'cycleway' ? 0xa8604c : SURFACE_COLOURS.asphalt;
 }

@@ -215,7 +215,7 @@ export function createFacadeMaterial(
         #include <opaque_fragment>`,
       );
   };
-  material.customProgramCacheKey = () => 'facade-v14';
+  material.customProgramCacheKey = () => 'facade-v15';
   return material;
 }
 

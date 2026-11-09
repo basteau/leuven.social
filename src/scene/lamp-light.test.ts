@@ -53,6 +53,16 @@ test('light fills up as it adds: a crowd of lamps is brighter, and never clips',
   expect(read(bakeLight({ ...empty, props: [bench] }, flat), 50, 40)[3]).toBe(0);
 });
 
+const hue = ([r, , b]: number[]) => b! / r!;
+
+test('a crowd of lamps keeps their colour, not paling towards white', () => {
+  const one = read(bakeLight({ ...empty, props: [lamp(50, 40)] }, flat), 50, 40);
+  const crowd = Array.from({ length: 6 }, () => lamp(50, 40));
+  const many = read(bakeLight({ ...empty, props: crowd }, flat), 50, 40);
+  expect(hue(many)).toBeCloseTo(hue(one), 2);
+  expect(hue(many)).toBeCloseTo(LAMP_RAY.light[2] / LAMP_RAY.light[0], 2);
+});
+
 test('two lamps a street apart light the ground between them, about as much as at their feet', () => {
   // Lamps 19 m apart, the median in the city's own data: the street between them stays lit.
   const f = bakeLight({ ...empty, props: [lamp(40, 40), lamp(59, 40)] }, flat);

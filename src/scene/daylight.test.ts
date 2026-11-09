@@ -6,6 +6,7 @@ import {
   PRESETS,
   SHADOW_FULL,
   SHADOW_GONE,
+  SHADOW_KNEE,
   SUN_STEP_HOURS,
   daylightAt,
   leuvenHour,
@@ -98,7 +99,17 @@ describe('how much a shadow weighs', () => {
     expect(shadowWeight(3)).toBe(1);
     expect(shadowWeight(SHADOW_GONE)).toBe(0);
     expect(shadowWeight(0)).toBe(0);
-    expect(shadowWeight((SHADOW_FULL + SHADOW_GONE) / 2)).toBeCloseTo(0.5);
+    expect(shadowWeight(SHADOW_KNEE.sun)).toBeCloseTo(SHADOW_KNEE.weight);
+    expect(shadowWeight((SHADOW_FULL + SHADOW_KNEE.sun) / 2)).toBeCloseTo(
+      (1 + SHADOW_KNEE.weight) / 2,
+    );
+  });
+
+  test('the evening low sun weighs a fifth of a shadow, the moon a hint under that', () => {
+    expect(daylightAt(20).shadow).toBeLessThan(0.25);
+    expect(contrast(20)).toBeLessThan(1.25);
+    expect(daylightAt(23).shadow).toBeGreaterThan(0);
+    expect(daylightAt(23).shadow).toBeLessThan(daylightAt(20).shadow);
   });
 
   test('a day keeps its full shadows, golden hour and midday as they were', () => {
