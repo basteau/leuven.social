@@ -59,7 +59,8 @@ const BUDGETS: {
     // in puffs, all in the one material's shader rather than in geometry to download.
     // 179.5: puffs at every zoom in place of the faceted crowns, shapes of tree, shrubs and flower
     // beds, brick and stone in the walls, roof furniture (1.6 KB), asked for.
-    limit: 179.5 * KB,
+    // 180: the puffs' own shadow material (0.1 KB).
+    limit: 180 * KB,
     gzip: true,
   },
   // 3.5: just above 3.1 KB. 3.75: the minimap, the other players' name tags and who you are in

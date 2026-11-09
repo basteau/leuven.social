@@ -43,6 +43,7 @@ import {
   createFacadeMaterial,
   createGlowMaterial,
   createContactMaterial,
+  createPuffDepthMaterial,
   createPuffMaterial,
   lampLight,
   setLightField,
@@ -351,6 +352,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   // A mesh without a `facade` attribute (street furniture) reads 0: a plain surface.
   Object.assign(material, { defaultAttributeValues: { facade: [0], lift: [0] } });
   const ink = new LineBasicMaterial({ color: OUTLINE });
+  const puffDepth = createPuffDepthMaterial();
   // Towards the sun, for where the puffs of leaves look up their shadow.
   const sunward = { value: new Vector3(0, 1, 0) };
   const puffMaterial = createPuffMaterial(
@@ -631,6 +633,8 @@ export function createViewer(options: ViewerOptions): Viewer {
     geometry.instanceCount = spots.length / PUFF.stride;
     const mesh = new Mesh(geometry, puffMaterial);
     mesh.receiveShadow = true;
+    mesh.castShadow = true;
+    mesh.customDepthMaterial = puffDepth;
     mesh.frustumCulled = false;
     mesh.visible = false;
     mesh.layers.set(PUFF_LAYER);
@@ -884,10 +888,14 @@ export function createViewer(options: ViewerOptions): Viewer {
         if (contact.visible) draw(contact);
       }
       if (puffs) {
-        puffs.visible = inView;
-        if (puffs.visible) {
-          calls++;
-          triangles += (puffs.geometry as InstancedBufferGeometry).instanceCount * 2;
+        puffs.layers.mask = (inView ? 1 << PUFF_LAYER : 0) | (casts ? SHADOW_LAYER : 0);
+        puffs.visible = inView || casts;
+        const puffCount = (puffs.geometry as InstancedBufferGeometry).instanceCount * 2;
+        for (const shown of [inView, casts]) {
+          if (shown) {
+            calls++;
+            triangles += puffCount;
+          }
         }
       }
       // Lanterns only up close: from afar the light they throw (the baked field) says it all.

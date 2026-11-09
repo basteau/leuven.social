@@ -355,7 +355,6 @@ export function buildCell(
       landmarks.set(b.id, { from, to: mesh.indices, lineFrom, lineTo: lines.segments * 2 });
     }
   }
-  for (let i = 0; i < trees.length; i += TREE_STRIDE) tree(i, ['crown']);
   for (const p of cell.parasols) {
     // On the square's setts, which lie a little over the terrain.
     mesh.lift = lines.lift = terrain.height(p.x, p.z) + LAYER_Y.plazas;
@@ -371,5 +370,10 @@ export function buildCell(
   addFinePaint(mesh, cell.ground.markings);
   addFieldLines(mesh, cell.ground.fields);
   addKerbs(mesh, cell.ground.carriageways, cell.bounds);
+  // Last, past what casts shadows: a crown is only what a tap hits now, the leaves drawing the
+  // tree and casting its shadow.
+  mesh.drape = null;
+  for (let i = 0; i < trees.length; i += TREE_STRIDE) tree(i, ['crown']);
+  mesh.lift = lines.lift = 0;
   return { mesh, lines, trunksFrom, shadowFrom, fineVertices, detail, landmarks };
 }

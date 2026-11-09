@@ -248,10 +248,10 @@ export function addFinePaint(mesh: MeshBuilder, markings: readonly Marking[]): v
 /** Pitch lines lie just over the pitches (ground.ts `PITCH_Y`) and under car parks and paths. */
 const ON_PITCH = 0.07;
 /**
- * How far a chord may stray from its arc (m): about a pixel where the lines show sharpest, so a
- * track's bend takes 16 chords and a basketball court's centre circle 7, not the same 32.
+ * How far a chord may stray from its arc (m): under a pixel at the closest zoom, so a court's
+ * centre circle is round there, for a few more quads on the handful of courts there are.
  */
-const SAG = 0.2;
+const SAG = 0.05;
 
 /** Draws a line in a field's own frame: u along its length, v across, from its centre (m). */
 type Draw = (u0: number, v0: number, u1: number, v1: number) => void;

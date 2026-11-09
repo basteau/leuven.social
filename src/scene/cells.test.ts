@@ -1,3 +1,4 @@
+import { CROWN } from './facade-codes.ts';
 import { expect, test } from 'bun:test';
 
 import type { Building, City } from '../data/city.ts';
@@ -168,9 +169,13 @@ test('a cell builds into one mesh and one set of outlines', () => {
   expect(detail.masts - detail.rails).toBe(4 * west!.masts.length + 2 * links);
   const g = unindexed(mesh.build({ facade: true }));
   const p = g.getAttribute('position');
-  // Fine paint comes last: the lane line's dash and the zebra's bars, just over the road.
+  // Fine paint comes after what casts shadows: the lane line's dash and the zebra's bars, just
+  // over the road. Only the crowns follow it, as a tap's target.
   expect(fineVertices).toBeLessThan(p.count);
-  for (let i = fineVertices; i < p.count; i++) expect(p.getY(i)).toBeCloseTo(0.17);
+  const facade = g.getAttribute('facade');
+  for (let i = fineVertices; i < p.count; i++) {
+    if (facade.getX(i) !== CROWN) expect(p.getY(i)).toBeCloseTo(0.17);
+  }
   g.computeBoundingBox();
   expect(g.boundingBox!.min.y).toBeLessThan(0); // the slab
   expect(g.boundingBox!.max.y).toBeGreaterThanOrEqual(10); // the houses

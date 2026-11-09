@@ -1,4 +1,11 @@
-import { Color, MeshBasicMaterial, MeshToonMaterial, Vector4 } from 'three';
+import {
+  Color,
+  DoubleSide,
+  MeshBasicMaterial,
+  MeshDepthMaterial,
+  MeshToonMaterial,
+  Vector4,
+} from 'three';
 import type { Texture, Vector3 } from 'three';
 
 import { SHOP_KINDS } from '../data/shop-kinds.ts';
@@ -245,7 +252,12 @@ export function createPuffMaterial(
   depthPerMetre: number,
   sunward: { value: Vector3 },
 ): MeshToonMaterial {
-  const material = new MeshToonMaterial({ vertexColors: true, gradientMap });
+  // A depth pass draws the back faces of what's shadowed; a puff is one flat face.
+  const material = new MeshToonMaterial({
+    vertexColors: true,
+    gradientMap,
+    shadowSide: DoubleSide,
+  });
   material.onBeforeCompile = (shader) => {
     shader.uniforms.uPixel = pixel;
     shader.uniforms.uSunward = sunward;
@@ -274,11 +286,11 @@ export function createPuffMaterial(
         vLeaf = max(0.18, uPixel * 2.6) / puff.w;
         vSeed = fract(puff.x * 3.17 + puff.z * 7.31);`,
       )
-      // The hidden crown that casts a tree's shadow surrounds its own puffs: look up the shadow
-      // from outside it, on the sun's side, or a tree shades itself.
+      // A tree's puffs cast its shadow and would each shade the next: look up the shadow from
+      // outside the crown, on the sun's side, so it only feels what's cast from elsewhere.
       .replace(
         '#include <shadowmap_vertex>',
-        `worldPosition.xyz += uSunward * puff.w * 1.4;\n#include <shadowmap_vertex>`,
+        `worldPosition.xyz += uSunward * puff.w * 3.2;\n#include <shadowmap_vertex>`,
       );
     shader.fragmentShader = shader.fragmentShader
       .replace(
@@ -319,6 +331,35 @@ export function createPuffMaterial(
       );
   };
   material.customProgramCacheKey = () => 'puff-v2';
+  return material;
+}
+
+/**
+ * The shadow of a puff of leaves: the same quad turned to the sun (the shadow camera's own view
+ * matrix) and cut to a disc, so a tree's shadow is the round of its leaves.
+ */
+export function createPuffDepthMaterial(): MeshDepthMaterial {
+  const material = new MeshDepthMaterial();
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nattribute vec4 puff;\nvarying vec2 vPuff;')
+      .replace(
+        '#include <begin_vertex>',
+        // modelViewMatrix, as three doesn't hand a depth material the view matrix; the mesh itself
+        // stands at the origin, so the two are the same.
+        `vec3 transformed = puff.xyz
+          + vec3(modelViewMatrix[0][0], modelViewMatrix[1][0], modelViewMatrix[2][0]) * position.x * puff.w
+          + vec3(modelViewMatrix[0][1], modelViewMatrix[1][1], modelViewMatrix[2][1]) * position.y * puff.w;
+        vPuff = position.xy;`,
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec2 vPuff;')
+      .replace(
+        '#include <clipping_planes_fragment>',
+        '#include <clipping_planes_fragment>\nif (dot(vPuff, vPuff) > 0.8) discard;',
+      );
+  };
+  material.customProgramCacheKey = () => 'puff-depth-v1';
   return material;
 }
 
