@@ -216,6 +216,12 @@ function addPolygon(
   mesh.polygon(corners, ShapeUtils.triangulateShape(contour, []), color, hint, facade);
 }
 
+/** The `facade` code of a building's flat roof, its seams square to the building. */
+function flatRoofCode(b: Building): number {
+  const { ux, uz } = orientedRect(b.ring);
+  return flatRoof(Math.atan2(uz, ux));
+}
+
 /** A hipped roof over the straight skeleton, flattened off where it reaches its surveyed rise. */
 function hipRoof(
   mesh: MeshBuilder,
@@ -229,7 +235,7 @@ function hipRoof(
   const slopeColor = roofColor(b.roofColor, false, b.id);
   const topColor = roofColor(b.roofColor, true, b.id);
   const tiles = pitchedRoof(mesh.lift + ridge);
-  const plateau = flatRoof(Math.atan2(orientedRect(b.ring).uz, orientedRect(b.ring).ux));
+  const plateau = flatRoofCode(b);
   for (const face of skeleton.faces) {
     const [ax, az, , bx, bz] = face.points;
     const len = Math.hypot(bx! - ax!, bz! - az!) || 1;
@@ -490,23 +496,19 @@ function addWalls(
 ): void {
   const n = ring.length / 2;
   const ids = cornerIds(ring, walls.corners);
-  const against = (a: number | undefined, b: number | undefined) => {
-    const other = a === undefined || b === undefined ? undefined : walls.edges.get(edgeKey(a, b));
+  // The wall top of the neighbour along each edge, in this building's frame: it walks the edge
+  // the other way round, and a corner nobody else has means no neighbour there.
+  const across = Array.from({ length: n }, (_, i) => {
+    const [a, b] = [ids[i], ids[(i + 1) % n]];
+    const other = a === undefined || b === undefined ? undefined : walls.edges.get(edgeKey(b, a));
     return other && walls.top(other) - base;
-  };
+  });
   const coveredAt = (i: number) => {
-    const neighbour = against(ids[(i + 1) % n], ids[i]);
+    const neighbour = across[i];
     return neighbour !== undefined && neighbour > top - PARTY_TOLERANCE;
   };
-  const bayCodes = wallBayCodes(
-    ring,
-    n,
-    coveredAt,
-    (i) => {
-      return against(ids[i], ids[(i + n - 1) % n]) !== undefined;
-    },
-    bays,
-  );
+  const before = (i: number) => across[(i + n - 1) % n];
+  const bayCodes = wallBayCodes(ring, n, coveredAt, (i) => before(i) !== undefined, bays);
   for (let i = 0; i < n; i++) {
     const ax = ring[i * 2]!;
     const az = ring[i * 2 + 1]!;
@@ -514,10 +516,8 @@ function addWalls(
     const bz = ring[((i + 1) % n) * 2 + 1]!;
     // Counter-clockwise ring: the outward normal of edge a→b is (dz, -dx).
     const hint: V3 = [bz - az, 0, -(bx - ax)];
-    // The neighbour across this edge walks it the other way round.
-    const [a, b] = [ids[i], ids[(i + 1) % n]];
-    const neighbour = against(b, a);
-    const covered = neighbour !== undefined && neighbour > top - PARTY_TOLERANCE;
+    const neighbour = across[i];
+    const covered = coveredAt(i);
     const bottom = covered ? top : Math.max(0, Math.min(neighbour ?? 0, top));
     if (bottom < top) {
       const [start, end] = bayCodes[i]!;
@@ -547,8 +547,7 @@ function addWalls(
     const cos = (d1x * d2x + d1z * d2z) / (l1 * l2 || 1);
     if (cos > CREASE) continue;
     // A corner against a neighbour is a crease only where the wall rises above it.
-    const before = against(a, ids[(i + n - 1) % n]);
-    const below = Math.max(neighbour ?? 0, before ?? 0);
+    const below = Math.max(neighbour ?? 0, before(i) ?? 0);
     if (below < top - PARTY_SLACK) lines.segment([ax, below, az], [ax, top, az]);
   }
 }
@@ -627,7 +626,7 @@ export function addBuilding(
       ShapeUtils.triangulateShape(contour, courtyards),
       roof,
       [0, 1, 0],
-      flatRoof(Math.atan2(orientedRect(b.ring).uz, orientedRect(b.ring).ux)),
+      flatRoofCode(b),
     );
     if (landmark) addLandmark(mesh, lines, ring, landmark);
     return;
@@ -702,15 +701,15 @@ const STACKS = [1, 1, 1, 2, 2, 1, 0, 1] as const;
 /** A dormer's width, height and how far down the slope its front stands (share of the width). */
 const DORMER = { half: 0.6, rise: 1.2, down: 0.6, min: 2.5 } as const;
 /** A roof window's half sizes along and down the slope, lifted just off it. */
-const SKYLIGHT = { halfU: 0.45, halfV: 0.5, lift: 0.04 } as const;
+const ROOF_WINDOW = { halfU: 0.45, halfV: 0.5, lift: 0.04 } as const;
 
 /**
  * What makes a roof a house's own, on the gables of the centre's houses: chimney stacks on the
  * ridge near the party walls (one on most, two on some), a dormer poking out of one slope of a
  * third of them, a roof window in another fifth. In brick a shade darker than the wall; a
  * dormer's front in the wall's colour, its cheeks and lid in the roof's; about 30 triangles a
- * house at most. Shadows and ink cost
- * nothing more: a stack is too small for a line, a dormer gets its front's edges.
+ * house at most. Shadows and ink cost nothing more: a stack is too small for a line, a dormer gets
+ * its front's edges.
  */
 function roofDetails(
   mesh: MeshBuilder,
@@ -802,9 +801,9 @@ function roofDetails(
   } else if (look === 2 && rise >= 1.5 && W >= 2 && L >= 1.5) {
     // A roof window, lying on the slope.
     const vc = side * W * 0.5;
-    const lift = (v: number) => slope(v) + SKYLIGHT.lift;
-    const [v0, v1] = [vc - side * SKYLIGHT.halfV, vc + side * SKYLIGHT.halfV];
-    const [u0, u1] = [where - SKYLIGHT.halfU, where + SKYLIGHT.halfU];
+    const lift = (v: number) => slope(v) + ROOF_WINDOW.lift;
+    const [v0, v1] = [vc - side * ROOF_WINDOW.halfV, vc + side * ROOF_WINDOW.halfV];
+    const [u0, u1] = [where - ROOF_WINDOW.halfU, where + ROOF_WINDOW.halfU];
     mesh.quad(
       at(u0, v0, lift(v0)),
       at(u1, v0, lift(v0)),
