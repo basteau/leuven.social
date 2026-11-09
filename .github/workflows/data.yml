@@ -1,6 +1,6 @@
 # Rebuilds the city from scratch, from the sources in src/data/sources.ts, and reports whether
 # the result is the committed public/data/city.bin. Monthly and by hand only: the fetch is
-# ~230 MB and Overpass is often busy. Drift in a live source (GRB, the orthophoto mosaic) is
+# ~500 MB and Overpass is often busy. Drift in a live source (GRB, the orthophoto mosaic) is
 # reported, not failed: see "Reproducibility" in docs/DATA.md.
 name: data
 on:

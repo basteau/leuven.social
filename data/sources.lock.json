@@ -1,121 +1,121 @@
 {
   "osm-buildings": {
-    "plan": "5103318292823487",
+    "plan": "07a167b3a2bc1449",
     "files": 1,
-    "bytes": 11131441,
-    "sha256": "838249bbe91276057478e6b0b6304301eca4cd60df2ef38f7a67e0a2128fd88d",
-    "fetched": "2026-10-31"
+    "bytes": 16930512,
+    "sha256": "35d1a241636c35932fbccaa76026fcea9ddfe94d77a77da4193052779cd6d4bd",
+    "fetched": "2026-11-09"
   },
   "osm-ring": {
-    "plan": "3c7571a5e1ad25ee",
+    "plan": "a52fd4ec7331ca7a",
     "files": 1,
     "bytes": 95980,
-    "sha256": "b0c535a4d9b092207f22bda7ad65f7442fe4f4f9a52adb9f8624044a1a14a8c7",
-    "fetched": "2026-10-31"
+    "sha256": "c763f5d87ef24b6a03bed0969312aa826cfa0f6be24fea6eb47421f30b46cd1d",
+    "fetched": "2026-11-09"
   },
   "osm-roads": {
-    "plan": "d4de144488ac420e",
+    "plan": "923f91aee87760c8",
     "files": 1,
-    "bytes": 4057322,
-    "sha256": "30cd519fa9380f03da5988a1dd7e8735313e26a31e2c2354369d7169a0cc972f",
-    "fetched": "2026-10-31"
+    "bytes": 6309184,
+    "sha256": "3e4290889d6e44740efea08d12eff88a3ed043c4b790a52e2422f47bb80fe1fa",
+    "fetched": "2026-11-09"
   },
   "osm-areas": {
-    "plan": "0354500cf9e88c1a",
+    "plan": "bdc77d988d4be679",
     "files": 1,
-    "bytes": 8060550,
-    "sha256": "ab36f186b476afc416595a69edf7ef0b2b0707f6cc588d6a39cb25ca03ef5728",
-    "fetched": "2026-11-02"
+    "bytes": 9956601,
+    "sha256": "9ff86804f93d810ca3ab914f4deccd7f658932d046e8400943f4273b816281c0",
+    "fetched": "2026-11-09"
   },
   "osm-points": {
-    "plan": "fa038693639a1ea3",
+    "plan": "173a9e6417a063d8",
     "files": 1,
-    "bytes": 2141315,
-    "sha256": "62f26d0b1c7f749faf5b6e739e57fc657774516d51f66adc514538b1364054f2",
-    "fetched": "2026-11-02"
+    "bytes": 2745569,
+    "sha256": "8a61d09bbb0489aa0e359cb910df0cbf14bc4a87ccb2cd50157e39efe0398bab",
+    "fetched": "2026-11-09"
   },
   "osm-furniture-ways": {
-    "plan": "d8023180dfa9e786",
+    "plan": "bc37f7ccf1b9478e",
     "files": 1,
-    "bytes": 166749,
-    "sha256": "cce341409e44974b191cddfc877b582a3ef1b13fc99fb1f746660314549089f9",
-    "fetched": "2026-11-01"
+    "bytes": 208981,
+    "sha256": "643a848b9275fa1cf21b1883397c372dc71bfdbb4d21a7cd2a3f5c6fe11a2867",
+    "fetched": "2026-11-09"
   },
   "osm-hedges": {
-    "plan": "051a6e2ed0452f73",
+    "plan": "6e88cd716893b134",
     "files": 1,
-    "bytes": 204893,
-    "sha256": "3a830f86bec99f45648daabd35c36b8fa7099c7727a9c5f3c3f3dcaf4ca48973",
-    "fetched": "2026-11-08"
+    "bytes": 313780,
+    "sha256": "c3e41c4f47cdc15cb20e968553a664ba8930e2b05c95d3b1244b167a47085914",
+    "fetched": "2026-11-09"
   },
   "osm-rail-platforms": {
-    "plan": "dcba6d5a184aa2f0",
+    "plan": "43883579bd6605ac",
     "files": 1,
     "bytes": 18220,
     "sha256": "8b9232f95f6d9a4fafe0b44dbea727496ed459c4aa84f5adc8060289a9fd21ea",
     "fetched": "2026-10-31"
   },
   "grb-gbg": {
-    "plan": "b9232289c229829c",
+    "plan": "83022738a86925f0",
     "files": 1,
-    "bytes": 12979092,
-    "sha256": "3d9b330809bff0400274fcd83337ffd491fcdce858ced042515e25ad40014573",
-    "fetched": "2026-10-31"
+    "bytes": 20426349,
+    "sha256": "8ff1e7dd37fb1c4179f0b8c934783357b3d6dcc9a73a885ae20e26acce50d98f",
+    "fetched": "2026-11-09"
   },
   "grb-gba": {
-    "plan": "5a64da9542d8fcdb",
+    "plan": "7c02d6ea845d164c",
     "files": 1,
-    "bytes": 1970386,
-    "sha256": "726ff713856030ea503e82d58cbfcc9afd06b37288ad60b40e2acc7ba255d616",
-    "fetched": "2026-10-31"
+    "bytes": 3693489,
+    "sha256": "84b4cbe3fde0348c2a4c861f7a4f411a3681e5a17f31c7731b6ee3053de2d12c",
+    "fetched": "2026-11-09"
   },
   "grb-wbn": {
-    "plan": "7a9f480ffbdcb202",
+    "plan": "c7b27ba9558c7146",
     "files": 1,
-    "bytes": 3771208,
-    "sha256": "74578ebcc7c4c7a42c1519f57dcf98328226543a3ce096d584fbbd3592dc0cb0",
-    "fetched": "2026-10-31"
+    "bytes": 5986036,
+    "sha256": "96921b9ff263c2013e00d3d10d8336371e15d388793acbf67dd453c69b2b3d29",
+    "fetched": "2026-11-09"
   },
   "grb-wgo": {
-    "plan": "ae14be0b2c2f35d2",
+    "plan": "311a8bb4e08e2583",
     "files": 1,
-    "bytes": 6918068,
-    "sha256": "ed44791392b31e87655752a3109594a90568bf964f2f6c9011156d461a95adae",
-    "fetched": "2026-11-01"
+    "bytes": 14017339,
+    "sha256": "439e436d17aff73b7ec01f4cc2b9e2389d68d8a3ffe02d44c921b779d0507c30",
+    "fetched": "2026-11-09"
   },
   "grb-wtz": {
-    "plan": "63e6028b6bdadd43",
+    "plan": "6f66f2185b7c32cd",
     "files": 1,
-    "bytes": 316219,
-    "sha256": "37a5d2079047e893409a6a7801bd648719929e4d80ca71a7237f4b59b7c5fd99",
-    "fetched": "2026-10-31"
+    "bytes": 557403,
+    "sha256": "671a7f1e20cc32c117a9ca8657efc3601b5a28cc94410f2a49b146742cfe5c5d",
+    "fetched": "2026-11-09"
   },
   "grb-knw": {
-    "plan": "5c23b51e3b891c92",
+    "plan": "0f50ba647f97b0c9",
     "files": 1,
-    "bytes": 356157,
-    "sha256": "6847381fb7766a532b098e3f9f99b3943f082f0da394f7aa4ee60f6a50dbd7ff",
-    "fetched": "2026-10-31"
+    "bytes": 569633,
+    "sha256": "f845bd797e8bd96d8c8cdabea6e6a2aa49e558fe388fb7ade7d302e86714b1a1",
+    "fetched": "2026-11-09"
   },
   "dhmv-dtm": {
-    "plan": "10565aeb749f1f90",
-    "files": 8,
-    "bytes": 45890880,
-    "sha256": "c4224188c02c3c33de85741eb628caf52ed0a81a8719cadb177ad158522d1408",
-    "fetched": "2026-10-31"
+    "plan": "c761dd81e8ca5c6a",
+    "files": 18,
+    "bytes": 117084264,
+    "sha256": "7ce660b4381688d7cb21af9246912f62e124b80e0b72b3a7fd245f587c5d9913",
+    "fetched": "2026-11-09"
   },
   "dhmv-dsm": {
-    "plan": "fba3acbb783ac230",
-    "files": 8,
-    "bytes": 45890880,
-    "sha256": "dfec42f4b17e9ded11333fecdded8b3f22838009483ae1ec4578829a7c2d178e",
-    "fetched": "2026-10-31"
+    "plan": "6308c1630d361dbe",
+    "files": 18,
+    "bytes": 117084264,
+    "sha256": "e8889ce6e60ba2539662019ad1bf0be8807b4b434d940d16cdf65efbd642fd11",
+    "fetched": "2026-11-09"
   },
   "ortho": {
-    "plan": "b3fceab02b694de4",
-    "files": 1068,
-    "bytes": 87989559,
-    "sha256": "dfef3f6ae72c2474161d66a398e5ca322abc630ddc57b54c0bbaf1053027309d",
-    "fetched": "2026-11-01"
+    "plan": "df7c6ad6cae9077c",
+    "files": 2031,
+    "bytes": 162844790,
+    "sha256": "5d892ad9e18ea32dc7f1b80a38144159adb2df472897c32a7914b6d3a2dcc07e",
+    "fetched": "2026-11-09"
   }
 }

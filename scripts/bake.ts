@@ -35,6 +35,7 @@ import {
   clipLine,
   uncoveredPieces,
   clipRingToArea,
+  insideArea,
   joinRings,
   normalizeRing,
   orientedRect,
@@ -71,6 +72,8 @@ import { TREE_KINDS } from '../src/data/city.ts';
 import {
   atWater,
   clearCrowns,
+  crownReach,
+  keepTrees,
   mergeTrees,
   onBank,
   treeKindOf,
@@ -493,10 +496,14 @@ const standing = osmTrees
     return spot ? [[spot[0], spot[1], kind] as const] : [];
   })
   .filter(([x, z]) => !footprints.contains(x, z));
-const allTrees = mergeTrees(
-  standing.flatMap(([x, z]) => [x, z]),
-  crowns.trees.filter(([x, z]) => areaIndex(AREA, x, z) >= 0 && !underRoof(x, z)),
-  standing.map(([, , kind]) => kind),
+// A tree whose leaves would hang over the edge of the slab stays off the map, by its final height.
+const allTrees = keepTrees(
+  mergeTrees(
+    standing.flatMap(([x, z]) => [x, z]),
+    crowns.trees.filter(([x, z]) => areaIndex(AREA, x, z) >= 0 && !underRoof(x, z)),
+    standing.map(([, , kind]) => kind),
+  ),
+  (x, z, h) => insideArea(AREA, x, z, crownReach(h)),
 );
 
 // Street furniture by rule (src/data/props.ts): turned to its kerb, kept off walls, water, tanks,

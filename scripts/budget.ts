@@ -63,7 +63,8 @@ const BUDGETS: {
     // 181.25: windows fitted whole to each wall and the downpipe at a join (facade-bays.ts and
     // the wall shader, 1.3 KB), so no window is cut by a corner or the house next door.
     // 178.25: given back after the code clean-up took 3.2 KB off (no comments in shipped GLSL).
-    limit: 178.25 * KB,
+    // 178.5: the slab's edges (0.1 KB), for the larger map: ribbons cut along it, its sides shadowless.
+    limit: 178.5 * KB,
     gzip: true,
   },
   // 3.5: just above 3.1 KB. 3.75: the minimap, the other players' name tags and who you are in
@@ -118,8 +119,10 @@ const BUDGETS: {
     limit: 7 * KB,
     gzip: true,
   },
-  // The whole R23 ring plus Heverlee; the ceiling agreed for the city data is 1 MB.
-  { label: 'City data (already gzipped)', pattern: 'data/city.bin', limit: 1024 * KB, gzip: false },
+  // The whole R23 ring plus Heverlee was 800 KB of the 1 MB agreed for the city data. 1100: twice
+  // the ground, asked for, at 1,097 KB: Gasthuisberg, the Vaart, Campus Arenberg, the Abdij van Park's
+  // whole domain and the edge of Heverleebos (about 5,700 more buildings and 6,600 more trees).
+  { label: 'City data (already gzipped)', pattern: 'data/city.bin', limit: 1100 * KB, gzip: false },
   // The avatar loads once the first frame is drawn: its figure, walking it by the screen,
   // routes and jumps, the marker, and the camera following it. Walk mode was 20.5 KB with its
   // chase camera, flight, sky dome, thumb stick and spawn dive; one camera and one avatar took

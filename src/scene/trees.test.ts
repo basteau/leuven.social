@@ -4,7 +4,7 @@ import { MeshBuilder, unindexed } from './mesh-builder.ts';
 import { TREE_KINDS } from '../data/city.ts';
 import type { TreeKind } from '../data/city.ts';
 import { deltaE, toOklab } from '../data/colour.ts';
-import { trunkRadius } from '../data/trees.ts';
+import { crownReach, trunkRadius } from '../data/trees.ts';
 import { TREE } from './palette.ts';
 import { MODEL_HEIGHT, PUFF, TREE_TRIANGLES, addPuffs, addTree, crownColor } from './trees.ts';
 
@@ -140,6 +140,22 @@ test('every crown is a green, whatever the tree', () => {
         for (let i = 0; i < colors.length; i += 4) {
           expect(colors[i + 1]!).toBeGreaterThan(colors[i]!);
           expect(colors[i + 1]!).toBeGreaterThan(colors[i + 2]!);
+        }
+      }
+    }
+  }
+});
+
+test('no leaf reaches past crownReach, whatever the tree', () => {
+  for (const kind of TREE_KINDS) {
+    for (const height of [4, 9, 15, 30]) {
+      for (let seed = 0; seed < 40; seed++) {
+        const spots: number[] = [];
+        addPuffs(spots, [], 0, 0, 0, seed, height, kind as TreeKind);
+        for (let i = 0; i < spots.length; i += 4) {
+          expect(Math.hypot(spots[i]!, spots[i + 2]!) + spots[i + 3]!).toBeLessThanOrEqual(
+            crownReach(height) + 1e-6,
+          );
         }
       }
     }

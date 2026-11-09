@@ -62,6 +62,16 @@ export function areaIndex(area: readonly Bounds[], x: number, z: number): number
   return area.findIndex((b) => inBounds(x, z, b));
 }
 
+/** Whether (x, z) stands at least `margin` metres inside the area, every way along the axes. */
+export function insideArea(area: readonly Bounds[], x: number, z: number, margin: number): boolean {
+  return [
+    [x - margin, z],
+    [x + margin, z],
+    [x, z - margin],
+    [x, z + margin],
+  ].every(([px, pz]) => areaIndex(area, px!, pz!) >= 0);
+}
+
 /** Whether every vertex lies in one of the area's rectangles. */
 export function ringInArea(ring: ArrayLike<number>, area: readonly Bounds[]): boolean {
   for (let i = 0; i < ring.length; i += 2) {

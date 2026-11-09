@@ -5,7 +5,7 @@ import './map.css';
 
 /**
  * The map's static layers, drawn once into one canvas (water, green, roads, building footprints,
- * simplified) and then only copied, so panning the full map never redraws 16,000 footprints. In the map's own chunk, with its styles.
+ * simplified) and then only copied, so panning the full map never redraws 22,000 footprints. In the map's own chunk, with its styles.
  */
 
 export interface Raster {

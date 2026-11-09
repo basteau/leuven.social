@@ -41,7 +41,10 @@ const BIN = Bun.fileURLToPath(new URL('../node_modules/.bin/', import.meta.url))
 // watches. The roofs' chimneys and dormers took the zoomed-out view from 582k to 637k.
 // 1.15M was the traffic's room, zoomed out (about 923k without it); the other players' figures
 // (two calls and about 1,300 triangles each) take what it left.
-const MAX_DRAW_CALLS = 186;
+// 290 calls: the map grew from 8.9 to 17.1 km², asked for, so a zoomed-out view that stopped at
+// the edge is now full of city and a shadow redraw panned out there, a frame of its own, draws up
+// to 284 (`FRAME_CALLS` in viewer.ts still decides when it gets one). The triangles didn't need it.
+const MAX_DRAW_CALLS = 290;
 const MAX_TRIANGLES = 1_150_000;
 /**
  * What the whole city hands the GPU once every cell is built: 2.40M vertices and 57.7 MB since
@@ -63,8 +66,10 @@ const MAX_TRIANGLES = 1_150_000;
 // 4.01M and 101.4 MB. 3.95M and 98 MB: bikes with open spoked wheels and mudguards (318 vertices where they were 167),
 // hoops, racks' roofs and the dark at the foot of the walls, asked for so the streets read up
 // close, 3.91M and 96.9 MB (the lamps' pools, gone to the baked light, gave a little back).
-const MAX_VERTICES = 4_050_000;
-const MAX_GEOMETRY_MB = 103;
+// 4.95M and 127 MB: twice the ground (8.9 to 17.1 km², asked for), measured 4.90M and 124.8 MB,
+// a quarter more for the forest, the abbey's fields and the campuses, which cost little per km².
+const MAX_VERTICES = 4_950_000;
+const MAX_GEOMETRY_MB = 127;
 /**
  * The longest the main thread may be busy at once while the page loads (ms). About 60 on a
  * laptop since the roofs are planned lazily and the cells casting into the first frame are built

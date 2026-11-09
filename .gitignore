@@ -15,7 +15,7 @@ __pycache__/
 .DS_Store
 *.log
 
-# Raw and intermediate geodata (~230 MB): `bun run data` fetches and rebuilds it (docs/DATA.md).
+# Raw and intermediate geodata (~500 MB): `bun run data` fetches and rebuilds it (docs/DATA.md).
 # The app only needs public/data/city.bin, and data/sources.lock.json records the inputs.
 data/*
 !data/README.md

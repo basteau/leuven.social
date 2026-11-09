@@ -5,6 +5,8 @@ import {
   MAX_TRUNK,
   atWater,
   clearCrowns,
+  crownReach,
+  keepTrees,
   mergeTrees,
   onBank,
   treeScale,
@@ -29,6 +31,17 @@ test('each crown is claimed by at most one mapped tree', () => {
   const merged = mergeTrees([0, 0, 0.5, 0], [[0.2, 0, 12]]);
   expect(merged.heights).toEqual([12, DEFAULT_TREE_HEIGHT]);
   expect(merged.positions).toHaveLength(4);
+});
+
+test('a tall tree reaches further than a small one, as far as its scale allows', () => {
+  expect(crownReach(20)).toBeGreaterThan(crownReach(7));
+  expect(crownReach(100)).toBe(crownReach(1000));
+});
+
+test('keepTrees keeps what it is told to, each with its height and kind', () => {
+  const trees = { positions: [0, 0, 5, 6, 9, 9], heights: [7, 12, 20], kinds: [0, 1, 2] };
+  const kept = keepTrees(trees, (x, _, height) => x > 1 && height < 15);
+  expect(kept).toEqual({ positions: [5, 6], heights: [12], kinds: [1] });
 });
 
 test('trees grow within the limits of the model, their trunks at most 35 cm round', () => {

@@ -83,6 +83,28 @@ export function mergeTrees(
 
 /** How much larger than its model a tree this tall is drawn (src/scene/trees.ts). */
 export const treeScale = (height: number): number => Math.min(Math.max(height / 6.8, 0.7), 2.8);
+
+/**
+ * How far a tree's leaves reach from its trunk at the most (m), for a tree of this height: the
+ * puffs of the widest crown there is, a willow's (`addPuffs` in scene/trees.ts).
+ */
+export const crownReach = (height: number): number => 5.1 * treeScale(height) ** 0.8;
+
+/** The trees `keep` accepts, by where each stands and how tall it is. */
+export function keepTrees(
+  { positions, heights, kinds }: Trees,
+  keep: (x: number, z: number, height: number) => boolean,
+): Trees {
+  const kept: Trees = { positions: [], heights: [], kinds: [] };
+  for (const [i, height] of heights.entries()) {
+    const [x, z] = [positions[i * 2]!, positions[i * 2 + 1]!];
+    if (!keep(x, z, height)) continue;
+    kept.positions.push(x, z);
+    kept.heights.push(height);
+    kept.kinds.push(kinds[i]!);
+  }
+  return kept;
+}
 /**
  * The widest any trunk is drawn (m). A crown spreads with the tree's height, but a 12 m lime
  * or plane by the street is about half a metre across at the foot, not two and a half.

@@ -7,6 +7,7 @@ import {
   clampToArea,
   clipRing,
   clipRingToArea,
+  insideArea,
   normalizeRing,
   orientedRect,
   pointInRing,
@@ -94,6 +95,13 @@ describe('areas of abutting rectangles', () => {
     expect(clampToArea(area, 80, 140)).toEqual([50, 140]);
     expect(clampToArea(area, 120, 20)).toEqual([100, 20]);
     expect(clampToArea(area, -20, 125)).toEqual([0, 125]);
+  });
+
+  test('a point stands inside the area by a margin, across a seam too', () => {
+    expect(insideArea(area, 10, 10, 10)).toBe(true);
+    expect(insideArea(area, 9, 50, 10)).toBe(false);
+    expect(insideArea(area, 25, 95, 20)).toBe(true);
+    expect(insideArea(area, 60, 95, 10)).toBe(false);
   });
 
   test('a ring across the seam is clipped into one piece per rectangle', () => {
