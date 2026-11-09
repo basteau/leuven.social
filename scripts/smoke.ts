@@ -82,7 +82,9 @@ const MAX_GEOMETRY_MB = 130;
 const MAX_LONG_TASK_MS = 150;
 
 /** The browser the test drives is muted: footsteps and bells have no business on the speakers. */
-const BROWSER_ENV = { ...process.env, AGENT_BROWSER_ARGS: '--mute-audio' };
+// `SMOKE_CPU=1 bun run smoke` draws on the CPU, as CI's runners do: what they skip, skipped here.
+const ON_CPU = process.env.SMOKE_CPU ? ',--use-angle=swiftshader,--enable-unsafe-swiftshader' : '';
+const BROWSER_ENV = { ...process.env, AGENT_BROWSER_ARGS: `--mute-audio${ON_CPU}` };
 
 async function run(cmd: string[]): Promise<string> {
   const proc = Bun.spawn(cmd, { stdout: 'pipe', stderr: 'pipe', env: BROWSER_ENV });
@@ -121,23 +123,11 @@ async function pageState(): Promise<string> {
       sign: document.querySelector('.sign-name')?.textContent,
       buttons: [...document.querySelectorAll('button')].filter((b) => b.checkVisibility()).map((b) => (b.getAttribute('aria-label') || b.textContent).trim().slice(0, 20)),
       dialog: document.querySelector('dialog[open]')?.className,
-      presses: globalThis.smokePresses,
     })`,
   );
   const errors = await browser('errors').catch(() => '');
   return `${state}${errors ? `\nerrors: ${errors.slice(0, 2000)}` : ''}`;
 }
-
-/** Notes each press and release on the page from now on, for `pageState`: when, and on what. */
-const watchPresses = () =>
-  browser(
-    'eval',
-    `globalThis.smokePresses = [];
-    for (const type of ['pointerdown', 'pointerup', 'pointercancel']) {
-      addEventListener(type, (e) => globalThis.smokePresses.push([type, Math.round(e.timeStamp), e.target?.className ?? '']), true);
-    }
-    1`,
-  );
 
 /** Navigates with fresh logs: agent-browser keeps console and errors across pages. */
 async function openFresh(url: string): Promise<void> {
@@ -231,6 +221,24 @@ async function expectShortTasks(viewport: string): Promise<void> {
 /** A tap at (x, y): down and up in one go, as quick as a person's (a slow press is no tap). */
 const tapAt = (x: number, y: number) =>
   browser('batch', `mouse move ${x} ${y}`, 'mouse down', 'mouse up');
+
+/**
+ * A tap as quick as a person's on whatever is at (x, y), whatever the machine. The browser's own
+ * mouse (`tapAt`) waits for the page between the press and the release, and a page drawing on the
+ * CPU kept it waiting 1.4 s on CI: past the 0.6 s a tap may take, so nothing set off. For checks
+ * that need a walk begun, not the mouse tested, which the desktop tour does.
+ */
+const quickTap = (x: number, y: number) =>
+  browser(
+    'eval',
+    `(() => {
+      const at = document.elementFromPoint(${x}, ${y});
+      const press = { clientX: ${x}, clientY: ${y}, pointerId: 1, pointerType: 'mouse', isPrimary: true, bubbles: true, cancelable: true };
+      at.dispatchEvent(new PointerEvent('pointerdown', { ...press, buttons: 1 }));
+      at.dispatchEvent(new PointerEvent('pointerup', press));
+      return 1;
+    })()`,
+  );
 
 /** Drags the map with the mouse, as a person panning would, in a few steps. */
 async function drag(dx: number, dy: number): Promise<void> {
@@ -328,8 +336,7 @@ const lines = () =>
 
 /** In a narrow window a lone Stop is level with the corners' buttons; narrower, it's over them. */
 async function expectStopOnTheLine(): Promise<void> {
-  await watchPresses();
-  await tapAt(235, 362);
+  await quickTap(235, 362);
   await browser('wait', '--fn', STOP);
   // This browser has a mouse, so keycaps show and it takes this much width (touch: 352 px).
   await browser('set', 'viewport', '500', '844');

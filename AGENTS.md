@@ -7,7 +7,7 @@ This project uses Bun for everything: installs, scripts, tests, type checking an
 ## Feedback loops
 
 - `bun run verify:quick` runs formatting, lint, types and tests in parallel in well under a second. The pre-commit hook runs it too.
-- `bun run verify` adds the production build, the size budgets and a smoke test in a real headless browser. Run it before calling work done, then look at the screenshots in `.artifacts/`. On a machine without a GPU, such as CI, the smoke test skips its timing checks and the desktop tour (`skip` lines), so a green CI doesn't replace running it locally.
+- `bun run verify` adds the production build, the size budgets and a smoke test in a real headless browser. Run it before calling work done, then look at the screenshots in `.artifacts/`. On a machine without a GPU, such as CI, the smoke test skips its timing checks and the desktop tour (`skip` lines), so a green CI doesn't replace running it locally. `SMOKE_CPU=1 bun run smoke` (after `bun run build`) draws on the CPU here too, to see what CI sees.
 - `bun run fix` formats and applies lint autofixes. A lint error message names the doc that explains its rule.
 - If `bun test` exits 1 with 0 failures, a file in the coverage table is under the 95% floor.
 
