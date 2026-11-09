@@ -104,6 +104,8 @@ export const STRUCTURES = {
   parapet: 0xc4ad85,
   /** The parapet's capstone, a paler, newer-looking stone. */
   coping: 0xddd0b4,
+  /** The walls along a ramp or a cutting and round a tunnel's mouth: poured concrete. */
+  retaining: 0xa39e96,
 } as const;
 /** A bike's lamp on the fork and its red reflector, which glow at night. */
 export const BIKE_LAMPS = { lamp: 0xfff4d0, reflector: 0xd23a2a } as const;

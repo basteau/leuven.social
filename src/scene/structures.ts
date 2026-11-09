@@ -338,9 +338,9 @@ export function addRampWalls(
       const [ta, tb] = wall((g, r) => g + Math.max(r, 0) + LAYER_Y.roads);
       const high = Math.max(ra, rb) > 1;
       const [pa, pb] = wall((g, r) => g + Math.max(r, 0) + LAYER_Y.roads + (high ? RAMP_WALL : 0));
-      mesh.quad(wa, wb, tb, ta, STRUCTURES.parapet, [ox, 0, oz]);
+      mesh.quad(wa, wb, tb, ta, STRUCTURES.retaining, [ox, 0, oz]);
       if (high) {
-        mesh.quad(ta, tb, pb, pa, STRUCTURES.parapet, [ox, 0, oz]);
+        mesh.quad(ta, tb, pb, pa, STRUCTURES.retaining, [ox, 0, oz]);
         mesh.quad(ta, tb, pb, pa, STRUCTURES.coping, [-ox, 0, -oz]);
         lines.segment(pa, pb);
       }
@@ -353,7 +353,7 @@ export function addRampWalls(
         [bx, cuttingFloor(gb, rb), bz],
         [bx, lip(gb, rb), bz],
         [ax, lip(ga, ra), az],
-        STRUCTURES.parapet,
+        STRUCTURES.retaining,
         [-ox, 0, -oz],
       );
       mesh.quad(
@@ -361,7 +361,7 @@ export function addRampWalls(
         [bx, gb, bz],
         [bx, lip(gb, rb), bz],
         [ax, lip(ga, ra), az],
-        STRUCTURES.parapet,
+        STRUCTURES.retaining,
         [ox, 0, oz],
       );
       if (Math.max(-ra, -rb) > 0.8) lines.segment([ax, lip(ga, ra), az], [bx, lip(gb, rb), bz]);
@@ -411,7 +411,7 @@ export function addPortals(
       ] as [V3, V3, V3, V3];
     };
     const [a, b, c, d] = corners(wide, floor, top, 0);
-    mesh.quad(a, b, c, d, STRUCTURES.parapet, [-ux, 0, -uz]);
+    mesh.quad(a, b, c, d, STRUCTURES.retaining, [-ux, 0, -uz]);
     lines.segment(d, c);
     // The headwall's top, back over the length a ramp runs on into the tunnel, which would
     // otherwise show as a slot in the street behind the portal.
