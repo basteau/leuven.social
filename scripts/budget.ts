@@ -82,7 +82,9 @@ const BUDGETS: {
     label: 'Account sheet JS (when opened)',
     pattern: 'assets/account-sheet-*.js',
     // 3: telling a guest who they are and that joining keeps a name of their own (0.4 KB).
-    limit: 3 * KB,
+    // 4.25: signing in by email (1 KB), asked for: the code's step with its wait and resend, the
+    // new account's name, changing it later and saying whether a name is free while it's typed.
+    limit: 4.25 * KB,
     gzip: true,
   },
   // Other people, once the map is up: accounts, the presence socket (and Portable's

@@ -1040,8 +1040,10 @@ export function App() {
               onClose={closeAccount}
               account={account}
               online={online}
-              signUp={(name, password) => multiplayer().signUp(name, password)}
-              signIn={(name, password) => multiplayer().signIn(name, password)}
+              sendCode={(email) => multiplayer().sendCode(email)}
+              verifyCode={(email, code) => multiplayer().verifyCode(email, code)}
+              rename={(name) => multiplayer().rename(name)}
+              nameFree={(name) => multiplayer().nameFree(name)}
               signOut={() =>
                 multiplayer()
                   .signOut()

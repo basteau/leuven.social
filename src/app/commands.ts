@@ -205,9 +205,9 @@ const yours = (s: CommandState): Command[] => {
       label: s.signedIn ? 'Your look' : 'Join Leuven',
       detail: s.signedIn
         ? 'Your colours, as everyone sees them; or sign out'
-        : 'A name and a password, to walk with everyone else',
+        : 'Your email and a code, to walk with everyone else',
       keywords:
-        'account join sign in up log in out register name password look clothes colours outfit dress avatar shirt hair skin multiplayer players',
+        'account join sign in up log in out register name email code look clothes colours outfit dress avatar shirt hair skin multiplayer players',
       keys: [['L']],
       icon: 'person',
       action: 'account',

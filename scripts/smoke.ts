@@ -480,8 +480,18 @@ async function expectPlayers(): Promise<void> {
     // Joining, from the corner.
     await browser('click', 'button.you');
     await browser('wait', '--fn', `!!document.querySelector('dialog.account')?.open`);
-    await browser('fill', 'dialog.account input[name=name]', 'smoke-anna');
-    await browser('fill', 'dialog.account input[name=password]', 'smoke-password');
+    await browser('fill', 'dialog.account input[name=email]', 'smoke-anna@example.com');
+    await browser('press', 'Enter');
+    await browser('wait', '--fn', `document.activeElement?.name === 'code'`);
+    let code = '';
+    await until(() => {
+      code = /(\d{6}) is the code for smoke-anna@example\.com/.exec(serverOutput)?.[1] ?? '';
+      return code !== '';
+    }, 'the sign-in code on the server’s console');
+    // Six digits are enough: it sends itself. A new account then says which name it wants.
+    await browser('fill', 'dialog.account input[name=code]', code);
+    await browser('wait', '--fn', `document.activeElement?.name === 'username'`);
+    await browser('fill', 'dialog.account input[name=username]', 'smoke-anna');
     await browser('press', 'Enter');
     await browser('wait', '--fn', `${html('account')} === 'smoke-anna'`);
     await until(() => bot.joined().includes('smoke-anna'), 'the bot seeing smoke-anna join');
@@ -907,11 +917,21 @@ const multiplayer = Bun.spawn(['bun', 'server/main.ts'], {
     PORT: new URL(API).port,
     DATABASE_PATH: ':memory:',
     BETTER_AUTH_URL: BASE.slice(0, -1),
-    DEBUG: 'leuven:*=warn',
+    // No key of the developer's goes near a real mailbox: outside production the code is printed.
+    RESEND_API_KEY: '',
+    MAIL_FROM: '',
+    DEBUG: 'leuven:*=warn,leuven:mail=info',
   },
-  stdout: 'ignore',
+  stdout: 'pipe',
   stderr: 'inherit',
 });
+/** What the server has printed: where a sign-in code goes outside production (server/mail.ts). */
+let serverOutput = '';
+void (async () => {
+  for await (const chunk of multiplayer.stdout.pipeThrough(new TextDecoderStream())) {
+    serverOutput += chunk;
+  }
+})();
 const server = Bun.spawn([`${BIN}vite`, 'preview', '--port', String(PORT), '--strictPort'], {
   env: { ...process.env, LEUVEN_SERVER: API },
   stdout: 'ignore',
