@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { MeshBuilder, unindexed } from './mesh-builder.ts';
+import { TREE_KINDS } from '../data/city.ts';
 import type { TreeKind } from '../data/city.ts';
 import { deltaE, toOklab } from '../data/colour.ts';
 import { trunkRadius } from '../data/trees.ts';
@@ -119,9 +120,6 @@ const shapeOf = (kind: TreeKind) => {
 test('a tree takes the shape and colour of what OSM says it is', () => {
   const broad = shapeOf('broad');
   expect(shapeOf('column').ratio).toBeGreaterThan(broad.ratio * 1.2);
-  const [r, g, b] = shapeOf('copper').leaf;
-  expect(r!).toBeGreaterThan(g!); // purple, not green
-  expect(b!).toBeGreaterThan(0);
   const [cr, cg, cb] = shapeOf('conifer').leaf;
   expect(cb! / cg!).toBeGreaterThan(broad.leaf[2]! / broad.leaf[1]!);
   expect(cr! + cg! + cb!).toBeLessThan(broad.leaf[0]! + broad.leaf[1]! + broad.leaf[2]!);
@@ -131,4 +129,19 @@ test('a tree takes the shape and colour of what OSM says it is', () => {
   const [b1, b2]: [number[], number[]] = [[], []];
   addPuffs(b1, b2, 0, 0, 0, 3, 18, 'broad');
   expect(a1).toEqual(b1);
+});
+
+test('every crown is a green, whatever the tree', () => {
+  for (const kind of TREE_KINDS) {
+    for (const seed of [1, 2, 3, 5, 8, 13]) {
+      for (const height of [4, 12, 22]) {
+        const [spots, colors]: [number[], number[]] = [[], []];
+        addPuffs(spots, colors, 0, 0, 0, seed, height, kind);
+        for (let i = 0; i < colors.length; i += 4) {
+          expect(colors[i + 1]!).toBeGreaterThan(colors[i]!);
+          expect(colors[i + 1]!).toBeGreaterThan(colors[i + 2]!);
+        }
+      }
+    }
+  }
 });

@@ -25,7 +25,6 @@ export const TREE_STRIDE = 5;
 const CONIFER = /pinus|picea|abies|apies|taxus|thuja|larix|cedrus|pseudotsuga|conifeer|levensboom/;
 const POPLAR = /populus|populier/;
 const WILLOW = /salix|wilg/;
-const COPPER = /atropunicea|purpurea|rode beuk|bruine beuk/;
 
 /** What kind of tree OSM says it is (`TREE_KINDS`): its leaves, and its genus and species. */
 export function treeKindOf(tags: Record<string, string | undefined>): TreeKind {
@@ -34,7 +33,6 @@ export function treeKindOf(tags: Record<string, string | undefined>): TreeKind {
   if (tags.leaf_type === 'needleleaved' || CONIFER.test(name)) return 'conifer';
   if (POPLAR.test(name)) return 'column';
   if (WILLOW.test(name)) return 'willow';
-  if (COPPER.test(name)) return 'copper';
   return 'broad';
 }
 

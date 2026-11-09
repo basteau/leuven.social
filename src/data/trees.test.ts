@@ -57,6 +57,6 @@ test('a tree is what OSM says it is, and broad where it says nothing', () => {
   expect(treeKindOf({ genus: 'Populus' })).toBe('column');
   expect(treeKindOf({ genus: 'Salix' })).toBe('willow');
   expect(treeKindOf({ 'species:nl': 'Wilg' })).toBe('willow');
-  expect(treeKindOf({ species: 'Fagus sylvatica atropunicea' })).toBe('copper');
-  expect(treeKindOf({ 'species:nl': 'Rode Beuk' })).toBe('copper');
+  // A copper beech is no colour of its own: every crown on the map is a green.
+  expect(treeKindOf({ species: 'Fagus sylvatica atropunicea' })).toBe('broad');
 });
