@@ -282,6 +282,21 @@ describe('levels', () => {
   const terrain = landform(layers.area.length ? FLAT_GRID : FLAT_GRID, ramps, [deckStrip(deck)]);
   const grid = new WalkGrid(layers, undefined, terrain);
 
+  test('a road the survey drew over a bridge is no path over the river under it', () => {
+    const wet = new WalkGrid(
+      { ...layers, water: [Float32Array.of(55, 30, 75, 30, 75, 60, 55, 60)] },
+      undefined,
+      terrain,
+    );
+    // Over the river, under the deck, the road across it: shut down here, open up there.
+    expect(wet.open(wet.cellAt(65, 45))).toBe(false);
+    expect(wet.upper!.open(wet.upper!.cellAt(65, 45))).toBe(true);
+    // Beside the deck the road crosses the river at the ground, as drawn.
+    expect(wet.open(wet.cellAt(65, 55))).toBe(true);
+    // Under the deck on dry land it's still a street.
+    expect(wet.open(wet.cellAt(53.5, 45))).toBe(true);
+  });
+
   test('a deck is a level of its own over the ground under it', () => {
     expect(grid.upper).not.toBeNull();
     const cell = grid.cellAt(65, 45);

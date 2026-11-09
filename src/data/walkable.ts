@@ -264,6 +264,7 @@ export class WalkGrid {
   readonly #upperRibbons: { tunnel: Tunnel; box: Bounds }[][];
   readonly #upperExits: { line: number[]; half: number }[][];
   readonly #upperWalls: Wall[][];
+  readonly #water: ArrayLike<number>[][];
   /** Whether the level ever appears (a map without bridges pays nothing). */
   readonly #levels: boolean;
   readonly #links = new Map<number, boolean>();
@@ -294,6 +295,7 @@ export class WalkGrid {
     this.#upperRibbons = Array.from({ length: tiles }, () => []);
     this.#upperExits = Array.from({ length: tiles }, () => []);
     this.#upperWalls = Array.from({ length: tiles }, () => []);
+    this.#water = Array.from({ length: tiles }, () => []);
 
     const each = (box: Bounds, visit: (tile: number) => void) => this.#grid.eachTile(box, visit);
     const decks = (city.decks ?? []).filter((d) => d.carries !== 'rail');
@@ -347,6 +349,7 @@ export class WalkGrid {
       }
     }
     const closing = [...(city.water ?? []), ...(city.railLand ?? []), ...(city.platforms ?? [])];
+    for (const ring of city.water ?? []) each(ringBox(ring), (t) => this.#water[t]!.push(ring));
     for (const ring of closing) {
       each(ringBox(ring), (t) => this.#shapes[t]!.push({ ring, value: CLOSED }));
     }
@@ -649,6 +652,29 @@ export class WalkGrid {
     }
   }
 
+  /**
+   * Water under a deck stays water: the survey draws a road across a bridge, and a road opens what
+   * it covers, so at the level of the ground that road would be a path over the river.
+   */
+  #waterUnderDecks(tile: Uint8Array, x0: number, z0: number, t: number): void {
+    const decks = this.#upperRings[t]!;
+    const rivers = decks.length ? this.#water[t]! : [];
+    if (!rivers.length) return;
+    const [wet, under] = [new Uint8Array(tile.length), new Uint8Array(tile.length)];
+    for (const ring of rivers) this.#grid.fillRing(wet, ring, 1, x0, z0);
+    for (const { deck } of decks) this.#grid.fillRing(under, deck.ring, 1, x0, z0);
+    const { size } = this.#grid;
+    const across = Math.round(Math.sqrt(tile.length));
+    for (let i = 0; i < tile.length; i++) {
+      if (!wet[i] || !under[i]) continue;
+      const x = x0 + ((i % across) + 0.5) * size;
+      const z = z0 + (Math.floor(i / across) + 0.5) * size;
+      // Where the deck comes down to the ground it's stepped onto from there: that stays.
+      const gap = this.#terrain.decks.height(x, z) + DECK_Y - this.#terrain.height(x, z);
+      if (gap >= SAME_HEIGHT) tile[i] = CLOSED;
+    }
+  }
+
   /** Rasterises one tile from everything that touches it. */
   #fill(tile: Uint8Array, x0: number, z0: number, t: number): void {
     const grid = this.#grid;
@@ -660,6 +686,7 @@ export class WalkGrid {
     for (const r of ribbons) {
       if (r.value < SOLID) grid.fillRibbon(tile, r.line, r.half, r.value, x0, z0, keep(r.value));
     }
+    this.#waterUnderDecks(tile, x0, z0, t);
     for (const s of shapes) if (s.value >= SOLID) grid.fillRing(tile, s.ring, s.value, x0, z0);
     for (const r of ribbons) {
       if (r.value >= SOLID) {

@@ -262,7 +262,11 @@ describe('over a deck', () => {
   const layers = {
     area: [{ minX: 0, minZ: 0, maxX: 200, maxZ: 120 }],
     bounds: { minX: 0, minZ: 0, maxX: 200, maxZ: 120 },
-    water: [Float32Array.of(0, 0, 200, 0, 200, 120, 0, 120)],
+    // All water but the road under the deck, which runs between two shores.
+    water: [
+      Float32Array.of(0, 0, 60, 0, 60, 120, 0, 120),
+      Float32Array.of(70, 0, 200, 0, 200, 120, 70, 120),
+    ],
     roads: [Float32Array.of(60, 0, 70, 0, 70, 120, 60, 120)],
     plazas: [],
     paths: [],
