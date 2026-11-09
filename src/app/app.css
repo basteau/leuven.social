@@ -185,7 +185,7 @@ kbd {
   pointer-events: none;
 }
 
-/* Top: the street plate at the start, the credit at the end, a hint under them. */
+/* Top: the street plate at the start, you at the end, the credit in a row under them, then the hint. */
 .hud-top {
   inset-block-start: 0;
   grid-template-columns: 1fr auto;
@@ -681,15 +681,16 @@ kbd {
 
 /*
  * The data credit the licences ask for: one small line with a paper halo instead of a panel,
- * quiet and still legible over busy streets. Out of thumb reach, at the top.
+ * quiet and still legible over busy streets. Its own row, so it can't stretch the pill's column
+ * and squeeze the street plate. Out of thumb reach, at the top.
  */
 .credits {
-  grid-column: 2;
+  grid-column: 1 / -1;
+  justify-self: end;
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
   column-gap: var(--space-s);
-  max-inline-size: 13rem;
   margin: 0;
   color: color-mix(in oklch, var(--ink) 85%, var(--paper));
   font-size: 0.625rem;
@@ -1183,23 +1184,6 @@ kbd {
   }
 }
 
-/*
- * You, in the top end corner: a pill with a dot in your shirt's colour and your name, or Join.
- * Pressed, the account sheet. The credit sits under it.
- */
-.top-end {
-  grid-column: 2;
-  display: grid;
-  justify-items: end;
-  gap: var(--space-s);
-}
-
-.top-end .credits {
-  grid-column: auto;
-  /* Its two lines under the chip, leaving the street plate the rest of a narrow screen. */
-  max-inline-size: 8rem;
-}
-
 /* On the narrowest phones the plate's name a step smaller, so a room's name fits a line. */
 @media (max-width: 24rem) {
   .sign {
@@ -1208,14 +1192,20 @@ kbd {
   }
 }
 
+/*
+ * You, in the top end corner: a pill with a dot in your shirt's colour and your name, or Join.
+ * Pressed, the account sheet.
+ */
 .you {
+  grid-column: 2;
+  justify-self: end;
   display: inline-flex;
   align-items: center;
   gap: var(--space-s);
   position: relative;
   min-block-size: var(--control);
-  /* Room for the street plate beside it, down to a 320 px screen. */
-  max-inline-size: min(16rem, 40vw);
+  /* Half the top edge at most: the street plate has the other half, down to a 320 px screen. */
+  max-inline-size: min(16rem, 48vw);
   padding-inline: var(--space-s) var(--space-m);
   border: var(--border) solid var(--ink);
   border-radius: 999px;
@@ -1230,7 +1220,7 @@ kbd {
 
 .you.primary {
   /* A guest's name and Join beside it: wider where there's room to read the whole name. */
-  max-inline-size: min(22rem, 40vw);
+  max-inline-size: min(22rem, 48vw);
   background: var(--accent);
   color: var(--paper);
   padding-inline-start: var(--space-m);
@@ -1250,17 +1240,26 @@ kbd {
   text-overflow: ellipsis;
 }
 
-/* A guest's name won't fit beside Join on a phone: it says who you are in the sheet instead. */
-@media (max-width: 30rem) {
-  .you.primary .you-name {
-    display: none;
-  }
-}
-
+/*
+ * Beside a guest's name, Join stands apart; alone on a phone it needs no rule, and a dot with no
+ * name next to it says nothing. The sheet says who you are.
+ */
 .you-join {
   flex: none;
   padding-inline-start: var(--space-s);
   border-inline-start: 1px solid;
+}
+
+@media (max-width: 30rem) {
+  .you.primary .you-dot,
+  .you.primary .you-name {
+    display: none;
+  }
+
+  .you.primary .you-join {
+    padding-inline-start: 0;
+    border-inline-start: 0;
+  }
 }
 
 .you-count {

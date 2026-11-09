@@ -801,44 +801,42 @@ export function App() {
       <header className="hud hud-top">
         {/* Where you are, once the view is close enough to show you: the only plate on screen. */}
         <StreetSign name={inside ? `${inside.room} · ${inside.floor}` : street} />
-        <div className="top-end">
-          {ready && (
-            <button
-              type="button"
-              className={account.signedIn ? 'you' : 'you primary'}
-              aria-haspopup="dialog"
-              aria-keyshortcuts="L"
-              onClick={() => {
-                sound.tap();
-                openAccount();
-              }}
-            >
-              {account.name && account.outfit ? (
-                <>
-                  <span
-                    className="you-dot"
-                    style={{ '--shirt': hex(account.outfit.shirt) } as CSSProperties}
-                  />
-                  <span className="you-name">
-                    <span className="sr-only">You: </span>
-                    {account.name}
-                  </span>
-                  {!account.signedIn && <span className="you-join">Join</span>}
-                </>
-              ) : (
-                'Join'
-              )}
-              {online !== null && online > 1 && (
-                <span className="you-count">
-                  <PeopleIcon />
-                  {online}
-                  <span className="sr-only"> here now</span>
+        {ready && (
+          <button
+            type="button"
+            className={account.signedIn ? 'you' : 'you primary'}
+            aria-haspopup="dialog"
+            aria-keyshortcuts="L"
+            onClick={() => {
+              sound.tap();
+              openAccount();
+            }}
+          >
+            {account.name && account.outfit ? (
+              <>
+                <span
+                  className="you-dot"
+                  style={{ '--shirt': hex(account.outfit.shirt) } as CSSProperties}
+                />
+                <span className="you-name">
+                  <span className="sr-only">You: </span>
+                  {account.name}
                 </span>
-              )}
-            </button>
-          )}
-          <Credits />
-        </div>
+                {!account.signedIn && <span className="you-join">Join</span>}
+              </>
+            ) : (
+              'Join'
+            )}
+            {online !== null && online > 1 && (
+              <span className="you-count">
+                <PeopleIcon />
+                {online}
+                <span className="sr-only"> here now</span>
+              </span>
+            )}
+          </button>
+        )}
+        <Credits />
         {/*
           The hint, under the corners. Always in the page, empty when there's nothing to say, so
           changes are announced.
