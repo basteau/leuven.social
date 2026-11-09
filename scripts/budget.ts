@@ -167,7 +167,8 @@ const BUDGETS: {
     // their clumps, tags that give way by rank), 4.5 KB, in place of a prism and a boolean.
     // 34: a way drawn on the level it's walked on, not on a deck it goes under (0.1 KB).
     // 33.75: the way to a picked spot drawn so it can be seen, over buildings too (0.4 KB), asked for.
-    limit: 34 * KB,
+    // 34.75: routes that only turn where something is in the way (0.6 KB), asked for.
+    limit: 34.75 * KB,
     gzip: true,
   },
   // The street-name lookup for the sign, a chunk beside the avatar's that loads with it.

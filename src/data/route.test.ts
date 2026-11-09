@@ -2,7 +2,8 @@ import { describe, expect, test } from 'bun:test';
 
 import { normalizeRing } from './geometry.ts';
 import { RingIndex } from './props.ts';
-import { LEG, ROUTE_REACH, Router, TAP_REACH, clearLine, legsToward } from './route.ts';
+import { LEG, ROUTE_REACH, Router, TAP_REACH, clearLine, legsToward, routeStart } from './route.ts';
+import type { RouteGrid } from './route.ts';
 import { bridgeParapets } from './structures.ts';
 import { landform, FLAT_GRID } from './terrain.ts';
 import { deckStrip } from './structures.ts';
@@ -323,5 +324,171 @@ describe('over a deck', () => {
 
   test('refuses an end on the deck off it', () => {
     expect(router.route(30, 45, 30, 90, [], 0, 1)).toBeNull();
+  });
+});
+
+/** A field of 1 m cells, open but for what `closed` says. */
+function field(cols: number, rows: number, closed: (c: number, r: number) => boolean): RouteGrid {
+  const isOpen = (c: number, r: number) =>
+    c >= 0 && r >= 0 && c < cols && r < rows && !closed(c, r);
+  return {
+    cols,
+    rows,
+    cellAt: (x, z) => Math.floor(z) * cols + Math.floor(x),
+    centre: (cell) => [(cell % cols) + 0.5, Math.floor(cell / cols) + 0.5],
+    open: (cell) => isOpen(cell % cols, Math.floor(cell / cols)),
+    walkable: (x, z) => isOpen(Math.floor(x), Math.floor(z)),
+    nearest: () => null,
+    around: () => [],
+  };
+}
+
+const walked = (route: Float32Array) => {
+  let total = 0;
+  for (let i = 0; i + 3 < route.length; i += 2) {
+    total += Math.hypot(route[i + 2]! - route[i]!, route[i + 3]! - route[i + 1]!);
+  }
+  return total;
+};
+
+const post = (c: number, r: number) => Math.hypot(c + 0.5 - 40, r + 0.5 - 25.5) < 1.6;
+const longWall = (c: number, r: number) => r >= 28 && r <= 32 && c <= 100 && (c < 39 || c > 41);
+const gappedWall = (c: number, r: number) => r === 30 && c !== 60 && c !== 61 && c !== 62;
+
+describe('a route only turns where something is in the way', () => {
+  test('with the straight line clear, it is the straight line, at any angle', () => {
+    const router = new Router(field(120, 60, () => false));
+    for (const [tx, tz] of [
+      [100.3, 17.2],
+      [61.7, 50.1],
+      [13.2, 44.9],
+      [90.9, 6.4],
+    ] as const) {
+      const route = router.route(5.5, 5.5, tx, tz)!;
+      expect(route).toHaveLength(4);
+      expect(route[2]).toBeCloseTo(tx);
+      expect(route[3]).toBeCloseTo(tz);
+    }
+  });
+
+  test('round a post it bends once, beside the post, and hardly further', () => {
+    const router = new Router(field(90, 60, post));
+    const route = router.route(5.5, 20.5, 75.5, 30.5)!;
+    expect(route.length).toBeLessThanOrEqual(8);
+    expect(walked(route)).toBeLessThan(Math.hypot(70, 10) + 1);
+    for (let i = 2; i + 2 < route.length; i += 2) {
+      expect(Math.hypot(route[i]! - 40, route[i + 1]! - 25.5)).toBeLessThan(6);
+    }
+  });
+
+  test('a clear line through a bike left in the way is no longer clear', () => {
+    const router = new Router(field(90, 60, () => false));
+    const route = router.route(5.5, 30.5, 80.5, 30.5, [43, 30.5, 2.5])!;
+    expect(route.length).toBeGreaterThan(4);
+    for (let i = 0; i + 1 < route.length; i += 2) {
+      expect(Math.hypot(route[i]! - 43, route[i + 1]! - 30.5)).toBeGreaterThan(2.4);
+    }
+  });
+
+  test('it takes the shorter gap in a wall, not the wide one a long way round', () => {
+    // A long wall, a gap three cells wide near the straight line, and open ground past its end.
+    const router = new Router(field(130, 70, longWall));
+    const route = router.route(28.5, 12.5, 50.5, 55.5)!;
+    expect(walked(route)).toBeLessThan(60);
+  });
+
+  test('over a wall that closes off the straight line, the gap is where it turns', () => {
+    const router = new Router(field(90, 60, gappedWall));
+    const route = router.route(30.5, 10.5, 30.5, 50.5)!;
+    expect(route.length).toBeLessThanOrEqual(10);
+    for (let i = 2; i + 2 < route.length; i += 2) {
+      if (Math.abs(route[i + 1]! - 30.5) < 3) expect(Math.abs(route[i]! - 61.5)).toBeLessThan(4);
+    }
+  });
+});
+
+/** A field shut by rectangles [c, r, width, height]. */
+const blocks = (cols: number, rows: number, rects: readonly (readonly number[])[]) =>
+  field(cols, rows, (c, r) =>
+    rects.some(([a, b, w, h]) => c >= a! && c < a! + w! && r >= b! && r < b! + h!),
+  );
+
+describe('the way found is as good as it looks', () => {
+  test('a cell found dearer than assumed waits its turn, so a shorter way can still win', () => {
+    const rects = [
+      [25, 40, 13, 11],
+      [10, 19, 19, 19],
+      [36, 28, 31, 19],
+      [55, 6, 10, 16],
+      [37, 32, 27, 15],
+    ];
+    const route = new Router(blocks(80, 50, rects)).route(10.5, 40.5, 8.5, 33.5)!;
+    expect(walked(route)).toBeLessThan(7.9);
+  });
+
+  test("from each corner it goes as far as it can see, not to the first it can't", () => {
+    const rects = [
+      [50, 3, 18, 10],
+      [50, 38, 9, 10],
+      [56, 21, 19, 19],
+      [65, 5, 32, 12],
+      [36, 12, 5, 6],
+      [18, 19, 18, 2],
+      [32, 32, 13, 2],
+    ];
+    const route = new Router(blocks(80, 50, rects)).route(30.5, 14.5, 44.5, 37.5)!;
+    expect(route.length / 2).toBe(4);
+  });
+});
+
+const walledIn = (c: number, r: number) =>
+  (c === 40 || c === 50 || r === 20 || r === 30) && c >= 40 && c <= 50 && r >= 20 && r <= 30;
+const sideWall = (c: number, r: number) => c === 20 && r >= 5 && r < 35;
+
+describe('when there is no way', () => {
+  test('a spot walled in is told without searching everywhere else', () => {
+    const router = new Router(field(300, 300, walledIn));
+    expect(router.route(5.5, 5.5, 45.5, 25.5)).toBeNull();
+    // And from inside the same pocket, the way across it is found as usual.
+    expect(router.route(42.5, 22.5, 47.5, 27.5)).not.toBeNull();
+    // The router is left as it was found: a route outside still goes.
+    expect(router.route(5.5, 5.5, 200.5, 200.5)).not.toBeNull();
+  });
+});
+
+describe('a route starting right beside a wall', () => {
+  test('stays off it, however close to the edge of its cell it starts', () => {
+    const grid = field(60, 40, sideWall);
+    const router = new Router(grid);
+    for (const offset of [0.02, 0.5, 0.98]) {
+      for (const z of [8.02, 8.98, 20.5, 33.98]) {
+        const route = router.route(19 + offset, z, 25.5, z + 1)!;
+        for (let i = 0; i + 3 < route.length; i += 2) {
+          const [ax, az, bx, bz] = [route[i]!, route[i + 1]!, route[i + 2]!, route[i + 3]!];
+          for (let t = 0; t <= 200; t++) {
+            expect(grid.walkable(ax + ((bx - ax) * t) / 200, az + ((bz - az) * t) / 200)).toBe(
+              true,
+            );
+          }
+        }
+      }
+    }
+  });
+});
+
+describe('routeStart', () => {
+  const route = Float32Array.of(0, 0, 30, 0, 30, 30);
+
+  test('cuts a route by distance along it, on its own line', () => {
+    expect(Array.from(routeStart(route, 0.25))).toEqual([0, 0, 15, 0]);
+    expect(Array.from(routeStart(route, 0.75))).toEqual([0, 0, 30, 0, 30, 15]);
+  });
+
+  test('cut exactly at a corner, it ends there', () => {
+    expect(Array.from(routeStart(route, 0.5))).toEqual([0, 0, 30, 0]);
+  });
+
+  test('all of it is all of it', () => {
+    expect(Array.from(routeStart(route, 1))).toEqual(Array.from(route));
   });
 });

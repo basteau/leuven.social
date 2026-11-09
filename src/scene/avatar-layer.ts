@@ -32,7 +32,7 @@ import { DOOR_HALF } from '../data/room-grid.ts';
 import type { Room } from '../data/rooms.ts';
 import type { Presence } from '../data/presence.ts';
 import type { People, Roster } from '../net/people.ts';
-import { Router, TAP_REACH, legsToward } from '../data/route.ts';
+import { LEG_WALKED, Router, TAP_REACH, legsToward, routeStart } from '../data/route.ts';
 import type { Terrain } from '../data/terrain.ts';
 import { WalkGrid } from '../data/walkable.ts';
 import { avatarState, createAvatar, stepAvatar } from './avatar.ts';
@@ -775,7 +775,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
    * nearest open ground, spread out so a walled-in garden or the far side of a fence is passed
    * over for the pavement beside it. Whether one did.
    */
-  function walkTo(x: number, z: number, reach = 3, most = TRIES, level = 0): boolean {
+  function walkTo(x: number, z: number, reach = 3, most = TRIES, level = 0, share = 1): boolean {
     const w = avatar.walker;
     const here = underfoot();
     const by = room && interiors ? interiors.router(room, avatar.floor) : router;
@@ -788,7 +788,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     for (const [tx, tz] of places.slice(0, most)) {
       const route = by.route(from[0]!, from[1]!, tx, tz, loose, fromLevel, room ? 0 : level);
       if (route) {
-        follow(route);
+        follow(share < 1 ? routeStart(route, share) : route);
         return true;
       }
     }
@@ -995,8 +995,8 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     const w = avatar.walker;
     for (const [lx, lz, final] of legsToward(w.x, w.z, x, z)) {
       ringAt = final ? undefined : [x, z];
-      if (!walkTo(lx, lz, TAP_REACH, final && away(x, z) <= DETOUR ? TRIES : 1, final ? level : 0))
-        continue;
+      const tries = final && away(x, z) <= DETOUR ? TRIES : 1;
+      if (!walkTo(lx, lz, TAP_REACH, tries, final ? level : 0, final ? 1 : LEG_WALKED)) continue;
       const end = w.route!;
       trip = final ? null : { to: [x, z], leg: [end.at(-2)!, end.at(-1)!], legs, level };
       return true;
