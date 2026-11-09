@@ -66,8 +66,6 @@ const lazyMinimap = () =>
 /** The account sheet: its own chunk, fetched the first time it opens. */
 const lazySheet = () =>
   lazy(() => import('./account-sheet.tsx').then((m) => ({ default: m.AccountSheet })));
-/** Whether the minimap shows is remembered on this device. */
-const MINIMAP_KEY = 'leuven-minimap';
 /** React keeps a failed lazy component failed: each try after a failure gets a fresh one. */
 const lazyMenu = () => lazy(() => loadMenu().then((m) => ({ default: m.CommandMenu })));
 
@@ -75,11 +73,14 @@ const lazyMenu = () => lazy(() => loadMenu().then((m) => ({ default: m.CommandMe
 const loadMap = () => import('./map-overlay.tsx');
 const lazyMap = () => lazy(() => loadMap().then((m) => ({ default: m.MapOverlay })));
 
+/** Whether the minimap shows is remembered on this device. */
+const MINIMAP_KEY = 'leuven-minimap';
+
 /**
- * The menu's chunk can fail to download (a flaky link). Without this, React would take the whole
- * app down with it, map and all; instead the menu stays shut and the shell says so.
+ * A lazy chunk can fail to download (a flaky link). Without this, React would take the whole app
+ * down with it, map and all; instead its corner stays shut and the shell says so.
  */
-class MenuGuard extends Component<{ onError: () => void; children: ReactNode }> {
+class ChunkGuard extends Component<{ onError: () => void; children: ReactNode }> {
   override state = { failed: false };
   static getDerivedStateFromError() {
     return { failed: true };
@@ -88,7 +89,7 @@ class MenuGuard extends Component<{ onError: () => void; children: ReactNode }> 
     this.props.onError();
   }
   override render() {
-    return this.state.failed ? null : this.props.children;
+    return this.state.failed ? null : <Suspense fallback={null}>{this.props.children}</Suspense>;
   }
 }
 
@@ -129,19 +130,19 @@ const platform = () =>
   (navigator as Navigator & { userAgentData?: { platform: string } }).userAgentData?.platform ??
   navigator.platform;
 
-/** Storage can throw (private windows, blocked site data); the coach then shows each time. */
-function coached(key = COACHED_KEY): boolean {
+/** Storage can throw (private windows, blocked site data): then nothing is remembered. */
+function recalled(key: string): string | null {
   try {
-    return localStorage.getItem(key) === '1';
+    return localStorage.getItem(key);
   } catch {
-    return false;
+    return null;
   }
 }
-function rememberCoached(key = COACHED_KEY): void {
+function remember(key: string, value: string): void {
   try {
-    localStorage.setItem(key, '1');
+    localStorage.setItem(key, value);
   } catch {
-    // Shown again next time: harmless.
+    // Asked again next time: harmless.
   }
 }
 
@@ -215,13 +216,7 @@ export function App() {
   const [time, setTime] = useState<PresetId>('golden');
   const [passing, setPassing] = useState(false);
   const passingRef = useRef(false);
-  const [minimap, setMinimap] = useState(() => {
-    try {
-      return localStorage.getItem(MINIMAP_KEY) !== '0';
-    } catch {
-      return true;
-    }
-  });
+  const [minimap, setMinimap] = useState(() => recalled(MINIMAP_KEY) !== '0');
   const minimapRef = useRef(minimap);
   const [said, setSaid] = useState<{ text: string; at: number } | null>(null);
   const say = useCallback((text: string) => setSaid({ text, at: performance.now() }), []);
@@ -245,7 +240,7 @@ export function App() {
   const routingRef = useRef(routing);
   const [mapOpen, setMapOpen] = useState(false);
   const [coach, setCoach] = useState(() => ({
-    done: coached(),
+    done: recalled(COACHED_KEY) === '1',
     street: false,
     stepped: false,
     settled: false,
@@ -258,13 +253,13 @@ export function App() {
   const rideRef = useRef(ride);
   /** The city, for finding places by name, once it's on screen. */
   const [placeCity, setPlaceCity] = useState<City | null>(null);
-  const [rideCoach, setRideCoach] = useState(() => !coached(RIDE_COACHED_KEY));
+  const [rideCoach, setRideCoach] = useState(() => recalled(RIDE_COACHED_KEY) !== '1');
   const riding = ride === 'riding';
   useEffect(() => {
     if (!riding || !rideCoach) return;
     const timer = setTimeout(() => {
       setRideCoach(false);
-      rememberCoached(RIDE_COACHED_KEY);
+      remember(RIDE_COACHED_KEY, '1');
     }, RIDE_COACH_MS);
     return () => clearTimeout(timer);
   }, [riding, rideCoach]);
@@ -381,7 +376,7 @@ export function App() {
     if (coach.done || !coach.settled) return;
     const finish = () => {
       setCoach((c) => ({ ...c, done: true }));
-      rememberCoached();
+      remember(COACHED_KEY, '1');
     };
     if (away) return finish();
     const timer = setTimeout(finish, COACH_LOOK_MS);
@@ -596,11 +591,7 @@ export function App() {
   const toggleMinimapRef = useRef(() => {
     minimapRef.current = !minimapRef.current;
     setMinimap(minimapRef.current);
-    try {
-      localStorage.setItem(MINIMAP_KEY, minimapRef.current ? '1' : '0');
-    } catch {
-      // Shown again next time: harmless.
-    }
+    remember(MINIMAP_KEY, minimapRef.current ? '1' : '0');
     say(minimapRef.current ? 'Minimap on' : 'Minimap off');
   });
 
@@ -904,18 +895,16 @@ export function App() {
 
       <footer className="hud hud-bottom">
         {ready && placeCity && minimap && (
-          <MenuGuard onError={onMinimapError}>
-            <Suspense fallback={null}>
-              <Minimap
-                city={placeCity}
-                onOpen={() => {
-                  sound.tap();
-                  openMapRef.current();
-                }}
-                onReach={() => void loadMap().catch(() => {})}
-              />
-            </Suspense>
-          </MenuGuard>
+          <ChunkGuard onError={onMinimapError}>
+            <Minimap
+              city={placeCity}
+              onOpen={() => {
+                sound.tap();
+                openMapRef.current();
+              }}
+              onReach={() => void loadMap().catch(() => {})}
+            />
+          </ChunkGuard>
         )}
         {/*
           By a bike or a building you can go into: what the moment offers, where a thumb finds it.
@@ -1018,60 +1007,54 @@ export function App() {
       </footer>
 
       {mapOpen && placeCity && (
-        <MenuGuard onError={onMapError}>
-          <Suspense fallback={null}>
-            <MapOverlay
-              city={placeCity}
-              viewer={viewerRef}
-              marks={marks}
-              onClose={closeMap}
-              onSee={see}
-            />
-          </Suspense>
-        </MenuGuard>
+        <ChunkGuard onError={onMapError}>
+          <MapOverlay
+            city={placeCity}
+            viewer={viewerRef}
+            marks={marks}
+            onClose={closeMap}
+            onSee={see}
+          />
+        </ChunkGuard>
       )}
 
       {errorSlot ? createPortal(errorNotice, errorSlot) : errorNotice}
 
       {accountSheet.used && (
-        <MenuGuard onError={onSheetError}>
-          <Suspense fallback={null}>
-            <AccountSheet
-              open={accountSheet.open}
-              onClose={closeAccount}
-              account={account}
-              online={online}
-              sendCode={(email) => multiplayer().sendCode(email)}
-              verifyCode={(email, code) => multiplayer().verifyCode(email, code)}
-              rename={(name) => multiplayer().rename(name)}
-              nameFree={(name) => multiplayer().nameFree(name)}
-              signOut={() =>
-                multiplayer()
-                  .signOut()
-                  .then(() => say('Signed out'))
-              }
-              dress={(outfit) => multiplayerRef.current?.dress(outfit)}
-            />
-          </Suspense>
-        </MenuGuard>
+        <ChunkGuard onError={onSheetError}>
+          <AccountSheet
+            open={accountSheet.open}
+            onClose={closeAccount}
+            account={account}
+            online={online}
+            sendCode={(email) => multiplayer().sendCode(email)}
+            verifyCode={(email, code) => multiplayer().verifyCode(email, code)}
+            rename={(name) => multiplayer().rename(name)}
+            nameFree={(name) => multiplayer().nameFree(name)}
+            signOut={() =>
+              multiplayer()
+                .signOut()
+                .then(() => say('Signed out'))
+            }
+            dress={(outfit) => multiplayerRef.current?.dress(outfit)}
+          />
+        </ChunkGuard>
       )}
 
       {menu.used && (
-        <MenuGuard onError={onMenuError}>
-          <Suspense fallback={null}>
-            <CommandMenu
-              open={menu.open}
-              page={menu.page}
-              onPage={onPage}
-              onClose={closeMenu}
-              takeTyped={takeTyped}
-              state={commandState}
-              run={run}
-              places={places}
-              rooms={roomPlaces}
-            />
-          </Suspense>
-        </MenuGuard>
+        <ChunkGuard onError={onMenuError}>
+          <CommandMenu
+            open={menu.open}
+            page={menu.page}
+            onPage={onPage}
+            onClose={closeMenu}
+            takeTyped={takeTyped}
+            state={commandState}
+            run={run}
+            places={places}
+            rooms={roomPlaces}
+          />
+        </ChunkGuard>
       )}
     </main>
   );
