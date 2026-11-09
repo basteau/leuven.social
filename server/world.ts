@@ -6,7 +6,9 @@
  * A person, signed in or a guest, is one figure on the map, however many of their tabs are open:
  * a figure and a socket are separate things here. Each tab sees the map for itself, but only one,
  * the `driver`, moves the figure: the last to say it is in use, or else the newest left. A figure
- * appears with its first state, not before, so nobody pops up at a made-up spot. A client hears only of the players in the 3×3 cells round where its map looks
+ * appears with its first state, not before, so nobody pops up at a made-up spot.
+ *
+ * A client hears only of the players in the 3×3 cells round where its map looks
  * (src/net/interest.ts): sending everyone to everyone is N² of bandwidth, and one uplink can't
  * carry a thousand players that way. Whatever happened since the last 10 Hz `tick` goes out in one
  * go: those it can now see (`joins`), those it can't any more (`leaves`) and who moved (`moves`).
@@ -107,7 +109,7 @@ export interface World {
   /** Someone signed in over them: every socket of theirs off the map, to reconnect if they may. */
   drop(userId: string): void;
   /**
-   * A guest (`guestKey`, their `userId`) signed in or up as `account`: the same figure carries on
+   * A guest (`guestKey`, their `userId`) signed in as `account`: the same figure carries on
    * under the account's name, or, if the account is on the map already, their tabs join that one.
    */
   signedIn(guestKey: string, account: Account, session: string | null): void;
