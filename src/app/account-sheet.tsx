@@ -101,7 +101,7 @@ function NameForm({ current, fresh, fieldRef, save, nameFree, onSaved }: NameFor
   /** The check under way, and what was last typed: only its answer counts. */
   const checking = useRef<ReturnType<typeof setTimeout>>(undefined);
   const latest = useRef(current);
-  const same = name.toLowerCase() === current.toLowerCase();
+  const same = name === current;
 
   function typed(next: string) {
     setName(next);
@@ -198,6 +198,10 @@ export function AccountSheet(props: AccountSheetProps) {
     setCode('');
     setNews('');
   }
+  // Signed in from another tab: the code this one is waiting on can't run out at them any more.
+  useEffect(() => {
+    if (account.signedIn) clearTimeout(runningOut.current);
+  }, [account.signedIn]);
   /** A code tried already isn't sent again by itself; retyping it is on purpose. */
   const lastTried = useRef('');
   /** The next render should move focus: to the field of the new step, or the title. */
