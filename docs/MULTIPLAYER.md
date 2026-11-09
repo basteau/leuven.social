@@ -1,6 +1,6 @@
 # Multiplayer
 
-Everyone on the site is on the map: a guest with a random name the server gives them, or a player who signed up with a name and a password, picked their avatar's colours, and comes back where they left. Everyone sees everyone else who is online move live, and a person has one figure however many tabs they have open. Everything runs on our own VM: one Bun process with one SQLite file, behind the nginx that serves the site ([DEPLOY.md](DEPLOY.md)). No third-party services.
+Everyone on the site is on the map: a guest with a random name the server gives them, or a player who signed in with a code sent to their email, picked their avatar's colours, and comes back where they left. Everyone sees everyone else who is online move live, and a person has one figure however many tabs they have open. Everything runs on our own VM: one Bun process with one SQLite file, behind the nginx that serves the site ([DEPLOY.md](DEPLOY.md)). The one third party is [Resend](https://resend.com), which delivers the sign-in codes.
 
 ```
 browser                                     VM
@@ -28,20 +28,42 @@ The database is `./.data/leuven.sqlite` (gitignored); delete it to start over. b
 | `BETTER_AUTH_SECRET` | a fixed dev-only value  | Signs the session and guest cookies. Required when `NODE_ENV=production`: the server won't start |
 | `BETTER_AUTH_URL`    | `http://localhost:5173` | Where the site is served; cookies are `Secure` when it is `https:`                               |
 | `TRUSTED_ORIGINS`    | none (dev: localhost)   | More origins allowed to post and connect, comma-separated                                        |
+| `RESEND_API_KEY`     | none                    | Sends the sign-in codes. Without it: see "Mail" below                                            |
+| `MAIL_FROM`          | none                    | The sender, such as `Leuven <hello@leuven.social>`; its domain must be verified in Resend        |
 | `DEBUG`              | `leuven:*=info`         | [@portable/log](https://portablejs.com/packages/log) patterns, e.g. `leuven:*=debug`             |
 
 ## Accounts
 
-better-auth (`server/auth.ts`) does the security work: password hashing (scrypt), session cookies (`HttpOnly`, `SameSite=Lax`, 60 days, renewed daily), rate limits per IP on its routes. It wants an email per account, which players don't have, so each is filed under `<name, lowercased>@players.invalid` (a domain that can never receive mail) and signs in by name through its username plugin.
+better-auth (`server/auth.ts`) does the security work: one-time codes (hashed at rest), session cookies (`HttpOnly`, `SameSite=Lax`, 60 days, renewed daily), rate limits per IP on its routes. There are no passwords anywhere: one flow both joins and comes back.
 
-- A name is 3 to 20 letters, digits, `_`, `-` or `.`, with no dot at either end or two in a row (`src/net/rules.ts`, checked in the browser and on the server). Names are unique whatever their case; the name as typed is what others see.
-- A password is 8 to 128 characters.
-- Signing up goes through `POST /api/account`, which calls `auth.api.signUpEmail` with the synthetic address and returns better-auth's answer, `Set-Cookie` and all: the player is signed in at once.
-- Only a few of better-auth's routes are reachable from outside (`PUBLIC_AUTH_PATHS`): sign in by username, sign out, get the session, change the password, check a name. Signing up by email, changing the name or the address and the rest stay closed.
+1. **An email**, `POST /api/auth/email-otp/send-verification-otp`. It answers the same whether or not the address has an account, and nothing looks that up.
+2. **The six-digit code** it was sent, `POST /api/auth/sign-in/email-otp`. Good for 10 minutes and one use; five wrong tries spend it, and a new one replaces the last. The address's account is signed in, or made if it has none.
+3. **Only for a new account, a name.** `GET /api/me` says `fresh: true` until it has been kept or changed with `PUT /api/me { name }`.
+
+- **Every account always has a valid, unique name, so nothing has a half state.** When better-auth creates a user, a `databaseHooks.user.create.before` gives it one: this browser's guest words joined up ("Breezy Kite" becomes `BreezyKite`), or random words without a guest cookie, with a number if taken. A new account is usable at once; `fresh` only asks.
+- A name is 3 to 20 letters, digits, `_`, `-` or `.`, with no dot at either end or two in a row (`src/net/rules.ts`, checked in the browser and on the server). Names are unique whatever their case (`username` is lowercased, `name` as typed is what others see). Anything that hands out a name goes through one queue in `server.ts`, since checking it's free and taking it are separate steps. `/api/auth/is-username-available` says while you type.
+- `POST /api/auth/email-otp/send-verification-otp` is ours, not better-auth's: its own endpoint swallows a failed send, and a mail that didn't go out has to say so. Ours makes the code with `auth.api.createVerificationOTP` and mails it itself.
+- What reaches better-auth is rebuilt from what we checked: the address trimmed and lowercased (and at most 254 characters), the code exactly six digits, and nothing else, so a request can't set a name or an image.
+- Only a few of better-auth's routes are reachable from outside (`PUBLIC_AUTH_PATHS`): send a code, sign in with one, sign out, get the session, check a name. The rest stay closed.
 - A POST from another origin is refused (403), and so is a socket opened from one.
-- Limits: 30 accounts made an hour from one address (an IPv6 one by its /64), counting only those made, since a campus shares a few addresses and a taken name is no abuse; better-auth's own per-address limits on signing in; and 10 wrong passwords a quarter of an hour for one name, from anywhere, always on.
-- Signing up or in turns the browser's guest into the account, and signing out turns it back, on the same socket and figure ("Guests" and "Tabs and devices" below). A new password closes every socket of that player instead (code 4002, `CLOSE_SIGNED_OUT`); they reconnect as whoever they now are.
-- `src/net/account.ts` turns better-auth's error codes into sentences for people: "That name is taken.", "Wrong name or password. Check both and try again.", "Use at least 8 characters.", and the like. A sign-in never says which half was wrong.
+- **Limits.** Per address, always on, since each guards a person: a code every 30 seconds and 5 an hour, and 10 wrong codes a quarter of an hour from anywhere. Per IP (an IPv6 one by its /64), off when `rateLimit` is false: 30 codes an hour, 30 accounts made an hour, counting only those made since a campus shares a few addresses, and better-auth's own 10 a minute on trying a code. A name changes at most 10 times a minute.
+- Signing in turns the browser's guest into the account, and signing out turns it back, on the same socket and figure ("Guests" and "Tabs and devices" below). A new name is told to everyone at once, as `renamed`.
+- `src/net/account.ts` turns error codes into sentences for people: "That name is taken.", "That code isn’t right. Check the digits, or send a new one.", and the like.
+
+### Mail
+
+`server/mail.ts` posts to Resend's HTTP API (no SDK) with a timeout and an idempotency key. `main.ts` picks what to do from the environment:
+
+|                       | No `RESEND_API_KEY` and `MAIL_FROM`                                                                                                                                                                                                         | With both |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| Outside production    | The code is printed on the server's console (`leuven:mail`), so signing in works locally with no account at a provider                                                                                                                      | Sent      |
+| `NODE_ENV=production` | The server starts and guests play. A warning is logged at start, `/api/me` says `mail: false` so the sheet says so up front ("Email sign-in isn't switched on yet. You can keep exploring as Breezy Kite."), and sending a code answers 503 | Sent      |
+
+When Resend refuses (a bad key, an unverified domain, 429) the person reads a sentence (502, `MAIL_FAILED`) and the log gets a line with the provider's reason, never the key; a send that failed doesn't count against the address's limits.
+
+### Accounts from before email
+
+Accounts made with a name and password are filed under `<name>@players.invalid`, which can't receive mail. Their rows are left as they are and their names stay reserved. A session that is still alive carries on until it runs out, but with the password routes gone **they can't sign in again**: a code to a `.invalid` address is refused plainly (400, `EMAIL_UNDELIVERABLE`). Nothing here deletes them; bringing one back would mean giving its row a real address.
 
 ### Guests
 
@@ -50,7 +72,7 @@ Not signed in, you are on the map all the same, as a guest. A guest is a signed 
 - **`leuven_guest`** is `HttpOnly`, `SameSite=Lax`, `Secure` on https, and holds a random 128-bit id with its HMAC-SHA-256 under `BETTER_AUTH_SECRET` (`server/guest.ts`). A forged or altered one counts as none and the browser gets a new guest. `GET /api/me` sets it (or renews it), and so does a socket that came without one.
 - **The name and look are worked out from the id**, so the page can neither pick nor change them and the same browser is the same guest across reloads and tabs. The name is two words, "Sunny Otter", and has a space, which no account's name can (`isUsername` in `src/net/rules.ts`), so a guest can't pass for an account. Two guests online can draw the same two words: the hub adds a number to the later one ("Sunny Otter 2").
 - **Nothing is stored.** No account row, no table, nothing to clean up: a guest ends when their cookie does, 30 days after their last visit (every visit renews it). Where one last stood is kept in the hub's memory for 10 minutes, for a reload or a short break, 2048 of them at most; a server restart forgets it.
-- A guest's look can't be changed: choosing a look is what an account is for (`PUT /api/me` answers 401).
+- A guest's look and name can't be changed: choosing them is what an account is for (`PUT /api/me` answers 401).
 - **Abuse:** each address (an IPv6 one by its /64, as for sign-ups) has at most 12 guests on the map, on top of nginx's 16 sockets an address ([DEPLOY.md](DEPLOY.md)). Over that, a guest is admitted and sees everyone but isn't placed: `identity` says `unseen` and the sheet tells them; joining puts them on the map. The cap is off when `rateLimit` is false, as in tests.
 
 ### Tabs and devices
@@ -69,16 +91,17 @@ Not signed in, you are on the map all the same, as a guest. A guest is a signed 
 
 ### Routes
 
-| Route                             | What                                                                                                                                                           |
-| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /api/account`               | `{ username, password }`: creates the account and signs in. 400 with better-auth's `{ code, message }`.                                                        |
-| `POST /api/auth/sign-in/username` | `{ username, password }`: better-auth's sign-in, sets the cookie                                                                                               |
-| `POST /api/auth/sign-out`         | Ends the session                                                                                                                                               |
-| `GET /api/auth/get-session`       | better-auth's session, or null                                                                                                                                 |
-| `GET /api/me`                     | `{ guest, name, outfit, at }`: the account, or this browser's guest (and its cookie). `at` is the live position while online, else the saved or remembered one |
-| `PUT /api/me`                     | `{ outfit }`: four 24-bit colours. Saved, and sent to everyone online as `outfit`; 401 for a guest                                                             |
-| `GET /api/health`                 | `{ ok: true, online, players, tickMs, tickMaxMs, bytesPerSecond }`: open sockets, those on the map, and how the presence hub is doing                          |
-| `/ws`                             | Presence, below. The session cookie makes it a player; without one it is this browser's guest (and sets the cookie if there is none)                           |
+| Route                                            | What                                                                                                                                                                                                                                            |
+| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/auth/email-otp/send-verification-otp` | `{ email }`: mails a code. `{ success: true }`; 429 with `retryAfter` (`CODE_ALREADY_SENT`) inside the 30 seconds; 503 `MAIL_OFF`; 502 `MAIL_FAILED`; 400 `INVALID_EMAIL` or `EMAIL_UNDELIVERABLE`                                              |
+| `POST /api/auth/sign-in/email-otp`               | `{ email, otp }`: signs in, making the account if there is none; sets the cookie. 400 `INVALID_OTP` or `OTP_EXPIRED`, 403 `TOO_MANY_ATTEMPTS`                                                                                                   |
+| `POST /api/auth/is-username-available`           | `{ username }`: `{ available }`                                                                                                                                                                                                                 |
+| `POST /api/auth/sign-out`                        | Ends the session                                                                                                                                                                                                                                |
+| `GET /api/auth/get-session`                      | better-auth's session, or null                                                                                                                                                                                                                  |
+| `GET /api/me`                                    | `{ guest, name, outfit, at, fresh, mail }`: the account (`fresh`: yet to choose its name), or this browser's guest and its cookie (`mail`: whether codes can be sent). `at` is the live position while online, else the saved or remembered one |
+| `PUT /api/me`                                    | `{ outfit }`: four 24-bit colours, sent to everyone online as `outfit`; or `{ name }`: takes it if free (400 `USERNAME_IS_ALREADY_TAKEN`), sent as `renamed`. 401 for a guest                                                                   |
+| `GET /api/health`                                | `{ ok: true, online, players, tickMs, tickMaxMs, bytesPerSecond }`: open sockets, those on the map, and how the presence hub is doing                                                                                                           |
+| `/ws`                                            | Presence, below. The session cookie makes it a player; without one it is this browser's guest (and sets the cookie if there is none)                                                                                                            |
 
 Every `/api` answer is `Cache-Control: no-store`.
 
@@ -99,7 +122,7 @@ One WebSocket per tab, binary frames, codec in `src/net/protocol.ts` (shared by 
 | server → client | `leaves { ids }`                           | Who went out of it, gone or further off                                                                          |
 | server → client | `moves { cx, cz, players }`                | Every 100 ms, those who moved since the last one                                                                 |
 | server → client | `placed { id, state }`                     | A figure went through a door or changed floor; with your own id, where your figure went, driven from another tab |
-| server → client | `renamed { id, name, outfit }`             | A figure someone can see became someone else, signed in or out, in place                                         |
+| server → client | `renamed { id, name, outfit }`             | A figure someone can see became someone else, signed in or out, or took a new name, in place                     |
 | server → client | `outfit { id, outfit }`                    | A player you can see saved new colours                                                                           |
 | server → client | `online { count }`                         | How many are on the map, once a second when it changed                                                           |
 | server → client | `dots { players }`                         | Everyone on the map, every 2 s while the full map is open                                                        |
@@ -121,7 +144,7 @@ A client's own `state` is `x`, `z` (f32 metres east and south of the city's midd
 
 ### Load (`bun scripts/swarm.ts --bots 1000`)
 
-Real accounts on real sockets, walking at 10 Hz. On the MacBook (M4), 1000 bots:
+Guests on real sockets, walking at 10 Hz (their positions aren't saved, so these runs don't include SQLite's writes), each saying it comes from one of a few addresses so the guest cap doesn't hide them. Measured before accounts moved to email, with real accounts; a swarm of guests is the same load on the hub. On the MacBook (M4), 1000 bots:
 
 |                       | Everyone to everyone (before) | Across the city (now) | All within 90 m (now) |
 | --------------------- | ----------------------------- | --------------------- | --------------------- |

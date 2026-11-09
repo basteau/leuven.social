@@ -459,7 +459,7 @@ async function expectPlayers(): Promise<void> {
   await browser('wait', '--fn', `${html('online')} === '1'`);
   const guestName = await evalJson<string>(`JSON.stringify(${html('guest')})`);
   const [x, z] = (await walker()).split(' ').map(Number) as [number, number];
-  const bot = await startBot(API, BASE.slice(0, -1), 'smoke-bot', [x + 4, z + 4]);
+  const bot = await startBot(API, BASE.slice(0, -1), [x + 4, z + 4]);
   try {
     await browser('wait', '--fn', `${html('online')} === '2'`);
     await until(() => bot.joined().includes(guestName), `the bot seeing ${guestName}`);
@@ -468,7 +468,7 @@ async function expectPlayers(): Promise<void> {
     await browser(
       'wait',
       '--fn',
-      `[...document.querySelectorAll('.player-tag')].some((t) => !t.hidden && t.textContent === 'smoke-bot')`,
+      `[...document.querySelectorAll('.player-tag')].some((t) => !t.hidden && t.textContent === ${JSON.stringify(bot.name)})`,
     );
     await browser('wait', '600');
     await expectHealthyPage('desktop with another player');

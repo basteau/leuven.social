@@ -104,7 +104,7 @@ export interface World {
   /** A message from a connection; resolves once it has been applied or dropped. */
   receive(id: number, data: string | Uint8Array): Promise<void>;
   disconnect(id: number): void;
-  /** A new password: every socket of theirs off the map, to reconnect if they may. */
+  /** Someone signed in over them: every socket of theirs off the map, to reconnect if they may. */
   drop(userId: string): void;
   /**
    * A guest (`guestKey`, their `userId`) signed in or up as `account`: the same figure carries on

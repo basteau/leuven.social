@@ -11,15 +11,7 @@ import { getMigrations } from 'better-auth/db/migration';
 import { emailOTP } from 'better-auth/plugins/email-otp';
 import { username } from 'better-auth/plugins/username';
 
-import {
-  CODE_LENGTH,
-  CODE_MINUTES,
-  MAX_NAME,
-  MAX_PASSWORD,
-  MIN_NAME,
-  MIN_PASSWORD,
-  isUsername,
-} from '../src/net/rules.ts';
+import { CODE_LENGTH, CODE_MINUTES, MAX_NAME, MIN_NAME, isUsername } from '../src/net/rules.ts';
 
 /** Signed in for 60 days, renewed once a day of play: a game, not a bank. */
 const DAY = 60 * 60 * 24;
@@ -33,10 +25,8 @@ export const SIGN_IN_PATH = '/sign-in/email-otp';
 export const PUBLIC_AUTH_PATHS: ReadonlySet<string> = new Set([
   SEND_CODE_PATH,
   SIGN_IN_PATH,
-  '/sign-in/username',
   '/sign-out',
   '/get-session',
-  '/change-password',
   '/is-username-available',
 ]);
 
@@ -64,8 +54,6 @@ export interface AuthConfig {
   newUser?(headers: Headers | undefined): Promise<NewUser>;
 }
 
-export const syntheticEmail = (name: string): string => `${name.toLowerCase()}@players.invalid`;
-
 export function authOptions(config: AuthConfig) {
   return {
     appName: 'leuven.social',
@@ -74,11 +62,6 @@ export function authOptions(config: AuthConfig) {
     baseURL: config.baseURL,
     basePath: '/api/auth',
     trustedOrigins: config.trustedOrigins ?? [],
-    emailAndPassword: {
-      enabled: true,
-      minPasswordLength: MIN_PASSWORD,
-      maxPasswordLength: MAX_PASSWORD,
-    },
     session: SESSION,
     user: {
       additionalFields: {
@@ -90,8 +73,7 @@ export function authOptions(config: AuthConfig) {
       user: {
         create: {
           async before(user, context) {
-            const given = (user as { username?: unknown }).username;
-            if (given || !config.newUser) return { data: user };
+            if (!config.newUser) return { data: user };
             return { data: { ...user, ...(await config.newUser(context?.headers)) } };
           },
         },
@@ -101,7 +83,6 @@ export function authOptions(config: AuthConfig) {
       enabled: config.rateLimit ?? true,
       window: 60,
       max: 100,
-      customRules: { '/sign-in/username': { window: 60, max: 10 } },
     },
     telemetry: { enabled: false },
     logger: { level: config.quiet ? 'error' : 'warn' },

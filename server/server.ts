@@ -4,7 +4,6 @@
  * tests call it directly on port 0 with a database in memory.
  *
  *   /api/auth/*      better-auth, only the paths in PUBLIC_AUTH_PATHS
- *   POST /api/account  sign up with { username, password }, signed in on success
  *   POST /api/auth/email-otp/send-verification-otp   { email }: mails a sign-in code
  *   POST /api/auth/sign-in/email-otp                 { email, otp }: signs in or makes the account
  *   GET  /api/me       { guest, name, outfit, at, fresh, mail }: an account, or this browser's guest
@@ -32,7 +31,6 @@ import {
   SIGN_IN_PATH,
   createAuth,
   migrateAuth,
-  syntheticEmail,
 } from './auth.ts';
 import type { AuthConfig, NewUser } from './auth.ts';
 import { createGuests, guestAccount, guestKey, guestName } from './guest.ts';
@@ -71,9 +69,9 @@ export interface ServerConfig {
   secret: string;
   baseURL: string;
   trustedOrigins?: string[];
-  /** Per-IP limits on signing up and in. Off only in tests. */
+  /** Per-IP limits on signing in and the like. Off only in tests. */
   rateLimit?: boolean;
-  /** Keeps better-auth's warnings (a wrong password, say) out of the output, for tests. */
+  /** Keeps better-auth's warnings out of the output, for tests. */
   quiet?: boolean;
   /** Presence tick (ms) and how often a moving player's position is saved (ms). */
   tick?: number;
@@ -138,6 +136,9 @@ export function originMatches(origin: string, pattern: string): boolean {
   return origin.startsWith(prefix) && /^\d+$/.test(origin.slice(prefix.length));
 }
 
+/** What a queue is left holding: the waiting matters, not how it went. */
+const settled = () => undefined;
+
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: API_HEADERS });
 
 /** An error in better-auth's shape, so the client reads every failure the same way. */
@@ -183,11 +184,7 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
   });
   const guests = createGuests(config.secret, new URL(config.baseURL).protocol === 'https:');
   // (A `take` of cost 0 reads what's left: it is always "allowed", so `remaining` is the test.)
-  // better-auth limits its own routes by address; sign-up goes through auth.api, which it doesn't
-  // limit. Only accounts made count: a campus shares a handful of addresses, and a name taken is
-  // no abuse. Failed sign-ins count per name too, so many addresses can't guess one password.
-  const signUps = RateLimit.create({ limit: 30, period: 60 * 60 * 1000 });
-  const wrongPasswords = RateLimit.create({ limit: 10, period: 15 * 60 * 1000 });
+  // Only accounts made count against an address: a campus shares a handful.
   const newAccounts = RateLimit.create({ limit: config.accountsPerHour ?? 30, period: HOUR });
   // A mail for every address costs us and annoys them: at most one every half a minute, five an
   // hour, whoever asks. Always on, unlike the limits by address: it guards an account.
@@ -206,7 +203,7 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
   let claiming: Promise<unknown> = Promise.resolve();
   function inTurn<T>(run: () => Promise<T>): Promise<T> {
     const result = claiming.then(run, run);
-    claiming = result.catch(() => {});
+    claiming = result.then(settled, settled);
     return result;
   }
 
@@ -225,6 +222,7 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
     const words = guestName(guestId ?? guests.mint()).replaceAll(' ', '');
     let name = words;
     for (let n = 2; ownerOf.get(name.toLowerCase()); n++) name = `${words}${n}`;
+    log.info('new player %s', name);
     return { name, username: name.toLowerCase(), fresh: true };
   }
 
@@ -235,39 +233,6 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
   };
 
   const session = (request: Request) => auth.api.getSession({ headers: request.headers });
-
-  async function signUp(request: Request): Promise<Response> {
-    const ip = clientKey(request.headers.get('x-real-ip'));
-    const guestId = await guests.read(request);
-    if (config.rateLimit !== false && (await signUps.take(ip, { cost: 0 })).remaining < 1) {
-      return problem(429, 'TOO_MANY_REQUESTS', 'Too many accounts from here; try again later.');
-    }
-    const body = await readJson(request);
-    const username = body?.username;
-    const password = body?.password;
-    if (typeof username !== 'string' || typeof password !== 'string') {
-      return problem(400, 'VALIDATION_ERROR', 'Send a username and a password.');
-    }
-    if (!isUsername(username)) return problem(400, 'INVALID_USERNAME', 'Username is invalid');
-    try {
-      const response = await auth.api.signUpEmail({
-        body: { email: syntheticEmail(username), password, name: username, username },
-        headers: request.headers,
-        asResponse: true,
-      });
-      response.headers.set('cache-control', 'no-store');
-      if (response.ok) {
-        log.info('new player %s', username);
-        if (config.rateLimit !== false) await signUps.take(ip);
-        await becomePlayer(guestId, response);
-      }
-      return response;
-    } catch (error) {
-      // The username plugin's checks throw even with asResponse.
-      if (error instanceof APIError) return json(error.body, error.statusCode);
-      throw error;
-    }
-  }
 
   /**
    * A guest's tabs carry on as the account they just signed into or made: their figure and sockets
@@ -365,41 +330,20 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
   }
 
   /**
-   * better-auth's own routes, with what it doesn't do: a cap on wrong passwords per name, and the
-   * map kept in step: signing in or up turns the guest into the player, and signing out turns them
-   * back. A new password closes the player's sockets; their other devices reconnect by themselves.
+   * better-auth's own routes, with the map kept in step: signing in turns the guest into the
+   * player, and signing out turns them back.
    */
   async function authRoute(path: string, request: Request): Promise<Response> {
     if (path === SEND_CODE_PATH) return sendCode(request);
     if (path === SIGN_IN_PATH) return signInWithCode(request);
-    let name = '';
-    // Always on, unlike the limits by address: it guards an account, and is never noise.
-    if (path === '/sign-in/username') {
-      const body = (await readJson(request.clone())) as { username?: unknown } | null;
-      name = typeof body?.username === 'string' ? body.username.toLowerCase() : '';
-      if (name && (await wrongPasswords.take(name, { cost: 0 })).remaining < 1) {
-        return problem(429, 'TOO_MANY_REQUESTS', 'Too many tries. Wait a while, then try again.');
-      }
-    }
-    const changes = path === '/sign-out' || path === '/change-password';
-    const signingIn = path === '/sign-in/username';
-    const before = changes || signingIn ? await session(request) : null;
+    const before = path === '/sign-out' ? await session(request) : null;
     const guestId = await guests.read(request);
     const response = await auth.handler(request);
     response.headers.set('cache-control', 'no-store');
-    if (name && response.status === 401) await wrongPasswords.take(name);
-    if (!response.ok) return response;
-    if (path === '/change-password' && before) world.drop(before.user.id);
-    if (path === '/sign-out' && before) {
-      const id = guestId ?? guests.mint();
-      if (!guestId) response.headers.append('set-cookie', await guests.cookie(id));
-      world.signedOut(before.user.id, before.session.token, guestAccount(id));
-    }
-    if (signingIn) {
-      // Signing in over someone else's session: their sockets reconnect as whoever they now are.
-      if (before) world.drop(before.user.id);
-      await becomePlayer(guestId, response);
-    }
+    if (!response.ok || !before) return response;
+    const id = guestId ?? guests.mint();
+    if (!guestId) response.headers.append('set-cookie', await guests.cookie(id));
+    world.signedOut(before.user.id, before.session.token, guestAccount(id));
     return response;
   }
 
@@ -514,7 +458,6 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
       return authRoute(pathname.slice('/api/auth'.length), request);
     }
     if (pathname === '/api/health' && method === 'GET') return json({ ok: true, ...world.stats() });
-    if (pathname === '/api/account' && method === 'POST') return signUp(request);
     if (pathname === '/api/me' && (method === 'GET' || method === 'PUT')) return me(request);
     return problem(404, 'NOT_FOUND', 'Not found');
   }

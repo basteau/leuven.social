@@ -916,7 +916,7 @@ describe('createWorld', () => {
     });
   });
 
-  test('a new password closes every socket of the player, free to reconnect', async () => {
+  test('being signed in over closes every socket of the player, free to reconnect', async () => {
     const { world, join, move } = setup();
     const ana = join('ana');
     const bo = join('bo');

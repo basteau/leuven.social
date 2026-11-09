@@ -7,9 +7,7 @@ import {
   rename,
   saveOutfit,
   sendCode,
-  signIn,
   signOut,
-  signUp,
   verifyCode,
 } from './account.ts';
 
@@ -44,7 +42,7 @@ const reason = (promise: Promise<unknown>) =>
 describe('account', () => {
   test('sends the cookie, JSON and the right paths', async () => {
     answer(json({}), json({ name: 'Bram', outfit, at: null, fresh: false, mail: true }));
-    expect(await signUp('Bram', 'password1')).toEqual({
+    expect(await verifyCode('a@b.co', '123456')).toEqual({
       guest: false,
       name: 'Bram',
       outfit,
@@ -53,36 +51,14 @@ describe('account', () => {
       mail: true,
     });
     expect(calls.map((c) => [c.url, c.init?.method ?? 'GET'])).toEqual([
-      ['/api/account', 'POST'],
+      ['/api/auth/sign-in/email-otp', 'POST'],
       ['/api/me', 'GET'],
     ]);
     expect(calls[0]?.init).toMatchObject({
       credentials: 'include',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ username: 'Bram', password: 'password1' }),
     });
     expect(calls[1]?.init?.headers).toBeUndefined();
-  });
-
-  test('checks the name and password before asking', async () => {
-    answer();
-    expect(await reason(signUp('a', 'password1'))).toMatchObject({ code: 'name' });
-    expect(await reason(signUp('.bram', 'password1'))).toMatchObject({ code: 'name' });
-    expect(await reason(signUp('bram', 'short'))).toMatchObject({
-      code: 'password',
-      message: 'Use at least 8 characters.',
-    });
-    expect(await reason(signUp('bram', 'x'.repeat(129)))).toMatchObject({ code: 'password' });
-    expect(await reason(signIn('a', 'password1'))).toMatchObject({ code: 'credentials' });
-    expect(await reason(signIn('bram', ''))).toMatchObject({ code: 'credentials' });
-    expect(calls).toEqual([]);
-  });
-
-  test('a sign-in the server finds malformed is just a wrong password', async () => {
-    answer(json({ code: 'PASSWORD_TOO_LONG' }, 400));
-    expect(await reason(signIn('bram', 'password1'))).toMatchObject({ code: 'credentials' });
-    answer(json({ code: 'INVALID_USERNAME_OR_PASSWORD' }, 401));
-    expect(await reason(signIn('bram', 'password1'))).toMatchObject({ code: 'credentials' });
   });
 
   test('says when the network or the server is down, or busy', async () => {
@@ -97,9 +73,9 @@ describe('account', () => {
       message: 'Something went wrong on our side. Try again in a moment.',
     });
     answer(json({ code: 'SOMETHING_NEW' }, 400));
-    expect(await reason(signUp('bram', 'password1'))).toMatchObject({ code: 'server' });
+    expect(await reason(verifyCode('a@b.co', '123456'))).toMatchObject({ code: 'server' });
     answer(new Response(null, { status: 429 }));
-    expect(await reason(signIn('bram', 'password1'))).toMatchObject({ code: 'busy' });
+    expect(await reason(verifyCode('a@b.co', '123456'))).toMatchObject({ code: 'busy' });
   });
 
   test('a server that can’t say gives no one: a null, or an old server’s 401', async () => {
@@ -126,7 +102,7 @@ describe('account', () => {
       json({}),
       json({ guest: true, name: 'Sunny Otter', outfit, at: null, fresh: false, mail: true }),
     );
-    expect(await reason(signIn('bram', 'password1'))).toMatchObject({ code: 'server' });
+    expect(await reason(verifyCode('a@b.co', '123456'))).toMatchObject({ code: 'server' });
   });
 
   test('an odd answer to me() is the server’s fault', async () => {
@@ -147,7 +123,7 @@ describe('account', () => {
 
   test('a session the browser dropped right after signing in', async () => {
     answer(json({}), json({}, 401));
-    expect(await reason(signIn('bram', 'password1'))).toMatchObject({ code: 'server' });
+    expect(await reason(verifyCode('a@b.co', '123456'))).toMatchObject({ code: 'server' });
   });
 
   test('signing out when already out is fine; a failure is not', async () => {

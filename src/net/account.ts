@@ -1,7 +1,7 @@
 /**
- * Accounts: a name and a password, nothing else. Signing up or in sets a session cookie on our
- * own origin (better-auth on the server, under /api/auth); every call here sends it along. The
- * errors a person can see carry a sentence written for them, whatever better-auth said.
+ * Accounts: an email and a code sent to it, and a name of your own. Signing in sets a session
+ * cookie on our own origin (better-auth on the server, under /api/auth); every call here sends it
+ * along. The errors a person can see carry a sentence written for them, whatever better-auth said.
  */
 
 import { isOutfit } from './protocol.ts';
@@ -9,10 +9,8 @@ import type { Outfit, PlayerState } from './protocol.ts';
 import {
   CODE_COOLDOWN_SECONDS,
   CODE_LENGTH,
-  MAX_PASSWORD,
   MIN_NAME,
   MAX_NAME,
-  MIN_PASSWORD,
   isEmail,
   isUsername,
   normaliseEmail,
@@ -36,9 +34,7 @@ export interface Me {
 
 export type AccountErrorCode =
   | 'taken'
-  | 'credentials'
   | 'name'
-  | 'password'
   | 'email'
   | 'undeliverable'
   | 'code'
@@ -68,9 +64,7 @@ export class AccountError extends Error {
 
 const MESSAGES: Record<AccountErrorCode, string> = {
   taken: 'That name is taken.',
-  credentials: 'Wrong name or password. Check both and try again.',
   name: `Use ${MIN_NAME} to ${MAX_NAME} letters, digits, _, - or . for your name, with no dot at either end.`,
-  password: `Use at least ${MIN_PASSWORD} characters.`,
   email: 'That doesn’t look like an email address. Check it and try again.',
   undeliverable: 'That address can’t receive mail. Use another one.',
   code: 'That code isn’t right. Check the digits, or send a new one.',
@@ -99,16 +93,9 @@ const CODES: Record<string, AccountErrorCode> = {
   MAIL_FAILED: 'mail-failed',
   CODE_ALREADY_SENT: 'sent',
   USERNAME_IS_ALREADY_TAKEN: 'taken',
-  USER_ALREADY_EXISTS: 'taken',
-  USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL: 'taken',
-  INVALID_USERNAME_OR_PASSWORD: 'credentials',
-  INVALID_EMAIL_OR_PASSWORD: 'credentials',
-  INVALID_PASSWORD: 'credentials',
   USERNAME_TOO_SHORT: 'name',
   USERNAME_TOO_LONG: 'name',
   INVALID_USERNAME: 'name',
-  PASSWORD_TOO_SHORT: 'password',
-  PASSWORD_TOO_LONG: 'password',
 };
 
 async function request(path: string, init: RequestInit = {}): Promise<Response> {
@@ -144,32 +131,6 @@ async function failure(response: Response): Promise<AccountError> {
 
 const post = (path: string, body: unknown) =>
   request(path, { method: 'POST', body: JSON.stringify(body) });
-
-function checkPassword(password: string): void {
-  if (password.length < MIN_PASSWORD || password.length > MAX_PASSWORD) throw fail('password');
-}
-
-/** Creates the account and signs in. */
-export async function signUp(username: string, password: string): Promise<Me> {
-  if (!isUsername(username)) throw fail('name');
-  checkPassword(password);
-  const response = await post('/account', { username, password });
-  if (!response.ok) throw await failure(response);
-  return signedIn();
-}
-
-export async function signIn(username: string, password: string): Promise<Me> {
-  // A name that couldn't exist is just a wrong name: don't teach the rules on the way in.
-  if (!isUsername(username) || !password) throw fail('credentials');
-  const response = await post('/auth/sign-in/username', { username, password });
-  if (!response.ok) {
-    const error = await failure(response);
-    throw error.code === 'name' || error.code === 'password' || error.code === 'signed-out'
-      ? fail('credentials', error.cause)
-      : error;
-  }
-  return signedIn();
-}
 
 /** Mails a sign-in code to this address, whether or not it has an account yet. */
 export async function sendCode(email: string): Promise<void> {

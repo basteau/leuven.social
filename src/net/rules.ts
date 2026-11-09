@@ -5,8 +5,6 @@
 
 export const MIN_NAME = 3;
 export const MAX_NAME = 20;
-export const MIN_PASSWORD = 8;
-export const MAX_PASSWORD = 128;
 
 /** A sign-in code: how many digits, how long it works, and the wait before another. */
 export const CODE_LENGTH = 6;
@@ -17,8 +15,8 @@ export const CODE_COOLDOWN_SECONDS = 30;
 export const MAX_EMAIL = 254;
 
 /**
- * Letters, digits, `_`, `-` and `.`, with no dot at either end or two in a row: the server
- * files each player under `<name>@players.invalid`, and an address can't have those dots.
+ * Letters, digits, `_`, `-` and `.`, with no dot at either end or two in a row. No spaces, which
+ * is what keeps a guest's two words from ever passing for an account's name.
  */
 const NAME = /^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$/;
 

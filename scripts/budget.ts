@@ -96,7 +96,9 @@ const BUDGETS: {
     // the count, the full map's dots) and telling the server where the map looks (0.9 KB).
     // 9.5: delta moves (0.2 KB), about 5 bytes for a figure nearby where a whole move is 9.
     // 9.75: guests and tabs (0.2 KB): who you are from the server, renames, and one tab driving.
-    limit: 9.75 * KB,
+    // 10: signing in by email (0.15 KB), asked for: a code to send and give back, a name to take,
+    // and a sentence for each way mail can fail, for what passwords cost before.
+    limit: 10 * KB,
     gzip: true,
   },
   // The page itself paints the loading screen before any script or stylesheet: the tokens, its

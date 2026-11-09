@@ -289,7 +289,7 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
   const first = asked;
   void Accounts.me()
     .then((me) => {
-      // Signed in or up meanwhile (a password manager is quick): that answer is the one.
+      // Signed in meanwhile (a code pasted in a hurry): that answer is the one.
       if (disposed || asked !== first) return;
       if (!me) return;
       apply(me);

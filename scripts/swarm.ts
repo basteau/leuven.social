@@ -1,12 +1,14 @@
 /**
- * A swarm of bots on the presence socket, to load-test the multiplayer server with real accounts
- * and real frames: each walks about at 10 Hz as the page does and counts what it is sent.
+ * A swarm of bots on the presence socket, to load-test the multiplayer server with real frames:
+ * each is a guest that walks about at 10 Hz as the page does and counts what it is sent. Guests,
+ * since a sign-in means a code from a mailbox, and each says it comes from its own few addresses
+ * (`x-real-ip`) to stay under the cap on guests an address; nginx replaces that header, so through
+ * it only a dozen are seen.
  *
  *   bun scripts/swarm.ts --bots 1000                      # its own server, reports and exits
  *   bun scripts/swarm.ts --bots 50 --api http://… --at 0,0 --spread 40 --seconds 30
  *
- * Accounts are kept between runs (.artifacts/swarm.*), as making a thousand takes a minute or two
- * of password hashing. The measure is taken after the swarm has settled, and printed as JSON last.
+ * The measure is taken after the swarm has settled, and printed as JSON last.
  */
 
 import { decodeServerMessage, encodeClientMessage } from '../src/net/protocol.ts';
@@ -22,12 +24,8 @@ const SETTLE_MS = Number(flag('settle') ?? 4000);
 const SPREAD = Number(flag('spread') ?? 1200);
 const [CENTRE_X, CENTRE_Z] = (flag('at') ?? '0,500').split(',').map(Number) as [number, number];
 const ORIGIN = 'http://localhost:5173';
-const ARTIFACTS = Bun.fileURLToPath(new URL('../.artifacts/', import.meta.url));
-const COOKIES = `${ARTIFACTS}swarm-cookies.json`;
-const DATABASE = `${ARTIFACTS}swarm.sqlite`;
-/** The server allows 30 accounts an hour from one address. */
-const PER_ADDRESS = 25;
-const SIGNUPS_AT_ONCE = 8;
+/** The server keeps 12 guests an address on the map. */
+const PER_ADDRESS = 12;
 
 let api = flag('api');
 let server: Bun.Subprocess | undefined;
@@ -38,7 +36,7 @@ async function startServer(): Promise<void> {
   await probe.stop(true);
   api = `http://127.0.0.1:${port}`;
   server = Bun.spawn(['bun', 'server/main.ts'], {
-    env: { ...process.env, PORT: String(port), DATABASE_PATH: DATABASE, DEBUG: 'none' },
+    env: { ...process.env, PORT: String(port), DATABASE_PATH: ':memory:', DEBUG: 'none' },
     stdout: 'ignore',
     stderr: 'inherit',
   });
@@ -53,36 +51,8 @@ async function startServer(): Promise<void> {
   throw new Error('the server did not start');
 }
 
-async function signUp(name: string, address: string): Promise<string> {
-  const response = await fetch(`${api}/api/account`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', origin: ORIGIN, 'x-real-ip': address },
-    body: JSON.stringify({ username: name, password: 'swarm-test-password' }),
-  });
-  if (!response.ok) throw new Error(`${name}: ${response.status} ${await response.text()}`);
-  return response.headers
-    .getSetCookie()
-    .map((c) => c.split(';')[0])
-    .join('; ');
-}
-
-/** Sessions for `count` bots, made only as far as earlier runs didn't. */
-async function accounts(count: number): Promise<string[]> {
-  const file = Bun.file(COOKIES);
-  const cookies = (await file.exists()) ? ((await file.json()) as string[]) : [];
-  let next = cookies.length;
-  const worker = async () => {
-    while (next < count) {
-      const i = next++;
-      const address = `10.77.${Math.floor(i / PER_ADDRESS / 250)}.${Math.floor(i / PER_ADDRESS) % 250}`;
-      cookies[i] = await signUp(`swarmbot${i}`, address);
-      if (i % 100 === 99) await Bun.write(COOKIES, JSON.stringify(cookies));
-    }
-  };
-  await Promise.all(Array.from({ length: SIGNUPS_AT_ONCE }, worker));
-  await Bun.write(COOKIES, JSON.stringify(cookies));
-  return cookies.slice(0, count);
-}
+const addressOf = (i: number) =>
+  `10.77.${Math.floor(i / PER_ADDRESS / 250)}.${Math.floor(i / PER_ADDRESS) % 250}`;
 
 interface BotCount {
   bytes: number;
@@ -90,7 +60,7 @@ interface BotCount {
   undecoded: number;
 }
 
-function startBot(cookie: string, seed: number, count: BotCount, decode: boolean) {
+function startBot(address: string, seed: number, count: BotCount, decode: boolean) {
   let random = seed * 2654435761;
   const rand = () => {
     random = (random ^ (random << 13)) >>> 0;
@@ -99,7 +69,7 @@ function startBot(cookie: string, seed: number, count: BotCount, decode: boolean
     return random / 2 ** 32;
   };
   const socket = new WebSocket(`${api!.replace(/^http/, 'ws')}/ws`, {
-    headers: { cookie, origin: ORIGIN },
+    headers: { origin: ORIGIN, 'x-real-ip': address },
   } as unknown as string[]);
   socket.binaryType = 'arraybuffer';
   socket.addEventListener('message', (event) => {
@@ -166,14 +136,10 @@ async function serverLoad(): Promise<{ seconds: number; mb: number } | null> {
 
 const sampleEvery = 50;
 try {
-  await Bun.$`mkdir -p ${ARTIFACTS}`.quiet();
   if (!api) await startServer();
-  const started = performance.now();
-  const cookies = await accounts(BOTS);
-  console.error(`${BOTS} accounts ready in ${Math.round(performance.now() - started)} ms`);
-  const counts = cookies.map(() => ({ bytes: 0, frames: 0, undecoded: 0 }));
-  const bots = cookies.map((cookie, i) =>
-    startBot(cookie, i + 1, counts[i]!, i % sampleEvery === 0),
+  const counts = Array.from({ length: BOTS }, () => ({ bytes: 0, frames: 0, undecoded: 0 }));
+  const bots = counts.map((count, i) =>
+    startBot(addressOf(i), i + 1, count, i % sampleEvery === 0),
   );
   await Bun.sleep(SETTLE_MS);
   const open = bots.filter((b) => b.socket.readyState === WebSocket.OPEN).length;

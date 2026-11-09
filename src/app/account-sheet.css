@@ -1,8 +1,8 @@
 /* The account sheet's own styles, loaded with its chunk; the sheet itself is the menu's (app.css). */
 
 /*
- * Who you are: the account sheet is the menu's sheet, as tall as what it holds. Signed out, a name
- * and a password; signed in, a flat figure in your colours and a row of swatches a part.
+ * Who you are: the account sheet is the menu's sheet, as tall as what it holds. Signed out, an email
+ * and then its code; signed in, a flat figure in your colours and a row of swatches a part.
  */
 .menu.account {
   block-size: fit-content;

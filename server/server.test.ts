@@ -169,8 +169,16 @@ const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Signs the jar in through its email: a new account unless `email` already has one. */
 async function codeIn(jar: Jar, email = anAddress()) {
+  // Past any wait left from the last code to this address.
+  passTime(31_000);
   await as(jar, () => account.sendCode(email));
   return as(jar, () => account.verifyCode(email, lastCode(email)));
+}
+
+/** A new account with the name it asked for. */
+async function joinAs(jar: Jar, name: string, email = `${name.toLowerCase()}@example.com`) {
+  await codeIn(jar, email);
+  return as(jar, () => account.rename(name));
 }
 
 describe('signing in with a code', () => {
@@ -366,6 +374,12 @@ describe('signing in with a code', () => {
       // oxlint-disable-next-line no-await-in-loop
       expect(await bad.json()).toMatchObject({ code: 'INVALID_EMAIL' });
     }
+  });
+
+  test('a body that isn’t JSON is no address', async () => {
+    const garbage = await call(new Jar(), SEND_CODE, { method: 'POST', body: '{' });
+    expect(garbage.status).toBe(400);
+    expect(await garbage.json()).toMatchObject({ code: 'INVALID_EMAIL' });
   });
 
   test('another site can’t ask for a code', async () => {
@@ -687,7 +701,7 @@ describe('accounts', () => {
   });
 
   test('signing up signs in, with an outfit and no position yet', async () => {
-    const me = await as(bram, () => account.signUp('Bram', 'stadhuis1'));
+    const me = await joinAs(bram, 'Bram');
     expect(me).toEqual({
       guest: false,
       name: 'Bram',
@@ -700,61 +714,38 @@ describe('accounts', () => {
   });
 
   test('a name is taken whatever its case', async () => {
-    const error = await as(new Jar(), () => account.signUp('bram', 'something')).catch(
+    const error = await joinAs(new Jar(), 'bram', 'another-bram@example.com').catch(
       (e: unknown) => e,
     );
     expect(error).toBeInstanceOf(AccountError);
     expect(error).toMatchObject({ code: 'taken', message: 'That name is taken.' });
   });
 
-  test('a wrong password, then the right one under another case', async () => {
-    const jar = new Jar();
-    expect(as(jar, () => account.signIn('Bram', 'wrong-one'))).rejects.toMatchObject({
-      code: 'credentials',
-      message: 'Wrong name or password. Check both and try again.',
-    });
-    expect(as(jar, () => account.signIn('nobody', 'whatever1'))).rejects.toMatchObject({
-      code: 'credentials',
-    });
-    const me = await as(jar, () => account.signIn('BRAM', 'stadhuis1'));
-    expect(me.name).toBe('Bram');
-  });
-
-  test('the server checks names and passwords too', async () => {
-    const short = await postJson(new Jar(), '/api/account', { username: 'ann', password: 'x' });
-    expect(short.status).toBe(400);
-    expect(await short.json()).toMatchObject({ code: 'PASSWORD_TOO_SHORT' });
-    const bad = await postJson(new Jar(), '/api/account', { username: '.ann', password: 'x' });
-    expect(await bad.json()).toMatchObject({ code: 'INVALID_USERNAME' });
-    const none = await postJson(new Jar(), '/api/account', { username: 3 });
-    expect(none.status).toBe(400);
-    const garbage = await call(new Jar(), '/api/account', { method: 'POST', body: '{' });
-    expect(garbage.status).toBe(400);
-  });
-
-  test('only the public auth endpoints are reachable', async () => {
-    const response = await postJson(new Jar(), '/api/auth/sign-up/email', {
-      email: 'x@example.com',
-      password: 'password1',
-      name: 'x',
-    });
-    expect(response.status).toBe(404);
+  test('no password route is left, and only the public auth endpoints are reachable', async () => {
+    const closed = await Promise.all(
+      [
+        '/api/auth/sign-up/email',
+        '/api/auth/sign-in/email',
+        '/api/auth/sign-in/username',
+        '/api/auth/change-password',
+        '/api/account',
+      ].map((path) =>
+        postJson(new Jar(), path, {
+          email: 'x@example.com',
+          username: 'x',
+          password: 'password1',
+          name: 'x',
+        }),
+      ),
+    );
+    expect(closed.map((r) => r.status)).toEqual([404, 404, 404, 404, 404]);
     expect((await call(new Jar(), '/api/nothing')).status).toBe(404);
     expect((await call(new Jar(), '/elsewhere')).status).toBe(404);
   });
 
-  test('another site cannot post', async () => {
-    const response = await realFetch(new URL('/api/account', server.url), {
-      method: 'POST',
-      headers: { origin: 'https://evil.example', 'content-type': 'application/json' },
-      body: JSON.stringify({ username: 'evil', password: 'password1' }),
-    });
-    expect(response.status).toBe(403);
-  });
-
   test('an outfit must be four colours, and is kept', async () => {
     const jar = new Jar();
-    await as(jar, () => account.signUp('outfitter', 'password1'));
+    await joinAs(jar, 'outfitter');
     const bad = await call(jar, '/api/me', { method: 'PUT', body: JSON.stringify({ outfit: 1 }) });
     expect(bad.status).toBe(400);
     const outfit = { skin: 1, hair: 2, shirt: 3, shorts: 4 };
@@ -768,7 +759,7 @@ describe('accounts', () => {
   test('signing out ends the session; the same socket carries on as the guest', async () => {
     const jar = new Jar();
     const guest = await as(jar, () => account.me());
-    await as(jar, () => account.signUp('leaver', 'password1'));
+    await joinAs(jar, 'leaver');
     const socket = new Client(jar);
     await socket.opened;
     socket.send({ x: 50 });
@@ -780,21 +771,9 @@ describe('accounts', () => {
     await socket.close();
   });
 
-  test('a new password closes the sockets, to reconnect as themselves', async () => {
-    const jar = new Jar();
-    await as(jar, () => account.signUp('rekeyed', 'password1'));
-    const socket = new Client(jar);
-    await socket.opened;
-    await postJson(jar, '/api/auth/change-password', {
-      currentPassword: 'password1',
-      newPassword: 'password2',
-    });
-    expect((await socket.closed).code).toBe(CLOSE_SIGNED_OUT);
-  });
-
   test('signing out without a guest cookie makes one', async () => {
     const jar = new Jar();
-    await as(jar, () => account.signUp('nocookie', 'password1'));
+    await joinAs(jar, 'nocookie');
     jar.cookies.delete('leuven_guest');
     const socket = new Client(jar);
     await socket.opened;
@@ -806,11 +785,11 @@ describe('accounts', () => {
 
   test('signing in over someone else’s session lets their sockets go', async () => {
     const jar = new Jar();
-    await as(jar, () => account.signUp('firstone', 'password1'));
-    await as(new Jar(), () => account.signUp('secondone', 'password1'));
+    await joinAs(jar, 'firstone');
+    await joinAs(new Jar(), 'secondone');
     const socket = new Client(jar);
     await socket.opened;
-    await as(jar, () => account.signIn('secondone', 'password1'));
+    await codeIn(jar, 'secondone@example.com');
     expect((await socket.closed).code).toBe(CLOSE_SIGNED_OUT);
   });
 });
@@ -820,8 +799,8 @@ describe('presence', () => {
   const ben = new Jar();
 
   beforeAll(async () => {
-    await as(ann, () => account.signUp('Ann', 'password1'));
-    await as(ben, () => account.signUp('Ben', 'password1'));
+    await joinAs(ann, 'Ann');
+    await joinAs(ben, 'Ben');
   });
 
   test('a websocket needs an upgrade and our origin', async () => {
@@ -959,10 +938,10 @@ describe('presence', () => {
     const guestJoin = await watcher.next('joins', (m) => m.players.some((p) => p.id === you));
     const guestOutfit = guestJoin.players.find((p) => p.id === you)!.outfit;
 
-    const me = await as(jar, () => account.signUp('Clara', 'password1'));
+    const me = await joinAs(jar, 'Clara');
     // The new account wears what the guest wore.
     expect(me.outfit).toEqual(guestOutfit);
-    expect(await watcher.next('renamed')).toEqual({
+    expect(await watcher.next('renamed', (m) => m.name === 'Clara')).toEqual({
       type: 'renamed',
       id: you,
       name: 'Clara',
@@ -985,7 +964,7 @@ describe('presence', () => {
     const you = (await socket.next('welcome')).you;
     socket.send({ x: 22 });
     await watcher.next('joins', (m) => m.players.some((p) => p.id === you));
-    const me = await as(jar, () => account.signIn('Ben', 'password1'));
+    const me = await codeIn(jar, 'ben@example.com');
     expect(me).toMatchObject({ guest: false, name: 'Ben' });
     const renamed = await watcher.next('renamed');
     expect(renamed).toMatchObject({ id: you, name: 'Ben', outfit: me.outfit });
@@ -1072,29 +1051,8 @@ test('an address is its own key, an IPv6 one by its /64', () => {
   expect(clientKey('::1')).toBe('0:0:0:0');
 });
 
-test('wrong passwords for one name are capped, whoever guesses', async () => {
-  await as(new Jar(), () => account.signUp('guessed', 'password1'));
-  let last = new Response();
-  for (let i = 0; i < 11; i++) {
-    // One after another: each wrong guess has to land before the next is weighed.
-    // oxlint-disable-next-line no-await-in-loop
-    last = await postJson(new Jar(), '/api/auth/sign-in/username', {
-      username: 'Guessed',
-      password: 'nope-nope',
-    });
-  }
-  expect(last.status).toBe(429);
-  expect(((await last.json()) as { message: string }).message).toContain('Too many tries');
-  // Another name isn't touched.
-  const other = await postJson(new Jar(), '/api/auth/sign-in/username', {
-    username: 'someone-else',
-    password: 'nope-nope',
-  });
-  expect(other.status).toBe(401);
-});
-
 describe('limits', () => {
-  test('sign-ups from one address are limited, and so are sign-ins', async () => {
+  test('tries at a code from one address are limited, across addresses too', async () => {
     const limited = await startServer({
       port: 0,
       databasePath: ':memory:',
@@ -1109,15 +1067,11 @@ describe('limits', () => {
         body: JSON.stringify(body),
       });
     try {
-      const statuses = async (path: string, body: unknown) =>
-        (await Promise.all(Array.from({ length: 11 }, () => post(path, body))))
-          .map((r) => r.status)
-          .toSorted();
-      // Failed sign-ups (a taken name, a bad one) don't count against the address.
-      expect(await statuses('/api/account', { username: '!' })).toEqual(Array(11).fill(400));
-
-      const body = { username: 'nobody', password: 'whatever1' };
-      expect(await statuses('/api/auth/sign-in/username', body)).toContain(429);
+      // Each for another address, so it is only better-auth's limit by address that can say no.
+      const answers = await Promise.all(
+        Array.from({ length: 11 }, () => post(SIGN_IN, { email: anAddress(), otp: '123456' })),
+      );
+      expect(answers.map((r) => r.status)).toContain(429);
     } finally {
       await limited.stop();
     }
