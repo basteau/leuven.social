@@ -13,7 +13,16 @@ import type { Place } from '../data/places.ts';
 import type { RoomPlace } from '../scene/viewer.ts';
 import { commandsFor, GROUPS, keyCommands, keySheet } from './commands.ts';
 import type { ActionId, CommandState, GroupId, IconName, Keys, KeySection } from './commands.ts';
-import { BikeIcon, MapIcon, StopIcon } from './icons.tsx';
+import {
+  BikeIcon,
+  MapIcon,
+  MinusIcon,
+  PlusIcon,
+  RotateLeftIcon,
+  RotateRightIcon,
+  StopIcon,
+  WalkIcon,
+} from './icons.tsx';
 import { menuKey } from './input.ts';
 import {
   BackIcon,
@@ -24,18 +33,13 @@ import {
   PersonIcon,
   InfoIcon,
   KeysIcon,
-  MinusIcon,
   MoonIcon,
   PinIcon,
   PlaceIcon,
-  PlusIcon,
-  RotateLeftIcon,
-  RotateRightIcon,
   RunIcon,
   SearchIcon,
   SoundIcon,
   SunIcon,
-  WalkIcon,
 } from './menu-icons.tsx';
 import { search } from './search.ts';
 
@@ -104,6 +108,9 @@ interface Row {
   choose: () => void;
 }
 
+/** What most people come looking for, listed before anyone has typed anything. */
+const POPULAR = ['Grote Markt', 'Oude Markt', 'Monseigneur Ladeuzeplein', 'Martelarenplein'];
+
 /** Places are many: they join the list once a query could pick a few, and only the best. */
 const PLACE_QUERY = 2;
 const PLACES_SHOWN = 6;
@@ -141,7 +148,9 @@ export function CommandMenu(props: MenuProps) {
       if (action === 'help' || action === 'about') props.onPage(action);
       else props.run(action);
     };
-    const commands = [...commandsFor(state), ...keyCommands(sheet)].map((c): Row =>
+    const typing = query.trim().length > 0;
+    // The keys are a page of their own; they only join the list to be searched.
+    const commands = [...commandsFor(state), ...(typing ? keyCommands(sheet) : [])].map((c): Row =>
       Object.assign(c, { choose: choose(c.action) }),
     );
     // The few buildings you can go into are always listed: something to find without a name.
@@ -155,19 +164,28 @@ export function CommandMenu(props: MenuProps) {
       icon: 'place',
       choose: () => props.rooms?.go(room),
     }));
-    if (!props.places || query.trim().length < PLACE_QUERY) return [...commands, ...rooms];
+    if (!props.places) return [...rooms, ...commands];
     const { go, city } = props.places;
-    const places = placesIn(city).map((place): Row => ({
+    const placeRow = (place: Place): Row => ({
       id: `place-${place.name}`,
       group: 'places',
       label: place.name,
-      detail: place.kind === 'square' ? 'Square · look there' : 'Street · look there',
+      detail: place.kind === 'square' ? 'Square' : 'Street',
       keywords: place.kind,
       keys: [],
       icon: 'place',
       choose: () => go(place),
-    }));
-    return [...commands, ...rooms, ...places];
+    });
+    const places = placesIn(city);
+    if (query.trim().length < PLACE_QUERY) {
+      const popular = POPULAR.flatMap((name) => places.filter((place) => place.name === name));
+      return [...rooms, ...popular.map(placeRow), ...commands];
+    }
+    // Squares first: a tie goes to "Oude Markt" over "Oude Diestsesteenweg".
+    const ranked = places.toSorted(
+      (a, b) => Number(b.kind === 'square') - Number(a.kind === 'square'),
+    );
+    return [...rooms, ...ranked.map(placeRow), ...commands];
     // props.run and props.onPage are the shell's stable callbacks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, sheet, query, props.places, props.rooms]);
@@ -310,13 +328,13 @@ export function CommandMenu(props: MenuProps) {
                 className="menu-search"
                 type="text"
                 role="combobox"
-                aria-label="Search commands, keys and places"
+                aria-label="Find a street, a place or a command"
                 aria-expanded="true"
                 aria-controls={`${uid}-list`}
                 aria-autocomplete="list"
                 aria-activedescendant={current ? optionId(current) : undefined}
                 // Short enough for a 320px phone; the label says what's searched.
-                placeholder="Search everything…"
+                placeholder="Find a street or place"
                 autoComplete="off"
                 autoCorrect="off"
                 autoCapitalize="none"
@@ -411,7 +429,7 @@ export function CommandMenu(props: MenuProps) {
               </div>
               {!flat.length && (
                 <p className="menu-empty">
-                  Nothing called “{query.trim()}”. Try “walk”, “zoom” or “bike”.
+                  Nothing called “{query.trim()}”. Try a street, or “zoom” or “bike”.
                 </p>
               )}
               <output className="sr-only">{results}</output>
@@ -443,8 +461,11 @@ function Help({ sheet, state }: { sheet: KeySection[]; state: CommandState }) {
   return (
     <div className="menu-page">
       <p className="menu-lede">
-        Everything here is also in the menu: press <kbd>{state.mod}</kbd>
-        <kbd>K</kbd> or <kbd>/</kbd> anywhere, or tap the menu button.
+        <span className="hint-keys">
+          Everything here is also in the menu: press <kbd>{state.mod}</kbd>
+          <kbd>K</kbd> or <kbd>/</kbd> anywhere.
+        </span>
+        <span className="hint-touch">Tap the Menu button for everything here.</span>
       </p>
       {sections.map((section) => (
         <section key={section.id} className="key-section" aria-labelledby={`keys-${section.id}`}>

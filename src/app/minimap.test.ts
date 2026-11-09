@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import type { Building } from '../data/city.ts';
-import { MAP_COLOURS, covers, drawCity, drawMinimap, indexCity } from './minimap.ts';
+import { MAP_COLOURS, YOU, covers, drawCity, drawMinimap, indexCity } from './minimap.ts';
 import type { Pen } from './minimap.ts';
 
 const square = (x: number, z: number, half: number) =>
@@ -104,7 +104,7 @@ describe('drawMinimap', () => {
     expect(calls).toContain('rotate -1');
     // The image, centred on where it was drawn, its span a side.
     expect(calls).toContain('drawImage -290 -310 600 600');
-    expect(fills).toEqual(['#ff0000', '#00ff00', '#fbf6ea']);
+    expect(fills).toEqual(['#ff0000', '#00ff00', YOU]);
     expect(moves()).toBe(1);
     expect(calls.filter((c) => c === 'arc')).toHaveLength(3);
     expect(calls.at(-1)).toBe('restore');

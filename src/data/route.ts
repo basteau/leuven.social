@@ -251,3 +251,34 @@ function taut(
   }
   return kept;
 }
+
+/** The longest stretch one route is asked for (m): both ends and the margin fit its window. */
+export const LEG = 300;
+/** Which way off the straight line, and how far of a leg, each try sets out (the straight line first). */
+const LEG_TURNS = [0, 25, -25, 50, -50, 80, -80];
+const LEG_SHARES = [1, 0.6];
+
+/**
+ * Where to head for a spot further off than a route reaches, best first: a point a leg's length
+ * toward it, then the same to either side and at shorter stretches, for when that point is over
+ * a river or the tracks. Within a leg, the spot itself. Each is `[x, z, last]`. Pure, so a walk
+ * across town is just routes, one after another.
+ */
+export function legsToward(
+  fromX: number,
+  fromZ: number,
+  toX: number,
+  toZ: number,
+): [number, number, boolean][] {
+  const [dx, dz] = [toX - fromX, toZ - fromZ];
+  const far = Math.hypot(dx, dz);
+  if (far <= LEG) return [[toX, toZ, true]];
+  const towards = Math.atan2(dz, dx);
+  return LEG_SHARES.flatMap((share) =>
+    LEG_TURNS.map((turn): [number, number, boolean] => {
+      const angle = towards + (turn * Math.PI) / 180;
+      const length = LEG * share;
+      return [fromX + Math.cos(angle) * length, fromZ + Math.sin(angle) * length, false];
+    }),
+  );
+}

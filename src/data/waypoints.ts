@@ -36,6 +36,16 @@ export function addWaypoint(
   return [...list, next].slice(-MAX_WAYPOINTS);
 }
 
+/** A waypoint renamed or recoloured; its name is cut, not trimmed, while someone types it. */
+export const updateWaypoint = (
+  list: readonly Waypoint[],
+  id: string,
+  change: { name?: string; colour?: WaypointColour },
+): Waypoint[] =>
+  list.map((w) =>
+    w.id === id ? { ...w, ...change, name: (change.name ?? w.name).slice(0, NAME_MAX) } : w,
+  );
+
 export const removeWaypoint = (list: readonly Waypoint[], id: string): Waypoint[] =>
   list.filter((w) => w.id !== id);
 

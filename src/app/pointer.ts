@@ -7,9 +7,9 @@
 
 /**
  * How far in from each edge the edge arrow stays (px): clear of the street plate and the credits
- * along the top and the menu button and pills along the bottom.
+ * along the top, the view's controls down the end edge and the pills along the bottom.
  */
-export const EDGE_INSET = { top: 76, right: 32, bottom: 88, left: 32 } as const;
+export const EDGE_INSET = { top: 76, right: 88, bottom: 88, left: 32 } as const;
 export type Inset = { top: number; right: number; bottom: number; left: number };
 
 export interface Pointer {

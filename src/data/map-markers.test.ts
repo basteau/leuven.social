@@ -14,10 +14,12 @@ import {
   MAX_WAYPOINTS,
   NAME_MAX,
   WAYPOINTS_KEY,
+  WAYPOINT_COLOURS,
   addWaypoint,
   loadWaypoints,
   parseWaypoints,
   removeWaypoint,
+  updateWaypoint,
   saveWaypoints,
   waypointNear,
 } from './waypoints.ts';
@@ -121,5 +123,25 @@ describe('waypoints', () => {
     expect(loadWaypoints()).toEqual([]);
     expect(() => saveWaypoints(list)).not.toThrow();
     Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: real });
+  });
+});
+
+describe('renaming a mark', () => {
+  const list = addWaypoint([], { x: 1, z: 2, name: 'Thuis' }, 'a');
+
+  test('changes its name and colour, nothing else', () => {
+    const next = updateWaypoint(list, 'a', { name: 'Kot', colour: WAYPOINT_COLOURS[2] });
+    expect(next[0]).toEqual({ ...list[0]!, name: 'Kot', colour: WAYPOINT_COLOURS[2] });
+    expect(list[0]!.name).toBe('Thuis');
+  });
+
+  test('keeps spaces while someone types, cuts a name that is too long', () => {
+    expect(updateWaypoint(list, 'a', { name: 'De ' })[0]!.name).toBe('De ');
+    expect(updateWaypoint(list, 'a', { name: 'x'.repeat(80) })[0]!.name).toHaveLength(NAME_MAX);
+  });
+
+  test('a colour alone keeps the name, another id changes nothing', () => {
+    expect(updateWaypoint(list, 'a', { colour: WAYPOINT_COLOURS[1] })[0]!.name).toBe('Thuis');
+    expect(updateWaypoint(list, 'b', { name: 'Kot' })).toEqual(list);
   });
 });

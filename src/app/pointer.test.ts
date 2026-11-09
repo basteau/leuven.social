@@ -37,7 +37,7 @@ describe('the arrow over the avatar', () => {
     expect(corner.y).toBeGreaterThanOrEqual(30 - 1e-9);
     expect(Math.min(corner.x - 10, corner.y - 30)).toBeCloseTo(0);
     // With the HUD's own insets by default.
-    expect(pointerFor(2000, 300, 800, 600, true)!.x).toBe(800 - 32);
+    expect(pointerFor(2000, 300, 800, 600, true)!.x).toBe(800 - 88);
   });
 
   test('at the edge too while it stands under the controls round the screen', () => {

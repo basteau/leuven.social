@@ -78,6 +78,8 @@ export interface Bikes {
 /** Within this of a bike (m), it can be taken there and then; within FETCH, F walks there first. */
 const NEAR = 2;
 const FETCH = 30;
+/** A bike this near (m) offers the Ride pill: F or the pill walks there first if need be. */
+const OFFER = 15;
 /** A route to a bike ends at the open ground nearest it, this much further off at most (m). */
 const ARRIVED = 1.5;
 /** Getting on or off (s): the avatar glides onto the bike or off beside it. */
@@ -395,7 +397,7 @@ export function createBikes(kit: BikesKit): Bikes {
         if (wheel !== was) sounds.freewheel(wheel, w.speed, w.accel <= 0);
       }
       riders.count = riding && shown ? 1 : 0;
-      const near = !riding && !a.place && nearest(w.x, w.z, NEAR) !== null;
+      const near = !riding && !a.place && nearest(w.x, w.z, OFFER) !== null;
       publish(a.mode === 'bike' ? 'riding' : near ? 'near' : '');
       return busy;
     },

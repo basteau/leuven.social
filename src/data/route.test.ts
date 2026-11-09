@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 
-import { Router, clearLine } from './route.ts';
+import { LEG, Router, clearLine, legsToward } from './route.ts';
 import { WalkGrid } from './walkable.ts';
 import { town } from './walkable.fixture.ts';
 
@@ -135,5 +135,30 @@ describe('clearLine', () => {
     expect(clearLine(grid, 30, 45.3, 70, 45.3)).toBe(false); // scrapes the wall
     expect(clearLine(grid, 15, 47, 15, 47)).toBe(true);
     expect(clearLine(grid, 30, 25, 30, 25)).toBe(false);
+  });
+});
+
+describe('legsToward', () => {
+  test('within a leg, the spot itself and nothing else', () => {
+    expect(legsToward(0, 0, 100, 50)).toEqual([[100, 50, true]]);
+    expect(legsToward(10, 10, 10 + LEG, 10)).toEqual([[10 + LEG, 10, true]]);
+  });
+
+  test('past a leg: toward it first, each try a leg or less from where it starts', () => {
+    const legs = legsToward(10, 20, 1010, 20);
+    const [x, z, last] = legs[0]!;
+    expect(x).toBeCloseTo(10 + LEG);
+    expect(z).toBeCloseTo(20);
+    expect(last).toBe(false);
+    for (const [lx, lz, end] of legs) {
+      expect(Math.hypot(lx - 10, lz - 20)).toBeLessThanOrEqual(LEG + 1e-6);
+      expect(end).toBe(false);
+    }
+  });
+
+  test('tries to either side, for when the way straight on is over the river', () => {
+    const legs = legsToward(0, 0, 0, 1000);
+    expect(legs.some(([x]) => x > 50)).toBe(true);
+    expect(legs.some(([x]) => x < -50)).toBe(true);
   });
 });

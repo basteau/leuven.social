@@ -134,7 +134,7 @@ The size and render budgets are enforced by `bun run verify`; if one is exceeded
 | Full map JS and CSS (when first opened)                                         | 8 KB, 1.5 KB    | `scripts/budget.ts` |
 | Account sheet JS and CSS (when first opened)                                    | 2.5 KB, 1.25 KB | `scripts/budget.ts` |
 | Multiplayer JS: accounts, presence, protocol (once the map is up)               | 9.5 KB          | `scripts/budget.ts` |
-| First-load JS (shell + engine)                                                  | 267.5 KB        | `scripts/budget.ts` |
+| First-load JS (shell + engine)                                                  | 269.5 KB        | `scripts/budget.ts` |
 | CSS loaded with the page, gzipped                                               | 3.75 KB         | `scripts/budget.ts` |
 | HTML, with the loading screen inline, gzipped                                   | 7 KB            | `scripts/budget.ts` |
 | Menu JS (loaded while the city is built)                                        | 7 KB            | `scripts/budget.ts` |

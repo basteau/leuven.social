@@ -233,6 +233,16 @@ kbd {
   white-space: nowrap;
 }
 
+/* A place's name can be long: it gives way, in a pill that never crowds out what's beside it. */
+.bar .action {
+  max-inline-size: 100%;
+}
+
+.bar .action span {
+  overflow: clip;
+  text-overflow: ellipsis;
+}
+
 .action.primary {
   background: var(--accent);
   color: var(--paper);
@@ -242,12 +252,147 @@ kbd {
   opacity: 0.75;
 }
 
-/* The corner buttons, side by side: the map, then the menu. */
+/* The end corner: the menu, the view's controls standing on it. */
 .hud-end {
+  position: relative;
   grid-column: 3;
   justify-self: end;
-  display: flex;
+}
+
+/*
+ * The view's controls: a compass between its two quarter turns, zoom, and the way back to you.
+ * Down the end edge, over the menu, where a thumb is. Out of the page's flow, so they don't push
+ * the pills up; on a short window the less-needed go first.
+ */
+.rail {
+  position: absolute;
+  inset-block-end: calc(100% + var(--space-m));
+  inset-inline-end: 0;
+  display: grid;
   gap: var(--space-s);
+}
+
+.rail-group {
+  display: grid;
+  border: var(--border) solid var(--ink);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: var(--shadow-hard);
+  pointer-events: auto;
+}
+
+.rail-btn {
+  position: relative;
+  display: grid;
+  place-items: center;
+  inline-size: var(--control);
+  block-size: var(--control);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.rail-btn:first-child {
+  border-start-start-radius: 999px;
+  border-start-end-radius: 999px;
+}
+
+.rail-btn:last-child {
+  border-end-start-radius: 999px;
+  border-end-end-radius: 999px;
+}
+
+.rail-btn + .rail-btn {
+  box-shadow: 0 -1px 0 color-mix(in oklch, var(--ink) 20%, transparent);
+}
+
+.rail-btn:active {
+  background: var(--paper-press);
+}
+
+.compass-needle {
+  display: block;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .compass-needle {
+    transition: rotate 280ms var(--ease-out);
+  }
+}
+
+/* The view is on someone else's street: the way back says so, in words too (its tip and label). */
+.rail-find[data-away] {
+  background: var(--accent);
+  color: var(--paper);
+}
+
+/* Asked for by the coach: a ring that doesn't need motion to be seen. */
+.rail-zoom[data-coach] {
+  outline: 3px solid var(--you);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .rail-zoom[data-coach] {
+    animation: coach-ring 1.4s ease-in-out infinite alternate;
+  }
+
+  @keyframes coach-ring {
+    to {
+      outline-offset: 5px;
+    }
+  }
+}
+
+@media (max-height: 30rem) {
+  .rail-turn {
+    display: none;
+  }
+}
+
+@media (max-height: 22rem) {
+  .rail-zoom {
+    display: none;
+  }
+}
+
+/* A control's name and key, for whoever can hover or tab to it. */
+.tip {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-end: calc(100% + var(--space-s));
+  display: none;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-s);
+  translate: 0 -50%;
+  border-radius: var(--radius-inner);
+  background: var(--ink);
+  color: var(--paper);
+  font: 650 0.75rem / 1.2 var(--font-ui);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.rail-btn:focus-visible .tip {
+  display: inline-flex;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .rail-btn:hover .tip {
+    display: inline-flex;
+  }
+
+  .rail-btn:hover {
+    background: var(--paper-press);
+  }
+
+  .rail-find[data-away] .rail-btn:hover {
+    background: var(--accent-press);
+  }
 }
 
 /*
@@ -260,18 +405,16 @@ kbd {
   align-items: center;
   justify-content: center;
   gap: var(--space-s);
-  min-inline-size: 40px;
-  block-size: 40px;
-  padding-inline: 9px;
+  min-inline-size: var(--bar);
+  block-size: var(--bar);
+  padding-inline: var(--space-m);
   border-radius: 999px;
-  font: inherit;
+  font: 700 0.875rem / 1 var(--font-ui);
 }
 
-/* 40px to the eye, 44px to the thumb. */
-.menu-trigger::after {
-  position: absolute;
-  inset: -2px;
-  content: '';
+.map-trigger {
+  grid-column: 1;
+  justify-self: start;
 }
 
 .menu-trigger kbd {
@@ -283,6 +426,7 @@ kbd {
 @media (hover: none), (pointer: coarse) {
   .action kbd,
   .menu-trigger kbd,
+  .minimap-tab kbd,
   .menu-option .keycaps {
     display: none;
   }
@@ -331,21 +475,52 @@ kbd {
 
 /*
  * The minimap: a round window on the streets round you, in the bottom start corner, turned the way
- * the view looks. Pressed, it shows more of the city; it sinks into its shadow like a button.
+ * the view looks, with a tab that says what it is. Pressed, the full map; it sinks into its
+ * shadow like a button.
  */
 .minimap {
+  position: relative;
   grid-column: 1;
   justify-self: start;
   inline-size: clamp(5.5rem, 24vw, 9.5rem);
   aspect-ratio: 1;
   padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.minimap-round {
+  display: block;
+  block-size: 100%;
   overflow: clip;
   border: var(--border) solid var(--ink);
   border-radius: 50%;
   background: var(--paper);
   box-shadow: var(--shadow-hard);
-  pointer-events: auto;
-  cursor: pointer;
+}
+
+.minimap-tab {
+  position: absolute;
+  inset-block-end: calc(-1 * var(--space-xs));
+  inset-inline-start: 50%;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-block-size: 1.75rem;
+  padding-inline: var(--space-s) var(--space-m);
+  translate: -50% 0;
+  border: var(--border) solid var(--ink);
+  border-radius: 999px;
+  background: var(--paper);
+  font: 750 0.75rem / 1 var(--font-ui);
+}
+
+.minimap-tab svg {
+  inline-size: 14px;
+  block-size: 14px;
 }
 
 .minimap canvas {
@@ -356,7 +531,6 @@ kbd {
 
 .minimap:active {
   translate: 0 calc(var(--lift) - 1px);
-  box-shadow: var(--shadow-pressed);
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -367,12 +541,20 @@ kbd {
   }
 }
 
+@media (hover: hover) and (pointer: fine) {
+  .minimap:hover .minimap-tab {
+    background: var(--paper-press);
+  }
+}
+
 /* On a phone the moment's pill sits over the minimap and the menu button, not squeezed between. */
 @media (max-width: 42rem) {
+  /* Kept off the rail, which stands over the end corner, and as far off the start, to centre. */
   .bar {
     grid-column: 1 / -1;
     grid-row: 1;
-    justify-self: center;
+    inline-size: 100%;
+    padding-inline: calc(var(--control) + 4px + var(--space-m));
   }
 
   .bar:empty {
@@ -441,7 +623,7 @@ kbd {
   display: flex;
   align-items: center;
   max-inline-size: min(17rem, 100%);
-  min-block-size: 40px;
+  min-block-size: var(--control);
   margin: 0;
   padding-block: var(--space-xs);
   padding-inline: var(--space-m);
@@ -707,6 +889,10 @@ kbd {
   color: inherit;
   font: 600 1.125rem / 1.2 var(--font-ui);
   outline: none;
+}
+
+.menu-search:placeholder-shown {
+  text-overflow: ellipsis;
 }
 
 .menu-search::placeholder {
@@ -1027,7 +1213,7 @@ kbd {
   align-items: center;
   gap: var(--space-s);
   position: relative;
-  min-block-size: 40px;
+  min-block-size: var(--control);
   /* Room for the street plate beside it, down to a 320 px screen. */
   max-inline-size: min(16rem, 40vw);
   padding-inline: var(--space-s) var(--space-m);
@@ -1083,13 +1269,6 @@ kbd {
 /* On the accent, the count needs its full paper to read (4.5:1). */
 .you.primary .you-count {
   opacity: 1;
-}
-
-/* 40px to the eye, 44px to the thumb, as the menu button. */
-.you::after {
-  position: absolute;
-  inset: -2px;
-  content: '';
 }
 
 .you:active {

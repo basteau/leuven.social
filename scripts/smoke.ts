@@ -193,7 +193,7 @@ async function expectCreditsShown(): Promise<void> {
 
 /**
  * The loading screen is the page's own HTML, there before any script, and gone once the map is
- * drawn; then the map has no controls on it but the map and menu buttons.
+ * drawn; then the map has only the few controls that belong on it.
  */
 async function expectBareMap(): Promise<void> {
   const html = await (await fetch(BASE)).text();
@@ -204,8 +204,19 @@ async function expectBareMap(): Promise<void> {
   const buttons = await evalJson<string[]>(
     `JSON.stringify([...document.querySelectorAll('main button:not(.avatar-arrow)')].filter((b) => b.checkVisibility() && !b.closest('dialog')).map((b) => b.getAttribute('aria-label') ?? b.textContent))`,
   );
-  // Who you are (a guest's name and Join), the minimap and the menu: nothing else.
-  const expected = ['Join', 'Minimap: show more of the city', 'Open the map', 'Menu'];
+  // Who you are (a guest's name and Join), the minimap (the way to the map), the view's rail, the
+  // menu: nothing else.
+  const expected = [
+    'Join',
+    'Open the map',
+    'Turn left',
+    'North up',
+    'Turn right',
+    'Zoom in',
+    'Zoom out',
+    'Back to you',
+    'Menu',
+  ];
   const [you = '', ...rest] = buttons;
   if (!you.endsWith('Join') || rest.join() !== expected.slice(1).join()) {
     throw new Error(`the map should show only ${expected.join(', ')}, not ${buttons.join(', ')}`);
@@ -216,8 +227,112 @@ async function expectBareMap(): Promise<void> {
   );
   if (arrow !== 'false') throw new Error(`the arrow over the avatar isn't showing (${arrow})`);
   console.log(
-    'ok  loading screen in the HTML, then a bare map: Join, the minimap, the map and menu buttons and the arrow over you',
+    'ok  loading screen in the HTML, then the map: Join, the minimap, the view’s rail, the menu and the arrow over you',
   );
+}
+
+/**
+ * What's on the map must never sit on what else is on it: every control and panel on screen,
+ * pairwise, and all of them inside the window. Run at each size that matters.
+ */
+async function expectNoCovering(where: string): Promise<void> {
+  const found = await evalJson<{ covering: string[]; outside: string[] }>(`JSON.stringify((() => {
+    const name = (e) => e.getAttribute('aria-label') || e.textContent.trim().slice(0, 24) || e.className;
+    const parts = [...document.querySelectorAll('.you, .credits, .sign, .hint:not(:empty), .minimap, .action, .rail-group, .menu-trigger')]
+      .filter((e) => e.checkVisibility() && !e.closest('dialog'))
+      .map((e) => [name(e), e.getBoundingClientRect()]);
+    const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    const covering = [];
+    parts.forEach(([a, ra], i) => parts.slice(i + 1).forEach(([b, rb]) => { if (hit(ra, rb)) covering.push(a + ' on ' + b); }));
+    const outside = parts.filter(([, r]) => r.left < 0 || r.top < 0 || r.right > innerWidth || r.bottom > innerHeight).map(([a]) => a);
+    return { covering, outside };
+  })())`);
+  if (found.covering.length || found.outside.length) {
+    throw new Error(
+      `${where}: ${[...found.covering, ...found.outside.map((a) => `${a} off screen`)].join('; ')}`,
+    );
+  }
+  console.log(`ok  ${where}: nothing on the map covers anything else`);
+}
+
+/** The first minute: the coach starts by asking you down to the street, and its ring is on +. */
+async function expectFirstMinute(): Promise<void> {
+  const said = await evalJson<string>(
+    `JSON.stringify(document.querySelector('.hint')?.textContent ?? '')`,
+  );
+  if (!said.includes('coral arrow')) throw new Error(`the first coach line says "${said}"`);
+  const ringed = await evalJson<boolean>(
+    `JSON.stringify(!!document.querySelector('.rail-zoom[data-coach]'))`,
+  );
+  if (!ringed) throw new Error('the coach is not pointing at the zoom buttons');
+  console.log('ok  first minute: the coach asks you down to the street, ringing + and −');
+}
+
+/**
+ * The view's controls: + and − zoom, a drag lets the view go and Back to you says so and brings it
+ * back, the compass names north up, and focus goes back to the map after a press with a pointer.
+ */
+async function expectViewControls(): Promise<void> {
+  const before = await canvasNumber('zoom');
+  await browser('click', 'button[aria-label="Zoom in"]');
+  await browser('wait', '400');
+  if (!((await canvasNumber('zoom')) > before)) throw new Error('the + button did not zoom in');
+  await browser('click', 'button[aria-label="Zoom out"]');
+  await browser('wait', '400');
+  if (!(Math.abs((await canvasNumber('zoom')) - before) < 0.05))
+    throw new Error('− did not undo +');
+  await browser('wait', '--fn', `document.activeElement === document.querySelector('.map')`);
+  const away = `!!document.querySelector('.rail-find[data-away]')`;
+  await drag(60, 40);
+  await browser('wait', '--fn', away);
+  await browser('click', '.rail-find .rail-btn');
+  await browser('wait', '--fn', `!(${away})`);
+  await browser('click', 'button[aria-label="North up"]');
+  await browser('wait', '300');
+  console.log('ok  view controls: zoom, away and back to you, north up');
+}
+
+/**
+ * Finding a place: the search on the full map, its sheet leading with Go here; See it takes the
+ * view there and the Go to pill offers the walk; Esc lets go of it again. And a mark across town
+ * is one Go here away.
+ */
+async function expectFinding(): Promise<void> {
+  const stop = `[...document.querySelectorAll('button')].some((b) => b.textContent.includes('Stop'))`;
+  await browser('press', 'm');
+  await browser('wait', '--fn', `!!document.querySelector('dialog.bigmap')?.open`);
+  await browser('fill', '.map-search-box input', 'oude markt');
+  await browser('wait', '--fn', `!!document.querySelector('.map-results button')`);
+  await browser('screenshot', `${ARTIFACTS}smoke-map-search.png`);
+  await browser('click', '.map-results li:first-child button');
+  await browser(
+    'wait',
+    '--fn',
+    `document.querySelector('.sheet-title')?.textContent === 'Oude Markt'`,
+  );
+  await browser('find', 'role', 'button', 'click', '--name', 'See it');
+  const pill = `[...document.querySelectorAll('.action')].find((b) => b.textContent.includes('Go to Oude Markt'))`;
+  await browser('wait', '--fn', `!document.querySelector('dialog.bigmap') && !!${pill}`);
+  await expectNoCovering('desktop 1280×800 with the Go to pill');
+  await browser('eval', `${pill}.click()`);
+  await browser('wait', '--fn', stop);
+  await holdKeys(['Escape'], 0);
+  await browser('wait', '--fn', `!(${stop})`);
+  console.log('ok  found a square on the full map, saw it, walked there, let go of the walk');
+
+  // A mark further off than one route reaches.
+  await browser('press', 'm');
+  await browser('wait', '--fn', `!!document.querySelector('dialog.bigmap')?.open`);
+  await browser('click', 'dialog.bigmap .rail-btn[aria-label^="Marks"]');
+  await browser('click', '[aria-label="Go to Far"]');
+  await browser('wait', '--fn', `!document.querySelector('dialog.bigmap') && ${stop}`);
+  const hint = await evalJson<string>(
+    `JSON.stringify(document.querySelector('.hint')?.textContent)`,
+  );
+  if (hint.includes('Too far')) throw new Error(`Go here to a far mark said "${hint}"`);
+  await holdKeys(['Escape'], 0);
+  await browser('wait', '--fn', `!(${stop})`);
+  console.log('ok  Go here to a mark across town sets off, in legs');
 }
 
 const menu = {
@@ -410,7 +525,13 @@ async function expectPlayers(): Promise<void> {
     await browser('wait', '--fn', `${html('account')} === ''`);
     await browser('wait', '--fn', `${html('guest')} === ${JSON.stringify(guestName)}`);
     await until(() => bot.nameOf(you) === guestName, `the bot seeing ${guestName} again`);
-    await browser('press', 'Escape');
+    // Shut by its button if it's still open: Escape would hide the page, and a hidden page's frames
+    // stop.
+    await browser(
+      'eval',
+      `document.querySelector('dialog.account[open] button[aria-label="Close"]')?.click(); 1`,
+    );
+    await browser('wait', '--fn', `!document.querySelector('dialog.account')?.open`);
     console.log(`ok  signed out: ${guestName} again, the same figure`);
   } finally {
     bot.close();
@@ -424,14 +545,14 @@ async function expectPlayers(): Promise<void> {
 async function expectMap(): Promise<void> {
   await browser(
     'eval',
-    `localStorage.setItem('leuven-waypoints', '[{"id":"smoke","x":64,"z":50,"name":"Smoke","colour":"#d2553f"}]')`,
+    `localStorage.setItem('leuven-waypoints', '[{"id":"smoke","x":64,"z":50,"name":"Smoke","colour":"#d2553f"},{"id":"far","x":700,"z":-500,"name":"Far","colour":"#4a77a8"}]')`,
   );
   await browser('press', 'm');
   await browser('wait', '--fn', `!!document.querySelector('dialog.bigmap')?.open`);
   await browser('wait', '800'); // its first paint
   await browser('screenshot', `${ARTIFACTS}smoke-bigmap.png`);
   const parts = await evalJson<string[]>(
-    `JSON.stringify([...document.querySelectorAll('dialog.bigmap .map-btn')].map((b) => b.getAttribute('aria-label')))`,
+    `JSON.stringify([...document.querySelectorAll('dialog.bigmap .rail-btn')].map((b) => b.getAttribute('aria-label')))`,
   );
   if (!parts.some((p) => p.startsWith('Marks'))) throw new Error('the map has no Marks button');
   await browser('press', 'Escape');
@@ -446,8 +567,8 @@ async function expectMap(): Promise<void> {
   const stop = `[...document.querySelectorAll('button')].some((b) => b.textContent.includes('Stop'))`;
   await browser('press', 'm');
   await browser('wait', '--fn', `!!document.querySelector('dialog.bigmap')?.open`);
-  await browser('click', 'dialog.bigmap .map-btn[aria-label^="Marks"]');
-  await browser('click', '[aria-label="Navigate to Smoke"]');
+  await browser('click', 'dialog.bigmap .rail-btn[aria-label^="Marks"]');
+  await browser('click', '[aria-label="Go to Smoke"]');
   await browser('wait', '--fn', `!document.querySelector('dialog.bigmap') && ${stop}`);
   await expectNothingDrawnUnderMap(stop);
   // Dispatched, not pressed: agent-browser's Escape hides the page, which stops its frames.
@@ -818,6 +939,8 @@ try {
   await expectShortTasks('desktop 1280×800');
   await expectCreditsShown();
   await expectBareMap();
+  await expectFirstMinute();
+  await expectNoCovering('desktop 1280×800');
   await expectMenu();
   await expectMap();
   // Exercise every control once, then check nothing broke.
@@ -864,11 +987,16 @@ try {
   await expectRiding();
   await expectRoom();
   await expectPlayers();
+  // Last on the desktop: a drag and a look at Oude Markt build what's round them, which would
+  // count against the whole-city geometry the checks above measure along their own walk.
+  await expectViewControls();
+  await expectFinding();
 
   await browser('set', 'viewport', '390', '844');
   await openFresh(BASE);
   await expectHealthyPage('phone 390×844');
   await expectShortTasks('phone 390×844');
+  await expectNoCovering('phone 390×844');
   await browser('screenshot', `${ARTIFACTS}smoke-phone.png`);
   // On a phone the menu button opens the menu as a sheet; its close button shuts it.
   await browser('click', 'button[aria-label=Menu]');
@@ -878,6 +1006,12 @@ try {
   await browser('click', 'dialog.menu:not(.account) button.menu-close');
   await browser('wait', '--fn', menu.closed);
   console.log('ok  phone: the menu button opens the menu; its close button shuts it, to the map');
+  await browser('set', 'viewport', '320', '568');
+  await browser('wait', '600');
+  await expectNoCovering('phone 320×568');
+  await browser('set', 'viewport', '844', '390');
+  await browser('wait', '600');
+  await expectNoCovering('landscape 844×390');
   console.log(`screenshots in .artifacts/`);
 } catch (error) {
   console.error(`\nSMOKE FAILED  ${error instanceof Error ? error.message : String(error)}`);

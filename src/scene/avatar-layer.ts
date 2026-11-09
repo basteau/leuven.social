@@ -23,7 +23,7 @@ import type { City } from '../data/city.ts';
 import { DOOR_HALF } from '../data/room-grid.ts';
 import type { Room } from '../data/rooms.ts';
 import type { Presence } from '../data/presence.ts';
-import { Router } from '../data/route.ts';
+import { Router, legsToward } from '../data/route.ts';
 import type { Terrain } from '../data/terrain.ts';
 import { WalkGrid } from '../data/walkable.ts';
 import { avatarState, createAvatar, stepAvatar } from './avatar.ts';
@@ -86,6 +86,9 @@ const TRIES = 8;
 const DETOUR = 80;
 /** A spot picked on the full map goes to the street within this of it (m). */
 const NAVIGATE_SNAP = 30;
+/** A walk across town is at most this many legs, and a leg ends within this of its end (m). */
+const MAX_LEGS = 16;
+const LEG_ARRIVED = 4;
 /** A tap that touches the avatar within this of its feet (m) stops it where it is. */
 const ON_AVATAR = 1;
 /**
@@ -234,6 +237,8 @@ export interface AvatarLayer {
   lookAt(x: number, z: number): void;
   /** Pins the camera to the avatar again, gliding back to it. */
   recentre(): void;
+  /** Pins the camera to the avatar and comes down to the street, if it's further out. */
+  comeDown(): void;
   /** The map was dragged: the view is the person's now. */
   letGo(): void;
   /** Gets on or off the nearest bike, or rings its bell. */
@@ -544,7 +549,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     // Walked out for a tap outside: on to it, unless the keys took over on the way.
     const next = onward;
     onward = null;
-    if (next && avatar.walker.route) routeOrRefuse(...next);
+    if (next && avatar.walker.route) headFor(...next);
   }
   /**
    * Out through the door a step past the footprint's edge (the room's grid keeps its threshold
@@ -652,7 +657,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     const current = picked ? route : null;
     if (current === reported) return;
     reported = current;
-    host.onRoute?.(current && [current.at(-2)!, current.at(-1)!]);
+    host.onRoute?.(current && (trip?.to ?? [current.at(-2)!, current.at(-1)!]));
   }
 
   function clearRoute(): void {
@@ -791,10 +796,13 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
   }
   /** Where to go on from a room's door, for a tap outside the room; dropped by any other. */
   let onward: [number, number] | null = null;
+  /** Going further than one route reaches: the spot at the end, and where this leg stops. */
+  let trip: { to: [number, number]; leg: [number, number]; legs: number } | null = null;
 
   function tap(clientX: number, clientY: number): void {
     asked++;
     onward = null;
+    trip = null;
     bikes?.cancel();
     if (bikes?.busy) return;
     const rect = canvas.getBoundingClientRect();
@@ -837,6 +845,35 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     if (walkTo(x, z, TAP_REACH, far ? 1 : TRIES)) return true;
     refuse(x, z, far ? 'far' : 'closed');
     return false;
+  }
+
+  /**
+   * A route to a spot however far it is, in legs one route long: each leg walked, the next is set
+   * off on (`nextLeg`). Says why if there's no way even to start. A route's own limit (the
+   * router's window) shouldn't be something a person walking across town has to know.
+   */
+  function headFor(x: number, z: number, legs = 0): boolean {
+    const w = avatar.walker;
+    for (const [lx, lz, final] of legsToward(w.x, w.z, x, z)) {
+      if (!walkTo(lx, lz, TAP_REACH, final ? TRIES : 1)) continue;
+      const end = w.route!;
+      trip = final ? null : { to: [x, z], leg: [end.at(-2)!, end.at(-1)!], legs };
+      return true;
+    }
+    trip = null;
+    refuse(x, z, legs ? 'closed' : 'far');
+    return false;
+  }
+
+  /** A leg walked to its end sets off on the next; stopped short (the keys took over), it's over. */
+  function nextLeg(): void {
+    if (!trip || avatar.walker.route) return;
+    const { to, leg, legs } = trip;
+    trip = null;
+    const w = avatar.walker;
+    if (legs < MAX_LEGS && Math.hypot(w.x - leg[0], w.z - leg[1]) < LEG_ARRIVED) {
+      headFor(...to, legs + 1);
+    }
   }
 
   /** In a room: out through its door, and on to `at` once outside. */
@@ -918,6 +955,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     tell();
 
     if (Math.hypot(w.x - publishedAt[0], w.z - publishedAt[1]) >= 1) publish();
+    nextLeg();
     if (marker && !w.route) clearRoute();
     syncRoute();
     if (marker) hint.geometry.setDrawRange(passedVertices(marker, w.travelled), Infinity);
@@ -1120,6 +1158,10 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       wake();
     },
     recentre: pinCamera,
+    comeDown() {
+      pinCamera();
+      if (camera.zoom < PLACE_ZOOM) zoomGoal = PLACE_ZOOM;
+    },
     letGo() {
       focus = null;
       zoomGoal = Number.NaN;
@@ -1168,12 +1210,14 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       if (bikes?.busy) return;
       // A mark can sit inside a block: the street nearest it is where to go.
       const at = grid.nearest(x, z, NAVIGATE_SNAP, true) ?? [x, z];
+      trip = null;
       if (room) leaveFor(at);
-      else if (!routeOrRefuse(...at)) return;
+      else if (!headFor(...at)) return;
       pinCamera();
     },
     cancelRoute() {
       const w = avatar.walker;
+      trip = null;
       if (!w.route) return;
       w.route = null;
       clearRoute();
