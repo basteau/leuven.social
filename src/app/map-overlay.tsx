@@ -25,6 +25,7 @@ import { ACCENT, INK, drawDoor, drawMark, drawPlayer, drawTarget } from './map-d
 import { dpr, paintRaster, rasterOf } from './map-raster.ts';
 import { search } from './search.ts';
 import type { Store } from './store.ts';
+import { strayPress } from './input.ts';
 import { RailButton, focusQuietly } from './view-controls.tsx';
 
 /**
@@ -89,6 +90,8 @@ export function MapOverlay(props: Props) {
   useState(() => ensureMarks(props.marks));
   const marks = useSyncExternalStore(props.marks.subscribe, props.marks.get);
   const [selection, setSelection] = useState<Selection>(null);
+  /** When a spot last became a mark: its Remove comes up where Mark was. */
+  const markedAt = useRef(0);
   const [listing, setListing] = useState(false);
   const [query, setQuery] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
@@ -590,7 +593,15 @@ export function MapOverlay(props: Props) {
         </div>
         {me && (
           <div className="rail-group">
-            <RailButton label="Back to you" hint="Back to you" onClick={() => centreOn(me.x, me.z)}>
+            <RailButton
+              label="Back to you"
+              hint="Back to you"
+              onClick={() => {
+                // Where it is now: this render's `me` may be a walk behind.
+                const at = selfOf(viewer.current?.presences() ?? []) ?? me;
+                centreOn(at.x, at.z);
+              }}
+            >
               <TargetIcon on={false} />
             </RailButton>
           </div>
@@ -708,7 +719,9 @@ export function MapOverlay(props: Props) {
                 <button
                   type="button"
                   className="action"
-                  onClick={() => {
+                  onClick={(event) => {
+                    // Where Mark just was: the rest of a double press on Mark mustn't take it away.
+                    if (strayPress(event.detail, performance.now() - markedAt.current)) return;
                     commit(removeWaypoint(marks, picked.id));
                     setSelection(null);
                   }}
@@ -746,6 +759,7 @@ export function MapOverlay(props: Props) {
                   className="action"
                   onClick={() => {
                     const id = newId();
+                    markedAt.current = performance.now();
                     commit(addWaypoint(marks, { x: spot.x, z: spot.z, name: suggestion }, id));
                     setSelection({ kind: 'mark', id });
                   }}

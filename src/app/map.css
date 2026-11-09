@@ -127,6 +127,7 @@
 
 .map-results {
   position: absolute;
+  z-index: 1; /* over a mark's sheet, which a small phone's results reach */
   inset-block-start: calc(100% + var(--space-s));
   inset-inline: 0;
   max-block-size: min(22rem, 60dvh);
