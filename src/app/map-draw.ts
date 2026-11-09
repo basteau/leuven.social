@@ -1,20 +1,11 @@
 /** The small shapes the full map draws, in the app's ink and accent. */
 
-import { loadWaypoints } from '../data/waypoints.ts';
-import type { Waypoint } from '../data/waypoints.ts';
-import type { Store } from './store.ts';
 import { YOU, YOU_DEEP, YOU_LIT } from './colours.ts';
-
-const loaded = new WeakSet<Store<Waypoint[]>>();
-/** Fills the marks store from localStorage the first time a map part needs it. */
-export function ensureMarks(store: Store<Waypoint[]>): void {
-  if (loaded.has(store)) return;
-  loaded.add(store);
-  store.set(loadWaypoints());
-}
 
 /** The accent (`--accent` in index.html) as the canvas needs it. */
 export const ACCENT = '#1d5c9b';
+/** The ink of what's drawn on the map: names and a spot just picked. */
+export const INK = '#2b2420';
 const OTHER = '#8d867c';
 
 /** A waypoint: a coloured dot in a white ring. */
@@ -111,7 +102,7 @@ export function drawPlayer(
   }
   ctx.lineWidth = Math.max(1.5, r * 0.22);
   ctx.lineJoin = 'round';
-  ctx.strokeStyle = self ? '#2b2420' : '#fff';
+  ctx.strokeStyle = self ? INK : '#fff';
   ctx.stroke();
   ctx.restore();
 }
