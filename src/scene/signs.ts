@@ -364,9 +364,9 @@ const SYMBOLS: Partial<Record<ShopKind, Symbol>> = {
     );
     bar(mesh, f, 0.09, [MID - 0.2, y - 0.14], [MID + 0.2, y - 0.14], 0.11, canvas);
     for (const s of [-1, 1]) {
-      bar(mesh, f, 0.04, [MID + s * 0.14, y + 0.04], [MID + s * 0.14, y + 0.29], 0.05, PROPS.iron);
+      bar(mesh, f, 0.05, [MID + s * 0.14, y + 0.04], [MID + s * 0.14, y + 0.29], 0.05, PROPS.iron);
     }
-    bar(mesh, f, 0.04, [MID - 0.14, y + 0.27], [MID + 0.14, y + 0.27], 0.05, PROPS.iron);
+    bar(mesh, f, 0.05, [MID - 0.14, y + 0.27], [MID + 0.14, y + 0.27], 0.05, PROPS.iron);
   },
   // A desk bell for a counter (an estate agent, an undertaker): a dome, its button and a base.
   service: (mesh, f, y) => {
