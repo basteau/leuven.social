@@ -46,9 +46,10 @@ export interface LightField {
 /**
  * Light fills up rather than stacks: much the same whether one lamp shines or six do, and never a
  * clipped white under a crowd of them, so the middle of a square and the middle of a street between
- * two lamps come out alike.
+ * two lamps come out alike. The curve is taken on the brightest channel and all three scale by it,
+ * so overlapping lamps keep their hue; flattening each channel on its own would pale them to white.
  */
-const fill = (light: number) => Math.round((1 - Math.exp(-light)) * 255);
+const filled = (most: number) => (1 - Math.exp(-most)) / most;
 
 interface LightSources {
   area: readonly Bounds[];
@@ -140,7 +141,10 @@ export function bakeLight(
   }
   // Most of the map is dark, and an exponential a channel would be most of the bake.
   for (let i = 0; i < width * height; i++) {
-    if (light[i * 3]) for (let c = 0; c < 3; c++) data[i * 4 + c] = fill(light[i * 3 + c]!);
+    const most = Math.max(light[i * 3]!, light[i * 3 + 1]!, light[i * 3 + 2]!);
+    if (most <= 0) continue;
+    const scale = filled(most) * 255;
+    for (let c = 0; c < 3; c++) data[i * 4 + c] = Math.round(light[i * 3 + c]! * scale);
   }
   return { data, width, height, minX, minZ, texel: LIGHT_TEXEL, low, high };
 }
