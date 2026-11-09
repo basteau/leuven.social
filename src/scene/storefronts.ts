@@ -144,7 +144,11 @@ export function addTerrace(mesh: MeshBuilder, p: FrontPoint, kind: ShopKind, see
   }
 }
 
-/** A sandwich board on the pavement by a door: two chalk-black leaves in a wooden A-frame, no words. */
+/**
+ * A sandwich board on the pavement by a door: two chalk-black leaves in a wooden A-frame, no
+ * words. Wooden cheeks close its two ends, so from along the wall it is a solid wedge on the
+ * ground, where two bare leaves read as a black chevron floating in the air.
+ */
 export function addBoard(mesh: MeshBuilder, f: Frame): void {
   for (const s of [-1, 1]) {
     mesh.quad(
@@ -154,6 +158,13 @@ export function addBoard(mesh: MeshBuilder, f: Frame): void {
       frameAt(f, -0.3, 0, 0.95),
       CHALK,
       away(f, 0, s, 0.4),
+    );
+    mesh.triangle(
+      frameAt(f, s * 0.3, -0.32, 0),
+      frameAt(f, s * 0.3, 0.32, 0),
+      frameAt(f, s * 0.3, 0, 0.95),
+      WOOD,
+      away(f, s, 0, 0),
     );
   }
   // A few pale chalk lines of menu, no readable words.

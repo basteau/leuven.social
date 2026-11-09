@@ -162,7 +162,8 @@ test("a cell's fronts: awnings stop short of each other and the corners, signs h
   // Bakery and café awnings; their signs (a croissant, a cup) and the café's terrace, a layout picked by its place; the
   // service front has no room.
   expect(awnings.build().getAttribute('position').count).toBe(14 * 2);
-  expect(count).toBe(160 + 100 + 108);
+  // Each of the bakery's and the café's menu boards is two cheeks more than two leaves: 6 vertices.
+  expect(count).toBe(160 + 100 + 108 + 12);
   const ys = points.map(([, y]) => y!);
   // The terrace stands on the ground as drawn, the signs over it where it's above the footing.
   expect(Math.min(...ys)).toBeCloseTo(2.5);
@@ -228,8 +229,10 @@ test('terraces vary by seed, and every layout stays inside its footprint', () =>
   expect(counts.size).toBeGreaterThan(3);
 });
 
-test('a menu board stands wordless on the pavement', () => {
+test('a menu board stands wordless on the pavement, its ends closed so it reads as one', () => {
   const f = { x: 10, z: 0, fx: 0, fz: -1, scale: 1 };
   const board = built((m) => addBoard(m, f));
   expect(Math.max(...board.points.map(([, y]) => y!))).toBeLessThan(1.1);
+  // Two leaves, a cheek at each end and a chalk line: nothing but a solid wedge from along the wall.
+  expect(board.count).toBe(8 + 6 + 8);
 });
