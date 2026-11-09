@@ -57,8 +57,13 @@ export function fitRun(lengths: readonly number[], target: number): number[] {
   return lengths.map((length) => {
     along += length;
     const due = Math.round(along / target);
+    // Never more bays than this wall could hold spaced as one, or what a corner's short facets
+    // carried on would be crammed in at under a metre each.
+    const fits = Math.max(1, Math.round(length / target));
     const bays =
-      length < Math.max(SHORTEST_WALL, target * SHORT_WALL) ? 0 : Math.max(0, due - placed);
+      length < Math.max(SHORTEST_WALL, target * SHORT_WALL)
+        ? 0
+        : Math.max(0, Math.min(due - placed, fits));
     placed += bays;
     return Math.min(bays, MOST_BAYS);
   });
