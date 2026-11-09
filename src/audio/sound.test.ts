@@ -15,7 +15,7 @@ function memory(initial?: string) {
 }
 
 /** A sound engine with a fake context, storage and page, and what it made. */
-function setup(stored?: string, state?: AudioContextState, broken = false) {
+function setup(stored?: string, state?: AudioContextState, broken = false, automated = false) {
   const storage = memory(stored);
   const made: FakeContext[] = [];
   const env: SoundEnv = {
@@ -25,6 +25,7 @@ function setup(stored?: string, state?: AudioContextState, broken = false) {
       return ctx as unknown as AudioContext;
     },
     storage: () => storage,
+    automated: () => automated,
   };
   const sound = createSound(env);
   const target = new EventTarget();
@@ -137,6 +138,38 @@ describe('sound', () => {
     }
   });
 
+  test('under automation no gesture makes a context, and the toggle still answers', () => {
+    const { sound, made, gesture } = setup(undefined, undefined, false, true);
+    gesture();
+    sound.tap();
+    sound.setOn(false);
+    sound.setOn(true);
+    expect(sound.on).toBe(true);
+    expect(made).toHaveLength(0);
+  });
+
+  test('a browser that says it is automated stays silent by default', () => {
+    const made: FakeContext[] = [];
+    Object.assign(globalThis, {
+      AudioContext: function AudioContext() {
+        const ctx = fakeContext();
+        made.push(ctx);
+        return ctx;
+      },
+    });
+    Object.defineProperty(globalThis.navigator, 'webdriver', { value: true, configurable: true });
+    try {
+      const sound = createSound();
+      const target = new EventTarget();
+      sound.attach(target, Object.assign(new EventTarget(), { hidden: false }));
+      target.dispatchEvent(new Event('keydown'));
+      expect(made).toHaveLength(0);
+    } finally {
+      Reflect.deleteProperty(globalThis.navigator, 'webdriver');
+      Reflect.deleteProperty(globalThis, 'AudioContext');
+    }
+  });
+
   test('storage that throws only means the choice is not remembered', () => {
     const throwing = {
       getItem: () => {
@@ -149,6 +182,7 @@ describe('sound', () => {
     const sound = createSound({
       context: () => fakeContext() as unknown as AudioContext,
       storage: () => throwing,
+      automated: () => false,
     });
     expect(sound.on).toBe(true);
     sound.setOn(false);

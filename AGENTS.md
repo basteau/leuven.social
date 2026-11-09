@@ -11,6 +11,8 @@ This project uses Bun for everything: installs, scripts, tests, type checking an
 - `bun run fix` formats and applies lint autofixes. A lint error message names the doc that explains its rule.
 - If `bun test` exits 1 with 0 failures, a file in the coverage table is under the 95% floor.
 
+- Tests and agents stay silent: the app makes no sound when `navigator.webdriver` is true, which covers `bun run verify` and `bunx agent-browser`. In a browser where it is false (a preview pane, your own Chrome), run `localStorage['leuven.sound'] = 'off'` and reload before clicking anything.
+
 A failing check is information, not an obstacle: fix the cause. Don't loosen a rule or raise a budget to get green unless the change really needs it, and say why when you do.
 
 ## Commits

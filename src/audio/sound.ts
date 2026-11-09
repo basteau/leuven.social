@@ -3,7 +3,8 @@
  * nothing to fetch. One context, made on the first gesture after sound is on (browsers allow
  * audio only after one) and suspended while sound is off or the tab is hidden. Every voice is
  * filtered, rises over a few milliseconds and falls exponentially, so nothing clicks; callers
- * vary its pitch a little, so repeats don't sound mechanical.
+ * vary its pitch a little, so repeats don't sound mechanical. A browser under automation (a test,
+ * an agent) never makes the context, so nothing reaches the speakers of whoever is at the machine.
  */
 
 /** The loudest voice (a landing) peaks around a twelfth of full scale: felt more than heard. */
@@ -40,6 +41,8 @@ export interface Voice {
 export interface SoundEnv {
   context: () => AudioContext;
   storage: () => Pick<Storage, 'getItem' | 'setItem'> | undefined;
+  /** Whether a program is driving this browser. */
+  automated: () => boolean;
 }
 
 export interface Sound {
@@ -86,6 +89,7 @@ const browserEnv: SoundEnv = {
   context: () => new AudioContext(),
   // Reading it can throw where storage is blocked: callers catch that.
   storage: () => globalThis.localStorage,
+  automated: () => globalThis.navigator?.webdriver === true,
 };
 
 export function createSound(env: SoundEnv = browserEnv): Sound {
@@ -93,6 +97,7 @@ export function createSound(env: SoundEnv = browserEnv): Sound {
   try {
     on = env.storage()?.getItem(KEY) !== 'off';
   } catch {} // storage blocked: sound still works, the choice just isn't remembered
+  const automated = env.automated();
   let hidden = false;
   let ctx: AudioContext | undefined;
   let master: GainNode | undefined;
@@ -100,7 +105,7 @@ export function createSound(env: SoundEnv = browserEnv): Sound {
 
   /** In a gesture, or once the page has had one: makes the context or wakes it. */
   function wake(): void {
-    if (!on || hidden) return;
+    if (!on || hidden || automated) return;
     if (!ctx) {
       ctx = env.context();
       master = ctx.createGain();
