@@ -31,9 +31,67 @@ test('a wall shared with a neighbour has none, a short jog none, the fringe none
   const left = house(square);
   const right = house([10, 0, 20, 0, 20, 10, 10, 10]);
   expect(built([left, right]).getAttribute('position').count / 3).toBe(6 * 2);
-  const jog = house([0, 0, 10, 0, 10, 11, 0.5, 11, 0.5, 10, 0, 10]);
-  expect(built([jog]).getAttribute('position').count / 3).toBe(4 * 2);
+  const jog = house([0, 0, 10, 0, 10, 11, 0.5, 11, 0.5, 10.6, 0, 10.6]);
+  const p = built([jog]).getAttribute('position');
+  for (let i = 0; i < p.count; i++) {
+    const inJog = p.getX(i) < 0.4 && p.getZ(i) > 10.7 && p.getZ(i) < 11.05;
+    expect(inJog).toBe(false);
+  }
   expect(built([house(square, 'fringe')]).getAttribute('position').count).toBe(0);
+});
+
+const corners = (buildings: Pick<Building, 'ring' | 'tier'>[]) => {
+  const p = built(buildings).getAttribute('position');
+  return Array.from({ length: p.count }, (_, i) => [p.getX(i), p.getZ(i)] as const);
+};
+
+test('a convex corner carries the band round in one strip, no block past it', () => {
+  // Out on the diagonal from a square house's corner, where the two walls' bands meet.
+  const r = CONTACT.reach;
+  const near = corners([house(square)]).filter(([x, z]) => x < -r / 2 && z < -r / 2);
+  expect(near.length).toBeGreaterThan(0);
+  for (const [x, z] of near) {
+    expect(x).toBeCloseTo(-r);
+    expect(z).toBeCloseTo(-r);
+  }
+});
+
+test('an inner corner meets on its bisector, without overlapping', () => {
+  const r = CONTACT.reach;
+  const ell = house([0, 0, 10, 0, 10, 5, 5, 5, 5, 10, 0, 10]);
+  const shared = corners([ell]).filter(
+    ([x, z]) => Math.abs(x - (5 + r)) < 1e-4 && Math.abs(z - (5 + r)) < 1e-4,
+  );
+  // Both bands reach the same point.
+  expect(shared.length).toBeGreaterThanOrEqual(2);
+});
+
+test('a band with nothing to go on to tapers to nothing, not a square end', () => {
+  // A short step at (10, 0) carries no band, so the front wall ends there on its own.
+  const front = house([0, 0, 10, 0, 10.3, 0.2, 10.3, 10, 0, 10]);
+  const atEnd = corners([front]).filter(([x, z]) => Math.abs(x - 10) < 1e-4 && z <= 0.01);
+  expect(atEnd.length).toBeGreaterThan(0);
+  for (const [, z] of atEnd) expect(z).toBeCloseTo(0);
+  // One reach back along it, the band is at its full width again.
+  const back = corners([front]).filter(([x]) => Math.abs(x - (10 - CONTACT.reach)) < 1e-3);
+  expect(back.some(([, z]) => Math.abs(z + CONTACT.reach) < 1e-4)).toBe(true);
+});
+
+test('a wall too short to taper still gets a band, as a point', () => {
+  const stub = house([0, 0, 0.9, 0, 0.9, -0.6, 2, -0.6, 2, 3, 0, 3]);
+  const g = built([stub]);
+  const f = g.getAttribute('facade');
+  expect(f.count).toBeGreaterThan(0);
+  for (let i = 0; i < f.count; i++) expect(Number.isFinite(f.getX(i))).toBe(true);
+});
+
+test('walls folding back on themselves get a plain end, not a long spike', () => {
+  const fold = house([0, 0, 10, 0, 0, 0.001]);
+  const p = built([fold]).getAttribute('position');
+  for (let i = 0; i < p.count; i++) {
+    expect(Math.abs(p.getX(i))).toBeLessThan(10 + CONTACT.reach * 2);
+    expect(Math.abs(p.getZ(i))).toBeLessThan(CONTACT.reach * 2);
+  }
 });
 
 test('a long wall is cut in pieces that follow the ground', () => {

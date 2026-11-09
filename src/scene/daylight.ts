@@ -16,6 +16,8 @@ export interface Daylight {
   sunDirection: V3;
   sun: number;
   sunIntensity: number;
+  /** How much of the sun a shadow takes away, 0 to 1: weak sun, weak shadow (`shadowWeight`). */
+  shadow: number;
   /** The sky's fill, and the warm bounce under it. */
   sky: number;
   skyIntensity: number;
@@ -27,17 +29,31 @@ export interface Daylight {
   night: number;
 }
 
-interface Keyframe extends Omit<Daylight, 'sunDirection'> {
-  sunDirection: V3;
-}
+type Keyframe = Omit<Daylight, 'shadow'>;
 
-/** Moonlight and the sky's fill at night: enough that the roofs keep their shapes and colours. */
-const NIGHT = { moon: 0.85, sky: 0.95 } as const;
+/**
+ * Moonlight and the sky's fill at night: enough that the roofs keep their shapes and colours, the
+ * moon under the sky so its shadow is a hint, not a slab across the street.
+ */
+const NIGHT = { moon: 0.55, sky: 1 } as const;
+
+/**
+ * How much of the sun a shadow takes away, from how strong the sun is: all of it from `SHADOW_FULL`
+ * up, none at `SHADOW_GONE` and under. A low sun's light is mostly the sky's, so a shadow melts
+ * away with the sun instead of staying near-black until the sun is switched off. No cost: it is
+ * one uniform (`LightShadow.intensity`), and the toon ramp still shades faces by the sun's angle.
+ */
+export const SHADOW_FULL = 1.7;
+export const SHADOW_GONE = 0.3;
+export const shadowWeight = (sunIntensity: number): number =>
+  Math.min(1, Math.max(0, (sunIntensity - SHADOW_GONE) / (SHADOW_FULL - SHADOW_GONE)));
 
 /**
  * The keyframes, clockwise: night, dawn from the east, a pale morning, midday from the south,
- * golden hour from the south-west (the palette's colours, exactly), a red dusk, night again.
- * At night a cool moon stands in for the sun, low in the east, so shadows stay faint but there.
+ * golden hour from the south-west (the palette's colours, exactly), a red dusk, blue hour, night
+ * again. At night a cool moon stands in for the sun, in the east, so shadows stay faint but there.
+ * Blue hour is the sun gone and the moon not up: the two swing across the sky between them, and
+ * with so little of either nothing casts a shadow to be seen swinging.
  */
 const KEYFRAMES: readonly Keyframe[] = [
   {
@@ -66,11 +82,12 @@ const KEYFRAMES: readonly Keyframe[] = [
   },
   {
     hour: 7,
-    sunDirection: [0.78, 0.3, 0.55],
+    // As at dusk: low, but not grazing.
+    sunDirection: [0.78, 0.38, 0.55],
     sun: 0xffb27a,
-    sunIntensity: 1.3,
+    sunIntensity: 1.1,
     sky: 0x94a8cc,
-    skyIntensity: 0.95,
+    skyIntensity: 1.05,
     bounce: 0x5e4e48,
     horizon: 0xf4bc8a,
     top: 0x6a8ab8,
@@ -114,15 +131,30 @@ const KEYFRAMES: readonly Keyframe[] = [
   },
   {
     hour: 20.5,
-    sunDirection: [-0.82, 0.26, 0.3],
+    // Low, but not grazing: at 17° a shadow is over three times a house's height, a gap between
+    // two houses a razor sliver 50 m long.
+    sunDirection: [-0.82, 0.36, 0.3],
     sun: 0xff9a60,
-    sunIntensity: 0.9,
+    sunIntensity: 0.8,
     sky: 0x7c84b4,
-    skyIntensity: 0.8,
+    skyIntensity: 0.95,
     bounce: 0x4a3e48,
     horizon: 0xf0a070,
     top: 0x3c4a84,
     night: 0.7,
+  },
+  {
+    hour: 21.25,
+    sunDirection: [-0.2, 0.6, 0.4],
+    sun: 0x9d9ccc,
+    // Too faint to cast, strong enough for the toon ramp to keep the roofs' slopes apart.
+    sunIntensity: 0.42,
+    sky: 0x6a74a8,
+    skyIntensity: 1.05,
+    bounce: 0x3a3648,
+    horizon: 0x8a7898,
+    top: 0x1c2448,
+    night: 0.85,
   },
   {
     hour: 22,
@@ -209,11 +241,13 @@ export function daylightAt(hour: number): Daylight {
   ];
   const len = Math.hypot(dir[0], dir[1], dir[2]) || 1;
   const sunDirection: V3 = [dir[0] / len, Math.max(0.2, dir[1] / len), dir[2] / len];
+  const sunIntensity = lerp(a.sunIntensity, b.sunIntensity, t);
   return {
     hour: h,
     sunDirection,
     sun: blendColor(a.sun, b.sun, t),
-    sunIntensity: lerp(a.sunIntensity, b.sunIntensity, t),
+    sunIntensity,
+    shadow: shadowWeight(sunIntensity),
     sky: blendColor(a.sky, b.sky, t),
     skyIntensity: lerp(a.skyIntensity, b.skyIntensity, t),
     bounce: blendColor(a.bounce, b.bounce, t),

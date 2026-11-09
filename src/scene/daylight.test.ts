@@ -4,11 +4,14 @@ import { LIGHT } from './lighting.ts';
 import {
   HOURS_PER_SECOND,
   PRESETS,
+  SHADOW_FULL,
+  SHADOW_GONE,
   SUN_STEP_HOURS,
   daylightAt,
   leuvenHour,
   nextPreset,
   presetAt,
+  shadowWeight,
   sunStep,
   wrapHour,
 } from './daylight.ts';
@@ -72,6 +75,56 @@ describe('daylightAt', () => {
     expect(daylightAt(25)).toEqual(daylightAt(1));
     expect(daylightAt(-1)).toEqual(daylightAt(23));
     expect(wrapHour(-0.5)).toBeCloseTo(23.5);
+  });
+});
+
+const linear = (c: number) => ((c / 255 + 0.055) / 1.055) ** 2.4;
+const luma = (hex: number) =>
+  0.2126 * linear((hex >> 16) & 255) +
+  0.7152 * linear((hex >> 8) & 255) +
+  0.0722 * linear(hex & 255);
+
+// Flat ground: what the sun adds where it reaches, over what's left in the shadow.
+const contrast = (hour: number) => {
+  const d = daylightAt(hour);
+  const sky = d.skyIntensity * luma(d.sky);
+  const sun = d.sunIntensity * luma(d.sun);
+  return (sky + sun) / (sky + (1 - d.shadow) * sun);
+};
+
+describe('how much a shadow weighs', () => {
+  test('goes with the strength of the sun, all of it to none of it', () => {
+    expect(shadowWeight(SHADOW_FULL)).toBe(1);
+    expect(shadowWeight(3)).toBe(1);
+    expect(shadowWeight(SHADOW_GONE)).toBe(0);
+    expect(shadowWeight(0)).toBe(0);
+    expect(shadowWeight((SHADOW_FULL + SHADOW_GONE) / 2)).toBeCloseTo(0.5);
+  });
+
+  test('a day keeps its full shadows, golden hour and midday as they were', () => {
+    expect(daylightAt(13).shadow).toBe(1);
+    expect(daylightAt(18).shadow).toBe(1);
+    expect(contrast(18)).toBeGreaterThan(2.5);
+  });
+
+  test('a weak sun gives a weak shadow, melting away rather than switching off', () => {
+    expect(contrast(20.5)).toBeLessThan(1.5);
+    expect(contrast(23)).toBeLessThan(1.3);
+    expect(contrast(7)).toBeLessThan(1.8);
+    // Between the sun and the moon nothing casts a shadow to be seen swinging across the sky.
+    expect(daylightAt(21.25).shadow).toBeLessThan(0.1);
+    let last = contrast(19.25);
+    for (let h = 19.25; h <= 21.25; h += 0.05) {
+      const now = contrast(h);
+      expect(now).toBeLessThanOrEqual(last + 1e-6);
+      last = now;
+    }
+  });
+
+  test('the low sun stays over 20 degrees, so its shadows stop short of a street away', () => {
+    for (let h = 7; h <= 20.5; h += 0.25) {
+      expect(Math.asin(daylightAt(h).sunDirection[1]) * (180 / Math.PI)).toBeGreaterThan(20);
+    }
   });
 });
 

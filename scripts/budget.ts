@@ -194,7 +194,10 @@ const BUDGETS: {
     // 14.25: the banks of the water and the street trees' pits (0.2 KB).
     // 15.5: a symbol of its own for 20 more kinds of shop and public place (1 KB), asked for, so
     // a shop stops reading as a blank board.
-    limit: 15.5 * KB,
+    // 15.75: contact bands mitred round corners and tapered at their ends, in place of a square
+    // block at every building corner, and the lamps' light summed before it is flattened, asked
+    // for (0.4 KB, after trimming).
+    limit: 15.75 * KB,
     gzip: true,
   },
   // The rooms inside the landmarks, authored by hand, fetched near one.

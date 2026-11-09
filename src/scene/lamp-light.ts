@@ -14,14 +14,18 @@ import { FRONTS } from './palette.ts';
 /** Metres a texel: light falls off over several metres, and the filter does the rest. */
 export const LIGHT_TEXEL = 2.5;
 
-/** A street lamp's reach (m) and warm light, as the share of full each channel gets at its foot. */
-export const LAMP_RAY = { radius: 11, light: [0.92, 0.66, 0.36] } as const;
+/**
+ * A street lamp's reach (m) and warm light. Lamps stand 19 m from their nearest neighbour (the
+ * median in `city.bin`) and 26 from the next, so at a reach of 18 m the pools meet and a street
+ * reads as lit along its length; at 11 m they stopped short of each other.
+ */
+export const LAMP_RAY = { radius: 18, light: [0.9, 0.62, 0.34] } as const;
 /** The spill from a lit shop front: how far it reaches (m), out from a point this far off the wall. */
 export const FRONT_RAY = {
-  radius: 6.5,
+  radius: 9,
   out: 1.5,
-  warm: [0.6, 0.4, 0.2],
-  cool: [0.36, 0.38, 0.38],
+  warm: [0.5, 0.33, 0.17],
+  cool: [0.28, 0.3, 0.3],
 } as const;
 
 /** The ground lit round a floodlit church or hall: a splash this far out, every so many metres. */
@@ -39,6 +43,13 @@ export interface LightField {
   high: number;
 }
 
+/**
+ * Light fills up rather than stacks: much the same whether one lamp shines or six do, and never a
+ * clipped white under a crowd of them, so the middle of a square and the middle of a street between
+ * two lamps come out alike.
+ */
+const fill = (light: number) => Math.round((1 - Math.exp(-light)) * 255);
+
 interface LightSources {
   area: readonly Bounds[];
   props: readonly Pick<Prop, 'kind' | 'x' | 'z'>[];
@@ -55,6 +66,8 @@ export function bakeLight(
   const width = Math.ceil((Math.max(...city.area.map((a) => a.maxX)) - minX) / LIGHT_TEXEL);
   const height = Math.ceil((Math.max(...city.area.map((a) => a.maxZ)) - minZ) / LIGHT_TEXEL);
   const data = new Uint8Array(width * height * 4);
+  // What adds up, kept as floats so overlapping lamps sum before `fill` flattens them.
+  const light = new Float32Array(width * height * 3);
   const [low, high] = [terrain.lowest - 1, terrain.highest + 1];
 
   const splat = (
@@ -81,10 +94,11 @@ export function bakeLight(
         data[k + 3] = Math.max(data[k + 3]!, ground);
         const d = (Math.hypot(i - cx, j - cz) * LIGHT_TEXEL) / radius;
         if (d >= 1) continue;
-        const fall = (1 - d * d) * (1 - d * d) * 255;
-        data[k] = Math.min(255, data[k]! + r! * fall);
-        data[k + 1] = Math.min(255, data[k + 1]! + g! * fall);
-        data[k + 2] = Math.min(255, data[k + 2]! + b! * fall);
+        const fall = (1 - d * d) * (1 - d * d);
+        const at = i + j * width;
+        light[at * 3] = light[at * 3]! + r! * fall;
+        light[at * 3 + 1] = light[at * 3 + 1]! + g! * fall;
+        light[at * 3 + 2] = light[at * 3 + 2]! + b! * fall;
       }
     }
   };
@@ -123,6 +137,10 @@ export function bakeLight(
       FRONT_RAY.radius,
       lit ? FRONT_RAY.warm : FRONT_RAY.cool,
     );
+  }
+  // Most of the map is dark, and an exponential a channel would be most of the bake.
+  for (let i = 0; i < width * height; i++) {
+    if (light[i * 3]) for (let c = 0; c < 3; c++) data[i * 4 + c] = fill(light[i * 3 + c]!);
   }
   return { data, width, height, minX, minZ, texel: LIGHT_TEXEL, low, high };
 }
