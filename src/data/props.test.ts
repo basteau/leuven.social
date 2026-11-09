@@ -456,6 +456,11 @@ test('a footprint is on the road only where the road shows: a square lies over i
   expect(onRoad(20, 5)).toBe(false); // the square over it
   expect(onRoad(9.5, 5)).toBe(true); // over the square's edge, half on the road
   expect(onRoad(50, 5)).toBe(false); // nowhere near
+  // A corner of road poking into a footprint: nothing but its edges are inside it.
+  const tip = new Shapes();
+  tip.ring([100, 100, 105, 90, 95, 90]);
+  const rack = { kind: 'bikes', x: 100, z: 99, angle: 0, size: 12 } as const;
+  expect(onDrawnRoad(propFootprint(rack), tip, new RingIndex())).toBe(true);
 });
 
 test('a rack mapped on the road goes to the pavement and lines up with the kerb', () => {
