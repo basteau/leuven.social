@@ -36,7 +36,8 @@
  * so most of those take a byte.
  * Shop fronts (v17) follow, by building: each is its building's place in the list (the change
  * from the front before), the edge of its ring it is on, how far along it (decimetres), and its
- * kind's place in SHOP_KINDS with the top bit set for a terrace (v25: public places among them).
+ * kind's place in SHOP_KINDS with the top bit set for a terrace (v25: public places among them;
+ * v28: the shops and places appended after `sports`).
  * A building's first shop's front is its main one: the decoder hangs it on the building as
  * `front`. They come last (v24: the ways the traffic moved along, v19 to v23, went with the
  * traffic; v26: both).
@@ -79,7 +80,7 @@ const MAGIC = 'LVN1';
 // neighbour. v16: a byte per bike rack, its fill (`Prop.fill`). v17: the shop fronts. v18: pitch surfaces
 // and the fields painted on them, after the polygon layers. v25: more kinds of front, public
 // places among them. v26: those, and no ways for the traffic. Bump the cache in public/sw.js with it.
-const VERSION = 27;
+const VERSION = 28;
 const DM = 10; // units per metre
 const GROUND = 20; // terrain heights per metre: 5 cm
 const ZIGZAG = { encoding: 'zigzag' } as const;

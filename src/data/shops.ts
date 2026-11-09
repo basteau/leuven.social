@@ -210,7 +210,13 @@ export const MIN_PLACE_AREA = 80;
  * grounds, a hospital), each at its middle. Sheds and buildings under MIN_PLACE_AREA are none.
  */
 export function placePoints(
-  buildings: readonly { ring: ArrayLike<number>; kind: Kind; tag: string | null }[],
+  buildings: readonly {
+    ring: ArrayLike<number>;
+    kind: Kind;
+    tag: string | null;
+    /** The building's own OSM `amenity`: a doctor's, a chapel, a community centre. */
+    amenity?: string | null;
+  }[],
   sites: readonly { kind: ShopKind; ring: ArrayLike<number> }[],
 ): ShopPoint[] {
   const points: ShopPoint[] = [];
@@ -218,7 +224,7 @@ export function placePoints(
     if (b.kind === 'shed' || Math.abs(signedArea(b.ring)) < MIN_PLACE_AREA) continue;
     const [x, z] = middle(b.ring);
     const kind =
-      placeKind({ building: b.tag ?? undefined }) ??
+      placeKind({ amenity: b.amenity ?? undefined, building: b.tag ?? undefined }) ??
       sites.find((s) => pointInRing(s.ring, x, z))?.kind;
     if (kind) points.push({ x, z, tags: {}, kind, building: i });
   }

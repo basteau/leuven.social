@@ -242,6 +242,9 @@ export function addBuckets(mesh: MeshBuilder, f: Frame, seed: number): void {
   }
 }
 
+/** Places that are not public buildings to walk into: a sign says it, with no door or flag. */
+export const QUIET_PLACES: ReadonlySet<ShopKind> = new Set(['clinic', 'worship', 'dorm']);
+
 /** A wall lower than this (m) has no room for a public place's portal under its eaves. */
 const PORTAL_WALL = 4.4;
 /** Nor this little of a front (m either side of its middle): a corner has no room for one. */
@@ -340,7 +343,7 @@ function addPlace(
   first: boolean,
 ): void {
   const middle = frame(p);
-  if (first && room >= PORTAL_ROOM) {
+  if (first && room >= PORTAL_ROOM && !QUIET_PLACES.has(kind)) {
     if (top >= PORTAL_WALL) addPortal(mesh, middle, kind);
     addRoofFlag(mesh, frame(p, room > 2 ? -room * 0.6 : 0), kind, top);
   }

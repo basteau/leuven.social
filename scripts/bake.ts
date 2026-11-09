@@ -206,6 +206,7 @@ const [
   osmPoints,
   osmPlatforms,
   landform,
+  footprintTags,
 ] = await Promise.all([
   read<{ buildings: LocalBuilding[] }>('derived/leuven_buildings_local.json'),
   read<{ trees: [number, number, number][] }>('derived/lidar_trees.json'),
@@ -222,11 +223,20 @@ const [
   read<Collection>('derived/osm_points.geojson'),
   read<Overpass>('osm/rail_platforms.json'),
   read<TerrainJson>('derived/terrain.json'),
+  read<Collection>('derived/leuven_buildings.geojson'),
 ]);
 
 const buildings: Building[] = [];
 /** Each building's OSM `building` value, for the public places it says (a school, a hotel). */
 const buildingTags: string[] = [];
+/** Each building's OSM `amenity` by its id: a chapel, a doctor's, a community centre. */
+const amenities = new Map(
+  footprintTags.features.flatMap((f) => {
+    const { oidn, amenity } = f.properties;
+    return amenity ? [[Number(oidn), String(amenity)] as const] : [];
+  }),
+);
+const buildingAmenity: (string | null)[] = [];
 for (const b of local.buildings) {
   const tier = LANDMARK_FOOTPRINTS.includes(b.id) ? 'hero' : b.tier;
   const ring = simplifyRing(normalizeRing(b.ring.flat()), SIMPLIFY[tier]);
@@ -258,6 +268,7 @@ for (const b of local.buildings) {
   }
   buildings.push(building);
   buildingTags.push(b.kind);
+  buildingAmenity.push(amenities.get(b.id) ?? null);
 }
 
 // The orthophoto's roof colours, white-balanced on the flat roofs (src/data/roof-colours.ts).
@@ -649,7 +660,12 @@ const shops = placeFronts(
       return areaIndex(AREA, x, z) >= 0 ? [{ x, z, tags: f.properties }] : [];
     }),
     ...placePoints(
-      buildings.map((b, i) => ({ ring: b.ring, kind: b.kind, tag: buildingTags[i]! })),
+      buildings.map((b, i) => ({
+        ring: b.ring,
+        kind: b.kind,
+        tag: buildingTags[i]!,
+        amenity: buildingAmenity[i]!,
+      })),
       placeSites,
     ),
   ],
