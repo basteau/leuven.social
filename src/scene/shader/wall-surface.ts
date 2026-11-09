@@ -246,6 +246,16 @@ void wallSurface(inout vec3 albedo, vec3 base, inout vec3 glowEmit) {
   albedo *= 1.0 - 0.18 * smoothstep(top - 1.4, top - 0.1, p.y) * (1.0 - cornice);
   float stain = plain * inX * smoothstep(sillY - 0.2, sillY - 2.0 * rim.y, g.y) * step(g.y, sillY - 2.0 * rim.y);
   albedo *= 1.0 - 0.09 * stain * fine;
+  // Where this house starts against the one next door: a zinc downpipe down the join, strapped
+  // to the wall every 2.4 m, and a line of its shade beside it, so the change of house reads as
+  // something built, not a seam in the paint. Gone before it is thinner than a pixel.
+  float fromJoin = mod(vBay, ${f(BAYS_PER_PAGE)}) * size.x;
+  float pipe = step(0.5, vJoin) * step(0.0, p.y);
+  float pipeFine = 1.0 - smoothstep(0.045, 0.08, pixel);
+  albedo *= 1.0 - 0.22 * pipe * step(0.09, fromJoin) * step(fromJoin, 0.16) * pipeFine;
+  float strap = step(fract(p.y / 2.4), 0.06 / 2.4);
+  float pipeBody = pipe * step(fromJoin, 0.09 + 0.05 * strap);
+  albedo = mix(albedo, vec3(0.39, 0.42, 0.45) * mix(1.0, 0.85, strap), pipeBody * pipeFine);
   // At night a church and a hall are floodlit from below, stronger at the foot.
   float flood = max(church, ornate) * step(0.0, p.y);
   glowEmit += albedo * vec3(0.95, 0.68, 0.38) * flood * uNight * mix(0.48, 0.14, smoothstep(0.0, top, p.y)) * (1.0 - coverage);
