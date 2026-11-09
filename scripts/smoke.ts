@@ -224,10 +224,11 @@ async function expectBareMap(): Promise<void> {
     throw new Error(`the map should show only ${expected.join(', ')}, not ${buttons.join(', ')}`);
   }
   // And the diamond over the avatar, far out at the default view: a marker, not a control.
-  const arrow = await evalJson<string>(
+  const diamond = await evalJson<string>(
     `JSON.stringify(document.querySelector('.avatar-diamond')?.hidden === false && document.querySelector('.avatar-diamond').dataset.edge)`,
   );
-  if (arrow !== 'false') throw new Error(`the diamond over the avatar isn't showing (${arrow})`);
+  if (diamond !== 'false')
+    throw new Error(`the diamond over the avatar isn't showing (${diamond})`);
   console.log(
     'ok  loading screen in the HTML, then the map: Join, the minimap, the view’s rail, the menu and the diamond over you',
   );

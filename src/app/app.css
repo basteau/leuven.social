@@ -151,11 +151,11 @@ kbd {
 
 @media (prefers-reduced-motion: no-preference) {
   .avatar-diamond[data-edge='false'] svg {
-    animation: diamond-bob 1.4s ease-in-out infinite alternate;
+    animation: bob 1.4s ease-in-out infinite alternate;
   }
 }
 
-@keyframes diamond-bob {
+@keyframes bob {
   to {
     translate: -50% calc(-100% - 12px);
   }
