@@ -38,6 +38,10 @@ const city: City = {
   railLand: [],
   canopies: [],
   trees: new Float32Array([0, 50, 5, 50]),
+  islands: [],
+  treeKinds: new Uint8Array(0),
+  hedges: [],
+  flowerbeds: [],
   treeHeights: new Float32Array([12, 4]),
   props,
   tanks: [],
@@ -149,4 +153,15 @@ test('a walker meets them in the walk grid', () => {
   expect(grid.wallOverlap(30, 30, 0.45, out)).toBeGreaterThan(0.45);
   expect(grid.walkable(30.1, 30.1)).toBe(false);
   expect(grid.walkable(20, 24)).toBe(true);
+});
+
+test('a hedge is walked round, along its whole length', () => {
+  const hedge = Float32Array.from([10, 10, 30, 10, 30, 10]);
+  const { rings } = walkSolids({ ...city, hedges: [hedge] });
+  const ring = rings.find((r) => r[0]! < 20 && r[1]! < 11 && r[1]! > 9)!;
+  const xs = Array.from(ring).filter((_, i) => i % 2 === 0);
+  const zs = Array.from(ring).filter((_, i) => i % 2 === 1);
+  expect(Math.min(...xs)).toBeCloseTo(10);
+  expect(Math.max(...xs)).toBeCloseTo(30);
+  expect(Math.max(...zs) - Math.min(...zs)).toBeCloseTo(0.9);
 });

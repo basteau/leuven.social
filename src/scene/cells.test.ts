@@ -74,6 +74,10 @@ const city: City = {
   // A two-bay platform roof straddling the seam: each bay goes to the cell of its centre.
   canopies: [box(S - 51, 150, 102, 12)],
   trees: new Float32Array([20, 300, S + 20, 300]),
+  islands: [],
+  treeKinds: new Uint8Array(0),
+  hedges: [],
+  flowerbeds: [],
   treeHeights: new Float32Array([9, 0]),
   // A bench in each cell, and the Totem in the second.
   props: [
@@ -99,8 +103,8 @@ test('the area is cut into cells, and each thing goes to one', () => {
   expect(west.buildings.map((b) => b.id)).toEqual([1, 2]);
   expect(east.buildings).toEqual([]);
   // Trees keep their index as a seed, so they look the same whatever cell they land in.
-  expect(west.trees).toEqual([20, 300, 0, 9]);
-  expect(east.trees).toEqual([S + 20, 300, 1, 0]);
+  expect(west.trees).toEqual([20, 300, 0, 9, 0]);
+  expect(east.trees).toEqual([S + 20, 300, 1, 0, 0]);
   // Paths are cut at the seam too.
   expect(Array.from(west.ground.paths[0]!.line)).toEqual([S - 20, 50, S, 50]);
   expect(Array.from(east.ground.paths[0]!.line)).toEqual([S, 50, S + 20, 50]);
@@ -193,7 +197,7 @@ test('the ground and the trunks come first, so the shadow pass can start after t
   expect(high).toBeGreaterThan(0.5);
   expect(shadowFrom).toBeGreaterThan(0);
   // The trunks sit between the ground and the rest: 8 triangles a tree.
-  expect(shadowFrom - trunksFrom).toBe((west!.trees.length / 4) * 8 * 3);
+  expect(shadowFrom - trunksFrom).toBe((west!.trees.length / 5) * 8 * 3);
 });
 
 const height = (m: MeshBuilder) => {

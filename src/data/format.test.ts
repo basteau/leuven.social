@@ -83,6 +83,10 @@ const city: City = {
   railLand: [square(-20, 20, 40)],
   canopies: [square(15, 15, 18)],
   trees: new Float32Array([1.5, 2.5, -40, 60.1]),
+  islands: [],
+  treeKinds: new Uint8Array([1, 0]),
+  hedges: [new Float32Array([1, 2, 3, 4])],
+  flowerbeds: [],
   treeHeights: new Float32Array([8, 21.5]),
   props: [
     { kind: 'bikes', x: 12.3, z: -4.5, angle: Math.PI / 2, size: 12, fill: 5 / 12 },

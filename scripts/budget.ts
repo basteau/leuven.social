@@ -209,8 +209,8 @@ const BUDGETS: {
     pattern: 'assets/{index,viewer}-*.js',
     // 260: the engine's and the shell's additions above (1 KB). 260.5: dynamic resolution (0.4 KB).
     // 264.75: the look of the city (3.9 KB), asked for; the engine's own note says what.
-    // 267: the engine's addition above.
-    limit: 267 * KB,
+    // 267.5: the engine's additions above, and the city format's new layers (0.3 KB).
+    limit: 267.5 * KB,
     gzip: true,
     closure: true,
   },

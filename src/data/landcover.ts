@@ -10,7 +10,16 @@ import { clipRing, joinRings, pointInRing, signedArea, simplifyRing } from './ge
 type Tags = Readonly<Record<string, string | undefined>>;
 
 /** The ground layers an OSM area can be drawn as. */
-export type Cover = 'green' | 'woods' | 'pitches' | 'parking' | 'water' | 'plazas' | 'railLand';
+export type Cover =
+  | 'green'
+  | 'woods'
+  | 'flowerbeds'
+  | 'pitches'
+  | 'parking'
+  | 'water'
+  | 'plazas'
+  | 'islands'
+  | 'railLand';
 
 const GREEN_LEISURE = new Set(['park', 'garden', 'playground', 'dog_park']);
 const GREEN_LANDUSE = new Set([
@@ -20,7 +29,6 @@ const GREEN_LANDUSE = new Set([
   'recreation_ground',
   'village_green',
   'allotments',
-  'flowerbed',
   'vineyard',
   'greenery',
 ]);
@@ -40,7 +48,15 @@ const WATER_LANDUSE = new Set(['basin', 'reservoir']);
  * car park, a car park before a pitch, a pitch before woods and woods before green.
  */
 export function coverOf(tags: Tags): Cover | null {
-  if (tags.place === 'square' || tags['area:highway'] !== undefined) return 'plazas';
+  if (tags.place === 'square') return 'plazas';
+  const area = tags['area:highway'];
+  // A real pedestrian area is a square; an island or a footway is paving; a painted-off area
+  // (`prohibited`) and the roadway's own shapes aren't anything on top of the road.
+  if (area === 'pedestrian' || area === 'living_street') return 'plazas';
+  if (area === 'traffic_island' || area === 'footway' || area === 'bus_bay' || area === 'yes') {
+    return 'islands';
+  }
+  if (area !== undefined) return null;
   if (tags.natural === 'water' || WATER_LANDUSE.has(tags.landuse ?? '')) return 'water';
   if (tags.waterway === 'riverbank') return 'water';
   if (tags.amenity === 'parking' && !HIDDEN_PARKING.has(tags.parking ?? '')) return 'parking';
@@ -48,6 +64,7 @@ export function coverOf(tags: Tags): Cover | null {
   if (tags.leisure === 'schoolyard') return 'parking';
   if (tags.leisure === 'pitch' || tags.leisure === 'track') return 'pitches';
   if (tags.landuse === 'railway') return 'railLand';
+  if (tags.landuse === 'flowerbed') return 'flowerbeds';
   // An orchard is rows of trees on grass: from above, a wood.
   if (WOODS_LANDUSE.has(tags.landuse ?? '') || WOODS_NATURAL.has(tags.natural ?? ''))
     return 'woods';

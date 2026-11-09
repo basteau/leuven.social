@@ -170,7 +170,7 @@ export const GROUND = {
   pavement: 0xb3afa6,
   /** The kerbstones along the carriageways: Belgian bluestone, a cool grey between slabs and asphalt. */
   kerb: 0x9a9ea6,
-  plaza: 0xcbb394,
+  plaza: 0xc2ae92,
   water: 0x5f9fc4,
   /** Bridge decks: the pavement's slabs a shade warmer, so a street runs on over the bridge. */
   bridge: 0xb8b0a1,
@@ -218,7 +218,7 @@ export const RAIL = {
 export const SURFACE_COLOURS: Record<Surface, number> = {
   asphalt: 0x8b8780,
   concrete: 0xa9a69e,
-  sett: 0xa69886,
+  sett: 0xada08c,
   paving: 0xb3aa9a,
   gravel: 0xd0b98c,
   earth: 0x9f8460,
@@ -250,8 +250,6 @@ export const TREE = {
   age: 0.05,
   /** A cherry or a magnolia in flower, now and then among the smaller trees. */
   blossom: 0xeba3bb,
-  /** One tree in about sixteen has turned. */
-  autumn: 0xb5943f,
 } as const;
 
 /** What grows between the trees in a park: dark and lighter shrubs, and beds of flowers. */

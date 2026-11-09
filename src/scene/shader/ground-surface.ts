@@ -50,11 +50,9 @@ void groundSurface(inout vec3 albedo) {
       + 0.05 * (hash2(floor(p / 0.12)) - 0.5) * (1.0 - smoothstep(0.05, 0.1, pixel))
       - 0.09 * joint * (1.0 - smoothstep(0.1, 0.15, pixel));
   } else if (surface == ${f(SURFACE.asphalt)}) {
-    // Asphalt: a speckle of stone in the tar, and here and there a crack.
+    // Asphalt: a speckle of stone in the tar.
     float speckle = hash2(floor(p / 0.11));
-    float crack = (1.0 - smoothstep(0.0, 0.015 + pixel * 0.25, abs(noise2(p / 3.7) - 0.5))) * step(0.56, noise2(p / 19.0));
     shade += (speckle - 0.5) * 0.13 * (1.0 - smoothstep(0.05, 0.11, pixel));
-    shade -= 0.16 * crack * (1.0 - smoothstep(0.05, 0.12, pixel));
   } else if (surface == ${f(SURFACE.gravel)} || surface == ${f(SURFACE.earth)}) {
     // Gravel and packed earth: pebbles in clumps, dark and pale.
     float pebble = hash2(floor(p / 0.13));

@@ -11,6 +11,7 @@ import type {
 import { areaOutline, clipLine, clipRing } from '../data/geometry.ts';
 import type { Field } from '../data/pitches.ts';
 import { CELL_SIZE } from '../data/grid.ts';
+import { TREE_STRIDE } from '../data/trees.ts';
 import { FLAT } from '../data/terrain.ts';
 import type { Terrain } from '../data/terrain.ts';
 import { addBuilding, footing } from './buildings.ts';
@@ -56,8 +57,10 @@ export interface Cell {
     /** Whole fields, each in the cell of its centre, so its lines keep their layout. */
     fields: Field[];
   };
-  /** Flat [x, z, seed, height, …]: the seed keeps a tree's look when the cell changes. */
+  /** Flat [x, z, seed, height, kind, …] (`TREE_STRIDE`): the seed keeps a tree's look. */
   trees: number[];
+  /** Hedges cut to the cell, as lines. */
+  hedges: Float32Array[];
   parasols: Parasol[];
   /** Street furniture and monuments, drawn apart once the furniture chunk loads (furniture.ts). */
   props: Prop[];
@@ -117,17 +120,20 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
             water: [],
             bridges: [],
             woods: [],
+            flowerbeds: [],
             pitches: [],
             parking: [],
             roads: [],
             carriageways: [],
             markings: [],
             plazas: [],
+            islands: [],
             railLand: [],
             paths: [],
             fields: [],
           },
           trees: [],
+          hedges: [],
           parasols: [],
           props: [],
           fronts: [],
@@ -147,7 +153,7 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
   for (const b of city.buildings) at(b.ring[0]!, b.ring[1]!)?.buildings.push(b);
   for (let i = 0; i < city.trees.length; i += 2) {
     const [x, z] = [city.trees[i]!, city.trees[i + 1]!];
-    at(x, z)?.trees.push(x, z, i / 2, city.treeHeights[i / 2] ?? 0);
+    at(x, z)?.trees.push(x, z, i / 2, city.treeHeights[i / 2] ?? 0, city.treeKinds[i / 2] ?? 0);
   }
   for (const p of parasols) at(p.x, p.z)?.parasols.push(p);
   for (const p of city.props) at(p.x, p.z)?.props.push(p);
@@ -205,6 +211,7 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
       for (const piece of clipLine(line, cell.bounds)) add(cell, Float32Array.from(piece));
     }
   };
+  for (const line of city.hedges) cutLine(line, (cell, piece) => cell.hedges.push(piece));
   for (const { width, surface, line } of city.paths) {
     cutLine(line, (cell, piece) => cell.ground.paths.push({ width, surface, line: piece }));
   }
@@ -319,7 +326,7 @@ export function buildCell(
   addTracks(mesh, cell.rails);
   mesh.drape = null;
   const trunksFrom = mesh.indices;
-  for (let i = 0; i < trees.length; i += 4) tree(i, ['trunk']);
+  for (let i = 0; i < trees.length; i += TREE_STRIDE) tree(i, ['trunk']);
   mesh.lift = lines.lift = 0;
   const shadowFrom = mesh.indices;
   addRailLines(lines, cell.rails);
@@ -348,7 +355,7 @@ export function buildCell(
       landmarks.set(b.id, { from, to: mesh.indices, lineFrom, lineTo: lines.segments * 2 });
     }
   }
-  for (let i = 0; i < trees.length; i += 4) tree(i, ['crown']);
+  for (let i = 0; i < trees.length; i += TREE_STRIDE) tree(i, ['crown']);
   for (const p of cell.parasols) {
     // On the square's setts, which lie a little over the terrain.
     mesh.lift = lines.lift = terrain.height(p.x, p.z) + LAYER_Y.plazas;

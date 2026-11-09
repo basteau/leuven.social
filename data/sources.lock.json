@@ -41,6 +41,13 @@
     "sha256": "cce341409e44974b191cddfc877b582a3ef1b13fc99fb1f746660314549089f9",
     "fetched": "2026-11-01"
   },
+  "osm-hedges": {
+    "plan": "051a6e2ed0452f73",
+    "files": 1,
+    "bytes": 204893,
+    "sha256": "3a830f86bec99f45648daabd35c36b8fa7099c7727a9c5f3c3f3dcaf4ca48973",
+    "fetched": "2026-11-08"
+  },
   "osm-rail-platforms": {
     "plan": "dcba6d5a184aa2f0",
     "files": 1,

@@ -191,6 +191,17 @@ export const SOURCES: readonly Source[] = [
     usedBy: 'tools/build_leuven_data.py: the axis and length of benches and racks drawn as ways',
   },
   {
+    id: 'osm-hedges',
+    provider: 'osm',
+    kind: 'overpass',
+    title: 'Hedges, as they are mapped',
+    statements: 'way["barrier"~"^hedge$"];',
+    out: 'tags geom',
+    tile: OVERPASS_TILE,
+    output: 'osm/hedges.json',
+    usedBy: 'bake: the hedges along gardens and paths',
+  },
+  {
     id: 'osm-rail-platforms',
     provider: 'osm',
     kind: 'overpass',

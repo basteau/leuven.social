@@ -7,6 +7,7 @@ import {
   mergeTrees,
   treeScale,
   trunkRadius,
+  treeKindOf,
 } from './trees.ts';
 
 test('a mapped tree takes the height of the crown above it, and the crown is not doubled', () => {
@@ -37,11 +38,25 @@ test('trees grow within the limits of the model, their trunks at most 35 cm roun
 });
 
 test('LiDAR crowns give way to what is mapped; mapped trees stay', () => {
-  const trees = { positions: [0, 0, 10, 0, 20, 0], heights: [7, 12, 15] };
+  const trees = { positions: [0, 0, 10, 0, 20, 0], heights: [7, 12, 15], kinds: [1, 0, 0] };
   // Something mapped stands round x = 0 and x = 10: only the crown there goes.
   expect(clearCrowns(trees, 1, (x) => x < 15)).toEqual({
     positions: [0, 0, 20, 0],
     heights: [7, 15],
+    kinds: [1, 0],
   });
   expect(clearCrowns(trees, 1, () => false)).toEqual(trees);
+});
+
+test('a tree is what OSM says it is, and broad where it says nothing', () => {
+  expect(treeKindOf({})).toBe('broad');
+  expect(treeKindOf({ leaf_type: 'broadleaved' })).toBe('broad');
+  expect(treeKindOf({ leaf_type: 'needleleaved' })).toBe('conifer');
+  expect(treeKindOf({ genus: 'Pinus' })).toBe('conifer');
+  expect(treeKindOf({ 'species:nl': 'Levensboom (Reuze-)' })).toBe('conifer');
+  expect(treeKindOf({ genus: 'Populus' })).toBe('column');
+  expect(treeKindOf({ genus: 'Salix' })).toBe('willow');
+  expect(treeKindOf({ 'species:nl': 'Wilg' })).toBe('willow');
+  expect(treeKindOf({ species: 'Fagus sylvatica atropunicea' })).toBe('copper');
+  expect(treeKindOf({ 'species:nl': 'Rode Beuk' })).toBe('copper');
 });

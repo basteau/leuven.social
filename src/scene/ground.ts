@@ -24,6 +24,7 @@ export const LAYER_Y = {
   railLand: 0.04,
   green: 0.05,
   woods: 0.06,
+  flowerbeds: 0.061,
   track: 0.062,
   pitch: 0.066,
   parking: 0.08,
@@ -45,12 +46,14 @@ const LIP = LAYER_Y.plazas;
 export const GROUND_RINGS = [
   'green',
   'woods',
+  'flowerbeds',
   'parking',
   'railLand',
   'water',
   'bridges',
   'roads',
   'plazas',
+  'islands',
 ] as const;
 
 /** A piece of a pitch, and what it's made of. */
@@ -68,6 +71,7 @@ export const PITCH_Y = { track: LAYER_Y.track, pitch: LAYER_Y.pitch } as const;
 export interface GroundLayers {
   green: readonly Float32Array[];
   woods: readonly Float32Array[];
+  flowerbeds: readonly Float32Array[];
   pitches: readonly Pitch[];
   parking: readonly Float32Array[];
   water: readonly Float32Array[];
@@ -76,6 +80,7 @@ export interface GroundLayers {
   carriageways: readonly Carriageway[];
   markings: readonly Marking[];
   plazas: readonly Float32Array[];
+  islands: readonly Float32Array[];
   railLand: readonly Float32Array[];
   paths: readonly Path[];
 }
@@ -243,6 +248,7 @@ export function addGround(
   for (const ring of layers.green)
     addRing(mesh, ring, LAYER_Y.green, GROUND.green, SURFACE.flowers);
   addRings(mesh, layers.woods, LAYER_Y.woods, GROUND.woods, SURFACE.woods);
+  addRings(mesh, layers.flowerbeds, LAYER_Y.flowerbeds, GROUND.earth, SURFACE.earth);
   for (const { surface, ring } of layers.pitches) {
     addRing(
       mesh,
@@ -268,6 +274,10 @@ export function addGround(
   addPaint(mesh, layers.markings);
   // Squares are paved in setts, like the old streets round them.
   for (const ring of layers.plazas) addRing(mesh, ring, LAYER_Y.plazas, GROUND.plaza, SURFACE.sett);
+  // Traffic islands and footway areas in the road: pale slabs, like the pavement.
+  for (const ring of layers.islands) {
+    addRing(mesh, ring, LAYER_Y.plazas, GROUND.pavement, SURFACE.paving);
+  }
 }
 
 /** How wide a kerbstone is drawn (m): a little over life, so it stays a line when zoomed in. */

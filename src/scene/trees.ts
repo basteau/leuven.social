@@ -3,6 +3,7 @@ import { fromOklab, toOklab } from '../data/colour.ts';
 import { MAX_TRUNK, treeScale } from '../data/trees.ts';
 import { CROWN as CROWN_CODE } from './facade-codes.ts';
 import { TREE, pick } from './palette.ts';
+import type { TreeKind } from '../data/city.ts';
 
 // A four-sided open trunk is all a pixel can show: its caps hide in the crown and the ground.
 const TRUNK_BASE = 0.4;
@@ -153,21 +154,6 @@ export function addTree(
 /** The puffs of leaves a tree is drawn with, at every zoom: how few and many, and numbers a puff. */
 export const PUFF = { min: 8, max: 18, stride: 4 } as const;
 
-/** Lightness and hue a tree in its autumn colours takes, one in about ten. */
-const AUTUMN = toOklab(TREE.autumn);
-const AUTUMN_SHARE = 0.06;
-
-/**
- * The shape a tree grows into, by its seed and height: most round, some spreading, a tall one here
- * and there a column (a poplar), a few conifers, in layers. Each only moves the puffs.
- */
-function habit(seed: number, height: number): 'round' | 'spreading' | 'column' | 'conifer' {
-  const roll = pick(UNITS, seed * 19 + 3) / UNITS.length;
-  if (roll < 0.1) return 'conifer';
-  if (roll < 0.22 && height >= 12) return 'column';
-  return roll < 0.45 ? 'spreading' : 'round';
-}
-
 /**
  * A colour a little lighter or darker, yellower or bluer by `tint` (from -0.5 to 0.5): each puff
  * its own shade, at the price of a few multiplications, as a city has a hundred thousand puffs.
@@ -192,26 +178,28 @@ export function addPuffs(
   z: number,
   seed: number,
   height = 0,
+  shape: TreeKind = 'broad',
 ): void {
   const { scale, wide } = treeSize(seed, height);
   const grown = height || scale * MODEL_HEIGHT;
-  const shape = habit(seed, grown);
   const [h, across] = [
-    CROWN_RADIUS * scale * (shape === 'column' ? 1.35 : shape === 'spreading' ? 0.82 : 1),
-    CROWN_RADIUS * wide * (shape === 'column' ? 0.55 : shape === 'spreading' ? 1.18 : 1),
+    CROWN_RADIUS * scale * (shape === 'column' ? 1.35 : shape === 'willow' ? 0.9 : 1),
+    CROWN_RADIUS * wide * (shape === 'column' ? 0.55 : shape === 'willow' ? 1.1 : 1),
   ];
   const count = Math.round(Math.min(PUFF.max, Math.max(PUFF.min, 6 + across * 1.1)));
   const [cy, r] = [ground + CROWN_Y * scale, across * (shape === 'column' ? 0.62 : 0.5)];
   const unit = (salt: number) => pick(UNITS, seed * 7 + salt) / (UNITS.length - 1);
-  // A conifer stays dark and blue; one in sixteen of the others has turned.
+  // Its colour by what OSM says it is: a conifer dark and blue, a copper beech its purple, a
+  // willow a yellow green.
   const own = toOklab(crownColor(seed, grown));
-  const autumn = shape !== 'conifer' && unit(71) < AUTUMN_SHARE;
   const base: [number, number, number] =
     shape === 'conifer'
       ? [own[0] - 0.07, own[1] * 0.9 - 0.012, own[2] * 0.72]
-      : autumn
-        ? [AUTUMN[0] + (unit(72) - 0.5) * 0.05, AUTUMN[1], AUTUMN[2] + (unit(73) - 0.5) * 0.03]
-        : own;
+      : shape === 'copper'
+        ? [own[0] - 0.14, 0.06, 0.02]
+        : shape === 'willow'
+          ? [own[0] + 0.05, own[1] * 0.75, own[2] * 1.2]
+          : own;
   const leaf = fromOklab(base);
   const push = (px: number, py: number, pz: number, radius: number, c: number) => {
     into.push(px, py, pz, radius);
@@ -230,7 +218,7 @@ export function addPuffs(
     const spread = shape === 'conifer' ? 0.62 : 0.68;
     push(
       x + Math.cos(angle) * round * across * spread * wobble,
-      cy + up * h * (shape === 'conifer' ? 1.05 : 0.74),
+      cy + up * h * (shape === 'conifer' ? 1.05 : shape === 'willow' ? 0.95 : 0.74),
       z + Math.sin(angle) * round * across * spread * wobble,
       r * (0.76 + 0.3 * unit(i + 40)) * (shape === 'conifer' ? 0.5 + t * 0.55 : 1),
       shaded(leaf, 1 + (up - 0.2) * 0.1 + (unit(i + 60) - 0.5) * 0.1, unit(i + 80) - 0.5),

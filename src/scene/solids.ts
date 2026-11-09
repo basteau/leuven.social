@@ -12,6 +12,9 @@ import { trunkFoot } from './trees.ts';
  * benches (the seat, not the room for legs in front of it), racks, shelters, statues, fountains
  * and pumps, of the café parasols' weighted feet, and of the shop fronts' terraces.
  */
+/** Half a hedge's thickness, as a walker meets it (m). */
+const HEDGE = 0.45;
+
 export function walkSolids(city: City): Solids {
   const posts: number[] = [];
   for (let i = 0; i < city.trees.length / 2; i++) {
@@ -36,6 +39,14 @@ export function walkSolids(city: City): Solids {
     const f = propFootprint(p);
     if (p.kind === 'lamp') posts.push(f.x, f.z, f.u1);
     else box(f.x, f.z, f.fx, f.fz, [f.u0, f.u1, f.v0, p.kind === 'bench' ? -f.v0 : f.v1]);
+  }
+  for (const line of city.hedges) {
+    for (let i = 0; i + 3 < line.length; i += 2) {
+      const [ax, az, bx, bz] = [line[i]!, line[i + 1]!, line[i + 2]!, line[i + 3]!];
+      const length = Math.hypot(bx - ax, bz - az);
+      if (length < 0.1) continue;
+      box(ax, az, (bx - ax) / length, (bz - az) / length, [-HEDGE, HEDGE, 0, length]);
+    }
   }
   for (const front of city.fronts) {
     const p = frontPoint(city.buildings[front.building]!.ring, front);

@@ -19,6 +19,15 @@ test('public/data/city.bin decodes into a plausible Leuven', async () => {
   expect(city.buildings.every((b) => b.height >= 2.5 && b.height <= 90)).toBe(true);
   expect(city.buildings.some((b) => b.tier === 'hero')).toBe(true);
   expect(city.roads.length).toBeGreaterThan(50);
+  // What grows and how racks are built come from the map, not from a guess.
+  expect(city.treeKinds.length).toBe(city.treeHeights.length);
+  expect(new Set(city.treeKinds).size).toBeGreaterThan(2);
+  expect(city.hedges.length).toBeGreaterThan(100);
+  expect(city.flowerbeds.length).toBeGreaterThan(5);
+  expect(city.islands.length).toBeGreaterThan(20);
+  const parked = city.props.filter((p) => p.kind === 'bikes');
+  expect(parked.some((p) => p.covered)).toBe(true);
+  expect(new Set(parked.map((p) => p.rack)).size).toBeGreaterThan(2);
   // Road detail: carriageways of every kind, lane lines and crossings.
   const kinds = new Set(city.carriageways.map((c) => c.kind));
   expect([...kinds].toSorted()).toEqual(['cycleway', 'main', 'pedestrian', 'street']);

@@ -51,6 +51,7 @@ import {
   MARKING_KINDS,
   MATERIALS,
   PROP_KINDS,
+  RACK_STYLES,
   RAIL_KINDS,
   ROOFS,
   SURFACES,
@@ -74,10 +75,11 @@ import type { Field } from './pitches.ts';
 import { PLACES, SHOP_KINDS } from './shop-kinds.ts';
 
 const MAGIC = 'LVN1';
-// v16: a byte per bike rack, its fill (`Prop.fill`). v17: the shop fronts. v18: pitch surfaces
+// v27: flower beds, hedges, a byte a tree for its kind and a rack's style and roof in its fill's
+// neighbour. v16: a byte per bike rack, its fill (`Prop.fill`). v17: the shop fronts. v18: pitch surfaces
 // and the fields painted on them, after the polygon layers. v25: more kinds of front, public
 // places among them. v26: those, and no ways for the traffic. Bump the cache in public/sw.js with it.
-const VERSION = 26;
+const VERSION = 27;
 const DM = 10; // units per metre
 const GROUND = 20; // terrain heights per metre: 5 cm
 const ZIGZAG = { encoding: 'zigzag' } as const;
@@ -251,6 +253,8 @@ export function encodeCity(city: City): Uint8Array {
     city.pitches,
     city.parking,
     city.bridges,
+    city.flowerbeds,
+    city.islands,
   ];
   for (const layer of layers) {
     w.varint(layer.length);
@@ -287,6 +291,10 @@ export function encodeCity(city: City): Uint8Array {
 
   writeRing(w, city.trees);
   for (const h of city.treeHeights) w.varint(Math.round(h * DM));
+  for (const k of city.treeKinds) w.uint8(k);
+  w.varint(city.hedges.length);
+  at = origin();
+  for (const line of city.hedges) writeRing(w, line, at);
 
   w.varint(city.props.length);
   for (const p of city.props) w.uint8(PROP_KINDS.indexOf(p.kind));
@@ -297,7 +305,10 @@ export function encodeCity(city: City): Uint8Array {
   for (const p of city.props) {
     w.uint8(Math.round((p.angle / TURN) * 256) & 255);
     w.varint(Math.round(p.size * DM));
-    if (p.kind === 'bikes') w.uint8(Math.round(Math.min(Math.max(p.fill ?? 0, 0), 1) * 255));
+    if (p.kind === 'bikes') {
+      w.uint8(Math.round(Math.min(Math.max(p.fill ?? 0, 0), 1) * 255));
+      w.uint8(RACK_STYLES.indexOf(p.rack ?? 'hoops') | (p.covered ? 8 : 0));
+    }
     if (!isMonument(p.kind)) continue;
     w.varint(Math.round((p.width ?? 0) * DM));
     w.varint(Math.round((p.depth ?? 0) * DM));
@@ -411,7 +422,11 @@ export function decodeCity(bytes: Uint8Array): City {
     pitches,
     parking,
     bridges,
-  ] = Array.from({ length: 11 }, () => list((from) => readRing(r, from))) as [
+    flowerbeds,
+    islands,
+  ] = Array.from({ length: 13 }, () => list((from) => readRing(r, from))) as [
+    Rings,
+    Rings,
     Rings,
     Rings,
     Rings,
@@ -459,6 +474,8 @@ export function decodeCity(bytes: Uint8Array): City {
 
   const trees = readRing(r);
   const treeHeights = Float32Array.from({ length: trees.length / 2 }, () => r.varint() / DM);
+  const treeKinds = Uint8Array.from({ length: trees.length / 2 }, () => r.uint8());
+  const hedges = list((from) => readRing(r, from));
 
   const kinds = Array.from({ length: r.varint() }, () => {
     const kind = PROP_KINDS[r.uint8()];
@@ -474,7 +491,13 @@ export function decodeCity(bytes: Uint8Array): City {
       angle: (r.uint8() / 256) * TURN,
       size: r.varint() / DM,
     };
-    if (kind === 'bikes') prop.fill = r.uint8() / 255;
+    if (kind === 'bikes') {
+      prop.fill = r.uint8() / 255;
+      const style = r.uint8();
+      prop.rack = RACK_STYLES[style & 7];
+      prop.covered = (style & 8) !== 0;
+      if (!prop.rack) throw new CityFormatError('Bad bike rack.');
+    }
     if (!isMonument(kind)) return prop;
     const [width, depth, material] = [r.varint() / DM, r.varint() / DM, MATERIALS[r.uint8()]];
     if (!material) throw new CityFormatError('Bad monument material.');
@@ -527,6 +550,10 @@ export function decodeCity(bytes: Uint8Array): City {
     canopies,
     trees,
     treeHeights,
+    treeKinds,
+    hedges,
+    flowerbeds,
+    islands,
     props,
     tanks,
     bridges,

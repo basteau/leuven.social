@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 
 import { MeshBuilder, unindexed } from './mesh-builder.ts';
+import type { TreeKind } from '../data/city.ts';
 import { deltaE, toOklab } from '../data/colour.ts';
 import { trunkRadius } from '../data/trees.ts';
 import { TREE } from './palette.ts';
@@ -107,24 +108,30 @@ test('up close a crown is puffs of leaves: a dark ball inside, more on a bigger 
   expect(puffs(6, 7).spots).not.toEqual(small.spots);
 });
 
-const shape = (seed: number) => {
+const shapeOf = (kind: TreeKind) => {
   const [spots, colors]: [number[], number[]] = [[], []];
-  addPuffs(spots, colors, 0, 0, 0, seed, 18);
+  addPuffs(spots, colors, 0, 0, 0, 3, 18, kind);
   let [wide, high] = [0, 0];
   for (let i = 1; i < spots.length / 4; i++) {
     wide = Math.max(wide, Math.hypot(spots[i * 4]!, spots[i * 4 + 2]!));
     high = Math.max(high, spots[i * 4 + 1]!);
   }
-  const n = colors.length / 4 - 1;
-  const hue = colors[4]! - colors[5]!; // red over green in the first leaves
-  return { ratio: high / wide, hue, n };
+  return { ratio: high / wide, leaf: colors.slice(4, 8) };
 };
 
-test('trees grow into different shapes, and a few have turned', () => {
-  const trees = Array.from({ length: 200 }, (_, seed) => shape(seed));
-  const ratios = trees.map((t) => t.ratio);
-  expect(Math.max(...ratios) / Math.min(...ratios)).toBeGreaterThan(1.6);
-  // Most are green; some have turned to the warm side.
-  expect(trees.filter((t) => t.hue > 0).length).toBeGreaterThan(1);
-  expect(trees.filter((t) => t.hue > 0).length).toBeLessThan(60);
+test('a tree takes the shape and colour of what OSM says it is', () => {
+  const broad = shapeOf('broad');
+  expect(shapeOf('column').ratio).toBeGreaterThan(broad.ratio * 1.2);
+  const [r, g, b] = shapeOf('copper').leaf;
+  expect(r!).toBeGreaterThan(g!); // purple, not green
+  expect(b!).toBeGreaterThan(0);
+  const [cr, cg, cb] = shapeOf('conifer').leaf;
+  expect(cb! / cg!).toBeGreaterThan(broad.leaf[2]! / broad.leaf[1]!);
+  expect(cr! + cg! + cb!).toBeLessThan(broad.leaf[0]! + broad.leaf[1]! + broad.leaf[2]!);
+  // Left out, a tree is broad, and the same seed always gives the same one.
+  const [a1, a2]: [number[], number[]] = [[], []];
+  addPuffs(a1, a2, 0, 0, 0, 3, 18);
+  const [b1, b2]: [number[], number[]] = [[], []];
+  addPuffs(b1, b2, 0, 0, 0, 3, 18, 'broad');
+  expect(a1).toEqual(b1);
 });

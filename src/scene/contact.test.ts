@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 
-import type { Building, Prop } from '../data/city.ts';
+import type { Building } from '../data/city.ts';
 import { CONTACT, SHORE, addContacts, addShores } from './contact.ts';
 import { MeshBuilder, unindexed } from './mesh-builder.ts';
 
@@ -9,9 +9,9 @@ const house = (ring: number[], tier = 'core') =>
 const square = [0, 0, 10, 0, 10, 10, 0, 10];
 const ground = () => 2;
 
-function built(buildings: Pick<Building, 'ring' | 'tier'>[], racks: Prop[] = []) {
+function built(buildings: Pick<Building, 'ring' | 'tier'>[]) {
   const mesh = new MeshBuilder();
-  addContacts(mesh, buildings, racks, ground);
+  addContacts(mesh, buildings, ground);
   return unindexed(mesh.build({ facade: true }));
 }
 
@@ -36,23 +36,10 @@ test('a wall shared with a neighbour has none, a short jog none, the fringe none
   expect(built([house(square, 'fringe')]).getAttribute('position').count).toBe(0);
 });
 
-test('a rack has a patch of its own, about its size', () => {
-  const rack = { kind: 'bikes', x: 5, z: 5, angle: 0, size: 12 } as unknown as Prop;
-  const g = built([], [rack]);
-  g.computeBoundingBox();
-  expect(g.getAttribute('position').count / 3).toBe(10); // the middle, and its rim
-  const [wide, deep] = [
-    g.boundingBox!.max.z - g.boundingBox!.min.z,
-    g.boundingBox!.max.x - g.boundingBox!.min.x,
-  ];
-  expect(wide).toBeGreaterThan(5);
-  expect(deep).toBeGreaterThan(1);
-});
-
 test('a long wall is cut in pieces that follow the ground', () => {
   const long = house([0, 0, 40, 0, 40, 5, 0, 5]);
   const mesh = new MeshBuilder();
-  addContacts(mesh, [long], [], (x) => Math.sin(x / 8) * 4);
+  addContacts(mesh, [long], (x) => Math.sin(x / 8) * 4);
   const g = unindexed(mesh.build({ facade: true }));
   // Two walls of 40 m in four pieces each, and two of 5 m whole.
   expect(g.getAttribute('position').count / 6).toBe(4 + 4 + 2);

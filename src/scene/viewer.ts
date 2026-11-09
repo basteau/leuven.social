@@ -27,6 +27,8 @@ import type { Material, Object3D } from 'three';
 import type { City } from '../data/city.ts';
 import { clampToArea } from '../data/geometry.ts';
 import type { StreetIndex } from '../data/streets.ts';
+import { TREE_KINDS } from '../data/city.ts';
+import { TREE_STRIDE } from '../data/trees.ts';
 import { Terrain } from '../data/terrain.ts';
 import { addBuilding, footing, partyWalls, wallTop } from './buildings.ts';
 import { AWNING } from './facade-codes.ts';
@@ -602,9 +604,15 @@ export function createViewer(options: ViewerOptions): Viewer {
   function puffMesh(cell: Cell): Mesh | null {
     const { trees } = cell;
     const [spots, colors]: [number[], number[]] = [[], []];
-    for (let i = 0; i < trees.length; i += 4) {
-      const [x, z, seed, height] = [trees[i]!, trees[i + 1]!, trees[i + 2]!, trees[i + 3]!];
-      addPuffs(spots, colors, x, terrain.height(x, z), z, seed, height);
+    for (let i = 0; i < trees.length; i += TREE_STRIDE) {
+      const [x, z, seed, height, kind] = trees.slice(i, i + TREE_STRIDE) as [
+        number,
+        number,
+        number,
+        number,
+        number,
+      ];
+      addPuffs(spots, colors, x, terrain.height(x, z), z, seed, height, TREE_KINDS[kind]);
     }
     addGarden(spots, colors, cell, terrain);
     if (!spots.length) return null;

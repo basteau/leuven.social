@@ -99,13 +99,28 @@ test('monuments carry their archetype, height, plinth and material (src/data/mon
   ).toBeNull();
 });
 
+const parking = (tags: Record<string, string>) =>
+  propFromOsm({ amenity: 'bicycle_parking', capacity: '4', ...tags });
+
 test('bike racks hold their tagged capacity, within reason, unless out of sight', () => {
   expect(propFromOsm({ amenity: 'bicycle_parking', capacity: '10' })).toEqual({
     kind: 'bikes',
     size: 10,
+    rack: 'hoops',
+    covered: false,
     facing: null,
     axis: null,
   });
+  // What it's made of and whether it has a roof come from its tags.
+  expect(parking({ bicycle_parking: 'stands' })?.rack).toBe('hoops');
+  expect(parking({ bicycle_parking: 'safe_loops' })?.rack).toBe('hoops');
+  expect(parking({ bicycle_parking: 'anchors' })?.rack).toBe('anchors');
+  expect(parking({ bicycle_parking: 'wall_loops' })?.rack).toBe('wall');
+  expect(parking({ bicycle_parking: 'wall_hoops' })?.rack).toBe('wall');
+  expect(parking({ bicycle_parking: 'informal' })?.rack).toBe('informal');
+  expect(parking({ bicycle_parking: 'shed' })).toMatchObject({ rack: 'shed', covered: true });
+  expect(parking({ covered: 'yes' })?.covered).toBe(true);
+  expect(parking({ covered: 'no' })?.covered).toBe(false);
   expect(propFromOsm({ amenity: 'bicycle_parking' })?.size).toBe(DEFAULT_STANDS);
   expect(propFromOsm({ amenity: 'bicycle_parking', capacity: '400' })?.size).toBe(MAX_STANDS);
   expect(propFromOsm({ amenity: 'bicycle_parking', capacity: '2' })?.size).toBe(2);

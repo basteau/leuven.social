@@ -94,12 +94,7 @@ export function buildFurniture(cell: Cell, kit: FurnitureKit): Furniture {
   const awnings = cell.fronts.length > 0 ? new MeshBuilder() : null;
   if (awnings) addStorefronts(near, awnings, cell.fronts, kit, drawn.height);
   const contact = new MeshBuilder();
-  addContacts(
-    contact,
-    cell.buildings,
-    cell.props.filter((p) => p.kind === 'bikes'),
-    terrain.height.bind(terrain),
-  );
+  addContacts(contact, cell.buildings, terrain.height.bind(terrain));
   near.lift = 0;
   addShores(contact, near, cell.ground.water, cell.bounds, terrain.height.bind(terrain));
   return { near, bikes: new Float32Array(bikes), awnings, contact, tall, glow };

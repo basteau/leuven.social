@@ -246,6 +246,8 @@ export function addBuckets(mesh: MeshBuilder, f: Frame, seed: number): void {
 const PORTAL_WALL = 4.4;
 /** Nor this little of a front (m either side of its middle): a corner has no room for one. */
 const PORTAL_ROOM = 1.4;
+/** Two signs on one building keep at least this far apart (m). */
+const SIGN_APART = 2.2;
 
 /** Of the chairs at a table, the share someone sits on. */
 const TAKEN = 0.55;
@@ -335,9 +337,10 @@ function addPlace(
   top: number,
   room: number,
   end: number | undefined,
+  first: boolean,
 ): void {
   const middle = frame(p);
-  if (room >= PORTAL_ROOM) {
+  if (first && room >= PORTAL_ROOM) {
     if (top >= PORTAL_WALL) addPortal(mesh, middle, kind);
     addRoofFlag(mesh, frame(p, room > 2 ? -room * 0.6 : 0), kind, top);
   }
@@ -378,6 +381,16 @@ export function addStorefronts(
   ground: (x: number, z: number) => number,
 ): void {
   const [lift, awningLift] = [mesh.lift, awnings.lift];
+  /** One building, one flag and door, whatever else is inside it; signs keep a little apart. */
+  const flagged = new Set<Building>();
+  const signs: { building: Building; x: number; z: number }[] = [];
+  const signRoom = (building: Building, x: number, z: number) => {
+    if (signs.some((o) => o.building === building && Math.hypot(o.x - x, o.z - z) < SIGN_APART)) {
+      return false;
+    }
+    signs.push({ building, x, z });
+    return true;
+  };
   for (const { building, front } of fronts) {
     const p = frontPoint(building.ring, front);
     const top = kit.wallTop(building);
@@ -398,9 +411,14 @@ export function addStorefronts(
     const end = [room + 0.3, -room - 0.3].find(
       (t) => front.along + t >= END_GAP && front.along + t <= p.length - END_GAP,
     );
-    if (PLACES.has(kind)) addPlace(mesh, p, kind, top, room, end);
-    else if (end !== undefined && kind === 'hairdresser') addBarberPole(mesh, frame(p, end), top);
-    else if (end !== undefined) addSign(mesh, frame(p, end), kind, signHeight(top));
+    const signAt = end === undefined ? undefined : frame(p, end);
+    const signed = !!signAt && signRoom(building, signAt.x, signAt.z);
+    if (PLACES.has(kind)) {
+      const first = !flagged.has(building);
+      flagged.add(building);
+      addPlace(mesh, p, kind, top, room, signed ? end : undefined, first);
+    } else if (signed && kind === 'hairdresser') addBarberPole(mesh, signAt, top);
+    else if (signed) addSign(mesh, signAt, kind, signHeight(top));
     if (BOARDS.has(kind) && roll(front.building * 13 + Math.round(front.along)) < 0.6) {
       const out = REACH + 0.55;
       const sideways = end === undefined ? 0 : -Math.sign(end) * (room * 0.5);

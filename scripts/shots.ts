@@ -70,7 +70,21 @@ function flag(name: string, fallback: string): string {
 }
 const dir = flag('dir', 'shots');
 const scale = flag('scale', '1');
-const wanted = SHOTS.filter((s) => !args.length || args.some((a) => s.name.includes(a)));
+// `--at x,z,zoom,time[,turn]`, as often as you like: a view of your own, named by where it is.
+const spots: Shot[] = [];
+for (let i = args.indexOf('--at'); i >= 0; i = args.indexOf('--at')) {
+  const [x, z, zoom, time, turn] = args.splice(i, 2)[1]!.split(',');
+  spots.push({
+    name: `at-${x}_${z}_${zoom}_${time}${turn ? `_${turn}` : ''}`,
+    at: [Number(x), Number(z)],
+    zoom: Number(zoom),
+    time: time as Time,
+    turn: Number(turn ?? 0),
+  });
+}
+const wanted = spots.length
+  ? spots
+  : SHOTS.filter((s) => !args.length || args.some((a) => s.name.includes(a)));
 
 const ROOT = Bun.fileURLToPath(new URL('..', import.meta.url));
 const OUT = `${ROOT}.artifacts/${dir}/`;

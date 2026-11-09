@@ -1,5 +1,7 @@
 import { expect, test } from 'bun:test';
 
+import type { RackStyle } from '../data/city.ts';
+
 import { PROP_KINDS, isMonument } from '../data/city.ts';
 import type { Prop, PropKind } from '../data/city.ts';
 import { monumentFromOsm, plinthOf } from '../data/monuments.ts';
@@ -91,8 +93,16 @@ test('a rack holds its fill of bikes in a run, every other one turned round, at 
   const empty = (size: number) => built(prop('bikes', { size })).triangles;
   expect(empty(6)).toBe(3 * 36); // an empty rack is still a rack: one hoop for two stands
   expect(empty(12)).toBe(6 * 36);
-  // From 14 stands, a roof on posts over them.
-  expect(empty(14)).toBeGreaterThan(empty(13));
+  // A covered rack, whatever its size, has a roof on posts; size alone never gives one.
+  const roofed = (size: number) => built(prop('bikes', { size, covered: true })).triangles;
+  expect(roofed(6)).toBeGreaterThan(empty(6));
+  expect(empty(18)).toBe(10 * 36);
+  // Each style is what OSM says it is: anchors and wall loops have one low loop a stand.
+  const styled = (rack: RackStyle) => built(prop('bikes', { size: 6, rack })).triangles;
+  expect(styled('hoops')).toBe(3 * 36);
+  expect(styled('anchors')).toBe(6 * 36);
+  expect(styled('wall')).toBeGreaterThan(styled('anchors'));
+  expect(styled('informal')).toBe(0);
   const p = prop('bikes', { size: 12, fill: 5 / 12 });
   const { bikes } = parked(p);
   expect(bikes).toHaveLength(5);
@@ -438,8 +448,8 @@ test('a lamp is a slim post on a foot, with a lantern under a cap', () => {
   expect(box.max.y).toBeGreaterThan(5.9);
 });
 
-test('a big rack keeps its roof out of the houses, and a house is no place for one', () => {
-  const rack = prop('bikes', { size: 18 });
+test('a covered rack keeps its roof out of the houses', () => {
+  const rack = prop('bikes', { size: 18, covered: true });
   const count = (open?: (x: number, z: number) => boolean) => {
     const mesh = new MeshBuilder();
     addProp(mesh, rack, undefined, undefined, open);

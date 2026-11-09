@@ -65,7 +65,8 @@ import { fitTerraces, markShopFronts, placeFronts, placePoints } from '../src/da
 import { PLACES, placeKind } from '../src/data/shop-kinds.ts';
 import { bridgeParapets, tankOutline } from '../src/data/structures.ts';
 import { joinLines, nameTable, streetName } from '../src/data/streets.ts';
-import { clearCrowns, mergeTrees, trunkRadius } from '../src/data/trees.ts';
+import { TREE_KINDS } from '../src/data/city.ts';
+import { clearCrowns, mergeTrees, treeKindOf, trunkRadius } from '../src/data/trees.ts';
 import { DATA } from './data-files.ts';
 
 const OUT = new URL('../public/data/city.bin', import.meta.url).pathname;
@@ -200,6 +201,7 @@ const [
   wtz,
   gba,
   osmAreaElements,
+  osmHedges,
   osmRoads,
   osmPoints,
   osmPlatforms,
@@ -215,6 +217,7 @@ const [
   read<Collection>('grb/grb_WTZ.geojson'),
   read<Collection>('grb/grb_GBA.geojson'),
   read<{ elements: OsmElement[] }>('osm/areas.json'),
+  read<{ elements: { geometry?: { lat: number; lon: number }[] }[] }>('osm/hedges.json'),
   read<Collection>('derived/osm_roads.geojson'),
   read<Collection>('derived/osm_points.geojson'),
   read<Overpass>('osm/rail_platforms.json'),
@@ -274,7 +277,10 @@ const closedPedestrianArea = (p: Props) =>
 
 const osmTrees = osmPoints.features
   .filter((f) => f.properties.natural === 'tree')
-  .map((f) => toLocal(...(f.geometry.coordinates as [number, number])))
+  .map((f) => {
+    const [x, z] = toLocal(...(f.geometry.coordinates as [number, number]));
+    return [x, z, TREE_KINDS.indexOf(treeKindOf(f.properties))] as const;
+  })
   .filter(([x, z]) => areaIndex(AREA, x, z) >= 0);
 const paths: Path[] = osmRoads.features.flatMap((f) => {
   const style = pathFromOsm(f.properties);
@@ -406,9 +412,31 @@ for (const b of buildings) footprints.add(b.ring);
 const carriagewayGround = new RingIndex();
 for (const c of carriageways) carriagewayGround.add(c.ring);
 // A mapped tree inside a footprint is in the wrong place: the house is surveyed, the tree typed.
+const riverForTrees = new RingIndex();
+for (const ring of [...layer(wtz.features, () => true), ...coverLayer('water')]) {
+  riverForTrees.add(ring);
+}
+/** A mapped tree in the water is on its bank, typed a little off: moved to the nearest dry ground. */
+function onBank([x, z, kind]: readonly [number, number, number]): readonly [
+  number,
+  number,
+  number,
+] {
+  if (!riverForTrees.contains(x, z)) return [x, z, kind];
+  for (let r = 1; r <= 8; r++) {
+    for (let k = 0; k < 16; k++) {
+      const t = (k / 16) * Math.PI * 2;
+      const [nx, nz] = [x + Math.cos(t) * r, z + Math.sin(t) * r];
+      if (!riverForTrees.contains(nx, nz)) return [nx, nz, kind];
+    }
+  }
+  return [x, z, kind];
+}
+const standing = osmTrees.map(onBank).filter(([x, z]) => !footprints.contains(x, z));
 const allTrees = mergeTrees(
-  osmTrees.filter(([x, z]) => !footprints.contains(x, z)).flat(),
+  standing.flatMap(([x, z]) => [x, z]),
   crowns.trees.filter(([x, z]) => areaIndex(AREA, x, z) >= 0 && !underRoof(x, z)),
+  standing.map(([, , kind]) => kind),
 );
 
 const roads = layer(wbn.features, () => true);
@@ -506,6 +534,15 @@ const station: [number, number] | null = roofCorners.length
         (roofCorners.length / 2),
     ) as [number, number])
   : null;
+// Hedges as they're mapped, cut to the area; one ending inside a house is cut off at the wall by
+// what stands there anyway.
+const hedges = osmHedges.elements.flatMap((e) => {
+  const line = (e.geometry ?? []).flatMap((p) => toLocal(p.lon, p.lat));
+  return AREA.flatMap((rect) => clipLine(line, rect))
+    .filter((piece) => piece.length >= 4)
+    .map((piece) => new Float32Array(piece));
+});
+
 const racks = placed.props.flatMap((p, i) =>
   p.kind === 'bikes' ? [{ p, access: placed.tags[i]!.access }] : [],
 );
@@ -535,6 +572,7 @@ const trees = clearCrowns(
   (x, z, r) =>
     carriagewayGround.contains(x, z) ||
     footprints.contains(x, z) ||
+    river.contains(x, z) ||
     [-1, 0, 1].some((i) =>
       [-1, 0, 1].some((j) =>
         (near.get(`${Math.round(x / 16) + i},${Math.round(z / 16) + j}`) ?? []).some((f) =>
@@ -642,6 +680,9 @@ const city: City = {
   plazas,
   green: coverLayer('green', MIN_GREEN_AREA),
   woods: coverLayer('woods', MIN_GREEN_AREA),
+  flowerbeds: coverLayer('flowerbeds'),
+  islands: coverLayer('islands'),
+  hedges,
   pitches: pitchRings.map(({ ring }) => ring),
   pitchSurfaces: pitchRings.map((p) => pitchSurface(p.props)),
   fields,
@@ -654,6 +695,7 @@ const city: City = {
   canopies,
   trees: new Float32Array(trees.positions),
   treeHeights: new Float32Array(trees.heights),
+  treeKinds: Uint8Array.from(trees.kinds),
   props,
   tanks,
   bridges,

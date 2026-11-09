@@ -191,6 +191,14 @@ export const MATERIALS = [
 ] as const;
 export type Material = (typeof MATERIALS)[number];
 
+/** What a bike rack is, as OSM's `bicycle_parking` says: the file stores its place in this list. */
+export const RACK_STYLES = ['hoops', 'anchors', 'wall', 'informal', 'shed'] as const;
+export type RackStyle = (typeof RACK_STYLES)[number];
+
+/** What kind of tree it is, where OSM says; a tree only the LiDAR saw is `broad`. */
+export const TREE_KINDS = ['broad', 'conifer', 'column', 'copper', 'willow'] as const;
+export type TreeKind = (typeof TREE_KINDS)[number];
+
 export interface Prop {
   kind: PropKind;
   x: number;
@@ -201,6 +209,9 @@ export interface Prop {
   size: number;
   /** Bike racks only: the share of their stands that hold a bike (`rackFill`). */
   fill?: number;
+  /** Bike racks only: what OSM says they're made of (`bicycle_parking`), and whether roofed. */
+  rack?: RackStyle;
+  covered?: boolean;
   /** Monuments only: their plinth or basin across (u) and along (v) their facing (m). */
   width?: number;
   depth?: number;
@@ -257,6 +268,12 @@ export interface City {
   water: Float32Array[];
   /** Woods and scrub: a darker floor under the trees. */
   woods: Float32Array[];
+  /** Paved traffic islands and footway areas in the road (`area:highway`), pale and raised. */
+  islands: Float32Array[];
+  /** Beds of flowers (OSM's `landuse=flowerbed`), drawn as soil and what grows on it. */
+  flowerbeds: Float32Array[];
+  /** Hedges, as flat [x0, z0, …] lines along where they grow. */
+  hedges: Float32Array[];
   /** Sports pitches and running tracks. */
   pitches: Float32Array[];
   /** Each pitch's surface, in the order of `pitches` (src/data/pitches.ts). */
@@ -278,6 +295,8 @@ export interface City {
   trees: Float32Array;
   /** Height of each tree in metres, from the LiDAR canopy. */
   treeHeights: Float32Array;
+  /** Each tree's place in `TREE_KINDS`. */
+  treeKinds: Uint8Array;
   props: Prop[];
   tanks: Tank[];
   /** Bridge decks (GRB structures): walkable over the water, drawn as stone above it. */

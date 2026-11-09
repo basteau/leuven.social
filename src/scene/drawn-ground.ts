@@ -81,6 +81,7 @@ function gather({ ground }: Cell, h: LayerHeights): Piece[] {
   for (const ring of ground.roads) add(h.roads, ring);
   for (const { ring } of ground.carriageways) add(h.carriageways, ring);
   for (const ring of ground.plazas) add(h.plazas, ring);
+  for (const ring of ground.islands) add(h.plazas, ring);
   return pieces.toSorted((a, b) => b[0] - a[0]);
 }
 

@@ -49,8 +49,7 @@ export const YAW = (4 * Math.PI) / 180;
 export const STEER = (20 * Math.PI) / 180;
 /** A hoop of a rack: how long, how high, how round its corners and how thick its tube (m). */
 const HOOP = { half: 0.42, high: 0.82, corner: 0.2, tube: 0.026 } as const;
-/** A rack of this many stands has a roof, ribbed so the bikes under it still show. */
-const COVERED = 14;
+/** A rack OSM says is covered has a roof, ribbed so the bikes under it still show. */
 const SHELTER = { high: 2.25, post: 0.05, rib: 0.14, glass: 0.32 } as const;
 
 /**
@@ -581,8 +580,8 @@ function shelter(mesh: MeshBuilder, f: Frame, rows: number, halfRow: number): vo
 /**
  * A rack: a row of hoops, one for every two stands, so it reads as a rack half empty and looks like
  * one full, then its bikes, each noted in `parked` (see `PARKED`). Each hoop stands on the ground
- * drawn under it when `ground` is given, and each bike on the ground under its wheels; a big rack
- * has a roof over it (`COVERED`).
+ * drawn under it when `ground` is given, and each bike on the ground under its wheels; a rack OSM
+ * says is covered has a roof over it.
  */
 function addRack(
   mesh: MeshBuilder,
@@ -595,22 +594,40 @@ function addRack(
 ): void {
   const { rows, perRow } = rackRows(p.size);
   const half = ((perRow - 1) / 2) * STAND_SPACING;
+  const style = p.rack ?? 'hoops';
   for (let row = 0; row < rows; row++) {
     const [x, , z] = at(f, 0, rows === 1 ? 0 : row === 0 ? ROW_GAP : -ROW_GAP, 0);
-    for (let k = 0; k < perRow; k += 2) {
-      // Between two stands; an odd row's last hoop stands at its last.
-      const u = ((k + 1 < perRow ? k + 0.5 : k) - (perRow - 1) / 2) * STAND_SPACING;
-      const [hx, , hz] = at({ ...f, x, z }, u, 0, 0);
-      let h: Frame = { ...f, x: hx, z: hz };
+    if (style === 'informal') continue;
+    const place = (u: number, scale: number, v = 0) => {
+      const [hx, , hz] = at({ ...f, x, z }, u, v, 0);
+      let h: Frame = { ...f, x: hx, z: hz, scale: f.scale * scale };
       if (ground) {
         const [[ax, , az], [bx, , bz]] = [at(h, 0, -HOOP.half, 0), at(h, 0, HOOP.half, 0)];
         h = { ...h, slope: slopeThrough(ground, mesh.lift, [ax, az], [bx, bz]) };
       }
-      hoop(mesh, h);
+      return h;
+    };
+    if (style === 'hoops' || style === 'shed') {
+      for (let k = 0; k < perRow; k += 2) {
+        // Between two stands; an odd row's last hoop stands at its last.
+        const u = ((k + 1 < perRow ? k + 0.5 : k) - (perRow - 1) / 2) * STAND_SPACING;
+        hoop(mesh, place(u, 1));
+      }
+    } else {
+      // Ground anchors: a low loop by each stand's wheel. Wheel loops on a bar: the same, higher,
+      // and a rail along them.
+      const [scale, v] = style === 'anchors' ? ([0.3, 0.3] as const) : ([0.55, 0.2] as const);
+      for (let k = 0; k < perRow; k++)
+        hoop(mesh, place((k - (perRow - 1) / 2) * STAND_SPACING, scale, v));
+      if (style === 'wall') {
+        const rail = place(0, 1, v);
+        const along: Frame = { ...rail, fx: -f.fz, fz: f.fx };
+        tube(mesh, along, -half, 0.42, half, 0.42, PROPS.rack, 0.022);
+      }
     }
   }
   const clear = roofCorners(f, rows, half).every(([x, z]) => open(x, z));
-  if (p.size >= COVERED && clear) shelter(mesh, f, rows, half);
+  if (p.covered && clear) shelter(mesh, f, rows, half);
   for (const slot of rackSlots(p, seed)) {
     const { f: placed, steer, look } = parkedBike(p, slot, seed);
     const b = ground ? standBike(placed, steer, ground, mesh.lift) : placed;

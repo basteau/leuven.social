@@ -9,7 +9,7 @@
  */
 
 import { isMonument } from './city.ts';
-import type { Material, Prop, PropKind } from './city.ts';
+import type { Material, Prop, PropKind, RackStyle } from './city.ts';
 import { pointInRing } from './geometry.ts';
 import { monumentFromOsm, plinthOf } from './monuments.ts';
 
@@ -65,6 +65,8 @@ export interface PropStyle {
   width?: number;
   depth?: number;
   material?: Material;
+  rack?: RackStyle;
+  covered?: boolean;
 }
 
 /**
@@ -105,7 +107,18 @@ export function standsAlong(length: number): number {
   return Math.min(Math.max(stands, 2), ROW);
 }
 
-function styleFromOsm(tags: Tags): { kind: PropKind; size: number } | null {
+/** What a rack is made of, by OSM's `bicycle_parking`: hoops unless it says otherwise. */
+export function rackStyleOf(tag: string | undefined): RackStyle {
+  if (tag === 'anchors') return 'anchors';
+  if (tag === 'wall_loops' || tag === 'wall_hoops') return 'wall';
+  if (tag === 'informal') return 'informal';
+  if (tag === 'shed') return 'shed';
+  return 'hoops';
+}
+
+function styleFromOsm(
+  tags: Tags,
+): { kind: PropKind; size: number; rack?: RackStyle; covered?: boolean } | null {
   if (tags.amenity === 'bench') return { kind: 'bench', size: 0 };
   if (tags.amenity === 'bicycle_parking') {
     if (HIDDEN_RACKS.has(tags.location ?? '') || tags.bicycle_parking === 'building') return null;
@@ -114,7 +127,9 @@ function styleFromOsm(tags: Tags): { kind: PropKind; size: number } | null {
     if (capacity === 1) return null;
     const length = Number.parseFloat(tags['_length'] ?? '');
     const stands = capacity > 0 ? capacity : length > 0 ? standsAlong(length) : DEFAULT_STANDS;
-    return { kind: 'bikes', size: Math.min(Math.max(stands, 2), MAX_STANDS) };
+    const rack = rackStyleOf(tags.bicycle_parking);
+    const covered = tags.covered === 'yes' || rack === 'shed';
+    return { kind: 'bikes', size: Math.min(Math.max(stands, 2), MAX_STANDS), rack, covered };
   }
   if (tags.highway === 'bus_stop')
     return { kind: tags.shelter === 'yes' ? 'shelter' : 'busstop', size: 0 };
@@ -618,6 +633,7 @@ export function placeProps(points: readonly PropPoint[], around: Surroundings): 
   for (const c of candidates) {
     const angle = c.facing ?? turnOf(c.kind, c.x, c.z, around, c.axis);
     const prop: Prop = { kind: c.kind, x: c.x, z: c.z, angle, size: c.size };
+    if (c.kind === 'bikes') Object.assign(prop, { rack: c.rack, covered: c.covered });
     if (c.material) Object.assign(prop, { width: c.width, depth: c.depth, material: c.material });
     const body = { kind: c.kind, f: propFootprint(prop) };
     // Monuments are twins whatever their kind: one sculpture mapped twice, at a pump and as it.
