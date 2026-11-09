@@ -201,9 +201,10 @@ async function expectBareMap(): Promise<void> {
   const buttons = await evalJson<string[]>(
     `JSON.stringify([...document.querySelectorAll('main button:not(.avatar-arrow)')].filter((b) => b.checkVisibility() && !b.closest('dialog')).map((b) => b.getAttribute('aria-label') ?? b.textContent))`,
   );
-  // Who you are (Join, as a guest), the minimap and the menu: nothing else.
+  // Who you are (a guest's name and Join), the minimap and the menu: nothing else.
   const expected = ['Join', 'Minimap: show more of the city', 'Open the map', 'Menu'];
-  if (buttons.join() !== expected.join()) {
+  const [you = '', ...rest] = buttons;
+  if (!you.endsWith('Join') || rest.join() !== expected.slice(1).join()) {
     throw new Error(`the map should show only ${expected.join(', ')}, not ${buttons.join(', ')}`);
   }
   // And the arrow over the avatar, far out at the default view: a marker, not a control.
@@ -329,16 +330,21 @@ async function until(check: () => boolean, what: string, ms = 10_000): Promise<v
 const html = (name: string) => `document.documentElement.dataset.${name}`;
 
 /**
- * Other people: a guest sees another player walk by, named over their head; joins from the
- * corner and is seen joining; changes shirt and is seen in it; comes back signed in where they
- * left after a reload; signs out. The other player is a bot speaking the protocol (smoke-bot.ts).
+ * Other people: a guest is on the map with a name of the server's, sees another player walk by,
+ * named over their head, and is seen by them; joins from the corner and is seen becoming the
+ * account, as one figure; changes shirt and is seen in it; comes back signed in where they left
+ * after a reload; signs out and is the same guest again. The other player is a bot speaking the
+ * protocol (smoke-bot.ts).
  */
 async function expectPlayers(): Promise<void> {
-  await browser('wait', '--fn', `${html('online')} === '0'`);
+  await browser('wait', '--fn', `${html('guest')}?.startsWith('Guest ')`);
+  await browser('wait', '--fn', `${html('online')} === '1'`);
+  const guestName = await evalJson<string>(`JSON.stringify(${html('guest')})`);
   const [x, z] = (await walker()).split(' ').map(Number) as [number, number];
   const bot = await startBot(API, BASE.slice(0, -1), 'smoke-bot', [x + 4, z + 4]);
   try {
-    await browser('wait', '--fn', `${html('online')} === '1'`);
+    await browser('wait', '--fn', `${html('online')} === '2'`);
+    await until(() => bot.joined().includes(guestName), `the bot seeing ${guestName}`);
     for (let i = 0; i < 8; i++) await browser('press', '+');
     await browser('wait', '--fn', `Number(${canvasData('players')}) >= 1`);
     await browser(
@@ -349,7 +355,9 @@ async function expectPlayers(): Promise<void> {
     await browser('wait', '600');
     await expectHealthyPage('desktop with another player');
     await browser('screenshot', `${ARTIFACTS}smoke-players.png`);
-    console.log('ok  a guest sees another player walk by, their name over their head');
+    console.log(
+      `ok  ${guestName} is on the map, seen by the others, and sees another player walk by, named over their head`,
+    );
 
     // Joining, from the corner.
     await browser('click', 'button.you');
@@ -359,6 +367,11 @@ async function expectPlayers(): Promise<void> {
     await browser('press', 'Enter');
     await browser('wait', '--fn', `${html('account')} === 'smoke-anna'`);
     await until(() => bot.joined().includes('smoke-anna'), 'the bot seeing smoke-anna join');
+    const you = bot.idOf('smoke-anna');
+    if (you === undefined) throw new Error('the bot lost track of smoke-anna');
+    if (bot.heard.some((m) => m.type === 'leaves')) {
+      throw new Error('joining made the guest leave and someone else arrive: two figures');
+    }
     // A new look, worn at once and seen by the others.
     const blue = 0x4a77a8;
     await browser('click', `dialog.account input[value="${blue}"]`);
@@ -387,17 +400,15 @@ async function expectPlayers(): Promise<void> {
     await expectHealthyPage('desktop signed in, after a reload');
     console.log(`ok  a reload: still signed in, back where she left (${left})`);
 
-    // Signing out: a guest again, gone for the others.
+    // Signing out: the same guest again, on the same figure.
     await browser('click', 'button.you');
     await browser('wait', '--fn', `!!document.querySelector('dialog.account')?.open`);
     await browser('find', 'role', 'button', 'click', '--name', 'Sign out');
     await browser('wait', '--fn', `${html('account')} === ''`);
-    await until(
-      () => bot.heard.some((m) => m.type === 'leaves'),
-      'the bot seeing smoke-anna leave',
-    );
+    await browser('wait', '--fn', `${html('guest')} === ${JSON.stringify(guestName)}`);
+    await until(() => bot.nameOf(you) === guestName, `the bot seeing ${guestName} again`);
     await browser('press', 'Escape');
-    console.log('ok  signed out: a guest again, and gone for the others');
+    console.log(`ok  signed out: ${guestName} again, the same figure`);
   } finally {
     bot.close();
   }
