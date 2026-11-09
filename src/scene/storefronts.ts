@@ -260,8 +260,64 @@ export const QUIET_PLACES: ReadonlySet<ShopKind> = new Set(['clinic', 'worship',
 const PORTAL_WALL = 4.4;
 /** Nor this little of a front (m either side of its middle): a corner has no room for one. */
 const PORTAL_ROOM = 1.4;
-/** Two signs on one building keep at least this far apart (m). */
+/** Two signs on one building keep at least this far apart (m); any two, this far (m). */
 const SIGN_APART = 2.2;
+const SIGN_APART_ANY = 1.5;
+/** Room a sign keeps from the ends of an awning (m), along the wall and out of it. */
+const SIGN_CLEAR = 0.15;
+/** A sign's spot, tried in turn along its wall from the end of its awning (m). */
+const SIGN_SLIDES = [0, 0.7, 1.4] as const;
+/**
+ * How far out a sign reaches, and its halfway, as drawn at their scale (m): a shop's board or a
+ * public place's medallion.
+ */
+const SIGN_REACH = { shop: [0.35, 0.98, 1.61], place: [0.35, 1.5, 2.65] } as const;
+
+/** A front as `signSpots` weighs it: where it stands, how far its awning reaches, what kind. */
+export interface SignSite {
+  building: Building;
+  front: ShopFront;
+  p: FrontPoint;
+  room: number;
+}
+
+/**
+ * Where each front's sign hangs, as the offset along its wall from the front's middle, or
+ * undefined for a front with none: beside its awning at the end with room, moved along the wall
+ * if that would cut through an awning (any front's, in `sites`) or come within reach of another
+ * sign; gone if no spot along it is clear. Signs that fit stand first come, first served, so the
+ * main fronts (`sites` are in the cell's order, each building's main front first) get theirs.
+ */
+export function signSpots(sites: readonly SignSite[]): (number | undefined)[] {
+  const placed: { building: Building; x: number; z: number }[] = [];
+  const awnings = sites.filter(({ front }) => FRONTS[front.kind].awning);
+  const inAwning = (site: SignSite, x: number, z: number) => {
+    const { p, room } = site;
+    const [ox, oz] = [x - p.x, z - p.z];
+    const [u, v] = [ox * p.ux + oz * p.uz, ox * p.nx + oz * p.nz];
+    return Math.abs(u) < room + SIGN_CLEAR && v > -SIGN_CLEAR && v < REACH + SIGN_CLEAR;
+  };
+  return sites.map(({ building, front, p, room }) => {
+    const reach = SIGN_REACH[PLACES.has(front.kind) ? 'place' : 'shop'];
+    const spots = SIGN_SLIDES.flatMap((d) => [room + 0.3 + d, -room - 0.3 - d]).filter(
+      (t) => front.along + t >= END_GAP && front.along + t <= p.length - END_GAP,
+    );
+    return spots.find((t) => {
+      const point = (out: number): [number, number] => [
+        p.x + p.ux * t + p.nx * out,
+        p.z + p.uz * t + p.nz * out,
+      ];
+      if (reach.some((out) => awnings.some((a) => inAwning(a, ...point(out))))) return false;
+      const [x, z] = point(reach[1]);
+      const clear = placed.every(
+        (o) =>
+          Math.hypot(o.x - x, o.z - z) >= (o.building === building ? SIGN_APART : SIGN_APART_ANY),
+      );
+      if (clear) placed.push({ building, x, z });
+      return clear;
+    });
+  });
+}
 
 /** Of the chairs at a table, the share someone sits on. */
 const TAKEN = 0.55;
@@ -384,8 +440,8 @@ export interface StorefrontKit {
  * The awnings (into `awnings`, which carries the `facade` attribute for their stripes: on the
  * rest of the furniture it would cost 4 bytes a vertex), signs, what stands by the doors and the
  * terraces of a cell's fronts, on the `ground` as drawn. An awning spans its front, but stops
- * short of the next front along the same wall, and of the wall's ends; a sign hangs at an end of
- * it.
+ * short of the next front along the same wall, and of the wall's ends; a sign hangs beside it,
+ * clear of every awning and other sign (`signSpots`).
  */
 export function addStorefronts(
   mesh: MeshBuilder,
@@ -395,24 +451,19 @@ export function addStorefronts(
   ground: (x: number, z: number) => number,
 ): void {
   const [lift, awningLift] = [mesh.lift, awnings.lift];
-  /** One building, one flag and door, whatever else is inside it; signs keep a little apart. */
+  /** One building, one flag and door, whatever else is inside it. */
   const flagged = new Set<Building>();
-  const signs: { building: Building; x: number; z: number }[] = [];
-  const signRoom = (building: Building, x: number, z: number) => {
-    if (signs.some((o) => o.building === building && Math.hypot(o.x - x, o.z - z) < SIGN_APART)) {
-      return false;
-    }
-    signs.push({ building, x, z });
-    return true;
-  };
-  for (const { building, front } of fronts) {
+  const sites = fronts.flatMap(({ building, front }) => {
     const p = frontPoint(building.ring, front);
-    const top = kit.wallTop(building);
     const others = fronts
       .filter((o) => o.building === building && o.front.edge === front.edge && o.front !== front)
       .map((o) => o.front.along);
     const room = awningRoom(front.along, p.length, others);
-    if (room <= MIN_ROOM) continue;
+    return room > MIN_ROOM ? [{ building, front, p, room }] : [];
+  });
+  const signEnds = signSpots(sites);
+  for (const [site, { building, front, p, room }] of sites.entries()) {
+    const top = kit.wallTop(building);
     // Over the street in front, where that's higher than the house's foot (on a slope, or on
     // a pavement), so the awning's edge stays over the walker's head.
     mesh.lift = awnings.lift = Math.max(
@@ -421,18 +472,14 @@ export function addStorefronts(
     );
     const { kind } = front;
     if (FRONTS[kind].awning) addAwning(awnings, p, kind, top, room, kit.awning);
-    // Beside the awning, at the end with room.
-    const end = [room + 0.3, -room - 0.3].find(
-      (t) => front.along + t >= END_GAP && front.along + t <= p.length - END_GAP,
-    );
+    const end = signEnds[site];
     const signAt = end === undefined ? undefined : frame(p, end);
-    const signed = !!signAt && signRoom(building, signAt.x, signAt.z);
     if (PLACES.has(kind)) {
       const first = !flagged.has(building);
       flagged.add(building);
-      addPlace(mesh, p, kind, top, room, signed ? end : undefined, first);
-    } else if (signed && kind === 'hairdresser') addBarberPole(mesh, signAt, top);
-    else if (signed) addSign(mesh, signAt, kind, signHeight(top));
+      addPlace(mesh, p, kind, top, room, end, first);
+    } else if (signAt && kind === 'hairdresser') addBarberPole(mesh, signAt, top);
+    else if (signAt) addSign(mesh, signAt, kind, signHeight(top));
     if (BOARDS.has(kind) && roll(front.building * 13 + Math.round(front.along)) < 0.6) {
       const out = REACH + 0.55;
       const sideways = end === undefined ? 0 : -Math.sign(end) * (room * 0.5);

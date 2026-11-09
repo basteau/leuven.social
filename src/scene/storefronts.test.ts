@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
 
 import type { Building, ShopFront } from '../data/city.ts';
 import { discInFootprint } from '../data/props.ts';
@@ -21,7 +21,9 @@ import {
   addBoard,
   addStorefronts,
   addTerrace,
+  signSpots,
 } from './storefronts.ts';
+import type { SignSite } from './storefronts.ts';
 
 // A 12 m front along z = 0, facing north (-z), its building behind it.
 const ring = new Float32Array([0, 0, 12, 0, 12, 10, 0, 10]);
@@ -235,4 +237,42 @@ test('a menu board stands wordless on the pavement, its ends closed so it reads 
   expect(Math.max(...board.points.map(([, y]) => y!))).toBeLessThan(1.1);
   // Two leaves, a cheek at each end and a chalk line: nothing but a solid wedge from along the wall.
   expect(board.count).toBe(8 + 6 + 8);
+});
+
+/** A row of shops along z = 0, facing -z: a building to each front, as neighbours are. */
+const site = (along: number, room = 1): SignSite => {
+  const wall = new Float32Array([0, 0, 40, 0, 40, 8, 0, 8]);
+  const b: Building = { ...building, ring: wall };
+  const f = { ...front('bakery', along), building: 0 };
+  return { building: b, front: f, p: frontPoint(wall, f), room };
+};
+
+describe('signs keep clear of awnings and of each other', () => {
+  test('alone, a sign hangs at the end of its awning', () => {
+    expect(signSpots([site(10)])).toEqual([1.3]);
+  });
+
+  test('a sign that would cut through a neighbour’s awning goes the other way', () => {
+    // Its right-hand spot (11.3 along) is under the awning of the front next door (at 13.5 with
+    // 2.5 either side); its left is free.
+    expect(signSpots([site(10), site(13.5, 2.5)])[0]).toBe(-1.3);
+  });
+
+  test('a sign too near another moves along its wall, or goes', () => {
+    const [a, b] = signSpots([site(10, 0.2), site(11.4, 0.2)]);
+    expect(a).toBe(0.5);
+    // b's nearest spots (10.9, 11.9 along) are within 1.5 m of a's sign at 10.5: it slides on.
+    expect(b).toBe(1.2);
+    // No wall left at all: the sign goes.
+    const narrow = (along: number) => ({ ...site(along), p: { ...site(along).p, length: 2 } });
+    expect(signSpots([narrow(1), narrow(1.2)])[1]).toBeUndefined();
+  });
+
+  test('a public place’s medallion reaches further out, and keeps clear of an awning end', () => {
+    const place = { ...site(10), front: { ...site(10).front, kind: 'university' as const } };
+    expect(signSpots([place])).toEqual([1.3]);
+    // A front next door with an awning right up to the medallion's spot: it slides.
+    const [m] = signSpots([place, site(13.5, 2.5)]);
+    expect(m).toBe(-1.3);
+  });
 });
