@@ -100,13 +100,15 @@ describe('WalkGrid', () => {
       ...town,
       water: [river],
       bridges: [deck],
-      parapets: [Float32Array.of(100, 60, 100, 80), Float32Array.of(106, 60, 106, 80)],
+      // Each with the water on its right, as `bridgeParapets` draws them.
+      parapets: [Float32Array.of(100, 80, 100, 60), Float32Array.of(106, 60, 106, 80)],
     });
     expect(bridged.walkable(130, 70)).toBe(false); // the river
     expect(bridged.walkable(103, 70)).toBe(true); // the deck
     expect(bridged.walkable(103, 50)).toBe(true); // the bank
-    expect(bridged.walkable(100.2, 70)).toBe(false); // the parapet
-    expect(bridged.buildingHeight(100.2, 70)).toBe(2);
+    expect(bridged.walkable(99.7, 70)).toBe(false); // past the parapet
+    expect(bridged.buildingHeight(99.7, 70)).toBe(2);
+    expect(bridged.walkable(100.5, 70)).toBe(true); // the deck right up to it
     // A body on the deck keeps clear of the parapet, as thick as it's drawn, like a wall.
     const out: [number, number] = [0, 0];
     expect(bridged.wallOverlap(103, 70, 0.45, out)).toBe(0);

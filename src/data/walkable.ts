@@ -32,9 +32,14 @@ const OPEN = 1;
 const STREET = 2;
 /** A solid of no height: a trunk or a bench, which closes its cell but nothing over it. */
 const SOLID = 3;
-/** A parapet's height (m), and the half width it closes so a diagonal one leaves no gap. */
+/**
+ * A parapet's height (m), and how far past it the cells close, on the side away from the deck
+ * only (`bridgeParapets` draws each with the water on its right). A metre can't be stepped over
+ * on the grid at any angle, and the deck keeps every cell: closed on both sides, a footbridge
+ * under 3 m wide lost its whole width to its own two parapets.
+ */
 const PARAPET_HEIGHT = 1.1;
-const PARAPET_HALF = 0.75;
+const PARAPET_BAND = 1;
 /** Half a parapet's thickness as drawn, capstone included (m). */
 const PARAPET_FACE = 0.25;
 
@@ -70,6 +75,8 @@ interface Ribbon {
   half: number;
   /** As for a shape: open for a path, a height code for a parapet. */
   value: number;
+  /** Close only the right of the line, as it runs: a parapet's outside. */
+  rightOnly?: boolean;
 }
 
 const heightCode = (height: number) => Math.min(255 - SOLID, Math.ceil(height)) + SOLID;
@@ -122,8 +129,13 @@ export class WalkGrid {
       });
     }
     for (const line of city.parapets ?? []) {
-      const ribbon = { line, half: PARAPET_HALF, value: heightCode(PARAPET_HEIGHT) };
-      each(ringBox(line, PARAPET_HALF), (t) => this.#ribbons[t]!.push(ribbon));
+      const ribbon = {
+        line,
+        half: PARAPET_BAND,
+        value: heightCode(PARAPET_HEIGHT),
+        rightOnly: true,
+      };
+      each(ringBox(line, PARAPET_BAND), (t) => this.#ribbons[t]!.push(ribbon));
       const wall = {
         line,
         ring: false,
@@ -310,7 +322,9 @@ export class WalkGrid {
     }
     for (const s of shapes) if (s.value >= SOLID) grid.fillRing(tile, s.ring, s.value, x0, z0);
     for (const r of ribbons) {
-      if (r.value >= SOLID) grid.fillRibbon(tile, r.line, r.half, r.value, x0, z0, keep(r.value));
+      if (r.value >= SOLID) {
+        grid.fillRibbon(tile, r.line, r.half, r.value, x0, z0, keep(r.value), r.rightOnly);
+      }
     }
     // Paths can spill a little past the map's edge: nothing off the slab is walkable.
     for (let r = 0; r < TILE; r++) {

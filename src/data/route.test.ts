@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 
+import { normalizeRing } from './geometry.ts';
+import { RingIndex } from './props.ts';
 import { LEG, Router, clearLine, legsToward } from './route.ts';
+import { bridgeParapets } from './structures.ts';
 import { WalkGrid } from './walkable.ts';
 import { town } from './walkable.fixture.ts';
 
@@ -160,5 +163,65 @@ describe('legsToward', () => {
     const legs = legsToward(0, 0, 0, 1000);
     expect(legs.some(([x]) => x > 50)).toBe(true);
     expect(legs.some(([x]) => x < -50)).toBe(true);
+  });
+});
+
+function lengthOf(route: Float32Array): number {
+  let length = 0;
+  for (let i = 2; i < route.length; i += 2) {
+    length += Math.hypot(route[i]! - route[i - 2]!, route[i + 1]! - route[i - 1]!);
+  }
+  return length;
+}
+
+describe('a footbridge at any angle', () => {
+  const WIDTH = 1.5;
+  const SPAN = 16;
+  /** A deck `SPAN` long and `WIDTH` wide over a river, turned `degrees` about the middle. */
+  function bridge(degrees: number, over: Float32Array[] = []) {
+    const t = (degrees * Math.PI) / 180;
+    const [ux, uz, vx, vz] = [Math.cos(t), Math.sin(t), -Math.sin(t), Math.cos(t)];
+    const at = (u: number, v: number) => [100 + u * ux + v * vx, 100 + u * uz + v * vz] as const;
+    const [hu, hv] = [SPAN / 2, WIDTH / 2];
+    const deck = Float32Array.from(
+      normalizeRing([...at(-hu, -hv), ...at(hu, -hv), ...at(hu, hv), ...at(-hu, hv)]),
+    );
+    const river = Float32Array.from(
+      normalizeRing([...at(-6, -60), ...at(6, -60), ...at(6, 60), ...at(-6, 60)]),
+    );
+    const water = new RingIndex();
+    water.add(river);
+    const grid = new WalkGrid({
+      area: [{ minX: 0, minZ: 0, maxX: 200, maxZ: 200 }],
+      bounds: { minX: 0, minZ: 0, maxX: 200, maxZ: 200 },
+      roads: over,
+      plazas: [],
+      paths: [],
+      buildings: [],
+      tanks: [],
+      water: [river],
+      bridges: [deck],
+      parapets: bridgeParapets(deck, water).map((line) => Float32Array.from(line)),
+    });
+    return { grid, router: new Router(grid), at };
+  }
+  const angles = Array.from({ length: 13 }, (_, i) => i * 15);
+
+  test('a deck a body fits on is walked across, however it lies on the grid', () => {
+    for (const angle of angles) {
+      const { router, at } = bridge(angle);
+      const [a, b] = [at(-10, 0), at(10, 0)];
+      // Over the deck, not round the river's far end.
+      expect(lengthOf(router.route(a[0], a[1], b[0], b[1])!)).toBeLessThan(26);
+    }
+  });
+
+  test('where a road runs under it, the way off the deck is still its end', () => {
+    const slab = Float32Array.of(0, 0, 200, 0, 200, 200, 0, 200);
+    for (const angle of angles) {
+      const { grid, router, at } = bridge(angle, [slab]);
+      const [a, b] = [grid.nearest(...at(0, 0), 2)!, grid.nearest(...at(0, 4), 2)!];
+      expect(lengthOf(router.route(a[0], a[1], b[0], b[1])!)).toBeGreaterThan(SPAN / 2);
+    }
   });
 });

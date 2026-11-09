@@ -131,6 +131,7 @@ export class CellGrid {
     x0: number,
     z0: number,
     keep: (old: number) => boolean = () => false,
+    rightOnly = false,
   ): void {
     const size = this.size;
     for (let i = 0; i + 3 < line.length; i += 2) {
@@ -147,6 +148,7 @@ export class CellGrid {
           const px = x0 + (c + 0.5) * size;
           const s = Math.min(1, Math.max(0, ((px - ax) * dx + (pz - az) * dz) / length2));
           if (Math.hypot(px - ax - s * dx, pz - az - s * dz) > half) continue;
+          if (rightOnly && (px - ax) * dz - (pz - az) * dx < 0) continue;
           if (!keep(tile[r * TILE + c]!)) tile[r * TILE + c] = value;
         }
       }
