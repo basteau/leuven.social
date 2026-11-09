@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 
 import { decodeServerMessage, encodeClientMessage, quantise } from '../src/net/protocol.ts';
 import type { Move, MoveEntry, Outfit, PlayerState, ServerMessage } from '../src/net/protocol.ts';
+import { VIEW_AREA } from '../src/data/area.ts';
 import { CELL_SIZE } from '../src/data/grid.ts';
 import { CLOSE_SIGNED_OUT, createWorld, sanitise, withinReach } from './world.ts';
 import type { Account, ConnectOptions, WorldOptions } from './world.ts';
@@ -131,7 +132,7 @@ describe('sanitise', () => {
   });
 
   test('uses the real map by default', () => {
-    expect(sanitise({ ...here, x: 1e6 }).x).toBeLessThan(2000);
+    expect(sanitise({ ...here, x: 1e6 }).x).toBe(VIEW_AREA.maxX);
   });
 });
 

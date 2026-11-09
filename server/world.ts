@@ -21,8 +21,9 @@
 
 import * as RateLimit from '@portable/rate-limit';
 
-import { AREA, VIEW_AREA } from '../src/data/area.ts';
+import { AREA } from '../src/data/area.ts';
 import type { Bounds } from '../src/data/city.ts';
+import { boundsOf } from '../src/data/geometry.ts';
 import { around, cellAt, cellX, cellZ, watches } from '../src/net/interest.ts';
 import { MAX_SPEED, decodeClientMessage, encodeServerMessage } from '../src/net/protocol.ts';
 import type {
@@ -291,6 +292,7 @@ export function createWorld(options: WorldOptions = {}): World {
   const save = options.save ?? (() => {});
   const saveEvery = options.saveEvery ?? 15_000;
   const area = options.area ?? AREA;
+  const bounds = boundsOf(area);
   const slices = Math.max(1, options.slices ?? 1);
   const everySlice = (1 << slices) - 1;
   const limiter = RateLimit.create(options.rate ?? { limit: 20, period: 1000, burst: 40 });
@@ -695,8 +697,8 @@ export function createWorld(options: WorldOptions = {}): World {
       if (message?.type === 'view') {
         // Kept on the map: an empty cell a stranger looks at would still cost a list.
         client.look = [
-          clamp(message.x, VIEW_AREA.minX, VIEW_AREA.maxX),
-          clamp(message.z, VIEW_AREA.minZ, VIEW_AREA.maxZ),
+          clamp(message.x, bounds.minX, bounds.maxX),
+          clamp(message.z, bounds.minZ, bounds.maxZ),
         ];
         return;
       }
