@@ -234,14 +234,13 @@ kbd {
   white-space: nowrap;
 }
 
-/* A place's name can be long: it gives way, in a pill that never crowds out what's beside it. */
+/* A place's name can be long: it wraps, whole, in a pill that never crowds out what's beside it. */
 .bar .action {
   max-inline-size: 100%;
-}
-
-.bar .action span {
-  overflow: clip;
-  text-overflow: ellipsis;
+  line-height: 1.15;
+  text-align: center;
+  text-wrap: balance;
+  white-space: normal;
 }
 
 .action.primary {
@@ -483,7 +482,8 @@ kbd {
   position: relative;
   grid-column: 1;
   justify-self: start;
-  inline-size: clamp(5.5rem, 24vw, 9.5rem);
+  /* Height too: on a phone on its side it would otherwise take a third of the screen. */
+  inline-size: clamp(5.5rem, min(24vw, 28dvh), 9.5rem);
   aspect-ratio: 1;
   padding: 0;
   border: 0;

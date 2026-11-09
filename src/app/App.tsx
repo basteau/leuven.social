@@ -949,7 +949,7 @@ export function App() {
               label={door.inside ? 'Go out' : 'Go in'}
               shortcut="↵"
               keys="Enter"
-              primary={!door.inside}
+              primary={!door.inside && !(looking && !routing)}
               onPress={() => viewer()?.door()}
             >
               <DoorIcon />
@@ -959,7 +959,7 @@ export function App() {
             <ActionButton
               label={riding ? 'Get off' : 'Ride'}
               shortcut="F"
-              primary={!riding}
+              primary={!riding && !door && !(looking && !routing)}
               onPress={() => viewer()?.ride('toggle')}
             >
               <BikeIcon />
