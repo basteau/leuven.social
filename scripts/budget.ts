@@ -158,7 +158,8 @@ const BUDGETS: {
     // 28.25: the walk grid's second level and the deck heights (1.9 KB).
     // 33.25: people at every zoom, asked for (the crowd's figure and its shader, markers and
     // their clumps, tags that give way by rank), 4.5 KB, in place of a prism and a boolean.
-    limit: 33.25 * KB,
+    // 33.75: the way to a picked spot drawn so it can be seen, over buildings too (0.4 KB), asked for.
+    limit: 33.75 * KB,
     gzip: true,
   },
   // The street-name lookup for the sign, a chunk beside the avatar's that loads with it.

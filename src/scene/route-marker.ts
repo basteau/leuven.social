@@ -1,31 +1,41 @@
-import type { BufferGeometry } from 'three';
+import { BufferAttribute, BufferGeometry } from 'three';
 
-import { MeshBuilder } from './mesh-builder.ts';
 import { ROUTE } from './palette.ts';
 
 /**
- * The hint for a walk to a picked spot: a quiet trail of small round dots along the way,
- * shrinking toward the end, and a thin ring where it ends, flat on the ground just above the
- * squares. One unlit, half see-through draw call; dots behind the walker drop off by moving
- * the geometry's draw range, so walking never rebuilds it.
+ * The way to a picked spot, drawn on the ground: pale dots ringed in ink, as the HUD is, so it
+ * shows on sunlit paving and on a street at night alike, and a target where it ends.
+ *
+ * Every part has a size in metres and a least size on screen, so from high up the dots run
+ * together into one outlined line rather than fading away. All the ink is drawn before all the
+ * paper for that: a dot's rim never cuts across its neighbour. One unlit draw call; the sizes and
+ * the dots already passed are the vertex shader's (`ROUTE_SHADER`), so neither zooming nor walking
+ * touches the geometry.
  */
 
-const SPACING = 1.8;
+const SPACING = 1.6;
 /** Room left free around the walker at the start and the target at the end (m). */
 const LEAD = 1.4;
-/** Dot radius at the start of the trail, and at its end (m). */
-const DOT_START = 0.17;
-const DOT_END = 0.09;
-/** The ring around the target: outer and inner radius, and its centre dot (m). */
-const RING = [0.75, 0.62] as const;
-const CENTRE = 0.13;
+/** A dot's ink and its paper: radius (m), and the least it comes to on screen (CSS px). */
+const DOT_INK = [0.36, 4] as const;
+const DOT_PAPER = [0.25, 2.6] as const;
+/** The target's discs, painted in this order: radius (m), least radius (px), colour. */
+const TARGET = [
+  [1, 11, ROUTE.ink],
+  [0.84, 9, ROUTE.paper],
+  [0.52, 5.5, ROUTE.goal],
+] as const;
+/** Above the ground, under the walker's feet (m). */
 const Y = 0.23;
-const UP = [0, 1, 0] as const;
-/** Sides of a dot, and of the ring. */
-const DOT_SIDES = 6;
-const RING_SIDES = 16;
-/** Indices per dot, the unit of its draw range: a hexagon, four triangles. */
-export const DOT_VERTICES = (DOT_SIDES - 2) * 3;
+/** Sides of a dot, and of the target's discs. */
+const DOT_SIDES = 8;
+const TARGET_SIDES = 20;
+/** A dot goes this far (m) before the walker reaches it. */
+const PASSED = 0.3;
+/** Drawn when however far the walker has gone: the target stays till the end. */
+const ALWAYS = 1e9;
+/** A disc is a fan of triangles. */
+const VERTICES_PER_TRIANGLE = 3;
 
 export interface RouteMarker {
   geometry: BufferGeometry;
@@ -36,46 +46,91 @@ export interface RouteMarker {
 /** The ground's height at a point. */
 type Ground = (x: number, z: number) => number;
 
+/** What the route's vertex shader reads, updated as the view and the walker move. */
+export interface RouteUniforms {
+  /** How far the walker has gone along the route (m). */
+  travelled: { value: number };
+  /** How many metres one CSS pixel covers at this zoom. */
+  metres: { value: number };
+}
+
+export const newRouteUniforms = (): RouteUniforms => ({
+  travelled: { value: 0 },
+  metres: { value: 0.05 },
+});
+
 /**
- * A corner on the ground, each lifted by the ground under it: a dot is far smaller than the
- * terrain's triangles, so it lies on them without being cut, and keeps its count of vertices.
+ * Sets a material's vertex shader to size the parts and drop the dots passed. A part grown past
+ * its size in metres rises with it, or a wide disc would sink into a slope.
  */
-const corner = (ground: Ground, x: number, z: number, r: number, i: number, sides: number) => {
-  const [cx, cz] = [
-    x + Math.cos((i * Math.PI * 2) / sides) * r,
-    z + Math.sin((i * Math.PI * 2) / sides) * r,
-  ];
-  return [cx, Y + ground(cx, cz), cz] as const;
-};
-
-function disc(mesh: MeshBuilder, ground: Ground, x: number, z: number, r: number, sides: number) {
-  for (let i = 1; i < sides - 1; i++) {
-    const [a, b, c] = [
-      corner(ground, x, z, r, 0, sides),
-      corner(ground, x, z, r, i, sides),
-      corner(ground, x, z, r, i + 1, sides),
-    ];
-    mesh.triangle(a, b, c, ROUTE, UP);
-  }
+export function routeShader(vertexShader: string): string {
+  return vertexShader
+    .replace(
+      '#include <common>',
+      `#include <common>
+      attribute vec2 corner;
+      attribute vec3 spot;
+      uniform float travelled;
+      uniform float metres;`,
+    )
+    .replace(
+      '#include <begin_vertex>',
+      `#include <begin_vertex>
+      if (spot.z >= travelled) {
+        float radius = max(spot.x, spot.y * metres);
+        transformed.xz += corner * radius;
+        transformed.y += radius * 0.08;
+      }`,
+    );
 }
 
-function ring(mesh: MeshBuilder, ground: Ground, x: number, z: number): void {
-  const [outer, inner] = RING;
-  for (let i = 0; i < RING_SIDES; i++) {
-    const [a, b] = [
-      corner(ground, x, z, outer, i, RING_SIDES),
-      corner(ground, x, z, outer, i + 1, RING_SIDES),
-    ];
-    const [c, d] = [
-      corner(ground, x, z, inner, i + 1, RING_SIDES),
-      corner(ground, x, z, inner, i, RING_SIDES),
-    ];
-    mesh.quad(a, b, c, d, ROUTE, UP);
+/** One disc, flat at (x, y, z), in the parts' arrays. */
+interface Disc {
+  x: number;
+  y: number;
+  z: number;
+  radius: number;
+  least: number;
+  along: number;
+  colour: number;
+  sides: number;
+}
+
+const verticesOf = (disc: Disc) => (disc.sides - 2) * VERTICES_PER_TRIANGLE;
+
+function build(discs: readonly Disc[]): BufferGeometry {
+  const count = discs.reduce((sum, disc) => sum + verticesOf(disc), 0);
+  const positions = new Float32Array(count * 3);
+  const corners = new Float32Array(count * 2);
+  const spots = new Float32Array(count * 3);
+  const colours = new Uint8Array(count * 3);
+  let v = 0;
+  const put = (disc: Disc, a: number) => {
+    positions.set([disc.x, disc.y, disc.z], v * 3);
+    corners.set([Math.cos(a), Math.sin(a)], v * 2);
+    spots.set([disc.radius, disc.least, disc.along], v * 3);
+    colours.set([disc.colour >> 16, (disc.colour >> 8) & 255, disc.colour & 255], v * 3);
+    v++;
+  };
+  for (const disc of discs) {
+    const turn = (Math.PI * 2) / disc.sides;
+    for (let i = 1; i < disc.sides - 1; i++) {
+      // In this order they face up: turning from +x toward +z goes clockwise seen from above.
+      put(disc, 0);
+      put(disc, (i + 1) * turn);
+      put(disc, i * turn);
+    }
   }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new BufferAttribute(positions, 3));
+  geometry.setAttribute('corner', new BufferAttribute(corners, 2));
+  geometry.setAttribute('spot', new BufferAttribute(spots, 3));
+  geometry.setAttribute('color', new BufferAttribute(colours, 3, true));
+  return geometry;
 }
 
 /**
- * The hint along `route`, on the ground `ground` gives (level by default). The ring stands at
+ * The way along `route`, on the ground `ground` gives (level by default). The target stands at
  * `end`, where the walk really ends when this route is only a leg of it; else at the route's end.
  */
 export function routeMarker(
@@ -83,7 +138,8 @@ export function routeMarker(
   ground: Ground = () => 0,
   end: readonly [number, number] = [route.at(-2)!, route.at(-1)!],
 ): RouteMarker {
-  const mesh = new MeshBuilder();
+  const ink: Disc[] = [];
+  const paper: Disc[] = [];
   const dots: number[] = [];
   let total = 0;
   for (let i = 0; i + 3 < route.length; i += 2) {
@@ -96,21 +152,25 @@ export function routeMarker(
     const length = Math.hypot(bx - ax, bz - az);
     for (; next <= walked + length && next <= total - LEAD; next += SPACING) {
       const t = (next - walked) / length;
-      const r = DOT_START + (DOT_END - DOT_START) * (next / total);
-      disc(mesh, ground, ax + (bx - ax) * t, az + (bz - az) * t, r, DOT_SIDES);
+      const [x, z] = [ax + (bx - ax) * t, az + (bz - az) * t];
+      const at = { x, y: Y + ground(x, z), z, along: next - PASSED, sides: DOT_SIDES };
+      ink.push({ ...at, radius: DOT_INK[0], least: DOT_INK[1], colour: ROUTE.ink });
+      paper.push({ ...at, radius: DOT_PAPER[0], least: DOT_PAPER[1], colour: ROUTE.paper });
       dots.push(next);
     }
     walked += length;
   }
   const [x, z] = end;
-  ring(mesh, ground, x, z);
-  disc(mesh, ground, x, z, CENTRE, DOT_SIDES);
-  return { geometry: mesh.build({ keep: true }), dots: Float32Array.from(dots) };
-}
-
-/** How many leading indices to skip once the walker has covered `travelled` metres. */
-export function passedVertices(marker: RouteMarker, travelled: number): number {
-  let passed = 0;
-  while (passed < marker.dots.length && marker.dots[passed]! < travelled + 0.3) passed++;
-  return passed * DOT_VERTICES;
+  const y = Y + ground(x, z);
+  const target = TARGET.map(([radius, least, colour]) => ({
+    x,
+    y,
+    z,
+    radius,
+    least,
+    colour,
+    along: ALWAYS,
+    sides: TARGET_SIDES,
+  }));
+  return { geometry: build([...ink, ...paper, ...target]), dots: Float32Array.from(dots) };
 }

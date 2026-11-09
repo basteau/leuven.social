@@ -342,8 +342,10 @@ export const WALKER = {
   sneakers: 0x2c2b30,
 } as const;
 
-/** The route hint: pale dots and a target, ringed in ink like the HUD. */
-export const ROUTE = 0x4a3c33;
+/** The way to a picked spot: paper ringed in ink like the HUD, and the end in the app's accent. */
+export const ROUTE = { ink: 0x2b2420, paper: 0xfbf6ea, goal: 0x1d5c9b } as const;
+/** The way where a building hides it: the same marks, dimmed, as what lies behind something. */
+export const ROUTE_BEHIND = 0xa39a8e;
 
 /** Chimney stacks on pale houses: a dark red brick (darker houses darken their own). */
 export const CHIMNEY = 0x8a4a3c;

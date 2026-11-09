@@ -3,6 +3,7 @@ import {
   BufferAttribute,
   BufferGeometry,
   Color,
+  GreaterDepth,
   InstancedBufferAttribute,
   InstancedMesh,
   Matrix4,
@@ -14,7 +15,14 @@ import {
   Vector3,
   WebGLRenderTarget,
 } from 'three';
-import type { Material, OrthographicCamera, Scene, Texture, WebGLRenderer } from 'three';
+import type {
+  Material,
+  MeshBasicMaterialParameters,
+  OrthographicCamera,
+  Scene,
+  Texture,
+  WebGLRenderer,
+} from 'three';
 
 import { createWalkSounds } from '../audio/walking.ts';
 import { LANDMARK_FOOTPRINTS } from '../data/area.ts';
@@ -60,13 +68,13 @@ import { markerDrop, markerGeometry, markerRadius } from './marker.ts';
 import { MeshBuilder, linearVertexColors } from './mesh-builder.ts';
 import type { LineBuilder } from './mesh-builder.ts';
 import { clock, decay, ticks } from './motion.ts';
-import { OUTLINE, WALKER } from './palette.ts';
+import { OUTLINE, ROUTE_BEHIND, WALKER } from './palette.ts';
 import { nearestParked } from './parked.ts';
 import { meant, nearestShown, unpackDepth } from './pick.ts';
 import type { MeantTests } from './pick.ts';
 import { FAST as PLAYERS_FAST, SLOW as PLAYERS_SLOW, createPlayers } from './players.ts';
 import type { PlayersView } from './players.ts';
-import { passedVertices, routeMarker } from './route-marker.ts';
+import { newRouteUniforms, routeMarker, routeShader } from './route-marker.ts';
 import type { RouteMarker } from './route-marker.ts';
 import { walkSolids } from './solids.ts';
 import { STEP, followRoute, runBlend } from './walker.ts';
@@ -306,17 +314,33 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
   scene.add(character.mesh);
   const pose = restPose();
 
-  // The route hint, half see-through, as chalk on the street.
-  const hint = new Mesh(
-    undefined,
-    new MeshBasicMaterial({
+  // The way to a picked spot, painted on the street: over the ground, under what stands on it.
+  // Where a building hides it, it shows dimmed over the building, as the avatar's silhouette does,
+  // or from this camera most of a walk would be out of sight.
+  const routeUniforms = newRouteUniforms();
+  const routeMaterial = (parameters: MeshBasicMaterialParameters = {}) => {
+    const material = new MeshBasicMaterial({
       vertexColors: true,
       transparent: true,
-      opacity: 0.5,
       depthWrite: false,
-    }),
+      ...parameters,
+    });
+    material.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, routeUniforms);
+      shader.vertexShader = routeShader(linearVertexColors(shader.vertexShader));
+    };
+    return material;
+  };
+  const hint = new Mesh(undefined, routeMaterial());
+  const hintBehind = new Mesh(
+    undefined,
+    routeMaterial({ color: ROUTE_BEHIND, depthFunc: GreaterDepth }),
   );
-  colours(hint.material);
+  hintBehind.frustumCulled = false;
+  hint.add(hintBehind);
+  hint.onBeforeRender = () => {
+    routeUniforms.metres.value = (camera.top - camera.bottom) / camera.zoom / canvas.clientHeight;
+  };
   hint.frustumCulled = false;
   hint.visible = false;
   scene.add(hint);
@@ -786,6 +810,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     marker = routeMarker(route, room ? () => floorY : routeY, ringAt);
     ringAt = undefined;
     hint.geometry = marker.geometry;
+    hintBehind.geometry = marker.geometry;
     hint.visible = true;
     picked = true;
     wake();
@@ -1050,7 +1075,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     nextLeg();
     if (marker && !w.route) clearRoute();
     syncRoute();
-    if (marker) hint.geometry.setDrawRange(passedVertices(marker, w.travelled), Infinity);
+    routeUniforms.travelled.value = w.travelled;
 
     // The camera: pinned, after the avatar, a little ahead of where it goes; else to a place.
     const lead = reducedMotion ? 0 : w.speed * LEAD;
@@ -1358,6 +1383,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       pickDepth.dispose();
       hint.geometry.dispose();
       hint.material.dispose();
+      hintBehind.material.dispose();
       refusal.geometry.dispose();
       refusal.material.dispose();
       body.dispose();
