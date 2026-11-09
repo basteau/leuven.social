@@ -5,10 +5,10 @@
  *
  *   /api/auth/*      better-auth, only the paths in PUBLIC_AUTH_PATHS
  *   POST /api/account  sign up with { username, password }, signed in on success
- *   GET  /api/me       { name, outfit, at }, or null for a guest (not an error: browsers log those)
+ *   GET  /api/me       { guest, name, outfit, at }: an account, or the guest this browser is
  *   PUT  /api/me       { outfit }: keeps it and tells everyone online
  *   GET  /api/health   { ok, online, players, tickMs, tickMaxMs, bytesPerSecond }
- *   /ws                presence (world.ts); the session cookie decides player or guest
+ *   /ws                presence (world.ts); the session cookie decides the account, else the guest
  */
 
 import { Database } from 'bun:sqlite';
@@ -20,6 +20,7 @@ import { isOutfit } from '../src/net/protocol.ts';
 import { isUsername } from '../src/net/rules.ts';
 import { PUBLIC_AUTH_PATHS, createAuth, migrateAuth, syntheticEmail } from './auth.ts';
 import type { AuthConfig } from './auth.ts';
+import { createGuests, guestAccount, guestKey } from './guest.ts';
 import { randomOutfit } from './outfit.ts';
 import { createStore } from './store.ts';
 import { createWorld } from './world.ts';
@@ -70,13 +71,21 @@ export interface RunningServer {
 }
 
 interface SocketData {
-  account: Account | null;
+  account: Account;
+  session: string | null;
+  address: string;
   id: number;
 }
 
 const API_HEADERS = { 'cache-control': 'no-store' };
 /** The 100 ms of a presence tick are spread over this many, so no single one blocks the server. */
 const SLICES = 2;
+/**
+ * Guests one address can have on the map; the rest watch, unseen, until there's room or they join.
+ * nginx allows 16 sockets an address already (docs/DEPLOY.md), so this leaves a shared address
+ * room to walk about without letting one script fill the streets.
+ */
+const GUESTS_PER_ADDRESS = 12;
 
 /**
  * better-auth limits sign-ins per IP from `x-real-ip`. nginx sets it in production; the server
@@ -130,7 +139,9 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
     save: (saves) => store.savePositions(saves),
     saveEvery: config.saveEvery,
     slices: SLICES,
+    guestsPerAddress: config.rateLimit === false ? undefined : GUESTS_PER_ADDRESS,
   });
+  const guests = createGuests(config.secret, new URL(config.baseURL).protocol === 'https:');
   // (A `take` of cost 0 reads what's left: it is always "allowed", so `remaining` is the test.)
   // better-auth limits its own routes by address; sign-up goes through auth.api, which it doesn't
   // limit. Only accounts made count: a campus shares a handful of addresses, and a name taken is
@@ -149,6 +160,7 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
 
   async function signUp(request: Request): Promise<Response> {
     const ip = clientKey(request.headers.get('x-real-ip'));
+    const guestId = await guests.read(request);
     if (config.rateLimit !== false && (await signUps.take(ip, { cost: 0 })).remaining < 1) {
       return problem(429, 'TOO_MANY_REQUESTS', 'Too many accounts from here; try again later.');
     }
@@ -169,6 +181,7 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
       if (response.ok) {
         log.info('new player %s', username);
         if (config.rateLimit !== false) await signUps.take(ip);
+        await becomePlayer(guestId, response);
       }
       return response;
     } catch (error) {
@@ -179,9 +192,27 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
   }
 
   /**
-   * better-auth's own routes, with two things it doesn't do: a cap on wrong passwords per name,
-   * and a player whose session ends (signing out, a new password) taken off the map, so no socket
-   * walks on as them. Their other devices reconnect with their own sessions.
+   * A guest's tabs carry on as the account they just signed into or made: their figure and sockets
+   * stay, with the new name. A new account wears the look the guest had.
+   */
+  async function becomePlayer(guestId: string | null, response: Response): Promise<void> {
+    if (!guestId) return;
+    const body = (await response.clone().json()) as {
+      token: string;
+      user: { id: string; name: string };
+    };
+    const { outfit } = store.player(body.user.id, () => guestAccount(guestId).outfit);
+    world.signedIn(
+      guestKey(guestId),
+      { userId: body.user.id, name: body.user.name, outfit },
+      body.token,
+    );
+  }
+
+  /**
+   * better-auth's own routes, with what it doesn't do: a cap on wrong passwords per name, and the
+   * map kept in step: signing in or up turns the guest into the player, and signing out turns them
+   * back. A new password closes the player's sockets; their other devices reconnect by themselves.
    */
   async function authRoute(path: string, request: Request): Promise<Response> {
     let name = '';
@@ -193,20 +224,43 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
         return problem(429, 'TOO_MANY_REQUESTS', 'Too many tries. Wait a while, then try again.');
       }
     }
-    const ending = path === '/sign-out' || path === '/change-password';
-    const before = ending ? await session(request) : null;
+    const changes = path === '/sign-out' || path === '/change-password';
+    const signingIn = path === '/sign-in/username';
+    const before = changes || signingIn ? await session(request) : null;
+    const guestId = await guests.read(request);
     const response = await auth.handler(request);
     response.headers.set('cache-control', 'no-store');
     if (name && response.status === 401) await wrongPasswords.take(name);
-    if (before && response.ok) world.drop(before.user.id);
+    if (!response.ok) return response;
+    if (path === '/change-password' && before) world.drop(before.user.id);
+    if (path === '/sign-out' && before) {
+      const id = guestId ?? guests.mint();
+      if (!guestId) response.headers.append('set-cookie', await guests.cookie(id));
+      world.signedOut(before.user.id, before.session.token, guestAccount(id));
+    }
+    if (signingIn) {
+      // Signing in over someone else's session: their sockets reconnect as whoever they now are.
+      if (before) world.drop(before.user.id);
+      await becomePlayer(guestId, response);
+    }
     return response;
   }
 
   async function me(request: Request): Promise<Response> {
     const current = await session(request);
-    // A guest asking who they are is no error, and a 401 would be logged in their console.
     if (!current) {
-      return request.method === 'GET' ? json(null) : problem(401, 'UNAUTHORIZED', 'Not signed in');
+      if (request.method !== 'GET') return problem(401, 'UNAUTHORIZED', 'Not signed in');
+      const id = (await guests.read(request)) ?? guests.mint();
+      const guest = guestAccount(id);
+      const reply = json({
+        guest: true,
+        name: world.who(guest.userId)?.name ?? guest.name,
+        outfit: guest.outfit,
+        at: world.stateOf(guest.userId),
+      });
+      // Every visit renews it: a guest ends a month after their last.
+      reply.headers.append('set-cookie', await guests.cookie(id));
+      return reply;
     }
     const userId = current.user.id;
     if (request.method === 'PUT') {
@@ -219,6 +273,7 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
     }
     const record = store.player(userId, randomOutfit);
     return json({
+      guest: false,
       name: current.user.name,
       outfit: record.outfit,
       at: world.stateOf(userId) ?? record.at,
@@ -237,15 +292,29 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
     if (pathname === '/ws') {
       if (!fromUs(request)) return new Response('Forbidden', { status: 403 });
       const current = await session(request);
-      const account = current
-        ? {
-            userId: current.user.id,
-            name: current.user.name,
-            outfit: store.player(current.user.id, randomOutfit).outfit,
-          }
-        : null;
+      const address = clientKey(
+        request.headers.get('x-real-ip') ?? server.requestIP(request)?.address ?? null,
+      );
+      if (current) {
+        const account: Account = {
+          userId: current.user.id,
+          name: current.user.name,
+          outfit: store.player(current.user.id, randomOutfit).outfit,
+        };
+        const data = { account, session: current.session.token, address, id: 0 };
+        if (server.upgrade(request, { data })) return undefined;
+        return new Response('Expected a WebSocket', { status: 426 });
+      }
+      // No account: a guest, from this browser's cookie or a new one made here.
+      let guestId = await guests.read(request);
+      const headers = new Headers();
+      if (!guestId) {
+        guestId = guests.mint();
+        headers.append('set-cookie', await guests.cookie(guestId));
+      }
+      const data = { account: guestAccount(guestId), session: null, address, id: 0 };
       // Bun answers an upgraded request itself.
-      if (server.upgrade(request, { data: { account, id: 0 } })) return undefined;
+      if (server.upgrade(request, { data, headers })) return undefined;
       return new Response('Expected a WebSocket', { status: 426 });
     }
 
@@ -294,6 +363,7 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
             buffered: () => ws.getBufferedAmount(),
           },
           ws.data.account,
+          { session: ws.data.session, address: ws.data.address },
         );
       },
       message(ws, message) {

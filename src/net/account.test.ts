@@ -33,7 +33,12 @@ const reason = (promise: Promise<unknown>) =>
 describe('account', () => {
   test('sends the cookie, JSON and the right paths', async () => {
     answer(json({}), json({ name: 'Bram', outfit, at: null }));
-    expect(await signUp('Bram', 'password1')).toEqual({ name: 'Bram', outfit, at: null });
+    expect(await signUp('Bram', 'password1')).toEqual({
+      guest: false,
+      name: 'Bram',
+      outfit,
+      at: null,
+    });
     expect(calls.map((c) => [c.url, c.init?.method ?? 'GET'])).toEqual([
       ['/api/account', 'POST'],
       ['/api/me', 'GET'],
@@ -84,11 +89,21 @@ describe('account', () => {
     expect(await reason(signIn('bram', 'password1'))).toMatchObject({ code: 'busy' });
   });
 
-  test('a guest is nobody: a null, or an old server’s 401', async () => {
+  test('a server that can’t say gives no one: a null, or an old server’s 401', async () => {
     answer(json(null));
     expect(await me()).toBeNull();
     answer(json({}, 401));
     expect(await me()).toBeNull();
+  });
+
+  test('a guest is someone', async () => {
+    answer(json({ guest: true, name: 'Guest Sunny Otter', outfit, at: null }));
+    expect(await me()).toEqual({ guest: true, name: 'Guest Sunny Otter', outfit, at: null });
+  });
+
+  test('a guest after signing in is the server’s failure', async () => {
+    answer(json({}), json({ guest: true, name: 'Guest Sunny Otter', outfit, at: null }));
+    expect(await reason(signIn('bram', 'password1'))).toMatchObject({ code: 'server' });
   });
 
   test('an odd answer to me() is the server’s fault', async () => {
@@ -97,7 +112,7 @@ describe('account', () => {
     answer(new Response('not json'));
     expect(await reason(me())).toMatchObject({ code: 'server' });
     answer(json({ name: 'Bram', outfit }));
-    expect(await me()).toEqual({ name: 'Bram', outfit, at: null });
+    expect(await me()).toEqual({ guest: false, name: 'Bram', outfit, at: null });
   });
 
   test('a session the browser dropped right after signing in', async () => {

@@ -2,12 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 
 import * as account from '../src/net/account.ts';
 import { AccountError } from '../src/net/account.ts';
-import {
-  CLOSE_REPLACED,
-  decodeServerMessage,
-  encodeClientMessage,
-  quantise,
-} from '../src/net/protocol.ts';
+import { decodeServerMessage, encodeClientMessage, quantise } from '../src/net/protocol.ts';
 import type { PlayerState, ServerMessage } from '../src/net/protocol.ts';
 import { clientKey, originMatches, startServer } from './server.ts';
 import { CLOSE_SIGNED_OUT } from './world.ts';
@@ -160,18 +155,31 @@ describe('accounts', () => {
     });
   });
 
-  test('a guest has no account', async () => {
-    expect(await as(new Jar(), () => account.me())).toBeNull();
-    // Asked plainly, a guest is a null, not a 401 the browser would log as an error.
-    const guest = await call(new Jar(), '/api/me');
-    expect([guest.status, await guest.json()]).toEqual([200, null]);
-    const put = await call(new Jar(), '/api/me', { method: 'PUT', body: '{}' });
+  test('a guest is someone: the same one on every visit, with a cookie to prove it', async () => {
+    const jar = new Jar();
+    const me = await as(jar, () => account.me());
+    expect(me).toMatchObject({ guest: true, name: expect.stringMatching(/^Guest /), at: null });
+    expect(await as(jar, () => account.me())).toEqual(me);
+    expect(await as(new Jar(), () => account.me())).not.toEqual(me);
+    const cookie = (await call(jar, '/api/me')).headers.getSetCookie().join();
+    expect(cookie).toMatch(/leuven_guest=/);
+    expect(cookie).toMatch(/HttpOnly/);
+    expect(cookie).toMatch(/Max-Age=/);
+    const put = await call(jar, '/api/me', { method: 'PUT', body: '{}' });
     expect(put.status).toBe(401);
+  });
+
+  test('a guest cookie that was forged is another new guest', async () => {
+    const jar = new Jar();
+    const me = await as(jar, () => account.me());
+    const [id] = jar.cookies.get('leuven_guest')!.split('.');
+    jar.cookies.set('leuven_guest', `${id}.${'0'.repeat(64)}`);
+    expect((await as(jar, () => account.me()))?.name).not.toBe(me?.name);
   });
 
   test('signing up signs in, with an outfit and no position yet', async () => {
     const me = await as(bram, () => account.signUp('Bram', 'stadhuis1'));
-    expect(me).toEqual({ name: 'Bram', outfit: expect.any(Object), at: null });
+    expect(me).toEqual({ guest: false, name: 'Bram', outfit: expect.any(Object), at: null });
     expect(await as(bram, () => account.me())).toEqual(me);
   });
 
@@ -241,13 +249,52 @@ describe('accounts', () => {
     });
   });
 
-  test('signing out ends the session, and takes the player off the map', async () => {
+  test('signing out ends the session; the same socket carries on as the guest', async () => {
     const jar = new Jar();
+    const guest = await as(jar, () => account.me());
     await as(jar, () => account.signUp('leaver', 'password1'));
     const socket = new Client(jar);
     await socket.opened;
+    socket.send({ x: 50 });
+    await wait(50);
     await as(jar, () => account.signOut());
-    expect(await as(jar, () => account.me())).toBeNull();
+    expect(await as(jar, () => account.me())).toMatchObject({ guest: true, name: guest?.name });
+    const identity = await socket.next('identity', (m) => m.guest);
+    expect(identity.name).toBe(guest!.name);
+    await socket.close();
+  });
+
+  test('a new password closes the sockets, to reconnect as themselves', async () => {
+    const jar = new Jar();
+    await as(jar, () => account.signUp('rekeyed', 'password1'));
+    const socket = new Client(jar);
+    await socket.opened;
+    await postJson(jar, '/api/auth/change-password', {
+      currentPassword: 'password1',
+      newPassword: 'password2',
+    });
+    expect((await socket.closed).code).toBe(CLOSE_SIGNED_OUT);
+  });
+
+  test('signing out without a guest cookie makes one', async () => {
+    const jar = new Jar();
+    await as(jar, () => account.signUp('nocookie', 'password1'));
+    jar.cookies.delete('leuven_guest');
+    const socket = new Client(jar);
+    await socket.opened;
+    await as(jar, () => account.signOut());
+    expect(jar.cookies.get('leuven_guest')).toBeTruthy();
+    await socket.next('identity', (m) => m.guest);
+    await socket.close();
+  });
+
+  test('signing in over someone else’s session lets their sockets go', async () => {
+    const jar = new Jar();
+    await as(jar, () => account.signUp('firstone', 'password1'));
+    await as(new Jar(), () => account.signUp('secondone', 'password1'));
+    const socket = new Client(jar);
+    await socket.opened;
+    await as(jar, () => account.signIn('secondone', 'password1'));
     expect((await socket.closed).code).toBe(CLOSE_SIGNED_OUT);
   });
 });
@@ -269,7 +316,7 @@ describe('presence', () => {
     expect(response.status).toBe(403);
   });
 
-  test('two players see each other join, move and leave; a guest watches unseen', async () => {
+  test('two players see each other join, move and leave; a guest is seen too', async () => {
     const a = new Client(ann);
     const b = new Client(ben);
     const guest = new Client();
@@ -277,7 +324,11 @@ describe('presence', () => {
     const youA = (await a.next('welcome')).you;
     const youB = (await b.next('welcome')).you;
     expect(youA).toBeGreaterThan(0);
-    expect((await guest.next('welcome')).you).toBe(0);
+    const youGuest = (await guest.next('welcome')).you;
+    expect(youGuest).toBeGreaterThan(0);
+    const identity = await guest.next('identity');
+    expect(identity).toMatchObject({ guest: true, unseen: false });
+    expect(identity.name).toMatch(/^Guest /);
 
     a.send();
     const joined = await b.next('joins', (m) => m.players.some((p) => p.id === youA));
@@ -299,12 +350,10 @@ describe('presence', () => {
     expect(entry.state.x).toBeCloseTo(13, 1);
     expect(entry.state.mode).toBe('bike');
 
-    // The guest's own states go nowhere.
-    guest.send({ x: 99 });
-    await wait(80);
-    expect(
-      a.messages.flatMap((m) => (m.type === 'joins' ? m.players.map((p) => p.name) : [])),
-    ).toEqual(['Ben']);
+    // A guest walking by is seen by everyone, under the name the server gave them.
+    guest.send({ x: 16 });
+    const seen = await a.next('joins', (m) => m.players.some((p) => p.id === youGuest));
+    expect(seen.players.find((p) => p.id === youGuest)?.name).toBe(identity.name);
 
     // A new outfit reaches everyone online.
     const outfit = { skin: 5, hair: 6, shirt: 7, shorts: 8 };
@@ -337,14 +386,141 @@ describe('presence', () => {
     });
   });
 
-  test('signing in again elsewhere replaces the first connection', async () => {
+  test('a second tab shares the first’s figure: both stay', async () => {
     const first = new Client(ann);
     await first.opened;
     const second = new Client(ann);
     await second.opened;
-    const closed = await first.closed;
-    expect(closed.code).toBe(CLOSE_REPLACED);
-    await second.close();
+    expect((await second.next('welcome')).you).toBe((await first.next('welcome')).you);
+    expect(await second.next('driving')).toEqual({ type: 'driving', on: false });
+    await wait(50);
+    expect(first.socket.readyState).toBe(WebSocket.OPEN);
+    await Promise.all([first.close(), second.close()]);
+  });
+
+  test('a guest’s tabs share one figure, the same again after a reload', async () => {
+    const jar = new Jar();
+    await as(jar, () => account.me());
+    const first = new Client(jar);
+    await first.opened;
+    const second = new Client(jar);
+    await second.opened;
+    const you = (await first.next('welcome')).you;
+    expect((await second.next('welcome')).you).toBe(you);
+    const { name } = await first.next('identity');
+    first.send({ x: 30 });
+    await wait(40);
+    expect((await as(jar, () => account.me()))?.at).toMatchObject({ x: 30 });
+    await Promise.all([first.close(), second.close()]);
+    await wait(20);
+    // Left for a moment: still that guest, and where they were.
+    const back = new Client(jar);
+    await back.opened;
+    expect((await back.next('identity')).name).toBe(name);
+    expect((await as(jar, () => account.me()))?.at).toMatchObject({ x: 30 });
+    await back.close();
+  });
+
+  test('a socket with no cookie is given a guest, and the browser the cookie for it', async () => {
+    const jar = new Jar();
+    const socket = new Client(jar);
+    await socket.opened;
+    expect(await socket.next('identity')).toMatchObject({ guest: true });
+    // Bun's WebSocket client has no cookie jar to look in, so what matters is that it was minted.
+    await socket.close();
+  });
+
+  test('joining turns the guest into the account, everywhere it is open', async () => {
+    const watcher = new Client(ben);
+    await watcher.opened;
+    const jar = new Jar();
+    await as(jar, () => account.me());
+    const first = new Client(jar);
+    const second = new Client(jar);
+    await Promise.all([first.opened, second.opened]);
+    const you = (await first.next('welcome')).you;
+    first.send({ x: 18 });
+    const guestJoin = await watcher.next('joins', (m) => m.players.some((p) => p.id === you));
+    const guestOutfit = guestJoin.players.find((p) => p.id === you)!.outfit;
+
+    const me = await as(jar, () => account.signUp('Clara', 'password1'));
+    // The new account wears what the guest wore.
+    expect(me.outfit).toEqual(guestOutfit);
+    expect(await watcher.next('renamed')).toEqual({
+      type: 'renamed',
+      id: you,
+      name: 'Clara',
+      outfit: guestOutfit,
+    });
+    await Promise.all(
+      [first, second].map((tab) => tab.next('identity', (m) => !m.guest && m.name === 'Clara')),
+    );
+    expect(watcher.messages.some((m) => m.type === 'leaves')).toBe(false);
+    await Promise.all([first.close(), second.close(), watcher.close()]);
+  });
+
+  test('signing in is the same: the account’s own look, and the same figure', async () => {
+    const watcher = new Client(ann);
+    await watcher.opened;
+    const jar = new Jar();
+    await as(jar, () => account.me());
+    const socket = new Client(jar);
+    await socket.opened;
+    const you = (await socket.next('welcome')).you;
+    socket.send({ x: 22 });
+    await watcher.next('joins', (m) => m.players.some((p) => p.id === you));
+    const me = await as(jar, () => account.signIn('Ben', 'password1'));
+    expect(me).toMatchObject({ guest: false, name: 'Ben' });
+    const renamed = await watcher.next('renamed');
+    expect(renamed).toMatchObject({ id: you, name: 'Ben', outfit: me.outfit });
+    await socket.next('identity', (m) => !m.guest);
+    await Promise.all([socket.close(), watcher.close()]);
+  });
+
+  test('when guests are capped by address, the server asks for the address', async () => {
+    const capped = await startServer({
+      port: 0,
+      databasePath: ':memory:',
+      secret: 'test-secret-test-secret-test-secret',
+      baseURL: ORIGIN,
+      quiet: true,
+      tick: 20,
+    });
+    const url = new URL('/ws', capped.url);
+    url.protocol = 'ws:';
+    const clients: { socket: WebSocket; opened: Promise<void>; flags: ServerMessage[] }[] = [];
+    const open = (address: string, cookie: string) => {
+      const headers = { origin: ORIGIN, 'x-real-ip': address, cookie };
+      const socket = new WebSocket(url, { headers } as never);
+      socket.binaryType = 'arraybuffer';
+      const flags: ServerMessage[] = [];
+      socket.addEventListener('message', (e) => {
+        const message = decodeServerMessage(new Uint8Array(e.data as ArrayBuffer));
+        if (message) flags.push(message);
+      });
+      const opened = new Promise<void>((resolve) =>
+        socket.addEventListener('open', () => resolve(), { once: true }),
+      );
+      clients.push({ socket, opened, flags });
+      return flags;
+    };
+    try {
+      // Twelve distinct guests from one address, then one who only watches.
+      for (let i = 0; i < 13; i++) open('203.0.113.7', '');
+      await Promise.all(clients.map((c) => c.opened));
+      await wait(30);
+      const unseen = clients.map((c) => c.flags.find((m) => m.type === 'identity'));
+      expect(unseen.filter((m) => m?.type === 'identity' && m.unseen)).toHaveLength(1);
+      // Another address is not touched.
+      const other = open('203.0.113.8', '');
+      await clients.at(-1)!.opened;
+      await wait(20);
+      const flag = other.find((m) => m.type === 'identity');
+      expect(flag).toMatchObject({ unseen: false });
+    } finally {
+      for (const c of clients) c.socket.close();
+      await capped.stop();
+    }
   });
 
   test('malformed frames are ignored and the connection carries on', async () => {

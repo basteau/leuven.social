@@ -3,16 +3,18 @@
  * nothing of sockets or SQLite: connections are a `send` and a `close`, persistence is a
  * callback and time is a clock, so tests drive it directly (server.ts wires it to Bun).
  *
- * A signed-in player appears with their first state, not before, so nobody pops up at a made-up
- * spot. A client hears only of the players in the 3×3 cells round where its map looks
+ * A person, signed in or a guest, is one figure on the map, however many of their tabs are open:
+ * a figure and a socket are separate things here. Each tab sees the map for itself, but only one,
+ * the `driver`, moves the figure: the last to say it is in use, or else the newest left. A figure
+ * appears with its first state, not before, so nobody pops up at a made-up spot. A client hears only of the players in the 3×3 cells round where its map looks
  * (src/net/interest.ts): sending everyone to everyone is N² of bandwidth, and one uplink can't
  * carry a thousand players that way. Whatever happened since the last 10 Hz `tick` goes out in one
  * go: those it can now see (`joins`), those it can't any more (`leaves`) and who moved (`moves`).
  *
  * In a crowd, the nearest few still move at 10 Hz and the rest in turns, once a second. A client
  * too slow to keep up is skipped rather than cut off, and gets a fresh start once it catches up.
- * One account has one live connection: signing in again elsewhere closes the old one with
- * CLOSE_REPLACED, which the client won't retry.
+ * Signing in or out changes who a figure is in place (`signedIn`, `signedOut`), so the socket and
+ * the figure carry on and the others only see a new name.
  */
 
 import * as RateLimit from '@portable/rate-limit';
@@ -20,12 +22,7 @@ import * as RateLimit from '@portable/rate-limit';
 import { AREA, VIEW_AREA } from '../src/data/area.ts';
 import type { Bounds } from '../src/data/city.ts';
 import { around, cellAt, cellX, cellZ, watches } from '../src/net/interest.ts';
-import {
-  CLOSE_REPLACED,
-  MAX_SPEED,
-  decodeClientMessage,
-  encodeServerMessage,
-} from '../src/net/protocol.ts';
+import { MAX_SPEED, decodeClientMessage, encodeServerMessage } from '../src/net/protocol.ts';
 import type {
   JoinedPlayer,
   MoveBaseline,
@@ -44,10 +41,21 @@ export interface Connection {
   buffered?(): number;
 }
 
+/** Who a figure is: an account, or a guest, whose `userId` lasts as long as their cookie. */
 export interface Account {
   userId: string;
   name: string;
   outfit: Outfit;
+  /** A guest: never saved, and the name isn't theirs to keep. */
+  guest?: boolean;
+}
+
+/** What a socket came with, beyond who it speaks for. */
+export interface ConnectOptions {
+  /** Its session, if signed in: signing out ends this one, not the same player's on a phone. */
+  session?: string | null;
+  /** Where it connects from, for the cap on guests. */
+  address?: string;
 }
 
 export interface SavedPosition {
@@ -63,6 +71,8 @@ export interface WorldOptions {
   /** Keeps players' last states: every `saveEvery` while they move and when they leave, in batches. */
   save?: (saves: SavedPosition[]) => void;
   saveEvery?: number;
+  /** How many guests one address can have on the map; the rest watch, unseen. */
+  guestsPerAddress?: number;
   /** Messages a connection may send: a 10 Hz client with room for bursts of big changes. */
   rate?: { limit: number; period: number; burst?: number };
   /** Where a figure may stand; anything outside is pulled to the nearest edge. */
@@ -89,16 +99,25 @@ export interface WorldStats {
 }
 
 export interface World {
-  /** Admits a connection, signed in or a guest (null), and returns its id. */
-  connect(connection: Connection, account: Account | null): number;
+  /** Admits a socket as the person it speaks for and returns its id, or 0 when refused. */
+  connect(connection: Connection, account: Account, options?: ConnectOptions): number;
   /** A message from a connection; resolves once it has been applied or dropped. */
   receive(id: number, data: string | Uint8Array): Promise<void>;
   disconnect(id: number): void;
-  /** A player's session ended (signed out, a new password): off the map, to reconnect if they may. */
+  /** A new password: every socket of theirs off the map, to reconnect if they may. */
   drop(userId: string): void;
+  /**
+   * A guest (`guestKey`, their `userId`) signed in or up as `account`: the same figure carries on
+   * under the account's name, or, if the account is on the map already, their tabs join that one.
+   */
+  signedIn(guestKey: string, account: Account, session: string | null): void;
+  /** One session of a player ended: its tabs are `guest` again, whoever else is still signed in. */
+  signedOut(userId: string, session: string | null, guest: Account): void;
+  /** Who is online under `userId` as the world knows them, the guests' names made unique. */
+  who(userId: string): Account | null;
   /** A player changed colours; whoever can see them hears it if they are online. */
   setOutfit(userId: string, outfit: Outfit): void;
-  /** Where an online player is now, or null when they aren't or haven't moved yet. */
+  /** Where a player is now, a guest also for a while after they left; null when neither. */
   stateOf(userId: string): PlayerState | null;
   /** Sends what changed since the last tick and saves the ones due. */
   tick(): void;
@@ -109,10 +128,14 @@ export interface World {
   readonly size: number;
 }
 
-interface Client {
+/** A person on the map: one, however many tabs they have open. */
+interface Figure {
   id: number;
-  connection: Connection;
-  account: Account | null;
+  account: Account;
+  /** Over the cap on guests from one address: nobody sees them. */
+  hidden: boolean;
+  /** Where it came from: counts against the address while a guest. */
+  address: string;
   state: PlayerState | null;
   /** When `state` was accepted (ms). */
   movedAt: number;
@@ -127,13 +150,26 @@ interface Client {
   savedAt: number;
   /** The cell the figure is filed under; NOWHERE until it is placed. */
   cell: number;
+  /** Every open tab of this person. */
+  tabs: Set<Client>;
+  /** The one that moves the figure. Only empty for the moment a figure is being made or retired. */
+  driver: Client | null;
+}
+
+/** One socket: a tab's view of the map. */
+interface Client {
+  id: number;
+  connection: Connection;
+  figure: Figure;
+  /** The session it is signed in by, if any. */
+  session: string | null;
   /** Where the map looks, if the client has said. */
   look: readonly [number, number] | null;
   /** The cell the client watches round, and those 9 cells; NOWHERE and none until the first tick. */
   watching: number;
   nine: readonly number[];
   /** Those it has to be told about: +1 now in view, -1 out of it, or nothing if that cancelled. */
-  pending: Map<Client, number>;
+  pending: Map<Figure, number>;
   /** What it last heard of the figures nearest it, each sent as a delta from this. */
   baselines: Map<number, MoveBaseline>;
   /** When it last moved what it watches (ms). */
@@ -152,6 +188,8 @@ const TURN = Math.PI * 2;
 const MIN_FLOOR = -4;
 const MAX_FLOOR = 20;
 const NOWHERE = -1;
+/** Refused for good; 1008 is the code the client won't retry. */
+const CLOSE_TURNED_AWAY = 1008;
 /** Faster than anyone goes (m/s): a figure can't get further than this between two messages. */
 const TOP_SPEED = 30;
 /** Slack for a door's few metres, and a stutter of the network. */
@@ -170,6 +208,8 @@ const DOTS_TICKS = 20;
 /** Bytes queued that mean a client isn't keeping up, and that mean it has caught up. */
 const BEHIND_BYTES = 64 * 1024;
 const CAUGHT_UP_BYTES = 8 * 1024;
+/** How often forgotten guests are cleared out (rounds). */
+const FORGET_TICKS = 300;
 /** How many ticks /api/health averages over. */
 const STATS_TICKS = 100;
 /** A client moves what it watches at most this often (ms): each move is a burst of joins. */
@@ -178,7 +218,13 @@ const LOOK_MS = 250;
 const UNKNOWN: MoveBaseline = { x: Number.NaN, z: Number.NaN, heading: 0, speed: 0 };
 /** More than this and they are all forgotten, for a whole move each next time. */
 const MOST_BASELINES = NEAREST * 4;
-const NOBODY: readonly Client[] = [];
+const NOBODY: readonly Figure[] = [];
+const NOONE: readonly Client[] = [];
+/** How many tabs one person can have open; the next is turned away (1008), not an old one. */
+const MOST_TABS = 16;
+/** A guest's position is remembered this long after they left (ms): a reload, or a short break. */
+const GUEST_REMEMBERED = 10 * 60 * 1000;
+const MOST_REMEMBERED = 2048;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -244,30 +290,38 @@ export function createWorld(options: WorldOptions = {}): World {
   const slices = Math.max(1, options.slices ?? 1);
   const everySlice = (1 << slices) - 1;
   const limiter = RateLimit.create(options.rate ?? { limit: 20, period: 1000, burst: 40 });
+  const guestsPerAddress = options.guestsPerAddress ?? Number.POSITIVE_INFINITY;
   const clients = new Map<number, Client>();
-  const byUser = new Map<string, Client>();
+  /** Everyone online, by account or guest id. */
+  const people = new Map<string, Figure>();
+  /** Guests' names in use, so no two online are the same. */
+  const guestNames = new Set<string>();
+  /** How many guests each address has on the map. */
+  const guestsFrom = new Map<string, number>();
+  /** Guests who left a moment ago and where. */
+  const remembered = new Map<string, { state: PlayerState; at: number }>();
   /** Who is placed in each cell. */
-  const residents = new Map<number, Set<Client>>();
+  const residents = new Map<number, Set<Figure>>();
   /** Who watches each cell. */
   const watchers = new Map<number, Set<Client>>();
   /** Who moved this tick and who takes a turn this tick, cell by cell. */
-  const movers = new Map<number, Client[]>();
+  const movers = new Map<number, Figure[]>();
   /** Those who left since the last tick, still on the map for whoever saw them. */
-  const departed: Client[] = [];
+  const departed: Figure[] = [];
   /** Who left and which tick every client will have heard so by. */
   const leaving: { id: number; after: number }[] = [];
   /** Ids free to use again. */
   const freeIds: number[] = [];
   const saves: SavedPosition[] = [];
   let lastId = 0;
+  let lastSocket = 0;
   let tickCount = 0;
-  const selected: Client[] = [];
+  const selected: Figure[] = [];
   const bases: (MoveBaseline | undefined)[] = [];
   const stats = { ticks: 0, busy: 0, longest: 0, bytes: 0, since: 0 };
   let report: WorldStats = { online: 0, players: 0, tickMs: 0, tickMaxMs: 0, bytesPerSecond: 0 };
 
   const nextId = () => freeIds.pop() ?? ++lastId;
-  const placed = (client: Client) => Boolean(client.account && client.state);
 
   const deliver = (client: Client, frame: Uint8Array) => {
     try {
@@ -279,31 +333,31 @@ export function createWorld(options: WorldOptions = {}): World {
   };
 
   /** Delivers one frame, encoded once, to everyone who sees `player`. */
-  const toSeers = (player: Client, message: ServerMessage) => {
+  const toSeers = (player: Figure, message: ServerMessage) => {
     const seers = watchers.get(player.cell);
     if (!seers?.size) return;
     const frame = encodeServerMessage(message);
-    for (const seer of seers) if (seer !== player && !seer.behind) deliver(seer, frame);
+    for (const seer of seers) if (seer.figure !== player && !seer.behind) deliver(seer, frame);
   };
 
-  const joined = ({ id, account, state }: Client): JoinedPlayer => ({
+  const joined = ({ id, account, state }: Figure): JoinedPlayer => ({
     id,
-    name: account!.name,
-    outfit: account!.outfit,
+    name: account.name,
+    outfit: account.outfit,
     state: state!,
   });
 
-  const queue = (viewer: Client, player: Client, delta: 1 | -1) => {
+  const queue = (viewer: Client, player: Figure, delta: 1 | -1) => {
     const net = (viewer.pending.get(player) ?? 0) + delta;
     if (net === 0) viewer.pending.delete(player);
     else viewer.pending.set(player, net);
   };
 
-  const persist = (client: Client) => {
-    if (!client.account || !client.state || !client.unsaved) return;
-    saves.push({ userId: client.account.userId, state: client.state });
-    client.unsaved = false;
-    client.savedAt = now();
+  const persist = (figure: Figure) => {
+    if (figure.account.guest || !figure.state || !figure.unsaved) return;
+    saves.push({ userId: figure.account.userId, state: figure.state });
+    figure.unsaved = false;
+    figure.savedAt = now();
   };
 
   const unwatch = (viewer: Client, cell: number) => {
@@ -312,26 +366,148 @@ export function createWorld(options: WorldOptions = {}): World {
     if (seers?.size === 0) watchers.delete(cell);
   };
 
-  const remove = (client: Client) => {
-    clients.delete(client.id);
-    if (client.account && byUser.get(client.account.userId) === client) {
-      byUser.delete(client.account.userId);
+  /** A name no other guest online has: the same one again, unless someone else holds it now. */
+  const freeName = (name: string) => {
+    let free = name;
+    for (let n = 2; guestNames.has(free); n++) free = `${name} ${n}`;
+    return free;
+  };
+
+  /** Writes who a figure is, reserving a guest's unique name, and counting them on their address. */
+  const becomeWho = (figure: Figure, account: Account) => {
+    if (account.guest) {
+      const count = guestsFrom.get(figure.address) ?? 0;
+      figure.hidden = count >= guestsPerAddress;
+      figure.account = { ...account, name: freeName(account.name) };
+      guestNames.add(figure.account.name);
+      if (!figure.hidden) guestsFrom.set(figure.address, count + 1);
+    } else {
+      figure.hidden = false;
+      figure.account = account;
     }
-    persist(client);
+    people.set(figure.account.userId, figure);
+  };
+
+  /** Lets go of who it was: a guest's name and their place on their address's count. */
+  const stopBeing = (figure: Figure) => {
+    const { account, address, hidden } = figure;
+    people.delete(account.userId);
+    if (!account.guest) return;
+    guestNames.delete(account.name);
+    if (hidden) return;
+    const count = guestsFrom.get(address) ?? 0;
+    if (count <= 1) guestsFrom.delete(address);
+    else guestsFrom.set(address, count - 1);
+  };
+
+  /** The last tab of a figure went. It leaves the map; a guest is remembered a while. */
+  const retire = (figure: Figure) => {
+    persist(figure);
+    if (figure.account.guest && figure.state) {
+      remembered.delete(figure.account.userId);
+      remembered.set(figure.account.userId, { state: figure.state, at: now() });
+      if (remembered.size > MOST_REMEMBERED) {
+        remembered.delete(remembered.keys().next().value!);
+      }
+    }
+    stopBeing(figure);
+    refile(figure, NOWHERE);
+    departed.push(figure);
+  };
+
+  /** Says to a socket who it speaks for and whether it moves the figure. */
+  const introduce = (client: Client) => {
+    const { account, hidden, driver, id, state } = client.figure;
+    deliver(
+      client,
+      encodeServerMessage({
+        type: 'identity',
+        guest: Boolean(account.guest),
+        unseen: hidden,
+        name: account.name,
+        outfit: account.outfit,
+      }),
+    );
+    deliver(client, encodeServerMessage({ type: 'driving', on: driver === client }));
+    if (state && driver !== client) {
+      deliver(client, encodeServerMessage({ type: 'placed', id, state }));
+    }
+  };
+
+  /**
+   * Hands the figure to `client` and tells both. The new driver hears it too: a tab that claimed
+   * as it opened will just have read the "not you" sent when it connected.
+   */
+  const drive = (client: Client) => {
+    const { figure } = client;
+    if (figure.driver === client) return;
+    const before = figure.driver;
+    figure.driver = client;
+    if (before) deliver(before, encodeServerMessage({ type: 'driving', on: false }));
+    deliver(client, encodeServerMessage({ type: 'driving', on: true }));
+  };
+
+  /** A tab of `figure` closed or moved away: the newest left takes over, if it was the driver. */
+  const leaveFigure = (client: Client) => {
+    const { figure } = client;
+    figure.tabs.delete(client);
+    if (figure.driver === client) {
+      figure.driver = [...figure.tabs].at(-1) ?? null;
+      if (figure.driver) {
+        deliver(figure.driver, encodeServerMessage({ type: 'driving', on: true }));
+      }
+    }
+    if (figure.tabs.size === 0) retire(figure);
+  };
+
+  const removeSocket = (client: Client) => {
+    clients.delete(client.id);
     for (const cell of client.nine) unwatch(client, cell);
     client.nine = [];
-    departed.push(client);
+    leaveFigure(client);
+  };
+
+  const newFigure = (account: Account, address: string): Figure => {
+    const figure: Figure = {
+      id: nextId(),
+      account,
+      hidden: false,
+      address,
+      state: null,
+      movedAt: 0,
+      dirty: 0,
+      stale: 0,
+      replaced: false,
+      unsaved: false,
+      savedAt: now(),
+      cell: NOWHERE,
+      tabs: new Set(),
+      driver: null,
+    };
+    becomeWho(figure, account);
+    return figure;
+  };
+
+  /** Moves a tab to another figure: a clean start, since "you" is someone else now. */
+  const moveTab = (client: Client, into: Figure, session: string | null) => {
+    leaveFigure(client);
+    client.figure = into;
+    client.session = session;
+    into.tabs.add(client);
+    into.driver ??= client;
+    startOver(client);
+    introduce(client);
   };
 
   /** Files a figure under another cell, or none, and tells those who gain or lose sight of it. */
-  const refile = (player: Client, cell: number) => {
+  const refile = (player: Figure, cell: number) => {
     const old = player.cell;
     if (old !== NOWHERE) {
       const left = residents.get(old);
       left?.delete(player);
       if (left?.size === 0) residents.delete(old);
-      for (const viewer of watchers.get(old) ?? NOBODY) {
-        if (viewer !== player && (cell === NOWHERE || !watches(viewer.watching, cell))) {
+      for (const viewer of watchers.get(old) ?? NOONE) {
+        if (viewer.figure !== player && (cell === NOWHERE || !watches(viewer.watching, cell))) {
           queue(viewer, player, -1);
         }
       }
@@ -340,8 +516,8 @@ export function createWorld(options: WorldOptions = {}): World {
       let here = residents.get(cell);
       if (!here) residents.set(cell, (here = new Set()));
       here.add(player);
-      for (const viewer of watchers.get(cell) ?? NOBODY) {
-        if (viewer !== player && (old === NOWHERE || !watches(viewer.watching, old))) {
+      for (const viewer of watchers.get(cell) ?? NOONE) {
+        if (viewer.figure !== player && (old === NOWHERE || !watches(viewer.watching, old))) {
           queue(viewer, player, 1);
         }
       }
@@ -356,7 +532,7 @@ export function createWorld(options: WorldOptions = {}): World {
     for (const c of viewer.nine) {
       if (watches(cell, c)) continue;
       for (const player of residents.get(c) ?? NOBODY) {
-        if (player !== viewer) queue(viewer, player, -1);
+        if (player !== viewer.figure) queue(viewer, player, -1);
       }
       unwatch(viewer, c);
     }
@@ -366,7 +542,7 @@ export function createWorld(options: WorldOptions = {}): World {
       seers.add(viewer);
       if (old !== NOWHERE && watches(old, c)) continue;
       for (const player of residents.get(c) ?? NOBODY) {
-        if (player !== viewer) queue(viewer, player, 1);
+        if (player !== viewer.figure) queue(viewer, player, 1);
       }
     }
     viewer.nine = nine;
@@ -375,7 +551,7 @@ export function createWorld(options: WorldOptions = {}): World {
 
   /** Where a client's interest centres: what it looks at, else its figure, else the city's middle. */
   const lookOf = (client: Client): readonly [number, number] =>
-    client.look ?? (client.state ? [client.state.x, client.state.z] : [0, 0]);
+    client.look ?? (client.figure.state ? [client.figure.state.x, client.figure.state.z] : [0, 0]);
 
   /** A client that fell behind and caught up: forget everyone, here is everyone it can see. */
   const startOver = (client: Client) => {
@@ -383,11 +559,11 @@ export function createWorld(options: WorldOptions = {}): World {
     client.heardOnline = -1;
     client.pending.clear();
     client.baselines.clear();
-    deliver(client, encodeServerMessage({ type: 'welcome', you: client.account ? client.id : 0 }));
+    deliver(client, encodeServerMessage({ type: 'welcome', you: client.figure.id }));
     const players: JoinedPlayer[] = [];
     for (const cell of client.nine) {
       for (const player of residents.get(cell) ?? NOBODY) {
-        if (player !== client) players.push(joined(player));
+        if (player !== client.figure) players.push(joined(player));
       }
     }
     if (players.length) deliver(client, encodeServerMessage({ type: 'joins', players }));
@@ -397,7 +573,7 @@ export function createWorld(options: WorldOptions = {}): World {
     const ids: number[] = [];
     const players: JoinedPlayer[] = [];
     for (const [player, net] of client.pending) {
-      if (net > 0 && player.state && player.account) players.push(joined(player));
+      if (net > 0 && player.state) players.push(joined(player));
       else if (net < 0) ids.push(player.id);
       // Whether it came or went, nothing it heard before stands.
       client.baselines.delete(player.id);
@@ -453,27 +629,40 @@ export function createWorld(options: WorldOptions = {}): World {
     return count;
   };
 
+  /** The same figure, someone else: its tabs are told, and so is whoever can see it. */
+  const changeWho = (figure: Figure, account: Account, session: string | null) => {
+    stopBeing(figure);
+    becomeWho(figure, account);
+    if (figure.hidden && figure.state) {
+      figure.state = null;
+      refile(figure, NOWHERE);
+    }
+    figure.unsaved = !account.guest && figure.state !== null;
+    for (const tab of figure.tabs) {
+      tab.session = session;
+      introduce(tab);
+    }
+    toSeers(figure, {
+      type: 'renamed',
+      id: figure.id,
+      name: figure.account.name,
+      outfit: figure.account.outfit,
+    });
+  };
+
   return {
-    connect(connection, account) {
-      if (account) {
-        const old = byUser.get(account.userId);
-        if (old) {
-          remove(old);
-          old.connection.close(CLOSE_REPLACED, 'Signed in somewhere else');
-        }
+    connect(connection, account, { session = null, address = '' } = {}) {
+      let figure = people.get(account.userId);
+      if (figure && figure.tabs.size >= MOST_TABS) {
+        connection.close(CLOSE_TURNED_AWAY, 'Too many tabs');
+        return 0;
       }
+      figure ??= newFigure(account, address);
       const client: Client = {
-        id: nextId(),
+        id: ++lastSocket,
         connection,
-        account,
-        state: null,
-        movedAt: 0,
-        dirty: 0,
-        stale: 0,
-        replaced: false,
-        unsaved: false,
-        savedAt: now(),
-        cell: NOWHERE,
+        figure,
+        session,
         look: null,
         watching: NOWHERE,
         nine: [],
@@ -485,8 +674,10 @@ export function createWorld(options: WorldOptions = {}): World {
         behind: false,
       };
       clients.set(client.id, client);
-      if (account) byUser.set(account.userId, client);
-      deliver(client, encodeServerMessage({ type: 'welcome', you: account ? client.id : 0 }));
+      figure.tabs.add(client);
+      figure.driver ??= client;
+      deliver(client, encodeServerMessage({ type: 'welcome', you: figure.id }));
+      introduce(client);
       return client.id;
     },
 
@@ -509,47 +700,88 @@ export function createWorld(options: WorldOptions = {}): World {
         client.wantsDots = message.on;
         return;
       }
-      // Guests watch: what they say about themselves goes nowhere.
-      if (!message || !client.account) return;
-      const time = now();
-      const sane = sanitise(message.state, area);
-      const previous = client.state;
-      if (!previous) {
-        client.state = sane;
-        client.movedAt = time;
-        client.unsaved = true;
+      if (message?.type === 'drive') {
+        drive(client);
         return;
       }
-      const state = withinReach(previous, sane, (time - client.movedAt) / 1000);
+      const { figure } = client;
+      // Only the tab in use moves the figure; a guest over the cap watches.
+      if (!message || figure.driver !== client || figure.hidden) return;
+      const time = now();
+      const sane = sanitise(message.state, area);
+      const previous = figure.state;
+      if (!previous) {
+        figure.state = sane;
+        figure.movedAt = time;
+        figure.unsaved = true;
+        return;
+      }
+      const state = withinReach(previous, sane, (time - figure.movedAt) / 1000);
       if (same(previous, state)) return;
-      client.replaced ||= state.place !== previous.place || state.floor !== previous.floor;
-      client.state = state;
-      client.movedAt = time;
-      client.dirty = client.stale = everySlice;
-      client.unsaved = true;
+      figure.replaced ||= state.place !== previous.place || state.floor !== previous.floor;
+      figure.state = state;
+      figure.movedAt = time;
+      figure.dirty = figure.stale = everySlice;
+      figure.unsaved = true;
     },
 
     disconnect(id) {
       const client = clients.get(id);
-      if (client) remove(client);
+      if (client) removeSocket(client);
     },
 
     drop(userId) {
-      const client = byUser.get(userId);
-      if (!client) return;
-      remove(client);
-      client.connection.close(CLOSE_SIGNED_OUT, 'Signed out');
+      for (const client of people.get(userId)?.tabs ?? []) {
+        removeSocket(client);
+        client.connection.close(CLOSE_SIGNED_OUT, 'Signed out');
+      }
     },
+
+    signedIn(guestKey, account, session) {
+      const figure = people.get(guestKey);
+      if (!figure) return;
+      const already = people.get(account.userId);
+      if (already) {
+        // Signed in on a phone too, say: one figure a person, so this browser's tabs join theirs.
+        for (const client of figure.tabs) moveTab(client, already, session);
+        return;
+      }
+      changeWho(figure, account, session);
+    },
+
+    signedOut(userId, session, guest) {
+      const figure = people.get(userId);
+      if (!figure) return;
+      const ending = [...figure.tabs].filter((c) => c.session === session);
+      if (!ending.length) return;
+      const figureOfGuest = people.get(guest.userId);
+      if (!figureOfGuest && ending.length === figure.tabs.size) {
+        persist(figure);
+        changeWho(figure, guest, null);
+        return;
+      }
+      // Others are still signed in as this player, or this browser's guest is out there already.
+      const into = figureOfGuest ?? newFigure(guest, figure.address);
+      for (const client of ending) moveTab(client, into, null);
+    },
+
+    who: (userId) => people.get(userId)?.account ?? null,
 
     setOutfit(userId, outfit) {
-      const client = byUser.get(userId);
-      if (!client?.account) return;
-      client.account.outfit = outfit;
-      deliver(client, encodeServerMessage({ type: 'outfit', id: client.id, outfit }));
-      toSeers(client, { type: 'outfit', id: client.id, outfit });
+      const figure = people.get(userId);
+      if (!figure) return;
+      figure.account.outfit = outfit;
+      const frame = encodeServerMessage({ type: 'outfit', id: figure.id, outfit });
+      for (const tab of figure.tabs) deliver(tab, frame);
+      toSeers(figure, { type: 'outfit', id: figure.id, outfit });
     },
 
-    stateOf: (userId) => byUser.get(userId)?.state ?? null,
+    stateOf(userId) {
+      const live = people.get(userId)?.state;
+      if (live) return live;
+      const left = remembered.get(userId);
+      return left && now() - left.at < GUEST_REMEMBERED ? left.state : null;
+    },
 
     tick() {
       const started = clock();
@@ -561,17 +793,16 @@ export function createWorld(options: WorldOptions = {}): World {
       const inSlice = (client: Client) => client.id % slices === slice;
 
       // 1. Everyone goes where they are now: the gone, the new, and across a cell's edge.
-      for (const client of departed) {
-        refile(client, NOWHERE);
-        leaving.push({ id: client.id, after: tickCount + slices - 1 });
+      for (const figure of departed) {
+        leaving.push({ id: figure.id, after: tickCount + slices - 1 });
       }
       departed.length = 0;
       let players = 0;
-      for (const client of clients.values()) {
-        if (!placed(client)) continue;
+      for (const figure of people.values()) {
+        if (!figure.state) continue;
         players++;
-        const cell = cellAt(client.state!.x, client.state!.z);
-        if (cell !== client.cell) refile(client, cell);
+        const cell = cellAt(figure.state.x, figure.state.z);
+        if (cell !== figure.cell) refile(figure, cell);
       }
 
       // 2. Everyone looks where they look now.
@@ -598,24 +829,33 @@ export function createWorld(options: WorldOptions = {}): World {
       }
 
       // 4. A door: before the moves, so the figure's jump reads as one.
-      for (const client of clients.values()) {
-        if (client.replaced && client.state && client.cell !== NOWHERE) {
-          toSeers(client, { type: 'placed', id: client.id, state: client.state });
+      for (const figure of people.values()) {
+        if (figure.replaced && figure.state && figure.cell !== NOWHERE) {
+          toSeers(figure, { type: 'placed', id: figure.id, state: figure.state });
         }
-        client.replaced = false;
+        figure.replaced = false;
       }
 
       // 5. Who moved, by cell: those it is near get them all, the rest when it is their turn.
       movers.clear();
-      for (const client of clients.values()) {
-        const turn = (client.id + round) % TURN_TICKS === 0;
-        if (client.cell !== NOWHERE && (client.dirty & bit || (turn && client.stale & bit))) {
-          let list = movers.get(client.cell);
-          if (!list) movers.set(client.cell, (list = []));
-          list.push(client);
+      for (const figure of people.values()) {
+        const turn = (figure.id + round) % TURN_TICKS === 0;
+        if (figure.cell !== NOWHERE && (figure.dirty & bit || (turn && figure.stale & bit))) {
+          let list = movers.get(figure.cell);
+          if (!list) movers.set(figure.cell, (list = []));
+          list.push(figure);
         }
-        client.dirty &= ~bit;
-        if (turn) client.stale &= ~bit;
+        // Their other tabs follow the figure they don't drive.
+        if (figure.tabs.size > 1 && figure.dirty & bit && figure.state) {
+          let frame: Uint8Array | null = null;
+          for (const tab of figure.tabs) {
+            if (tab === figure.driver || tab.behind || !inSlice(tab)) continue;
+            frame ??= encodeServerMessage({ type: 'placed', id: figure.id, state: figure.state });
+            deliver(tab, frame);
+          }
+        }
+        figure.dirty &= ~bit;
+        if (turn) figure.stale &= ~bit;
       }
 
       // 6. To this slice's clients what they have to hear.
@@ -627,7 +867,7 @@ export function createWorld(options: WorldOptions = {}): World {
           const list = movers.get(cell);
           if (!list) continue;
           for (const player of list) {
-            if (player !== client) selected[moved++] = player;
+            if (player !== client.figure) selected[moved++] = player;
           }
         }
         if (moved) sendMoves(client, moved, round);
@@ -652,9 +892,9 @@ export function createWorld(options: WorldOptions = {}): World {
           if (!client.wantsDots || client.behind) continue;
           frame ??= encodeServerMessage({
             type: 'dots',
-            players: [...clients.values()].flatMap((c) =>
-              c.account && c.state
-                ? [{ id: c.id, x: c.state.x, z: c.state.z, colour: c.account.outfit.shirt }]
+            players: [...people.values()].flatMap((f) =>
+              f.state
+                ? [{ id: f.id, x: f.state.x, z: f.state.z, colour: f.account.outfit.shirt }]
                 : [],
             ),
           });
@@ -662,8 +902,15 @@ export function createWorld(options: WorldOptions = {}): World {
         }
       }
 
-      for (const client of clients.values()) {
-        if (time - client.savedAt >= saveEvery) persist(client);
+      for (const figure of people.values()) {
+        if (time - figure.savedAt >= saveEvery) persist(figure);
+      }
+      // Long gone guests, a few at a time, so the book can't grow.
+      if (slice === 0 && round % FORGET_TICKS === 0) {
+        for (const [key, left] of remembered) {
+          if (time - left.at < GUEST_REMEMBERED) break;
+          remembered.delete(key);
+        }
       }
       // One batch, one transaction, after the sends so a slow disk can't hold up a frame.
       if (saves.length) save(saves.splice(0));
@@ -687,7 +934,7 @@ export function createWorld(options: WorldOptions = {}): World {
     },
 
     flush() {
-      for (const client of clients.values()) persist(client);
+      for (const figure of people.values()) persist(figure);
       if (saves.length) save(saves.splice(0));
     },
 
