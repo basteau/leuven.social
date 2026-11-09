@@ -275,8 +275,9 @@ const LIGHTS_ONLY = 1 << 2;
 /** What the view draws: the cells' own layer and the puffs of leaves (`PUFF_LAYER`). */
 const VIEW_MASK = VIEW_LAYER | (1 << PUFF_LAYER);
 /**
- * What one frame may draw, as `scripts/smoke.ts` checks it. A shadow redraw that would take its
- * frame past this gets a frame of its own, and the view follows on the next.
+ * What a frame may draw before a shadow redraw is left out of it: one that would take the frame
+ * past this gets a frame of its own, and the view follows on the next. `scripts/smoke.ts` holds
+ * that frame to its own limit, as a redraw zoomed far out has the most city to draw.
  */
 const FRAME_CALLS = 186;
 const FRAME_TRIANGLES = 1_150_000;
@@ -943,6 +944,11 @@ export function createViewer(options: ViewerOptions): Viewer {
 
   // Everything else is built in small slices while the page has nothing better to do.
   let idleHandle = 0;
+  /**
+   * Until `ready` has made the first frame's cells, in slices. A frame drawn before that (a
+   * resize, the view settling) would make all that are left in one long task.
+   */
+  let loading = true;
   function buildInBackground(): void {
     idleHandle = 0;
     const t = controls.target;
@@ -1011,7 +1017,7 @@ export function createViewer(options: ViewerOptions): Viewer {
   /** Something opaque is over the whole canvas: time and the avatar go on, nothing is drawn. */
   let covered = false;
   function render(): void {
-    if (covered) return;
+    if (covered || loading) return;
     // Read from the span, not `detail`: that's last frame's, and one zoom step draws one frame.
     if (scaler.scale < 1 && detailAt(viewSpan()).avatar !== 'figure' && scaler.reset()) resize();
     // World metres per drawing-buffer pixel: how much road paint and texture is worth drawing.
@@ -1507,6 +1513,7 @@ export function createViewer(options: ViewerOptions): Viewer {
     }
     await nextTask();
     if (disposed) return;
+    loading = false;
     renderer.shadowMap.needsUpdate = true;
     renderNow();
     idleHandle = idle(buildInBackground);
