@@ -125,7 +125,7 @@ The size and render budgets are enforced by `bun run verify`; if one is exceeded
 | What                                                                            | Limit            | Checked by          |
 | ------------------------------------------------------------------------------- | ---------------- | ------------------- |
 | App shell JS (React + the shell), gzipped                                       | 88 KB            | `scripts/budget.ts` |
-| 3D engine JS (three.js chunk, palette), gzipped                                 | 181.25 KB        | `scripts/budget.ts` |
+| 3D engine JS (three.js chunk, palette), gzipped                                 | 178.25 KB        | `scripts/budget.ts` |
 | Furniture JS (after the first frame)                                            | 16 KB            | `scripts/budget.ts` |
 | Avatar JS, with its rooms, figure and the other players (after the first frame) | 26 KB            | `scripts/budget.ts` |
 | Street names JS (with the avatar)                                               | 1.5 KB           | `scripts/budget.ts` |
@@ -136,7 +136,7 @@ The size and render budgets are enforced by `bun run verify`; if one is exceeded
 | Full map JS and CSS (when first opened)                                         | 8 KB, 1.6 KB     | `scripts/budget.ts` |
 | Account sheet JS and CSS (when first opened)                                    | 4.25 KB, 1.25 KB | `scripts/budget.ts` |
 | Multiplayer JS: accounts, presence, protocol (once the map is up)               | 10 KB            | `scripts/budget.ts` |
-| First-load JS (shell + engine)                                                  | 271.5 KB         | `scripts/budget.ts` |
+| First-load JS (shell + engine)                                                  | 268.5 KB         | `scripts/budget.ts` |
 | CSS loaded with the page, gzipped                                               | 4.1 KB           | `scripts/budget.ts` |
 | HTML, with the loading screen inline, gzipped                                   | 7 KB             | `scripts/budget.ts` |
 | Menu JS (loaded while the city is built)                                        | 7 KB             | `scripts/budget.ts` |

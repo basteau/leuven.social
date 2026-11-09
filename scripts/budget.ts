@@ -62,7 +62,8 @@ const BUDGETS: {
     // 180: the puffs' own shadow material (0.1 KB).
     // 181.25: windows fitted whole to each wall and the downpipe at a join (facade-bays.ts and
     // the wall shader, 1.3 KB), so no window is cut by a corner or the house next door.
-    limit: 181.25 * KB,
+    // 178.25: given back after the code clean-up took 3.2 KB off (no comments in shipped GLSL).
+    limit: 178.25 * KB,
     gzip: true,
   },
   // 3.5: just above 3.1 KB. 3.75: the minimap, the other players' name tags and who you are in
@@ -237,7 +238,8 @@ const BUDGETS: {
     // 271.25: windows fitted whole to each wall (the engine's note above says what, 1.3 KB).
     // 271.5: the second round of the light and water hardly taking a shadow (under 0.1 KB, after
     // deleting the water's glints and streaks to pay for most of it), asked for.
-    limit: 271.5 * KB,
+    // 268.5: the engine's clean-up above.
+    limit: 268.5 * KB,
     gzip: true,
     closure: true,
   },
