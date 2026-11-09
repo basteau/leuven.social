@@ -40,6 +40,7 @@ export class Router {
   #cost = new Float32Array(0);
   #parent = new Int32Array(0);
   #state = new Uint8Array(0); // 0 unseen, 1 open, 2 closed
+  #edge = new Uint8Array(0); // 0 not asked yet, 1 clear of walls, 2 beside one
   /** Grows as needed: most searches touch a small part of their window. */
   #heap = new Int32Array(1024);
   #heapKey = new Float32Array(1024);
@@ -85,11 +86,14 @@ export class Router {
       this.#cost = new Float32Array(size);
       this.#parent = new Int32Array(size);
       this.#state = new Uint8Array(size);
+      this.#edge = new Uint8Array(size);
     }
     const cost = this.#cost;
     const parent = this.#parent;
     const state = this.#state;
+    const edge = this.#edge;
     state.fill(0, 0, size);
+    edge.fill(0, 0, size);
 
     const local = (c: number, r: number) => (r - r0) * w + (c - c0);
     const guess = (c: number, r: number) => {
@@ -103,8 +107,12 @@ export class Router {
       r < grid.rows &&
       grid.open(r * grid.cols + c) &&
       !blocked.has(r * grid.cols + c);
-    const nearEdge = (c: number, r: number) =>
-      !open(c + 1, r) || !open(c - 1, r) || !open(c, r + 1) || !open(c, r - 1);
+    // Asked of a cell once for each neighbour that reaches it: the walls are only looked at once.
+    const nearEdge = (c: number, r: number) => {
+      const at = local(c, r);
+      edge[at] ||= !open(c + 1, r) || !open(c - 1, r) || !open(c, r + 1) || !open(c, r - 1) ? 2 : 1;
+      return edge[at] === 2;
+    };
 
     // A binary heap of local indices keyed by estimated total cost; stale entries are skipped.
     let heapSize = 0;
