@@ -49,9 +49,8 @@ export const PROPS = {
   /** Galvanised steel of bike racks: paler than the iron, so a rack reads against dark tarmac and bikes. */
   rack: 0x7d8792,
   lantern: 0xf3dfa8,
-  /** A lantern lit at night, and the pool of light it throws on the street. */
+  /** A lantern lit at night. */
   lamplight: 0xfff2c4,
-  pool: 0xe0bc74,
   wood: 0x9a6a42,
   glass: 0xa9c4cf,
   roof: 0x4a5161,

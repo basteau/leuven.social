@@ -110,5 +110,3 @@ void groundSurface(inout vec3 albedo) {
   }
   albedo *= shade;
 }`;
-
-export { SLEEPER_CODE, SURFACE };

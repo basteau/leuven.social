@@ -1,4 +1,4 @@
-import { PANE, ROOF, ROOF_FLAT } from '../facade-codes.ts';
+import { ROOF, ROOF_FLAT } from '../facade-codes.ts';
 import { f } from './glsl.ts';
 
 /** Roofs (facade-codes.ts): pitched ones in courses from the ridge, flat ones and roof windows. */
@@ -62,5 +62,3 @@ void pitchedRoof(inout vec3 albedo, vec3 base) {
   float cap = (1.0 - step(0.34, p.y)) * (1.0 - smoothstep(0.08, 0.16, pixel));
   albedo = mix(albedo, albedo * mix(0.72, 1.2, step(0.5, fract(p.x / 0.5))), cap);
 }`;
-
-export { PANE, ROOF, ROOF_FLAT };
