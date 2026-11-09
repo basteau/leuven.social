@@ -136,6 +136,8 @@ describe('keySheet', () => {
     expect(new Set(rows.map((r) => r.id)).size).toBe(rows.length);
     const run = rows.find((r) => r.id === 'key-walk-Run')!;
     expect(run.detail).toBe('On foot · touch: From this menu');
-    expect(rows.find((r) => r.id === 'key-ride-Ring the bell')?.detail).toBe('On a bike');
+    expect(rows.find((r) => r.id === 'key-ride-Ring the bell')?.detail).toBe(
+      'On a bike · touch: From this menu',
+    );
   });
 });

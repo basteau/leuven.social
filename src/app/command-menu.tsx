@@ -460,13 +460,6 @@ function Help({ sheet, state }: { sheet: KeySection[]; state: CommandState }) {
   const sections = sheet.toSorted((a, b) => Number(b.id === first) - Number(a.id === first));
   return (
     <div className="menu-page">
-      <p className="menu-lede">
-        <span className="hint-keys">
-          Everything here is also in the menu: press <kbd>{state.mod}</kbd>
-          <kbd>K</kbd> or <kbd>/</kbd> anywhere.
-        </span>
-        <span className="hint-touch">Tap the Menu button for everything here.</span>
-      </p>
       {sections.map((section) => (
         <section key={section.id} className="key-section" aria-labelledby={`keys-${section.id}`}>
           <h3 id={`keys-${section.id}`}>{section.title}</h3>
@@ -476,7 +469,7 @@ function Help({ sheet, state }: { sheet: KeySection[]; state: CommandState }) {
                 <dt>{row.what}</dt>
                 <dd>
                   <KeyCaps keys={row.keys} />
-                  {row.touch && <span className="key-touch">{row.touch}</span>}
+                  <span className="key-touch">{row.touch}</span>
                 </dd>
               </div>
             ))}

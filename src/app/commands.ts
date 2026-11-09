@@ -348,8 +348,8 @@ export function commandsFor(state: CommandState): Command[] {
 export interface KeyRow {
   what: string;
   keys: Keys;
-  /** The same on a touch screen, where it differs. */
-  touch?: string;
+  /** How to do it on a touch screen, in words: shown there instead of the keys. */
+  touch: string;
 }
 
 export interface KeySection {
@@ -395,8 +395,8 @@ export function keySheet(k: Keycaps, mod: string): KeySection[] {
       rows: [
         { what: 'Get on or off', keys: [['F']], touch: 'The Ride button, by a bike' },
         { what: 'Ride', keys: [[k.KeyW, k.KeyA, k.KeyS, k.KeyD]], touch: 'Tap where to go' },
-        { what: 'Sprint', keys: [['Shift']] },
-        { what: 'Ring the bell', keys: [['B']] },
+        { what: 'Sprint', keys: [['Shift']], touch: 'From this menu' },
+        { what: 'Ring the bell', keys: [['B']], touch: 'From this menu' },
       ],
     },
     {
@@ -404,11 +404,11 @@ export function keySheet(k: Keycaps, mod: string): KeySection[] {
       title: 'Anywhere',
       rows: [
         { what: 'Open this menu', keys: [[mod, 'K'], ['/']], touch: 'The Menu button' },
-        { what: 'Controls and keys', keys: [['?']] },
+        { what: 'Controls and keys', keys: [['?']], touch: 'This page' },
         { what: 'Open the map', keys: [['M']], touch: 'The minimap' },
-        { what: 'Mute or unmute', keys: [['N']] },
-        { what: 'Next time of day', keys: [['T']] },
-        { what: 'Let the day pass, or hold it', keys: [['P']] },
+        { what: 'Mute or unmute', keys: [['N']], touch: 'From this menu' },
+        { what: 'Next time of day', keys: [['T']], touch: 'From this menu' },
+        { what: 'Let the day pass, or hold it', keys: [['P']], touch: 'From this menu' },
       ],
     },
   ];
@@ -421,7 +421,7 @@ export function keyCommands(sheet: KeySection[]): Command[] {
       id: `key-${section.id}-${row.what}`,
       group: 'keys' as const,
       label: row.what,
-      detail: row.touch ? `${section.title} · touch: ${row.touch}` : section.title,
+      detail: `${section.title} · touch: ${row.touch}`,
       keywords: 'key keys shortcut',
       keys: row.keys,
       icon: 'keys' as const,

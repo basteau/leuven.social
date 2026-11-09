@@ -34,7 +34,8 @@ svg {
   flex: none;
 }
 
-button {
+button,
+a {
   touch-action: manipulation;
   user-select: none;
   -webkit-user-select: none;
@@ -166,13 +167,6 @@ kbd {
   inline-size: 100%;
   block-size: 100%;
   touch-action: none;
-}
-
-.overlay {
-  position: absolute;
-  inset: 0;
-  overflow: clip;
-  pointer-events: none;
 }
 
 /* The edges take no pointer events themselves: only what's on them does, the rest is map. */
@@ -898,7 +892,7 @@ kbd {
 }
 
 .menu-search::placeholder {
-  color: color-mix(in oklch, var(--ink) 55%, var(--paper));
+  color: color-mix(in oklch, var(--ink) 60%, var(--paper));
 }
 
 .menu-title {
@@ -1141,9 +1135,22 @@ kbd {
   margin: 0;
 }
 
+/* One column per device: keycaps with a keyboard, the gesture on touch. */
 .key-touch {
   font-size: 0.8125rem;
   opacity: 0.8;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .key-touch {
+    display: none;
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .key-row .keycaps {
+    display: none;
+  }
 }
 
 .menu-foot {
