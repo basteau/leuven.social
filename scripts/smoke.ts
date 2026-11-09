@@ -41,10 +41,10 @@ const BIN = Bun.fileURLToPath(new URL('../node_modules/.bin/', import.meta.url))
 // watches. The roofs' chimneys and dormers took the zoomed-out view from 582k to 637k.
 // 1.15M was the traffic's room, zoomed out (about 923k without it); the other players' figures
 // (two calls and about 1,300 triangles each) take what it left.
-// 290 calls: the map grew from 8.9 to 17.1 km², asked for, so a zoomed-out view that stopped at
-// the edge is now full of city and a shadow redraw panned out there, a frame of its own, draws up
-// to 284 (`FRAME_CALLS` in viewer.ts still decides when it gets one). The triangles didn't need it.
-const MAX_DRAW_CALLS = 290;
+// 225 calls: the map grew from 8.9 to 17.1 km², asked for, so a zoomed-out shadow redraw, a frame
+// of its own, has more cells to cast from (217 measured, with the view held to 1 km²;
+// `FRAME_CALLS` in viewer.ts still decides when it gets one). The triangles didn't need it.
+const MAX_DRAW_CALLS = 225;
 const MAX_TRIANGLES = 1_150_000;
 /**
  * What the whole city hands the GPU once every cell is built: 2.40M vertices and 57.7 MB since

@@ -5,6 +5,7 @@
  *
  *   bun run build && bun run build:server && bun scripts/perf.ts
  *   bun scripts/perf.ts --bots 0,50 --views map --viewports desktop --cpus 1
+ *   bun scripts/perf.ts --bots 0 --views out    # panned about at the farthest zoom: the heaviest
  *   bun scripts/perf.ts --load                  # time to the first frame, also on a slow connection
  *   bun scripts/perf.ts --burn 28               # a GPU-bound load, for the dynamic resolution
  *
@@ -110,6 +111,9 @@ function connect(url: string): Promise<Cdp> {
 /** A page expression: fires `key` on the map, down and up, as the shortcuts hear it. */
 const tapKey = (key: string, code: string) =>
   `(()=>{const m=document.querySelector('.map');for(const t of ['keydown','keyup'])m.dispatchEvent(new KeyboardEvent(t,{key:'${key}',code:'${code}',bubbles:true}))})()`;
+
+/** A page expression: wheels the map out as far as it goes. */
+const zoomAllTheWayOut = `(()=>{const c=document.querySelector('canvas');for(let i=0;i<80;i++)c.dispatchEvent(new WheelEvent('wheel',{deltaY:400,clientX:innerWidth/2,clientY:innerHeight/2,bubbles:true,cancelable:true}))})()`;
 
 /**
  * Records frames for `ms` while the view keeps changing: on the map a wheel notch in and out each
@@ -282,6 +286,34 @@ try {
     throw new Error('the page did not get ready');
   };
 
+  const mouse = (type: string, x: number, y: number, buttons: number) =>
+    send('Input.dispatchMouseEvent', {
+      type,
+      x,
+      y,
+      buttons,
+      button: type === 'mouseMoved' ? 'none' : 'left',
+      clickCount: 1,
+    });
+
+  /** Drags the map for `ms` as a hand would: strokes across the screen, each a new way. */
+  const sweep = async (viewport: keyof typeof VIEWPORTS, ms: number) => {
+    const { width, height } = VIEWPORTS[viewport];
+    const [cx, cy] = [width / 2, height / 2];
+    const reach = Math.min(width, height) * 0.4;
+    const end = performance.now() + ms;
+    for (let stroke = 0; performance.now() < end; stroke++) {
+      const [dx, dy] = [Math.cos(stroke * 2.4), Math.sin(stroke * 2.4)];
+      await mouse('mouseMoved', cx - dx * reach, cy - dy * reach, 0);
+      await mouse('mousePressed', cx - dx * reach, cy - dy * reach, 1);
+      for (let t = -1; t <= 1 && performance.now() < end; t += 0.05) {
+        await mouse('mouseMoved', cx + dx * reach * t, cy + dy * reach * t, 1);
+        await Bun.sleep(16);
+      }
+      await mouse('mouseReleased', cx + dx * reach, cy + dy * reach, 0);
+    }
+  };
+
   if (LOAD) {
     const results: Record<string, unknown>[] = [];
     await send('Network.enable');
@@ -355,12 +387,17 @@ try {
           await page(tapKey(' ', 'Space'));
           await Bun.sleep(1500);
         }
+        if (view === 'out') {
+          await page(zoomAllTheWayOut);
+          await Bun.sleep(10_000); // every cell the view can come across, built
+        }
         for (const cpu of cpus) {
           await send('Emulation.setCPUThrottlingRate', { rate: cpu });
           await Bun.sleep(500);
           const before = await send<{ metrics: { name: string; value: number }[] }>(
             'Performance.getMetrics',
           );
+          const panning = view === 'out' ? sweep(viewport, seconds * 1000) : Promise.resolve();
           const result = await page<{
             frames: number[];
             longest: number;
@@ -369,6 +406,7 @@ try {
             triangles: number;
             players: number;
           }>(measure(view, seconds * 1000));
+          await panning;
           const after = await send<{ metrics: { name: string; value: number }[] }>(
             'Performance.getMetrics',
           );

@@ -4,15 +4,15 @@ import { MAX_VIEW_AREA, minZoomFor } from './zoom-limit.ts';
 
 const VIEW = 560;
 
-test('a 1280×800 window zooms out to the old limit of 0.5', () => {
-  expect(minZoomFor(1.6, VIEW)).toBeCloseTo(0.5, 2);
+test('a 1280×800 window zooms out to about 0.71', () => {
+  expect(minZoomFor(1.6, VIEW)).toBeCloseTo(0.708, 2);
 });
 
 test('a phone upright zooms out further; a wide window less far', () => {
   const phone = minZoomFor(390 / 844, VIEW);
-  expect(phone).toBeGreaterThan(0.2);
-  expect(phone).toBeLessThan(0.3);
-  expect(minZoomFor(2.4, VIEW)).toBeGreaterThan(0.5);
+  expect(phone).toBeGreaterThan(0.3);
+  expect(phone).toBeLessThan(0.45);
+  expect(minZoomFor(2.4, VIEW)).toBeGreaterThan(0.8);
 });
 
 test('every window sees the same most ground, within the limits', () => {
