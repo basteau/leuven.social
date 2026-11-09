@@ -575,7 +575,41 @@ describe('the code routes under limits', () => {
     await post(SEND_CODE, { email: second });
     const refused = await post(SIGN_IN, { email: second, otp: lastCode(second) });
     expect(refused.status).toBe(429);
-    expect(await refused.json()).toMatchObject({ code: 'TOO_MANY_REQUESTS' });
+    expect(await refused.json()).toMatchObject({ code: 'TOO_MANY_ACCOUNTS' });
+  });
+
+  test('the whole server mails only so many codes an hour', async () => {
+    const { post } = await start({ mailer: fakeMailer, codesPerHour: 1 });
+    expect((await post(SEND_CODE, { email: anAddress() })).status).toBe(200);
+    const over = await post(SEND_CODE, { email: anAddress() });
+    expect(over.status).toBe(429);
+    expect(await over.json()).toMatchObject({ code: 'TOO_MANY_REQUESTS' });
+  });
+
+  test('a plus-tag shares its mailbox’s wait', async () => {
+    const { post } = await start({ mailer: fakeMailer });
+    const email = anAddress();
+    expect((await post(SEND_CODE, { email })).status).toBe(200);
+    const tagged = email.replace('@', '+x@');
+    expect((await post(SEND_CODE, { email: tagged })).status).toBe(429);
+  });
+
+  test('a reserved name is refused like a taken one', async () => {
+    const { running, post } = await start({ mailer: fakeMailer });
+    const email = anAddress();
+    await post(SEND_CODE, { email });
+    const signedIn = await post(SIGN_IN, { email, otp: lastCode(email) });
+    const cookie = signedIn.headers
+      .getSetCookie()
+      .map((c) => c.split(';')[0])
+      .join('; ');
+    const response = await realFetch(new URL('/api/me', running.url), {
+      method: 'PUT',
+      headers: { origin: ORIGIN, cookie },
+      body: JSON.stringify({ name: 'Admin' }),
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: 'USERNAME_IS_ALREADY_TAKEN' });
   });
 
   test('renames are limited', async () => {

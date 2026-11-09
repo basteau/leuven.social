@@ -24,12 +24,35 @@ export function isUsername(name: string): boolean {
   return name.length >= MIN_NAME && name.length <= MAX_NAME && NAME.test(name);
 }
 
+/** Names a player could pass off as the people running the place. */
+const RESERVED = new Set([
+  'admin',
+  'administrator',
+  'leuven',
+  'leuven.social',
+  'mod',
+  'moderator',
+  'official',
+  'staff',
+  'support',
+  'system',
+]);
+
+export const isReservedName = (name: string) => RESERVED.has(name.toLowerCase());
+
 /** What everyone types is one address: `A@b.c ` and `a@b.c` are the same person. */
 export const normaliseEmail = (email: string) => email.trim().toLowerCase();
 
-/** Roughly an address: the mail server is what really decides. */
+/**
+ * Roughly an address: the mail server is what really decides. Only what can stand unquoted, so
+ * `Name <a@b.c>` and `a,b@c.d` aren't taken for one address and passed on to the mail provider.
+ */
 export const isEmail = (email: string) =>
-  email.length <= MAX_EMAIL && /^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(email);
+  email.length <= MAX_EMAIL &&
+  /^[\p{L}\p{N}!#$%&'*+/=?^_`{|}~.-]+@[\p{L}\p{N}-]+(?:\.[\p{L}\p{N}-]+)+$/u.test(email);
+
+/** The mailbox behind an address: mail to `a+x@b.c` lands with `a@b.c`, so they share its limits. */
+export const mailbox = (email: string) => email.replace(/\+[^@]*(?=@)/, '');
 
 /** A room's id as a state carries it (rooms.json's ids): lower-case letters, digits and dashes. */
 const PLACE = /^[a-z0-9-]{1,40}$/;

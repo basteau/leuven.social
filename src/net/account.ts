@@ -45,6 +45,7 @@ export type AccountErrorCode =
   | 'sent'
   | 'signed-out'
   | 'busy'
+  | 'accounts-full'
   | 'offline'
   | 'server';
 
@@ -75,6 +76,7 @@ const MESSAGES: Record<AccountErrorCode, string> = {
   sent: 'A code is already on its way. Check your inbox.',
   'signed-out': 'You were signed out. Join again to keep your changes.',
   busy: 'Too many tries. Wait a minute, then try again.',
+  'accounts-full': 'Too many new accounts from here today. Send a new code later.',
   offline: 'Can’t reach the server. Check your connection, then try again.',
   server: 'Something went wrong on our side. Try again in a moment.',
 };
@@ -89,6 +91,7 @@ const CODES: Record<string, AccountErrorCode> = {
   INVALID_OTP: 'code',
   OTP_EXPIRED: 'expired',
   TOO_MANY_ATTEMPTS: 'spent',
+  TOO_MANY_ACCOUNTS: 'accounts-full',
   MAIL_OFF: 'mail-off',
   MAIL_FAILED: 'mail-failed',
   CODE_ALREADY_SENT: 'sent',
@@ -118,6 +121,7 @@ async function failure(response: Response): Promise<AccountError> {
   } | null;
   const code = typeof body?.code === 'string' ? CODES[body.code] : undefined;
   if (response.status === 429) {
+    if (code === 'accounts-full') return fail(code);
     if (code !== 'sent') return fail('busy');
     return fail(
       'sent',

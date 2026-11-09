@@ -155,6 +155,7 @@ describe('account', () => {
     expect(await say(502, 'MAIL_FAILED')).toMatchObject({ code: 'mail-failed' });
     expect(await say(400, 'EMAIL_UNDELIVERABLE')).toMatchObject({ code: 'undeliverable' });
     expect(await say(429, 'TOO_MANY_REQUESTS')).toMatchObject({ code: 'busy' });
+    expect(await say(429, 'TOO_MANY_ACCOUNTS')).toMatchObject({ code: 'accounts-full' });
     answer(json({ code: 'CODE_ALREADY_SENT', retryAfter: 12 }, 429));
     expect(await reason(sendCode('a@b.co'))).toMatchObject({ code: 'sent', retryAfter: 12 });
     answer(json({ code: 'CODE_ALREADY_SENT' }, 429));

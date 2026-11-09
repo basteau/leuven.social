@@ -22,7 +22,9 @@ import {
   CODE_COOLDOWN_SECONDS,
   CODE_LENGTH,
   isEmail,
+  isReservedName,
   isUsername,
+  mailbox,
   normaliseEmail,
 } from '../src/net/rules.ts';
 import {
@@ -80,6 +82,8 @@ export interface ServerConfig {
   mailer?: Mailer;
   /** How many accounts one address may make in an hour. */
   accountsPerHour?: number;
+  /** Sign-in codes the whole server mails in an hour, for tests. */
+  codesPerHour?: number;
   /** The rate limits' clock (ms), for tests. */
   now?: () => number;
 }
@@ -191,6 +195,8 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
   const codeWait = RateLimit.create({ limit: 1, period: CODE_COOLDOWN_SECONDS * 1000 });
   const codesAnHour = RateLimit.create({ limit: 5, period: HOUR });
   const codesFromAddress = RateLimit.create({ limit: CODES_PER_ADDRESS, period: HOUR });
+  // A provider's quota is one pot: a crowd of addresses mustn't empty it for everyone else.
+  const codesEverywhere = RateLimit.create({ limit: config.codesPerHour ?? 200, period: HOUR });
   const wrongCodes = RateLimit.create(WRONG_CODES);
   const renames = RateLimit.create({ limit: 10, period: 60 * 1000 });
   const at = () => new Date((config.now ?? Date.now)());
@@ -212,8 +218,9 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
     if (limited) {
       const ip = clientKey(headers?.get('x-real-ip') ?? null);
       if (!(await newAccounts.take(ip, { now: at() })).allowed) {
+        // The code is spent by now, so the person is told to ask for another later.
         throw new APIError('TOO_MANY_REQUESTS', {
-          code: 'TOO_MANY_REQUESTS',
+          code: 'TOO_MANY_ACCOUNTS',
           message: 'Too many new accounts from here. Try again later.',
         });
       }
@@ -271,7 +278,11 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
     if (limited && (await codesFromAddress.take(ip, { cost: 0, now })).remaining < 1) {
       return problem(429, 'TOO_MANY_REQUESTS', 'Too many codes from here. Try again later.');
     }
-    const wait = await codeWait.take(email, { now });
+    if (limited && (await codesEverywhere.take('all', { cost: 0, now })).remaining < 1) {
+      return problem(429, 'TOO_MANY_REQUESTS', 'Too many codes just now. Try again later.');
+    }
+    const box = mailbox(email);
+    const wait = await codeWait.take(box, { now });
     if (!wait.allowed) {
       return json(
         {
@@ -282,19 +293,22 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
         429,
       );
     }
-    if (!(await codesAnHour.take(email, { now })).allowed) {
-      await codeWait.take(email, { cost: -1, now });
+    if (!(await codesAnHour.take(box, { now })).allowed) {
+      await codeWait.take(box, { cost: -1, now });
       return problem(429, 'TOO_MANY_REQUESTS', 'Too many codes for this address. Try again later.');
     }
-    if (limited) await codesFromAddress.take(ip, { now });
+    if (limited) {
+      await codesFromAddress.take(ip, { now });
+      await codesEverywhere.take('all', { now });
+    }
     const code = await auth.api.createVerificationOTP({ body: { email, type: 'sign-in' } });
     try {
       await mailer.send(email, code);
     } catch (error) {
-      // Our failure, not theirs: it doesn't count against them.
-      await codeWait.take(email, { cost: -1, now });
-      await codesAnHour.take(email, { cost: -1, now });
-      if (limited) await codesFromAddress.take(ip, { cost: -1, now });
+      // Our failure, not theirs: it doesn't count against the mailbox. The sender's and the
+      // server's limits stay spent, or a refused address would be an unlimited call to the provider.
+      await codeWait.take(box, { cost: -1, now });
+      await codesAnHour.take(box, { cost: -1, now });
       log.warn('a sign-in code didn’t go out: %s', error instanceof Error ? error.message : error);
       return problem(502, 'MAIL_FAILED', 'Couldn’t send the email.');
     }
@@ -310,7 +324,11 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
       return problem(400, 'INVALID_OTP', 'That code isn’t right.');
     }
     // Always on, unlike the limits by address: it guards an account, and is never noise.
-    if ((await wrongCodes.take(email, { cost: 0, now: at() })).remaining < 1) {
+    // By email and address together: by email alone, anyone could keep its owner locked out with
+    // a few wrong guesses. Guessing across addresses stays bounded by the five tries a code gets
+    // and the codes a mailbox can be sent.
+    const guesser = `${email}|${clientKey(request.headers.get('x-real-ip'))}`;
+    if ((await wrongCodes.take(guesser, { cost: 0, now: at() })).remaining < 1) {
       return problem(429, 'TOO_MANY_REQUESTS', 'Too many tries. Wait a while, then try again.');
     }
     const before = await session(request);
@@ -319,7 +337,7 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
     response.headers.set('cache-control', 'no-store');
     if (!response.ok) {
       if (response.status === 400 || response.status === 403) {
-        await wrongCodes.take(email, { now: at() });
+        await wrongCodes.take(guesser, { now: at() });
       }
       return response;
     }
@@ -388,6 +406,8 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
   /** Takes a new name, if it's free, and tells everyone who can see them. */
   async function rename(userId: string, name: string): Promise<Response> {
     if (!isUsername(name)) return problem(400, 'INVALID_USERNAME', 'That name won’t do.');
+    if (isReservedName(name))
+      return problem(400, 'USERNAME_IS_ALREADY_TAKEN', 'That name is taken.');
     if (limited && !(await renames.take(userId, { now: at() })).allowed) {
       return problem(429, 'TOO_MANY_REQUESTS', 'Too many changes. Wait a minute, then try again.');
     }
