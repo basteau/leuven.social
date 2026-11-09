@@ -36,18 +36,29 @@ test('a lamp is brightest at its foot, warm, and gone at its reach', () => {
   const [r, g, b] = read(f, 50, 40) as [number, number, number];
   expect(r).toBeGreaterThan(g);
   expect(g).toBeGreaterThan(b);
-  expect(r).toBeGreaterThan(200);
+  expect(r).toBeGreaterThan(120);
   const near = read(f, 50 + LAMP_RAY.radius / 2, 40)[0]!;
   expect(near).toBeLessThan(r);
   expect(near).toBeGreaterThan(0);
   expect(read(f, 50 + LAMP_RAY.radius + LIGHT_TEXEL, 40)[0]).toBe(0);
 });
 
-test('lights add up without wrapping, and things that are not lamps give none', () => {
+test('light fills up as it adds: a crowd of lamps is brighter, and never clips', () => {
+  const one = read(bakeLight({ ...empty, props: [lamp(50, 40)] }, flat), 50, 40)[0]!;
   const crowd = Array.from({ length: 6 }, () => lamp(50, 40));
-  expect(read(bakeLight({ ...empty, props: crowd }, flat), 50, 40)[0]).toBe(255);
+  const many = read(bakeLight({ ...empty, props: crowd }, flat), 50, 40)[0]!;
+  expect(many).toBeGreaterThan(one);
+  expect(many).toBeLessThan(255);
   const bench = { kind: 'bench', x: 50, z: 40 } as Pick<Prop, 'kind' | 'x' | 'z'>;
   expect(read(bakeLight({ ...empty, props: [bench] }, flat), 50, 40)[3]).toBe(0);
+});
+
+test('two lamps a street apart light the ground between them, about as much as at their feet', () => {
+  // Lamps 19 m apart, the median in the city's own data: the street between them stays lit.
+  const f = bakeLight({ ...empty, props: [lamp(40, 40), lamp(59, 40)] }, flat);
+  const foot = read(f, 40, 40)[0]!;
+  const middle = read(f, 49.5, 40)[0]!;
+  expect(middle).toBeGreaterThan(foot * 0.8);
 });
 
 test('alpha holds the ground under the light, a little past where it reaches', () => {
