@@ -11,7 +11,6 @@ import {
   isUsername,
 } from '../net/rules.ts';
 import type { Outfit } from '../scene/viewer.ts';
-import { CloseIcon } from './menu-icons.tsx';
 import { PARTS, css, surprise } from './outfits.ts';
 import './account-sheet.css';
 
@@ -340,7 +339,19 @@ export function AccountSheet(props: AccountSheetProps) {
             {title}
           </h2>
           <button type="button" className="menu-close" aria-label="Close" onClick={close}>
-            <CloseIcon />
+            {/* Inline, not menu-icons': sharing that chunk moves React's runtime into the shell. */}
+            <svg
+              viewBox="0 0 24 24"
+              width="20"
+              height="20"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
             <kbd aria-hidden="true">Esc</kbd>
           </button>
         </header>
