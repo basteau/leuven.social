@@ -134,6 +134,8 @@ const NOPE = 0.55;
 const NEAR_SPAN = 30;
 /** A kerb's step up or down is eased over this half-life (s), not taken in one frame. */
 const KERB_EASE = 0.04;
+/** A way's levels are walked again every this far (m), a step of the grid or less. */
+const ROUTE_STEP = 0.5;
 /** Within this of a parked bike (m), the bikes' chunk downloads, ready for F. */
 const RIDE_NEAR = 25;
 /** Zoom eases to a place's with this half-life (s). */
@@ -793,11 +795,32 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     return false;
   }
 
-  /** A step of a route on a deck is drawn on the deck, not on the ground under it. */
-  const routeY = (x: number, z: number) => {
-    const up = grid.upperHeight(x, z);
-    return Number.isNaN(up) ? ground(x, z) : Math.max(up, ground(x, z));
-  };
+  /**
+   * A way, on the level each step of it is walked on: over a deck where it goes over, on the street
+   * where it goes under. A way carries only (x, z), so its levels are walked again as the avatar
+   * will walk them, and kept by cell, a cell round each step for the corners of a dot.
+   */
+  function routeHeights(route: Float32Array): (x: number, z: number) => number {
+    const levels = new Map<number, number>();
+    let level = avatar.floor;
+    const { cols } = grid;
+    for (let i = 0; i + 3 < route.length; i += 2) {
+      const [ax, az, bx, bz] = [route[i]!, route[i + 1]!, route[i + 2]!, route[i + 3]!];
+      const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / ROUTE_STEP));
+      for (let k = 0; k <= steps; k++) {
+        const [x, z] = [ax + ((bx - ax) * k) / steps, az + ((bz - az) * k) / steps];
+        level = grid.levelAt(level, x, z);
+        const cell = grid.cellAt(x, z);
+        for (let dr = -cols; dr <= cols; dr += cols) {
+          for (let dc = -1; dc <= 1; dc++) levels.set(cell + dr + dc, level);
+        }
+      }
+    }
+    return (x, z) => {
+      const up = levels.get(grid.cellAt(x, z)) === 1 ? grid.upperHeight(x, z) : Number.NaN;
+      return Number.isNaN(up) ? ground(x, z) : up;
+    };
+  }
 
   /** Where the walk ends when the next route is only a leg of it: the ring stands there. */
   let ringAt: readonly [number, number] | undefined;
@@ -807,7 +830,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
     sounds.routeStart();
     hint.geometry.dispose();
     const floorY = feet[1];
-    marker = routeMarker(route, room ? () => floorY : routeY, ringAt);
+    marker = routeMarker(route, room ? () => floorY : routeHeights(route), ringAt);
     ringAt = undefined;
     hint.geometry = marker.geometry;
     hintBehind.geometry = marker.geometry;

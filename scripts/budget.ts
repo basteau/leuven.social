@@ -71,7 +71,7 @@ const BUDGETS: {
     // approaches and the decks, their walls and portals, in the engine as every ground layer
     // needs them to draw.
     // 183: everyone's level of detail worked out from a figure's pixels (lod.ts, 0.1 KB).
-    limit: 183 * KB,
+    limit: 183.5 * KB,
     gzip: true,
   },
   // 3.5: just above 3.1 KB. 3.75: the minimap, the other players' name tags and who you are in
@@ -160,8 +160,9 @@ const BUDGETS: {
     // 28.25: the walk grid's second level and the deck heights (1.9 KB).
     // 33.25: people at every zoom, asked for (the crowd's figure and its shader, markers and
     // their clumps, tags that give way by rank), 4.5 KB, in place of a prism and a boolean.
+    // 34: a way drawn on the level it's walked on, not on a deck it goes under (0.1 KB).
     // 33.75: the way to a picked spot drawn so it can be seen, over buildings too (0.4 KB), asked for.
-    limit: 33.75 * KB,
+    limit: 34 * KB,
     gzip: true,
   },
   // The street-name lookup for the sign, a chunk beside the avatar's that loads with it.
@@ -270,7 +271,7 @@ const BUDGETS: {
     // 273.5: the 3 KB of bridges and tunnels in the engine.
     // 273.75: the engine's share of working out everyone's level of detail (lod.ts, 0.1 KB).
     // 274.25: that pin in the shell and its place from the engine (0.5 KB), asked for.
-    limit: 274.25 * KB,
+    limit: 274.5 * KB,
     gzip: true,
     closure: true,
   },
