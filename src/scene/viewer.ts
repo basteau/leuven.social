@@ -897,7 +897,7 @@ export function createViewer(options: ViewerOptions): Viewer {
       if (casts) draw(casters);
       const { furniture, tall, glow, puffs, contact } = entry;
       if (contact) {
-        contact.visible = inView && propsShown;
+        contact.visible = inView && propsShown && corners(contact.geometry) > 0;
         if (contact.visible) draw(contact);
       }
       if (puffs) {
