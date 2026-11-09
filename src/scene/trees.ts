@@ -181,8 +181,7 @@ export function addPuffs(
   const count = Math.round(Math.min(PUFF.max, Math.max(PUFF.min, 6 + across * 1.1)));
   const [cy, r] = [ground + CROWN_Y * scale, across * (shape === 'column' ? 0.62 : 0.5)];
   const unit = (salt: number) => pick(UNITS, seed * 7 + salt) / (UNITS.length - 1);
-  // Its colour by what OSM says it is: a conifer dark and blue, a willow a yellow green. Always
-  // a green: a copper beech is drawn as any other broadleaf.
+  // Its colour by what OSM says it is: a conifer dark and blue, a willow a yellow green.
   const own = toOklab(crownColor(seed, grown));
   const base: [number, number, number] =
     shape === 'conifer'

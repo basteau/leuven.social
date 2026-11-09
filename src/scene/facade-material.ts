@@ -259,7 +259,7 @@ export function createContactMaterial(cell: { value: number }): MeshBasicMateria
 }
 
 /**
- * Leaves up close: a tree's crown as puffs (tree-puffs in trees.ts), one quad each, turned to the
+ * Leaves up close: a tree's crown as puffs (`addPuffs` in trees.ts), one quad each, turned to the
  * camera in the vertex shader. In the fragment shader each is a ball of blocky clumps of leaves:
  * a ragged rim, its normal from the ball, so the toon ramp shades it in round steps, and its depth
  * too, so the puffs of a crown cut into each other as balls do. Lit and shadowed as the rest.

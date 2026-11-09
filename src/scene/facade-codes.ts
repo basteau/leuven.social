@@ -13,7 +13,7 @@
  * - ROOF_FLAT + a fraction: a flat roof, the fraction how its building is turned (of half a turn).
  * - WALL_PLAIN: a wall with no windows: a gable, a shed, a tower.
  * - PANE: a window on a roof: glass by day, and at night a lit room in about two of three.
- * - CROWN: a tree's crown, which the puffs of leaves (tree-puffs.ts) cover up close.
+ * - CROWN: a tree's crown, which casts its shadow and catches a tap; `addPuffs` (trees.ts) draws it.
  *
  * Negative values are the ground's: road textures and paint (paint.ts), sleepers from
  * -SLEEPER_CODE (rails.ts).
@@ -37,7 +37,7 @@ export const shopFront = (kind: number, top: number): number => SHOP_FRONT + 100
 /** A pitched roof whose ridge stands at `ridge` metres in the world (the shader counts rows from it). */
 export const pitchedRoof = (ridge: number): number => ROOF + 100 + ridge;
 
-/** A flat roof over a building turned `angle` radians from the x axis, its furniture square to it. */
+/** A flat roof over a building turned `angle` radians from the x axis, its seams square to it. */
 export function flatRoof(angle: number): number {
   const half = (((angle / Math.PI) % 1) + 1) % 1;
   return ROOF_FLAT + Math.min(half, 0.999);

@@ -6,7 +6,7 @@ import { FRONTS } from './palette.ts';
 /**
  * The light of the street lamps and the lit shop fronts, baked into one texture over the city:
  * red, green and blue the light that falls there, alpha the height of the ground under it, so the
- * shaders can leave off 7 m up (LAMP_FRAGMENT in facade-material.ts). A surface multiplies it by
+ * shaders can leave off 7 m up (`LAMP_FRAGMENT` in shader/lamp-light.ts). A surface multiplies it by
  * its own colour, so whatever is under a lamp is lit, walls, bikes and setts alike, where a mesh
  * of light would cover them, and stop dead at a kerb's few centimetres.
  */
@@ -67,7 +67,7 @@ export function bakeLight(
   const width = Math.ceil((Math.max(...city.area.map((a) => a.maxX)) - minX) / LIGHT_TEXEL);
   const height = Math.ceil((Math.max(...city.area.map((a) => a.maxZ)) - minZ) / LIGHT_TEXEL);
   const data = new Uint8Array(width * height * 4);
-  // What adds up, kept as floats so overlapping lamps sum before `fill` flattens them.
+  // What adds up, kept as floats so overlapping lamps sum before `filled` flattens them.
   const light = new Float32Array(width * height * 3);
   const [low, high] = [terrain.lowest - 1, terrain.highest + 1];
 

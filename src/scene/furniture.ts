@@ -102,7 +102,6 @@ export function buildFurniture(cell: Cell, kit: FurnitureKit): Furniture {
   return { near, bikes: new Float32Array(bikes), awnings, contact, tall, glow };
 }
 
-// The avatar and the bikes stand on the ground as drawn too, through the
-// viewer, which has this chunk loaded by the time anyone walks.
-export { drawnGround };
-export { bakeLight };
+// What the viewer reads off this chunk once it has loaded: the ground as drawn, which the avatar
+// and the bikes stand on too, and the lamps' light, baked the first time it's dark.
+export { drawnGround, bakeLight };
