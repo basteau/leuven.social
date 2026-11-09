@@ -497,13 +497,21 @@ const standing = osmTrees
   })
   .filter(([x, z]) => !footprints.contains(x, z));
 // A tree whose leaves would hang over the edge of the slab stays off the map, by its final height.
+// The mapped trees come first, and `mappedTrees` is how many of them stayed.
+let mergedTree = 0;
+let mappedTrees = 0;
 const allTrees = keepTrees(
   mergeTrees(
     standing.flatMap(([x, z]) => [x, z]),
     crowns.trees.filter(([x, z]) => areaIndex(AREA, x, z) >= 0 && !underRoof(x, z)),
     standing.map(([, , kind]) => kind),
   ),
-  (x, z, h) => insideArea(AREA, x, z, crownReach(h)),
+  (x, z, h) => {
+    const kept = insideArea(AREA, x, z, crownReach(h));
+    if (kept && mergedTree < standing.length) mappedTrees++;
+    mergedTree++;
+    return kept;
+  },
 );
 
 // Street furniture by rule (src/data/props.ts): turned to its kerb, kept off walls, water, tanks,
@@ -539,7 +547,6 @@ for (const ring of [...roads, ...plazas, ...buildings.map((b) => b.ring)]) edges
 for (const p of paths) edges.add(p.line, false);
 const squares = new RingIndex();
 for (const ring of plazas) squares.add(ring);
-const mappedTrees = standing.length;
 const STRIP = 50; // sorted in strips, so neighbours are near each other and deltas stay small
 const placed = placeProps(
   osmPoints.features.flatMap((f) => {
