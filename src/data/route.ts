@@ -46,6 +46,10 @@ const NEIGHBOURS = [
 
 /** Ground round a spot with no way out in this many cells is a pocket, told at once (4096 m²). */
 const POCKET = 4096;
+/** A window smaller than this (cells) is searched faster than it is checked for pockets. */
+const POCKET_WORTH = 40_000;
+/** How far a stretch of a route is checked in one go (cells, along and across). */
+const LONGEST_SIGHT = 48;
 
 const NO_CELLS: ReadonlySet<number> = new Set();
 /** What moving from the ground to the level over it adds to a walk (m): nothing but a step. */
@@ -219,7 +223,7 @@ export class Router {
     const s = local(sc, sr) + fromLevel * layer;
     const g = local(gc, gr) + toLevel * layer;
     // A walled-in garden: looking all over the window for a way in would take the longest of all.
-    if (shutIn(g, s)) return null;
+    if (layer > POCKET_WORTH && shutIn(g, s)) return null;
     state.fill(0, 0, size);
     cost[s] = 0;
     parent[s] = -1;
@@ -228,31 +232,40 @@ export class Router {
     const levelOf = (node: number) => (node >= layer ? 1 : 0);
     const columnOf = (node: number) => ((node - levelOf(node) * layer) % w) + c0;
     const rowOf = (node: number) => Math.floor((node - levelOf(node) * layer) / w) + r0;
+    /** Whether a cell, by its index in the window, is open and clear of walls. */
+    const isClear = (at: number, c: number, r: number, level: number) =>
+      (edge[at] || kindOf(c, r, level)) === 1;
     /** Whether a straight stretch between two cells crosses only clear ones. */
     const sees = (from: number, to: number) => {
       const level = levelOf(from);
       let [c, r] = [columnOf(from), rowOf(from)];
       const [tc, tr] = [columnOf(to), rowOf(to)];
       const [dc, dr] = [Math.abs(tc - c), Math.abs(tr - r)];
-      const [stepC, stepR] = [Math.sign(tc - c), Math.sign(tr - r)];
+      const [stepC, stepR] = [tc > c ? 1 : -1, tr > r ? 1 : -1];
+      const stepAcross = stepR * w;
+      let at = from;
       // Which side of the line the next step is on, doubled to stay in whole numbers.
       let side = dc - dr;
       for (let left = dc + dr; left > 0; left--) {
         if (side > 0) {
           c += stepC;
+          at += stepC;
           side -= 2 * dr;
         } else if (side < 0) {
           r += stepR;
+          at += stepAcross;
           side += 2 * dc;
         } else {
           // Through a corner exactly: both cells beside it have to be clear.
-          if (kindOf(c + stepC, r, level) !== 1 || kindOf(c, r + stepR, level) !== 1) return false;
+          if (!isClear(at + stepC, c + stepC, r, level)) return false;
+          if (!isClear(at + stepAcross, c, r + stepR, level)) return false;
           c += stepC;
           r += stepR;
+          at += stepC + stepAcross;
           side += 2 * dc - 2 * dr;
           left--;
         }
-        if (kindOf(c, r, level) !== 1) return false;
+        if (!isClear(at, c, r, level)) return false;
       }
       return true;
     };
@@ -268,7 +281,9 @@ export class Router {
       const kind = kindOf(c + dc, r + dr, level);
       if (kind === 3) return Infinity;
       // No cutting corners between two closed cells.
-      if (dc && dr && (!open(c + dc, r, level) || !open(c, r + dr, level))) return Infinity;
+      if (dc && dr && (kindOf(c + dc, r, level) === 3 || kindOf(c, r + dr, level) === 3)) {
+        return Infinity;
+      }
       return kind === 2 ? step * (1 + EDGE_COST) : step;
     };
     const visit = (next: number, total: number, by: number, nc: number, nr: number) => {
@@ -314,10 +329,12 @@ export class Router {
       const here = node - level * layer;
       // A stretch can't start on another level, or the stair between them would be skipped.
       const seen = parent[node]!;
-      const from = seen !== -1 && levelOf(seen) === level ? seen : node;
-      const [fc, fr] = [columnOf(from), rowOf(from)];
+      let from = seen !== -1 && levelOf(seen) === level ? seen : node;
+      let [fc, fr] = [columnOf(from), rowOf(from)];
+      // Too far to be worth checking: a new stretch starts here, and the pull joins them up.
+      if (Math.abs(fc - c) + Math.abs(fr - r) > LONGEST_SIGHT) [from, fc, fr] = [node, c, r];
       // Between the ground and the level over it, where they meet: no way along it but this.
-      if (upper && grid.link?.(r * grid.cols + c) && open(c, r, level ? 0 : 1)) {
+      if (upper && open(c, r, level ? 0 : 1) && grid.link?.(r * grid.cols + c)) {
         visit(here + (level ? 0 : layer), cost[node]! + LINK_COST, node, c, r);
       }
       for (const [dc, dr, step] of NEIGHBOURS) {
