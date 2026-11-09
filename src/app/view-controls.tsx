@@ -18,6 +18,10 @@ import { live } from './live.ts';
 const ZOOM_STEP = 1.6;
 const ZOOM_MS = 140;
 
+/** Focus handed over for the keys' sake: no ring, since no key brought it here. */
+export const focusQuietly = (element: HTMLElement | null | undefined) =>
+  element?.focus({ focusVisible: false } as FocusOptions);
+
 /** One button of the rail: an icon, its name for assistive tech, and a tip with its key. */
 export function RailButton(props: {
   label: string;
@@ -86,7 +90,7 @@ export function ViewControls(props: {
   /** A press with a pointer leaves the keys to the map, not on the button it pressed. */
   const pressed = (event: MouseEvent) => {
     sound.tap();
-    if (event.detail > 0) props.map.current?.focus({ focusVisible: false } as FocusOptions);
+    if (event.detail > 0) focusQuietly(props.map.current);
   };
 
   /** Zooms over a moment, by small steps; at once with reduced motion. */

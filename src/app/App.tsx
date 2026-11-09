@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties, ReactNode, RefObject } from 'react';
 import { createPortal } from 'react-dom';
 
 import { sound } from '../audio/sound.ts';
@@ -47,7 +47,7 @@ import type { LoadState } from './loading.ts';
 import { EDGE_INSET, pointerFor } from './pointer.ts';
 import { useShortcuts } from './shortcuts.ts';
 import { StreetSign } from './street-sign.tsx';
-import { ViewControls } from './view-controls.tsx';
+import { ViewControls, focusQuietly } from './view-controls.tsx';
 
 type Status = { state: 'loading' } | { state: 'ready' } | { state: 'error'; message: string };
 
@@ -171,6 +171,19 @@ function cacheForOffline(): void {
     .catch(() => {});
 }
 
+/**
+ * Once a dialog over the map has shut, the keys are the map's again: focus goes there rather than
+ * back to the button that opened it, where Space would open it again. In an effect, so the dialog
+ * has let go of focus by then.
+ */
+function useFocusWhenShut(open: boolean, target: RefObject<HTMLElement | null>): void {
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (wasOpen.current && !open) focusQuietly(target.current);
+    wasOpen.current = open;
+  }, [open, target]);
+}
+
 export function App() {
   const appRef = useRef<HTMLElement>(null);
   const mapRef = useRef<HTMLDivElement>(null);
@@ -233,8 +246,8 @@ export function App() {
     say(sound.on ? 'Sound on' : 'Sound off');
   });
   useEffect(() => sound.attach(), []);
-  // Marks and the route being walked: each shown by the part
-  // that needs it, so the shell renders only for a route starting or ending and the map opening.
+  // Marks and the route being walked: each shown by the part that needs it, so the shell renders
+  // only for a route starting or ending and the map opening.
   const [marks] = useState(() => createStore<Waypoint[]>([]));
   const [routing, setRouting] = useState(false);
   const routingRef = useRef(routing);
@@ -308,15 +321,7 @@ export function App() {
     setAccountSheet({ open: true, used: true });
   }, []);
   const closeAccount = useCallback(() => setAccountSheet((a) => ({ ...a, open: false })), []);
-  // Closed, the sheet gives focus to the map, as the menu does: after the dialog has closed, or
-  // it would hand focus back to the chip, where Space opens the sheet again.
-  const wasAccountOpen = useRef(false);
-  useEffect(() => {
-    if (wasAccountOpen.current && !accountSheet.open) {
-      mapRef.current?.focus({ focusVisible: false } as FocusOptions);
-    }
-    wasAccountOpen.current = accountSheet.open;
-  }, [accountSheet.open]);
+  useFocusWhenShut(accountSheet.open, mapRef);
   // A chunk that didn't download (a flaky link) leaves its corner shut, not the map blank: the
   // next try gets a fresh download.
   const [AccountSheet, setAccountSheetChunk] = useState(lazySheet);
@@ -346,15 +351,7 @@ export function App() {
     menuOpenRef.current = false;
     setMenu((m) => ({ ...m, open: false }));
   }, []);
-  // Closed, however it closed, the menu gives focus to the map, not back to its button (where the
-  // dialog would put it), so the arrows pan and Enter walks at once.
-  const wasOpen = useRef(false);
-  useEffect(() => {
-    if (wasOpen.current && !menu.open) {
-      mapRef.current?.focus({ focusVisible: false } as FocusOptions);
-    }
-    wasOpen.current = menu.open;
-  }, [menu.open]);
+  useFocusWhenShut(menu.open, mapRef);
   const takeTyped = useCallback(() => {
     const typed = typedRef.current;
     typedRef.current = '';
@@ -502,7 +499,7 @@ export function App() {
           progress.built = true;
           report();
           // Keyboard users can pan and use shortcuts at once, without a focus ring flashing up.
-          map.focus({ focusVisible: false } as FocusOptions);
+          focusQuietly(map);
           setStatus({ state: 'ready' });
           setPlaceCity(loaded);
           publish({ state: 'ready' }, viewer);
@@ -608,13 +605,7 @@ export function App() {
     setMapChunk(() => lazyMap());
     say('The map didn’t load. Try again.');
   }, [say]);
-  // Shut, the map gives its keys back to the map, once its dialog has let go of focus.
-  const wasMapOpen = useRef(false);
-  useEffect(() => {
-    if (wasMapOpen.current && !mapOpen)
-      mapRef.current?.focus({ focusVisible: false } as FocusOptions);
-    wasMapOpen.current = mapOpen;
-  }, [mapOpen]);
+  useFocusWhenShut(mapOpen, mapRef);
 
   const toggleRunRef = useRef(() => {
     runningRef.current = !runningRef.current;
@@ -633,7 +624,6 @@ export function App() {
     return () => map.removeEventListener('pointerdown', clear);
   }, [blocked]);
 
-  const viewer = () => viewerRef.current;
   /** The other players' chunk, or why there's no joining yet. */
   const multiplayer = () => {
     const loaded = multiplayerRef.current;
@@ -737,7 +727,7 @@ export function App() {
   const hadControls = useRef(0);
   useEffect(() => {
     if (shownControls < hadControls.current && document.activeElement === document.body) {
-      mapRef.current?.focus({ focusVisible: false } as FocusOptions);
+      focusQuietly(mapRef.current);
     }
     hadControls.current = shownControls;
   }, [shownControls]);
@@ -785,7 +775,7 @@ export function App() {
             viewerRef.current?.recentre();
             // Back on screen, the avatar needs no diamond: it hides, and its focus would fall to the
             // page and take the map's keys with it.
-            mapRef.current?.focus({ focusVisible: false } as FocusOptions);
+            focusQuietly(mapRef.current);
           }}
         >
           <DiamondIcon />
@@ -915,7 +905,7 @@ export function App() {
               label={`Go to ${looking.name}`}
               primary
               onPress={() => {
-                viewer()?.navigateTo(looking.x, looking.z);
+                viewerRef.current?.navigateTo(looking.x, looking.z);
                 setLooking(null);
               }}
             >
@@ -927,7 +917,7 @@ export function App() {
               label="Stop"
               shortcut="Esc"
               keys="Escape"
-              onPress={() => viewer()?.cancelRoute()}
+              onPress={() => viewerRef.current?.cancelRoute()}
             >
               <StopIcon />
             </ActionButton>
@@ -938,7 +928,7 @@ export function App() {
               shortcut="↵"
               keys="Enter"
               primary={!door.inside && !(looking && !routing)}
-              onPress={() => viewer()?.door()}
+              onPress={() => viewerRef.current?.door()}
             >
               <DoorIcon />
             </ActionButton>
@@ -948,7 +938,7 @@ export function App() {
               label={riding ? 'Get off' : 'Ride'}
               shortcut="F"
               primary={!riding && !door && !(looking && !routing)}
-              onPress={() => viewer()?.ride('toggle')}
+              onPress={() => viewerRef.current?.ride('toggle')}
             >
               <BikeIcon />
             </ActionButton>

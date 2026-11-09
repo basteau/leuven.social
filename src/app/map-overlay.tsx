@@ -24,7 +24,7 @@ import { ACCENT, drawDoor, drawMark, drawPlayer, drawTarget, ensureMarks } from 
 import { dpr, paintRaster, rasterOf } from './map-raster.ts';
 import { search } from './search.ts';
 import type { Store } from './store.ts';
-import { RailButton } from './view-controls.tsx';
+import { RailButton, focusQuietly } from './view-controls.tsx';
 
 /**
  * The full map: the whole city drawn from one raster, panned and
@@ -129,7 +129,7 @@ export function MapOverlay(props: Props) {
       if (input) input.disabled = true;
       dialog.showModal();
       if (input) input.disabled = false;
-      dialog.focus({ focusVisible: false } as FocusOptions);
+      focusQuietly(dialog);
     }
     void viewer.current?.rooms().then(
       (list) => {
@@ -255,9 +255,7 @@ export function MapOverlay(props: Props) {
   // What had focus can go with the sheet: the dialog keeps it, or the keys would stop here.
   useEffect(() => {
     const dialog = dialogRef.current;
-    if (dialog?.open && !dialog.contains(document.activeElement)) {
-      dialog.focus({ focusVisible: false } as FocusOptions);
-    }
+    if (dialog?.open && !dialog.contains(document.activeElement)) focusQuietly(dialog);
   }, [marks, selection, listing, query]);
   useEffect(() => {
     live.current.marks = marks;
