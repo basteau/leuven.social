@@ -82,7 +82,7 @@ const UNITS = Array.from({ length: 64 }, (_, i) => i);
  * than the model: the LiDAR trees are spaced by crown size, so a canopy closes with as few trees
  * as possible. Some are slimmer, some broader.
  */
-export function treeSize(seed: number, height = 0): { scale: number; wide: number } {
+function treeSize(seed: number, height = 0): { scale: number; wide: number } {
   const scale = height > 0 ? treeScale(height) : 0.8 + pick([0, 0.15, 0.3, 0.45], seed);
   return { scale, wide: 1.2 * scale ** 0.8 * pick([0.86, 0.94, 1, 1.06, 1.14], seed * 3) };
 }

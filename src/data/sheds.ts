@@ -9,7 +9,7 @@
 import { pushTo, signedArea } from './geometry.ts';
 
 /** Footprints below this area (m²) can be sheds. */
-export const SHED_AREA = 60;
+const SHED_AREA = 60;
 /** A crown this close to the footprint's centre (m) and at least its height minus `CANOPY_SLACK`. */
 const CANOPY_REACH = 8;
 const CANOPY_SLACK = 4;

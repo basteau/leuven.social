@@ -11,9 +11,9 @@ import { fromOklab, toOklab } from './colour.ts';
 import type { Lab } from './colour.ts';
 
 /** How much the hue left after white balance is stretched. */
-export const CHROMA_STRETCH = 2;
+const CHROMA_STRETCH = 2;
 /** Neighbours closer than this (Oklab ΔE, after the stretch) count as the same roofing. */
-export const SAME_ROOFING = 0.05;
+const SAME_ROOFING = 0.05;
 
 interface Roof {
   /** 0xRRGGBB as sampled, or null. */

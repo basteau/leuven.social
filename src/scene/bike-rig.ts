@@ -37,15 +37,15 @@ export const WHEEL = 0.34;
 export const BRACKET = [-0.05, 0.3] as const;
 export const CRANK = 0.17;
 /** Where the pedals sit either side of the frame (m). */
-export const PEDAL_X = 0.14;
+const PEDAL_X = 0.14;
 /** The saddle's top and middle, for the figure's 0.82 m legs; the grips (m). */
 export const SADDLE = [-0.25, 0.86] as const;
-export const GRIPS = { x: 0.29, y: 1.0, z: 0.17 } as const;
+const GRIPS = { x: 0.29, y: 1.0, z: 0.17 } as const;
 /** Ink outline thickness (m): the figure's. */
 const INK = 0.035;
 
 /** Each bone's parent (-1 for none) and pivot relative to it. */
-export const BIKE_JOINTS: Record<BikeBone, readonly [number, number, number, number]> = {
+const BIKE_JOINTS: Record<BikeBone, readonly [number, number, number, number]> = {
   frame: [-1, 0, 0, 0],
   steer: [0, 0, 0, STEERING],
   front: [1, 0, WHEEL, AXLE - STEERING],

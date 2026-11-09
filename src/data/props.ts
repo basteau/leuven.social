@@ -108,7 +108,7 @@ export function standsAlong(length: number): number {
 }
 
 /** What a rack is made of, by OSM's `bicycle_parking`: hoops unless it says otherwise. */
-export function rackStyleOf(tag: string | undefined): RackStyle {
+function rackStyleOf(tag: string | undefined): RackStyle {
   if (tag === 'anchors') return 'anchors';
   if (tag === 'wall_loops' || tag === 'wall_hoops') return 'wall';
   if (tag === 'informal') return 'informal';
@@ -208,11 +208,11 @@ export const FILL: Record<FillClass, number> = {
   quiet: 0.3,
 };
 /** Racks this close to the station (the middle of its platform roofs) are station racks (m). */
-export const STATION_REACH = 300;
+const STATION_REACH = 300;
 /** How far round a rack its neighbours' stands count (m), and how many make it busy or a hotspot. */
-export const NEAR_REACH = 60;
-export const BUSY_STANDS = 50;
-export const HOTSPOT_STANDS = 90;
+const NEAR_REACH = 60;
+const BUSY_STANDS = 50;
+const HOTSPOT_STANDS = 90;
 /** Bikes drawn in one rack outside the station: a long rack in a quiet street isn't a car park. */
 export const MAX_BIKES = 10;
 const RESTRICTED = new Set(['private', 'customers', 'permit']);

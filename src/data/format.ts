@@ -88,7 +88,7 @@ const TURN = Math.PI * 2;
 /** A field's direction in 4096ths of half a turn: 4 cm off at the end of a 100 m pitch. */
 const FIELD_ANGLES = 4096;
 /** Refuse anything larger after decompression: the whole city must stay small. */
-export const MAX_CITY_BYTES = 16_000_000;
+const MAX_CITY_BYTES = 16_000_000;
 
 type Rings = Float32Array[];
 

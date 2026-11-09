@@ -29,7 +29,7 @@ export const FRONT_RAY = {
 } as const;
 
 /** The ground lit round a floodlit church or hall: a splash this far out, every so many metres. */
-export const FLOOD = { every: 9, out: 2.5, radius: 13, light: [0.16, 0.12, 0.07] } as const;
+const FLOOD = { every: 9, out: 2.5, radius: 13, light: [0.16, 0.12, 0.07] } as const;
 
 export interface LightField {
   data: Uint8Array;

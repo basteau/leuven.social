@@ -34,7 +34,7 @@ const FEET = 0.15;
 /** A wall within this of the body (m) is touching: steps slide along it. */
 const SKIN = 0.04;
 /** Fastest a wall pushes the body back out (m/s), so being pushed is never a jump. */
-export const PUSH = 2;
+const PUSH = 2;
 /** Sliding along a wall at under this share of its pace, it stops instead of creeping. */
 export const CREEP = 0.15;
 /** The eight ways round the body it feels for the edge of closed ground in. */

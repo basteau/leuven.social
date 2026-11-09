@@ -294,7 +294,7 @@ function bikeLight(mesh: Builder, lampX: number, lampY: number, tailX: number, t
 }
 
 /** How far over the drawn surface the wheels ride, so they never sink in it (m). */
-export const RIDE_HEIGHT = 0.03;
+const RIDE_HEIGHT = 0.03;
 
 /**
  * The vertex shader's share of the parts: the figure's bones and the bike's wheels and crank turn

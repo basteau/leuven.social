@@ -13,7 +13,7 @@ import { floorAt, propFootprint, stairCorners, stairsOf } from './rooms.ts';
 import type { Room } from './rooms.ts';
 
 /** Cells half a metre across: aisles between pews are a metre and a half. */
-export const ROOM_CELL = 0.5;
+const ROOM_CELL = 0.5;
 /** Half a wall's thickness (m), and a stair rail's. */
 const WALL_HALF = 0.15;
 const RAIL_HALF = 0.05;

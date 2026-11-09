@@ -370,7 +370,7 @@ export function roofFromOsm(value: string | null | undefined): Roof {
  * Share of a roof's LiDAR pixels sloped 15–60° above which it counts as pitched. Real flat
  * roofs stay under ~0.25 (parapets, rooftop plant); real pitched ones are mostly above 0.5.
  */
-export const PITCHED_SHARE = 0.4;
+const PITCHED_SHARE = 0.4;
 
 /**
  * The roof to draw: an OSM `roof:shape` tag wins, then the LiDAR slope survey decides between
@@ -388,7 +388,7 @@ export function roofFromSurvey(osm: string | null | undefined, pitchedShare?: nu
  * the share of their (squared) steepness along that side. Gables with the ridge along the long
  * side measure under 0.35, turned ones over 0.65; between is a hip, or a roof too broken to say.
  */
-export const ACROSS_SHARE = 0.65;
+const ACROSS_SHARE = 0.65;
 
 /**
  * Turns a pitched roof's ridge across the footprint where its slopes face along the long side
