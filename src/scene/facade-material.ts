@@ -55,7 +55,7 @@ void awningSurface(inout vec3 albedo) {
 void surface(inout vec3 albedo, vec3 base, inout vec3 glowEmit) {
   if (vFacade > ${f(PANE - 0.5)}) paneSurface(albedo, glowEmit);
   else if (vFacade > ${f(WALL_PLAIN - 0.5)}) plainWall(albedo, base);
-  else if (vFacade > ${f(ROOF_FLAT - 0.5)}) flatRoof(albedo, glowEmit);
+  else if (vFacade > ${f(ROOF_FLAT - 0.5)}) flatRoof(albedo);
   else if (vFacade > ${f(ROOF - 0.5)}) pitchedRoof(albedo, base);
   else if (vFacade > ${f(AWNING - 0.5)}) awningSurface(albedo);
   else if (vFacade > 0.0) wallSurface(albedo, base, glowEmit);

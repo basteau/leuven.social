@@ -9,9 +9,10 @@ void paneSurface(inout vec3 albedo, inout vec3 glowEmit) {
   glowEmit = vec3(1.0, 0.72, 0.38) * roofLit * 0.85;
 }
 
-// A flat roof, its seams and furniture square to the building (its turn is the code's fraction):
-// gravel, patches of bitumen, and in a share of a coarse grid a skylight or a vent with its shadow.
-void flatRoof(inout vec3 albedo, inout vec3 glowEmit) {
+// A flat roof, its seams square to the building (its turn is the code's fraction): gravel and
+// patches of bitumen. No skylights: laid out on a grid of their own, they read as stray windows
+// and were cut off by the roof's edge.
+void flatRoof(inout vec3 albedo) {
   float turn = (vFacade - ${f(ROOF_FLAT)}) * PI;
   vec2 axis = vec2(cos(turn), sin(turn));
   vec2 p = vec2(dot(vWorld.xz, axis), dot(vWorld.xz, vec2(-axis.y, axis.x)));
@@ -20,22 +21,6 @@ void flatRoof(inout vec3 albedo, inout vec3 glowEmit) {
   albedo *= 0.98 + 0.05 * noise2(p / 4.0);
   albedo *= 1.0 + (hash2(floor(p / 0.14)) - 0.5) * 0.1 * (1.0 - smoothstep(0.05, 0.12, pixel));
   albedo *= 1.0 - 0.1 * max(step(fract(p.x / 4.0), 0.012), step(fract(p.y / 4.0), 0.012)) * fine;
-  vec2 cell = floor(p / 11.0);
-  vec2 at = fract(p / 11.0) * 11.0 - 5.5;
-  float h = hash2(cell);
-  if (h < 0.12) {
-    float pane = step(abs(at.x), 1.5) * step(abs(at.y), 0.95);
-    float frame = step(abs(at.x), 1.7) * step(abs(at.y), 1.15) * (1.0 - pane);
-    float night = uNight * step(0.5, fract(h * 37.0));
-    albedo = mix(albedo, mix(vec3(0.42, 0.55, 0.66), vec3(1.0, 0.74, 0.4), night), pane * fine);
-    albedo = mix(albedo, vec3(0.46, 0.46, 0.45), frame * fine);
-    glowEmit += vec3(1.0, 0.72, 0.38) * night * pane * fine * 0.7;
-  } else if (h < 0.36) {
-    float box = step(abs(at.x), 0.55) * step(abs(at.y), 0.55);
-    float shadow = step(abs(at.x + 0.4), 0.55) * step(abs(at.y - 0.4), 0.55) * (1.0 - box);
-    albedo *= 1.0 - 0.35 * shadow * fine;
-    albedo = mix(albedo, vec3(0.62, 0.62, 0.6), box * fine);
-  }
 }
 
 // A pitched roof, in courses from the ridge down: pantiles where it's red, staggered slates where
