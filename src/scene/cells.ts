@@ -20,7 +20,15 @@ import type { GroundStep, Terrain } from '../data/terrain.ts';
 import { addBuilding, footing } from './buildings.ts';
 import type { PartyWalls } from './buildings.ts';
 import { LANDMARK_MODELS } from './landmark-models.ts';
-import { LAYER_Y, addGround, addKerbs, addSlabInk, onTheSlab, slabBottom } from './ground.ts';
+import {
+  LAYER_Y,
+  addGround,
+  addKerbs,
+  addSlabInk,
+  onTheSlab,
+  slabBottom,
+  surfaceAt,
+} from './ground.ts';
 import type { Pitch } from './ground.ts';
 import { GROUND_RINGS } from './ground.ts';
 import { LineBuilder, MeshBuilder } from './mesh-builder.ts';
@@ -43,7 +51,9 @@ import {
   addDeckSurface,
   addParapet,
   addPortals,
+  addGroundSeam,
   addGroundStep,
+  SEAM,
   addTank,
 } from './structures.ts';
 import { addParasol } from './terraces.ts';
@@ -363,8 +373,11 @@ export function buildCell(
   });
   const open = ({ ax, az, bx, bz }: GroundStep) =>
     !cell.nearDecks.some((d) => pointInRing(d.ring, (ax + bx) / 2, (az + bz) / 2));
+  const surfaceOver = (x: number, z: number) => surfaceAt(cell.ground, x, z);
   for (const step of steps) {
-    const low = clipStep(step, 0, CASTS_FROM);
+    const seam = clipStep(step, 0, SEAM);
+    if (seam) addGroundSeam(mesh, seam, terrain, surfaceOver);
+    const low = clipStep(step, SEAM, CASTS_FROM);
     if (low) addGroundStep(mesh, lines, low, terrain, open(step));
   }
   const trunksFrom = mesh.indices;

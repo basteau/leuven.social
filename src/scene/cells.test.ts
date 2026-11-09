@@ -463,7 +463,8 @@ test('the steps in the ground are built by the cell of their middle, low ones wi
   const { minX, minZ } = west!.bounds;
   const strip = {
     line: Float32Array.of(minX + 5, minZ + 5, minX + 45, minZ + 5),
-    rise: Float32Array.of(3, 0.3),
+    // Down to the ground: its last metres are a seam, in the colour of what lies over it.
+    rise: Float32Array.of(3, 0),
     half: 2,
   };
   const terrain = landform(FLAT_GRID, [strip], []);

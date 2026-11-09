@@ -162,6 +162,8 @@ export class MeshBuilder {
    * rigid thing, such as a house, standing at one height.
    */
   drape: Terrain | null = null;
+  /** While on, a face is lit like level ground whichever way it's turned: a seam in the road. */
+  level = false;
   /**
    * With `drape`, the rectangles a convex piece of ground is cut to: for what is drawn running on
    * past its ends, which would otherwise hang over the edge of the slab.
@@ -241,7 +243,7 @@ export class MeshBuilder {
     const len = Math.hypot(nx, ny, nz);
     if (len < 1e-9) return 0;
     const flip = nx * hint[0] + ny * hint[1] + nz * hint[2] < 0 ? -1 : 1;
-    if (this.#up) {
+    if (this.#up || this.level) {
       [this.#nx, this.#ny, this.#nz] = [0, 127, 0];
       return flip;
     }

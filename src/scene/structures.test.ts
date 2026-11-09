@@ -10,6 +10,7 @@ import {
   addDeckSurface,
   addParapet,
   addPortals,
+  addGroundSeam,
   addGroundStep,
   addTank,
 } from './structures.ts';
@@ -60,12 +61,6 @@ const faces = (step: GroundStep) => {
   const [mesh, lines] = [new MeshBuilder(), new LineBuilder()];
   addGroundStep(mesh, lines, step, FLAT);
   return { indices: mesh.indices, segments: lines.segments, box: measure(mesh).box };
-};
-
-const colourOf = (step: GroundStep) => {
-  const mesh = new MeshBuilder();
-  addGroundStep(mesh, new LineBuilder(), step, FLAT);
-  return unindexed(mesh.build()).getAttribute('color').getX(0);
 };
 
 describe('bridges and tunnels', () => {
@@ -121,8 +116,28 @@ describe('bridges and tunnels', () => {
     expect(measure(mesh).box.max.y).toBeCloseTo(3 + 0.156, 3);
   });
 
-  test("a seam of a few centimetres takes the road's colour", () => {
-    expect(colourOf(stepOf({ high: [0.1, 0.1] }))).not.toBe(colourOf(stepOf({ high: [0.5, 0.5] })));
+  test("a seam of a few centimetres is the road's own: its colour, lit as level ground", () => {
+    const mesh = new MeshBuilder();
+    const asked: number[][] = [];
+    const seam = stepOf({ bx: 4, high: [0.1, 0.2] });
+    addGroundSeam(mesh, seam, FLAT, (x, z) => {
+      asked.push([x, z]);
+      return x < 2 ? { color: 0x102030, y: 0.2 } : null;
+    });
+    // A length of 1.5 m at a time, each asking what lies over it: to the left of a to b.
+    expect(mesh.indices).toBe(3 * 6);
+    expect(asked).toHaveLength(3);
+    expect(asked.every(([, z]) => z! > 0)).toBe(true);
+    const g = unindexed(mesh.build());
+    const [normal, colour] = [g.getAttribute('normal'), g.getAttribute('color')];
+    for (let i = 0; i < normal.count; i++) expect(normal.getY(i)).toBeGreaterThan(0.99);
+    expect(colour.getX(0)).not.toBe(colour.getX(colour.count - 1));
+    // Up to the top of the layer over it where there is one, of the carriageway where not.
+    g.computeBoundingBox();
+    expect(g.boundingBox!.max.y).toBeCloseTo(0.2 + 0.156, 3);
+    expect(mesh.level).toBe(false);
+    addGroundSeam(mesh, stepOf({ bx: 0 }), FLAT, () => null);
+    expect(mesh.indices).toBe(18);
   });
 
   test('a step of no length is nothing', () => {

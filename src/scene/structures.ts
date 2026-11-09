@@ -114,8 +114,11 @@ const PIER = 1.1;
 const GUARD_FROM = 0.7;
 const GUARD_GROWS = 1.5;
 const INK_FROM = 0.8;
-/** A step lower than this is a seam in the road (m). */
-const IN_THE_ROAD = 0.3;
+/** A step lower than this is a seam in the road (m), drawn a length of this at a time (m). */
+export const SEAM = 0.3;
+const SEAM_PIECE = 1.5;
+/** How far in from a seam the surface over it is read (m). */
+const SEAM_IN = 0.15;
 /** A railing or low wall along a ramp's top (m). */
 const RAMP_WALL = 1.05;
 /** How far a kerb stands over a drop on its street side (m), at most. */
@@ -296,6 +299,47 @@ export function addDeckFrame(
 }
 
 /**
+ * A step of a few centimetres between two lengths of ramp that don't quite agree: no wall, but the
+ * road's own. Its face takes the colour of the surface over it, a length at a time, and is lit as
+ * level ground is, so the street runs on over it without a line.
+ */
+export function addGroundSeam(
+  mesh: MeshBuilder,
+  { ax, az, bx, bz, high, low }: GroundStep,
+  terrain: Terrain,
+  surfaceOver: (x: number, z: number) => { color: number; y: number } | null,
+): void {
+  const length = Math.hypot(bx - ax, bz - az);
+  if (length < 1e-6) return;
+  // The drop is to the right of a to b: the surface over it lies to the left.
+  const [ix, iz] = [(-(bz - az) / length) * SEAM_IN, ((bx - ax) / length) * SEAM_IN];
+  const parts = Math.ceil(length / SEAM_PIECE);
+  const [drape, level] = [mesh.drape, mesh.level];
+  [mesh.drape, mesh.level] = [null, true];
+  const at = (t: number, rises: readonly [number, number], over: number): V3 => {
+    const [x, z] = [ax + (bx - ax) * t, az + (bz - az) * t];
+    return [x, terrain.plain(x, z) + rises[0] + (rises[1] - rises[0]) * t + over, z];
+  };
+  for (let k = 0; k < parts; k++) {
+    const [t0, t1] = [k / parts, (k + 1) / parts];
+    const mid = at((t0 + t1) / 2, high, 0);
+    const over = surfaceOver(mid[0] + ix, mid[2] + iz) ?? {
+      color: SURFACE_COLOURS.asphalt,
+      y: LAYER_Y.carriageways,
+    };
+    mesh.quad(
+      at(t0, low, 0),
+      at(t1, low, 0),
+      at(t1, high, over.y),
+      at(t0, high, over.y),
+      over.color,
+      [-ix, 0, -iz],
+    );
+  }
+  [mesh.drape, mesh.level] = [drape, level];
+}
+
+/**
  * A ground step as a wall: one face from the low side up past the street's own layers, facing the
  * low side. Over a drop worth falling down, a railing along the top where a ramp is the high side,
  * a kerb where the street is. It stands where the heights say and nowhere else (`GroundStep`).
@@ -320,8 +364,7 @@ export function addGroundStep(
     [bx, gb + low[1], bz],
     [bx, tb, bz],
     [ax, ta, az],
-    // A few centimetres between two ramps at a road's width is the road's own, not a wall.
-    Math.max(drap, drbp) < IN_THE_ROAD ? SURFACE_COLOURS.asphalt : STRUCTURES.retaining,
+    STRUCTURES.retaining,
     [ox, 0, oz],
   );
   const ramp = high[0] + high[1] > 0;
@@ -390,7 +433,7 @@ export function addPortals(
     // The headwall's top, back over the length a ramp runs on into the tunnel, which would
     // otherwise show as a slot in the street behind the portal.
     const [, , g, h] = corners(wide, top, top, LID);
-    mesh.quad(d, c, g, h, STRUCTURES.coping, UP);
+    mesh.quad(d, c, g, h, STRUCTURES.retaining, UP);
     lines.segment(h, g);
     const opening = Math.min(depth - 0.3, OPENING);
     mesh.quad(...corners(half - 0.2, floor, floor + opening, -0.03), GROUND.tunnel, [-ux, 0, -uz]);

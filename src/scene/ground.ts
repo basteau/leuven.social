@@ -296,6 +296,37 @@ export function addGround(
   addRings(mesh, layers.flowerbeds, LAYER_Y.flowerbeds, GROUND.earth, SURFACE.earth);
 }
 
+/**
+ * What a street is surfaced with at (x, z): the colour of the topmost of its layers there and how
+ * high that's drawn, or null off the street. For a seam in the road to take the road's own look.
+ */
+export function surfaceAt(
+  layers: Pick<GroundLayers, 'plazas' | 'islands' | 'carriageways' | 'roads' | 'paths'>,
+  x: number,
+  z: number,
+): { color: number; y: number } | null {
+  const inside = (ring: ArrayLike<number>) => pointInRing(ring, x, z);
+  if (layers.plazas.some(inside)) return { color: GROUND.plaza, y: LAYER_Y.plazas };
+  if (layers.islands.some(inside)) return { color: GROUND.pavement, y: LAYER_Y.plazas };
+  const road = layers.carriageways.find(({ ring }) => inside(ring));
+  if (road) return { color: carriagewayColor(road.kind, road.surface), y: LAYER_Y.carriageways };
+  if (layers.roads.some(inside)) return { color: GROUND.pavement, y: LAYER_Y.roads };
+  for (const { width, surface, line } of layers.paths) {
+    for (let i = 0; i + 3 < line.length; i += 2) {
+      const [ax, az] = [line[i]!, line[i + 1]!];
+      const [dx, dz] = [line[i + 2]! - ax, line[i + 3]! - az];
+      const t = Math.min(
+        1,
+        Math.max(0, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz || 1)),
+      );
+      if (Math.hypot(ax + dx * t - x, az + dz * t - z) <= width / 2) {
+        return { color: SURFACE_COLOURS[surface], y: LAYER_Y.paths };
+      }
+    }
+  }
+  return null;
+}
+
 /** How wide a kerbstone is drawn (m): a little over life, so it stays a line when zoomed in. */
 export const KERB = 0.28;
 

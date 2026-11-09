@@ -11,9 +11,11 @@ import {
   addSlabInk,
   onTheSlab,
   slabBottom,
+  surfaceAt,
 } from './ground.ts';
 import { LineBuilder, MeshBuilder, unindexed } from './mesh-builder.ts';
 import { SURFACE } from './paint.ts';
+import { GROUND, SURFACE_COLOURS, carriagewayColor } from './palette.ts';
 
 const square = new Float32Array([0, 0, 10, 0, 10, 10, 0, 10]);
 const layers = {
@@ -299,4 +301,35 @@ test('kerbs run along a carriageway on the pavement side, not across junctions o
   const flat = new MeshBuilder();
   addKerbs(flat, [{ ...street, ring: new Float32Array([0, 0, 10, 0, 20, 0]) }], within);
   expect(unindexed(flat.build()).getAttribute('position').count).toBe(0);
+});
+
+/** A square of ground with its corner at (x, z). */
+function box(x: number, z: number, size: number): Float32Array {
+  return Float32Array.of(x, z, x + size, z, x + size, z + size, x, z + size);
+}
+
+test('the surface of a street at a point is the topmost of its layers there', () => {
+  const street = {
+    plazas: [box(0, 0, 10)],
+    islands: [box(20, 0, 10)],
+    carriageways: [
+      { kind: 'main' as const, surface: 'asphalt' as const, ring: box(40, 0, 10) },
+      { kind: 'cycleway' as const, surface: 'asphalt' as const, ring: box(5, 5, 10) },
+    ],
+    roads: [box(35, -5, 30)],
+    paths: [{ width: 2, surface: 'gravel' as const, line: Float32Array.of(80, 0, 90, 0) }],
+  };
+  expect(surfaceAt(street, 2, 2)).toEqual({ color: GROUND.plaza, y: LAYER_Y.plazas });
+  expect(surfaceAt(street, 25, 5)).toEqual({ color: GROUND.pavement, y: LAYER_Y.plazas });
+  expect(surfaceAt(street, 45, 5)).toEqual({
+    color: carriagewayColor('main', 'asphalt'),
+    y: LAYER_Y.carriageways,
+  });
+  // A square lies over a cycle track that runs under it; beside it the track shows.
+  expect(surfaceAt(street, 8, 8)!.color).toBe(GROUND.plaza);
+  expect(surfaceAt(street, 12, 12)!.color).toBe(carriagewayColor('cycleway', 'asphalt'));
+  expect(surfaceAt(street, 60, 20)).toEqual({ color: GROUND.pavement, y: LAYER_Y.roads });
+  expect(surfaceAt(street, 85, 0.5)).toEqual({ color: SURFACE_COLOURS.gravel, y: LAYER_Y.paths });
+  expect(surfaceAt(street, 85, 5)).toBeNull();
+  expect(surfaceAt(street, 200, 200)).toBeNull();
 });
