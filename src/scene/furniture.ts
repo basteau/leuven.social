@@ -48,7 +48,7 @@ export interface Furniture {
   contact: MeshBuilder;
   /** What shows at every zoom, or null where nothing in the cell is that tall. */
   tall: MeshBuilder | null;
-  /** The lamps' light at night (lanterns and pools, `addLampGlow`), or null without a lamp. */
+  /** The lanterns lit at night (`addLampGlow`), or null without a lamp. */
   glow: MeshBuilder | null;
 }
 

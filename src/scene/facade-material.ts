@@ -393,10 +393,10 @@ export function setNight(material: MeshToonMaterial, night: number): void {
 }
 
 /**
- * The lamps' light at night (furniture.ts, `addLampGlow`): unlit, in its own colour, drawn only
- * where a 4×4 ordered dither lets it through, by each vertex's `facade` (1 at a lantern and a
- * pool's middle, 0 at a pool's rim) times how far into the night it is. No blending, no sorting:
- * a pool of light on the street fades out in the same pixel pattern as everything else here.
+ * The lanterns lit at night (`addLampGlow`): unlit, in their own colour, drawn only where a 4×4
+ * ordered dither lets them through, by each vertex's `facade` (1 on a lantern) times how far into
+ * the night it is. No blending, no sorting: they fade in the same pixel pattern as everything
+ * else here.
  */
 export function createGlowMaterial(lamps: { value: number }): MeshBasicMaterial {
   const material = new MeshBasicMaterial({ vertexColors: true });
