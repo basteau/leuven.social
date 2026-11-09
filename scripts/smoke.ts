@@ -108,6 +108,37 @@ async function evalJson<T>(expression: string): Promise<T> {
   return JSON.parse(String(result)) as T;
 }
 
+/** The page as a failure finds it: what the map says of itself, what's on screen, what went wrong. */
+async function pageState(): Promise<string> {
+  const state = await browser(
+    'eval',
+    `JSON.stringify({
+      state: document.documentElement.dataset.state,
+      visibility: document.visibilityState,
+      size: [innerWidth, innerHeight],
+      canvas: { ...document.querySelector('canvas')?.dataset },
+      hint: document.querySelector('.hint')?.textContent,
+      sign: document.querySelector('.sign-name')?.textContent,
+      buttons: [...document.querySelectorAll('button')].filter((b) => b.checkVisibility()).map((b) => (b.getAttribute('aria-label') || b.textContent).trim().slice(0, 20)),
+      dialog: document.querySelector('dialog[open]')?.className,
+      presses: globalThis.smokePresses,
+    })`,
+  );
+  const errors = await browser('errors').catch(() => '');
+  return `${state}${errors ? `\nerrors: ${errors.slice(0, 2000)}` : ''}`;
+}
+
+/** Notes each press and release on the page from now on, for `pageState`: when, and on what. */
+const watchPresses = () =>
+  browser(
+    'eval',
+    `globalThis.smokePresses = [];
+    for (const type of ['pointerdown', 'pointerup', 'pointercancel']) {
+      addEventListener(type, (e) => globalThis.smokePresses.push([type, Math.round(e.timeStamp), e.target?.className ?? '']), true);
+    }
+    1`,
+  );
+
 /** Navigates with fresh logs: agent-browser keeps console and errors across pages. */
 async function openFresh(url: string): Promise<void> {
   await browser('console', '--clear');
@@ -297,6 +328,7 @@ const lines = () =>
 
 /** In a narrow window a lone Stop is level with the corners' buttons; narrower, it's over them. */
 async function expectStopOnTheLine(): Promise<void> {
+  await watchPresses();
   await tapAt(235, 362);
   await browser('wait', '--fn', STOP);
   // This browser has a mouse, so keycaps show and it takes this much width (touch: 352 px).
@@ -1160,6 +1192,8 @@ try {
   console.log(`screenshots in .artifacts/`);
 } catch (error) {
   console.error(`\nSMOKE FAILED  ${error instanceof Error ? error.message : String(error)}`);
+  // What the page was like when it failed: a timed-out wait alone says nothing of why.
+  console.error(`the page: ${await pageState().catch(() => 'gone')}`);
   process.exitCode = 1;
 } finally {
   await browser('close').catch(() => {});
