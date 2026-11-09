@@ -34,6 +34,29 @@ const SIGN_IN = '/api/auth/sign-in/email-otp';
 let mailboxes = 0;
 const anAddress = () => `person${++mailboxes}@example.com`;
 
+const SECRET = 'test-secret-test-secret-test-secret';
+/** What every server under test shares: in memory, on a free port, its warnings quiet. */
+const baseConfig = {
+  port: 0,
+  databasePath: ':memory:',
+  secret: SECRET,
+  baseURL: ORIGIN,
+  quiet: true,
+};
+
+/** A code that isn't `right`. */
+const wrongFor = (right: string) => (right === '000000' ? '000001' : '000000');
+
+/** Posts JSON to any running server, as the page would from our origin. */
+const poster =
+  (running: RunningServer, headers: Record<string, string> = {}) =>
+  (path: string, body: unknown) =>
+    realFetch(new URL(path, running.url), {
+      method: 'POST',
+      headers: { origin: ORIGIN, 'content-type': 'application/json', ...headers },
+      body: JSON.stringify(body),
+    });
+
 const here: PlayerState = quantise({
   x: 12,
   z: 34,
@@ -49,12 +72,8 @@ let realFetch: typeof fetch;
 
 beforeAll(async () => {
   server = await startServer({
-    port: 0,
-    databasePath: ':memory:',
-    secret: 'test-secret-test-secret-test-secret',
-    baseURL: ORIGIN,
+    ...baseConfig,
     rateLimit: false,
-    quiet: true,
     tick: 20,
     saveEvery: 50,
     mailer: fakeMailer,
@@ -247,7 +266,7 @@ describe('signing in with a code', () => {
     const jar = new Jar();
     await as(jar, () => account.sendCode(email));
     const right = lastCode(email);
-    const wrong = right === '000000' ? '000001' : '000000';
+    const wrong = wrongFor(right);
     expect(as(jar, () => account.verifyCode(email, wrong))).rejects.toMatchObject({
       code: 'code',
       message: 'That code isn’t right. Check the digits, or send a new one.',
@@ -273,7 +292,7 @@ describe('signing in with a code', () => {
     const email = anAddress();
     await postJson(new Jar(), SEND_CODE, { email });
     const right = lastCode(email);
-    const wrong = right === '000000' ? '000001' : '000000';
+    const wrong = wrongFor(right);
     for (let i = 0; i < 5; i++) {
       // oxlint-disable-next-line no-await-in-loop
       const response = await postJson(new Jar(), SIGN_IN, { email, otp: wrong });
@@ -488,29 +507,27 @@ describe('the code routes under limits', () => {
   const started: RunningServer[] = [];
   afterAll(() => Promise.all(started.map((s) => s.stop())));
   const start = async (options: Partial<Parameters<typeof startServer>[0]>) => {
-    const running = await startServer({
-      port: 0,
-      databasePath: ':memory:',
-      secret: 'test-secret-test-secret-test-secret',
-      baseURL: ORIGIN,
-      quiet: true,
-      ...options,
-    });
+    const running = await startServer({ ...baseConfig, ...options });
     started.push(running);
-    return {
-      running,
-      post: (path: string, body: unknown, address = '203.0.113.9', cookie = '') =>
-        realFetch(new URL(path, running.url), {
-          method: 'POST',
-          headers: {
-            origin: ORIGIN,
-            'content-type': 'application/json',
-            'x-real-ip': address,
-            cookie,
-          },
-          body: JSON.stringify(body),
-        }),
+    const post = (path: string, body: unknown, address = '203.0.113.9') =>
+      poster(running, { 'x-real-ip': address })(path, body);
+    /** A new account on this server, and the cookie that says so. */
+    const signedIn = async () => {
+      const email = anAddress();
+      await post(SEND_CODE, { email });
+      const response = await post(SIGN_IN, { email, otp: lastCode(email) });
+      return response.headers
+        .getSetCookie()
+        .map((line) => line.split(';')[0])
+        .join('; ');
     };
+    const rename = (cookie: string, name: string) =>
+      realFetch(new URL('/api/me', running.url), {
+        method: 'PUT',
+        headers: { origin: ORIGIN, cookie },
+        body: JSON.stringify({ name }),
+      });
+    return { running, post, signedIn, rename };
   };
 
   test('with no mail set up, a code answers 503 and the page is told up front', async () => {
@@ -595,42 +612,19 @@ describe('the code routes under limits', () => {
   });
 
   test('a reserved name is refused like a taken one', async () => {
-    const { running, post } = await start({ mailer: fakeMailer });
-    const email = anAddress();
-    await post(SEND_CODE, { email });
-    const signedIn = await post(SIGN_IN, { email, otp: lastCode(email) });
-    const cookie = signedIn.headers
-      .getSetCookie()
-      .map((c) => c.split(';')[0])
-      .join('; ');
-    const response = await realFetch(new URL('/api/me', running.url), {
-      method: 'PUT',
-      headers: { origin: ORIGIN, cookie },
-      body: JSON.stringify({ name: 'Admin' }),
-    });
+    const { signedIn, rename } = await start({ mailer: fakeMailer });
+    const response = await rename(await signedIn(), 'Admin');
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ code: 'USERNAME_IS_ALREADY_TAKEN' });
   });
 
   test('renames are limited', async () => {
-    const { running, post } = await start({ mailer: fakeMailer });
-    const email = anAddress();
-    await post(SEND_CODE, { email });
-    const response = await post(SIGN_IN, { email, otp: lastCode(email) });
-    const cookie = response.headers
-      .getSetCookie()
-      .map((c) => c.split(';')[0])
-      .join('; ');
-    const put = (name: string) =>
-      realFetch(new URL('/api/me', running.url), {
-        method: 'PUT',
-        headers: { origin: ORIGIN, cookie },
-        body: JSON.stringify({ name }),
-      });
+    const { signedIn, rename } = await start({ mailer: fakeMailer });
+    const cookie = await signedIn();
     let last = new Response();
     for (let i = 0; i < 11; i++) {
       // oxlint-disable-next-line no-await-in-loop
-      last = await put(`Name${i}`);
+      last = await rename(cookie, `Name${i}`);
     }
     expect(last.status).toBe(429);
   });
@@ -639,15 +633,7 @@ describe('the code routes under limits', () => {
 describe('accounts from before email', () => {
   const path = `${Bun.env.TMPDIR ?? '/tmp'}/leuven-${crypto.randomUUID()}.sqlite`;
   const open = (mailer?: Mailer) =>
-    startServer({
-      port: 0,
-      databasePath: path,
-      secret: 'test-secret-test-secret-test-secret',
-      baseURL: ORIGIN,
-      rateLimit: false,
-      quiet: true,
-      mailer,
-    });
+    startServer({ ...baseConfig, databasePath: path, rateLimit: false, mailer });
   afterAll(async () => {
     await Promise.all(
       ['', '-wal', '-shm'].map((suffix) =>
@@ -676,12 +662,7 @@ describe('accounts from before email', () => {
         .get('legacy1') as { name: string; fresh: unknown };
       expect(row.name).toBe('Oldie');
       expect(row.fresh === null || row.fresh === 0).toBe(true);
-      const post = (route: string, body: unknown) =>
-        realFetch(new URL(route, after.url), {
-          method: 'POST',
-          headers: { origin: ORIGIN, 'content-type': 'application/json' },
-          body: JSON.stringify(body),
-        });
+      const post = poster(after);
       const code = await post(SEND_CODE, { email: 'oldie@players.invalid' });
       expect(code.status).toBe(400);
       expect(await code.json()).toMatchObject({ code: 'EMAIL_UNDELIVERABLE' });
@@ -734,7 +715,7 @@ describe('accounts', () => {
     expect((await as(jar, () => account.me()))?.name).not.toBe(me?.name);
   });
 
-  test('signing up signs in, with an outfit and no position yet', async () => {
+  test('joining signs in, with an outfit and no position yet', async () => {
     const me = await joinAs(bram, 'Bram');
     expect(me).toEqual({
       guest: false,
@@ -1007,14 +988,7 @@ describe('presence', () => {
   });
 
   test('when guests are capped by address, the server asks for the address', async () => {
-    const capped = await startServer({
-      port: 0,
-      databasePath: ':memory:',
-      secret: 'test-secret-test-secret-test-secret',
-      baseURL: ORIGIN,
-      quiet: true,
-      tick: 20,
-    });
+    const capped = await startServer({ ...baseConfig, tick: 20 });
     const url = new URL('/ws', capped.url);
     url.protocol = 'ws:';
     const clients: { socket: WebSocket; opened: Promise<void>; flags: ServerMessage[] }[] = [];
@@ -1087,19 +1061,8 @@ test('an address is its own key, an IPv6 one by its /64', () => {
 
 describe('limits', () => {
   test('tries at a code from one address are limited, across addresses too', async () => {
-    const limited = await startServer({
-      port: 0,
-      databasePath: ':memory:',
-      secret: 'test-secret-test-secret-test-secret',
-      baseURL: ORIGIN,
-      quiet: true,
-    });
-    const post = (path: string, body: unknown) =>
-      realFetch(new URL(path, limited.url), {
-        method: 'POST',
-        headers: { origin: ORIGIN, 'content-type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+    const limited = await startServer(baseConfig);
+    const post = poster(limited);
     try {
       // Each for another address, so it is only better-auth's limit by address that can say no.
       const answers = await Promise.all(
