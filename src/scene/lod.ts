@@ -35,7 +35,7 @@ export const spanOf = (zoom: number) => VIEW_HEIGHT / zoom;
 export const SPANS = {
   /** Above it, the city alone: the avatar isn't drawn at all. */
   city: 400,
-  /** Street furniture, parked bikes, shop fronts' awnings and signs (PROP_ZOOM 2). */
+  /** Street furniture, parked bikes, shop fronts' awnings and signs (from zoom 2). */
   furniture: 280,
   /** The avatar's rigged figure; between this and `city`, a marker. */
   figure: 120,

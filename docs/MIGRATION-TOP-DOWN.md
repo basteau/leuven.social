@@ -1,5 +1,7 @@
 # Migrating to one top-down camera
 
+> **A record of the migration, as it was when it finished.** Some of what follows has changed since: the hidden figure's silhouette is a solid fill, the marker is a diamond, the refusal reads "Too far to tap", and `scripts/gait-fit.ts`, the traffic chunk and the plates chunk are gone. [RENDERING.md](RENDERING.md) and [DESIGN.md](DESIGN.md) say how it is now.
+
 **Goal:** one camera, one avatar, no modes. The isometric diorama becomes the only view, from the
 whole city down to a street and into a building, with interiors that can grow to several floors.
 
