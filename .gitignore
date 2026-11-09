@@ -2,6 +2,7 @@
 node_modules
 dist/
 dist-server/
+__pycache__/
 
 # The local multiplayer database (server/main.ts's DATABASE_PATH default)
 .data/
