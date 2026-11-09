@@ -272,7 +272,7 @@ const VIEW_MASK = VIEW_LAYER | (1 << PUFF_LAYER);
  * What one frame may draw, as `scripts/smoke.ts` checks it. A shadow redraw that would take its
  * frame past this gets a frame of its own, and the view follows on the next.
  */
-const FRAME_CALLS = 170;
+const FRAME_CALLS = 186;
 const FRAME_TRIANGLES = 1_150_000;
 /** Frames a second the map draws while the day passes (a little under). */
 const LIVE_FPS = 32;

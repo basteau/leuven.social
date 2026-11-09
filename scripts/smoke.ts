@@ -29,13 +29,14 @@ const BIN = Bun.fileURLToPath(new URL('../node_modules/.bin/', import.meta.url))
  * outlines); a frame that redraws the shadow map adds one per casting cell, or draws the shadow
  * map alone when both wouldn't fit (`FRAME_CALLS` and `FRAME_TRIANGLES` in viewer.ts).
  */
-// 170 calls: the puffs of leaves are one instanced call a cell at every zoom (158 at the worst).
+// 180 calls: the puffs of leaves are one instanced call a cell at every zoom, and one more for
+// each cell casting into a shadow redraw (174 at the worst, a redraw zoomed out).
 // 160 calls: at night every lit cell in view adds a glow call, 150 in all zoomed out. Calls are
 // cheap here (one program for the city, one for the glow), so the triangles are what the cap
 // watches. The roofs' chimneys and dormers took the zoomed-out view from 582k to 637k.
 // 1.15M was the traffic's room, zoomed out (about 923k without it); the other players' figures
 // (two calls and about 1,300 triangles each) take what it left.
-const MAX_DRAW_CALLS = 170;
+const MAX_DRAW_CALLS = 186;
 const MAX_TRIANGLES = 1_150_000;
 /**
  * What the whole city hands the GPU once every cell is built: 2.40M vertices and 57.7 MB since

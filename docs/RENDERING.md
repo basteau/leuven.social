@@ -139,7 +139,7 @@ The size and render budgets are enforced by `bun run verify`; if one is exceeded
 | HTML, with the loading screen inline, gzipped                                   | 7 KB            | `scripts/budget.ts` |
 | Menu JS (loaded while the city is built)                                        | 7 KB            | `scripts/budget.ts` |
 | City data                                                                       | 1 MB            | `scripts/budget.ts` |
-| Draw calls per frame                                                            | 170             | `scripts/smoke.ts`  |
+| Draw calls per frame                                                            | 186             | `scripts/smoke.ts`  |
 | Triangles per frame                                                             | 1.15M           | `scripts/smoke.ts`  |
 | Vertices, every cell built                                                      | 4.05M           | `scripts/smoke.ts`  |
 | Geometry on the GPU, every cell built                                           | 103 MB          | `scripts/smoke.ts`  |
