@@ -6,6 +6,9 @@ dist-server/
 # The local multiplayer database (server/main.ts's DATABASE_PATH default)
 .data/
 
+# Local secrets, such as RESEND_API_KEY for the dev server
+.env
+
 # Local artefacts: smoke-test and review screenshots, OS and editor noise
 .artifacts/
 .DS_Store
