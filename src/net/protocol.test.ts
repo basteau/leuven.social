@@ -103,6 +103,12 @@ describe('server messages', () => {
   const messages: ServerMessage[] = [
     { type: 'welcome', you: 0 },
     { type: 'welcome', you: 0xffff_ffff },
+    { type: 'identity', guest: true, unseen: false, name: 'Guest Sunny Otter', outfit },
+    { type: 'identity', guest: true, unseen: true, name: 'Guest Sunny Otter 2', outfit },
+    { type: 'identity', guest: false, unseen: false, name: 'Bram', outfit },
+    { type: 'renamed', id: 12, name: 'Bram', outfit },
+    { type: 'driving', on: true },
+    { type: 'driving', on: false },
     { type: 'joins', players: [] },
     { type: 'joins', players: [{ id: 7, name: 'Marie-Thérèse', outfit, state }] },
     { type: 'leaves', ids: [] },
@@ -265,6 +271,13 @@ describe('server messages', () => {
 });
 
 describe('what the client says about its view', () => {
+  test('drive is one byte, and asks for nothing else', () => {
+    const bytes = encodeClientMessage({ type: 'drive' });
+    expect(bytes.length).toBe(1);
+    expect(decodeClientMessage(bytes)).toEqual({ type: 'drive' });
+    expect(decodeClientMessage(new Uint8Array([...bytes, 0]))).toBeNull();
+  });
+
   test('where the map looks and whether the full map is open', () => {
     expect(decodeClientMessage(encodeClientMessage({ type: 'view', x: 12.5, z: -3.25 }))).toEqual({
       type: 'view',
@@ -324,6 +337,20 @@ describe('malformed frames decode to null', () => {
     expect(patch(11, 255)).toMatchObject({ state: { speed: 25.5 } }); // the most a byte holds
     expect(patch(15, 0xff)).toBeNull(); // invalid UTF-8 in the place
     expect(patch(14, MAX_PLACE_BYTES + 1)).toBeNull(); // the place's length
+  });
+
+  test('an identity with flags it never has is refused', () => {
+    const fine = encodeServerMessage({
+      type: 'identity',
+      guest: true,
+      unseen: false,
+      name: 'a',
+      outfit,
+    });
+    const odd = fine.slice();
+    odd[1] = 4;
+    expect(decodeServerMessage(fine)).not.toBeNull();
+    expect(decodeServerMessage(odd)).toBeNull();
   });
 
   test('a lying player count and an overlong id', () => {

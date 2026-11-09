@@ -6,12 +6,15 @@ import { PARTS, css, surprise } from './outfits.ts';
 import './account-sheet.css';
 
 /**
- * Who you are on the map, in a sheet like the menu's: signed out, a name and a password to join
- * (or to sign back in); signed in, your look, chosen from a few colours a part and worn at once,
- * and a way out. Its own chunk, fetched when it is first opened.
+ * Who you are on the map, in a sheet like the menu's: a guest, who you are for now and a name and
+ * a password to join (or to sign back in); signed in, your look, chosen from a few colours a part
+ * and worn at once, and a way out. Its own chunk, fetched when it is first opened.
  */
 
-export type Account = { signedIn: false } | { signedIn: true; name: string; outfit: Outfit };
+/** Who you are on the map: signed in, or a guest with the name and look the server gave them. */
+export type Account =
+  | { signedIn: false; name?: string; outfit?: Outfit; unseen?: boolean }
+  | { signedIn: true; name: string; outfit: Outfit };
 
 export interface AccountSheetProps {
   open: boolean;
@@ -125,8 +128,8 @@ export function AccountSheet(props: AccountSheetProps) {
     }
   }
 
-  // Everyone else: the count includes you once you're signed in.
-  const others = online === null ? null : online - (account.signedIn ? 1 : 0);
+  // Everyone else: the count includes you, guest or not.
+  const others = online === null ? null : online - 1;
   const here =
     others === null
       ? 'Offline: others can’t see you right now.'
@@ -217,9 +220,18 @@ export function AccountSheet(props: AccountSheetProps) {
           ) : (
             <form className="account-form" onSubmit={(event) => void submit(event)}>
               <p className="menu-lede">
+                {account.name && (
+                  <>
+                    {account.unseen ? 'For now you’d be ' : 'For now you’re '}
+                    <strong>{account.name}</strong>
+                    {account.unseen
+                      ? ', but so many guests have come from your connection that others can’t see you. '
+                      : ', and everyone can see you. '}
+                  </>
+                )}
                 {joining
-                  ? 'Pick a name and a password, and walk Leuven with everyone else. You’ll come back where you left off.'
-                  : 'Your name and password, and you’re back where you left off.'}{' '}
+                  ? 'Pick a name and a password to keep one of your own, in your own colours. You’ll carry on from here, and come back where you left off.'
+                  : 'Your name and password, and you’ll carry on from here under your own name.'}{' '}
                 {here}
               </p>
               <label className="field">

@@ -1,6 +1,7 @@
 /**
  * Another player for the smoke test: an account made over HTTP and a presence socket that walks a
- * slow circle round a spot and writes down what it hears. Headless browsers side by side don't
+ * slow circle round a spot and writes down what it hears. It is first on the map at its address, so
+ * its tab drives the figure without needing to say so. Headless browsers side by side don't
  * animate (their pages count as hidden), so the second player is this script, speaking the same
  * protocol the page does (src/net/protocol.ts).
  */
@@ -11,8 +12,12 @@ import type { Outfit, ServerMessage } from '../src/net/protocol.ts';
 export interface Bot {
   /** Everything the server said to it, oldest first. */
   heard: ServerMessage[];
-  /** The players it saw join, by name. */
+  /** The players it saw join or become someone, by name, as they now are. */
   joined(): string[];
+  /** The id of the player called `name`, if it has heard of one. */
+  idOf(name: string): number | undefined;
+  /** The name of figure `id`, as it was last heard. */
+  nameOf(id: number): string | undefined;
   /** The latest outfit it heard for the player called `name`, if any. */
   outfitOf(name: string): Outfit | null;
   close(): void;
@@ -69,12 +74,21 @@ export async function startBot(
   const joined = () => {
     for (const m of heard) {
       if (m.type === 'joins') for (const p of m.players) ids.set(p.id, p.name);
+      if (m.type === 'renamed') ids.set(m.id, m.name);
     }
     return [...ids.values()];
   };
   return {
     heard,
     joined,
+    idOf(wanted) {
+      joined();
+      return [...ids].find(([, n]) => n === wanted)?.[0];
+    },
+    nameOf(id) {
+      joined();
+      return ids.get(id);
+    },
     outfitOf(who) {
       joined();
       let outfit: Outfit | null = null;
@@ -83,6 +97,7 @@ export async function startBot(
           for (const p of m.players) if (p.name === who) outfit = p.outfit;
         }
         if (m.type === 'outfit' && ids.get(m.id) === who) outfit = m.outfit;
+        if (m.type === 'renamed' && m.name === who) outfit = m.outfit;
       }
       return outfit;
     },

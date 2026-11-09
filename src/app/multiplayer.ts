@@ -3,13 +3,12 @@ import type { Me } from '../net/account.ts';
 import { createSnapshots } from '../net/interpolate.ts';
 import type { Snapshots } from '../net/interpolate.ts';
 import { connectPresence } from '../net/presence.ts';
-import type { Presence, PresenceStatus } from '../net/presence.ts';
+import type { Identity, Presence, PresenceStatus } from '../net/presence.ts';
 import type { Dot, Outfit, PlayerState } from '../net/protocol.ts';
 import { isPlace } from '../net/rules.ts';
 import type { Roster, RosterEntry, Viewer } from '../scene/viewer.ts';
 import type { Account } from './account-sheet.tsx';
 import { live } from './live.ts';
-import { FIRST_OUTFIT } from './outfits.ts';
 
 /**
  * The map with other people on it: your account (who you are and how you look), the presence
@@ -23,9 +22,16 @@ const SAVE_AFTER_MS = 600;
 const MINIMAP_MS = 250;
 /** How long the others stand frozen when the connection goes down, before they go (ms). */
 const FROZEN_MS = 5000;
+/** How often a tab that isn't the one moving your figure redraws it where it went (ms). */
+const FOLLOW_MS = 200;
+/** How long a sign-in or -out has to reach this tab's socket before it is reconnected (ms). */
+const REBIND_MS = 1500;
+/** What makes a tab the one in use. A person, never a program: see `claim`. */
+const CLAIMS = ['focus', 'pointerdown', 'keydown'] as const;
+const CAPTURE = { capture: true, passive: true };
 
 export interface MultiplayerHooks {
-  /** Who you are now: a guest, or signed in with your name and look. */
+  /** Who you are now: a guest, or signed in, each with a name and a look. */
   account(account: Account): void;
   /** How many are on the map, you included; null while the socket is down. */
   online(count: number | null): void;
@@ -37,7 +43,7 @@ export interface Multiplayer {
   signOut(): Promise<void>;
   /** Wears a look now and saves it a moment later. */
   dress(outfit: Outfit): void;
-  /** The avatar moved: the others hear of it, if you're signed in. */
+  /** The avatar moved: the others hear of it, if this is the tab moving your figure. */
   moved(state: PlayerState): void;
   dispose(): void;
 }
@@ -48,6 +54,14 @@ interface Other extends RosterEntry {
 
 export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multiplayer {
   let account: Account = { signedIn: false };
+  /** What the socket last said about who we are, if it has yet. */
+  let identity: Identity | null = null;
+  /** The look on the avatar, to wear another only when it changed. */
+  let worn: Outfit | null = null;
+  /** Where our figure went, driven from another tab, and when it was last drawn there. */
+  let ownAt: PlayerState | null = null;
+  let followedAt = 0;
+  let rebinding: ReturnType<typeof setTimeout> | undefined;
   /** Where the avatar is: sent as soon as a socket opens, since others only see you once you're placed. */
   let last: PlayerState | null = null;
   let presence: Presence | null = null;
@@ -120,8 +134,7 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
   }
   function tell(): void {
     // The count comes from the server; before it has said, whoever we can see and ourselves.
-    const seen = others.size + (account.signedIn ? 1 : 0);
-    hooks.online(status === 'online' ? Math.max(onlineCount, seen) : null);
+    hooks.online(status === 'online' ? Math.max(onlineCount, others.size + 1) : null);
   }
   /** Down for good or a moment: the others stand frozen for a moment, then go. */
   function forget(): void {
@@ -147,6 +160,20 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
         you = id;
         forget();
       },
+      onIdentity(next) {
+        identity = next;
+        apply(next);
+      },
+      onRenamed(id, name, outfit) {
+        const other = others.get(id);
+        if (!other) return;
+        others.set(id, { ...other, name, outfit });
+        changed(true);
+      },
+      onOwn(state) {
+        ownAt = state;
+        followAvatar();
+      },
       onJoin(players) {
         const now = performance.now();
         for (const player of players) {
@@ -171,13 +198,22 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
         onlineCount = count;
         tell();
       },
+      inUse: () => document.visibilityState === 'visible' && document.hasFocus(),
       onDots(everyone) {
         dots = everyone;
         news();
       },
       onOutfit(id, outfit) {
-        // Your own comes back too: you wear it already.
-        const other = id === you ? undefined : others.get(id);
+        // Your own comes back too: worn already here, new to your other tabs (unless you've since
+        // picked another, which is on its way to the server).
+        if (id === you) {
+          if (account.signedIn && !unsaved) {
+            settle({ ...account, outfit });
+            wear(outfit);
+          }
+          return;
+        }
+        const other = others.get(id);
         if (!other) return;
         others.set(id, { ...other, outfit });
         changed(true);
@@ -194,30 +230,61 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
         tell();
       },
     });
-    if (account.signedIn && last) presence.send(last);
+    if (last) presence.send(last);
     if (wantsDots) presence.dots(true);
     if (lookingAt) presence.view(...lookingAt);
   }
 
-  /** Signed in: wear your look, and stand where you left (on your first visit, where you are). */
-  function welcome(me: Me, comeBack: boolean): void {
-    settle({ signedIn: true, name: me.name, outfit: me.outfit });
-    viewer.dress(me.outfit);
-    if (comeBack && me.at) viewer.placeAvatar(me.at.x, me.at.z, me.at.heading);
+  /** Wears a look, if it isn't on already. */
+  function wear(outfit: Outfit): void {
+    if (worn && JSON.stringify(worn) === JSON.stringify(outfit)) return;
+    worn = outfit;
+    viewer.dress(outfit);
   }
 
-  // Who you are, once: a guest watches; an account comes back where it left.
+  /** The server says who this tab is now: the same, whichever tab caused it. */
+  function apply(who: Identity | Me): void {
+    settle(
+      who.guest
+        ? {
+            signedIn: false,
+            name: who.name,
+            outfit: who.outfit,
+            unseen: 'unseen' in who && who.unseen,
+          }
+        : { signedIn: true, name: who.name, outfit: who.outfit },
+    );
+    wear(who.outfit);
+  }
+
+  /** Draws our figure where another tab took it; while this tab is hidden, only when shown again. */
+  function followAvatar(): void {
+    if (!ownAt || document.visibilityState !== 'visible') return;
+    const now = performance.now();
+    if (now - followedAt < FOLLOW_MS) return;
+    followedAt = now;
+    viewer.placeAvatar(ownAt.x, ownAt.z, ownAt.heading);
+  }
+
+  /** Answered over HTTP, the socket should hear within a moment; if it can't have, connect again. */
+  function expectIdentity(guest: boolean): void {
+    clearTimeout(rebinding);
+    rebinding = setTimeout(() => {
+      if (identity?.guest !== guest) connect();
+    }, REBIND_MS);
+  }
+
+  // Who you are, once: a guest or an account, each back where they were last.
   const first = asked;
   void Accounts.me()
     .then((me) => {
       // Signed in or up meanwhile (a password manager is quick): that answer is the one.
       if (disposed || asked !== first) return;
-      if (me) welcome(me, true);
-      else settle({ signedIn: false });
+      if (!me) return;
+      apply(me);
+      if (me.at) viewer.placeAvatar(me.at.x, me.at.z, me.at.heading);
     })
-    .catch(() => {
-      if (asked === first) settle({ signedIn: false });
-    })
+    .catch(() => {})
     .finally(() => {
       if (!disposed && asked === first) connect();
     });
@@ -246,26 +313,38 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
   document.addEventListener('visibilitychange', leave);
   globalThis.addEventListener('pagehide', leave);
 
+  // The tab you use moves your figure, and only ever a person's own hand changes that: no reply to
+  // anything a server or another tab said, so two tabs can never pass it back and forth.
+  const claim = () => presence?.drive();
+  const shown = () => {
+    if (document.visibilityState !== 'visible') return;
+    followedAt = 0;
+    followAvatar();
+    claim();
+  };
+  for (const event of CLAIMS) globalThis.addEventListener(event, claim, CAPTURE);
+  document.addEventListener('visibilitychange', shown);
+
   return {
+    // Signing in and out change who your figure is on the server, so the figure and the socket
+    // carry on as they are, and every tab of this browser hears it over its socket.
     async signUp(name, password) {
       asked++;
-      const me = await Accounts.signUp(name, password);
-      // A new account starts where you are, wearing the server's pick.
-      welcome(me, false);
-      connect();
+      apply(await Accounts.signUp(name, password));
+      expectIdentity(false);
     },
     async signIn(name, password) {
       asked++;
-      const me = await Accounts.signIn(name, password);
-      welcome(me, true);
-      connect();
+      apply(await Accounts.signIn(name, password));
+      expectIdentity(false);
     },
     async signOut() {
       await save();
       await Accounts.signOut();
-      settle({ signedIn: false });
-      viewer.dress(FIRST_OUTFIT);
-      connect();
+      // Signed out either way: if this question fails, the socket says who you are now.
+      const me = await Accounts.me().catch(() => null);
+      if (me) apply(me);
+      expectIdentity(true);
     },
     dress(outfit) {
       if (!account.signedIn) return;
@@ -278,12 +357,14 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
     moved(state) {
       // A room the server wouldn't know is the street to the others, as it would be on arrival.
       last = isPlace(state.place) || !state.place ? state : { ...state, place: '', floor: 0 };
-      state = last;
-      if (account.signedIn) presence?.send(state);
+      presence?.send(last);
     },
     dispose() {
       disposed = true;
       clearTimeout(goneFor);
+      clearTimeout(rebinding);
+      for (const event of CLAIMS) globalThis.removeEventListener(event, claim, CAPTURE);
+      document.removeEventListener('visibilitychange', shown);
       void save(true);
       document.removeEventListener('visibilitychange', leave);
       globalThis.removeEventListener('pagehide', leave);

@@ -10,11 +10,13 @@ import { MAX_PASSWORD, MIN_NAME, MAX_NAME, MIN_PASSWORD, isUsername } from './ru
 
 const API = '/api';
 
-/** Who is signed in, how they look and where they were last. */
+/** Who this browser is, how they look and where they were last. */
 export interface Me {
+  /** Not signed in: a guest, with a name and look the server gave them. */
+  guest: boolean;
   name: string;
   outfit: Outfit;
-  /** Where they left the city, or null the first time. */
+  /** Where they left the city, or null the first time (or a guest away a while). */
   at: PlayerState | null;
 }
 
@@ -116,7 +118,7 @@ export async function signIn(username: string, password: string): Promise<Me> {
 /** The account right after signing in; a browser that dropped the cookie is our failure. */
 async function signedIn(): Promise<Me> {
   const account = await me();
-  if (!account) throw fail('server');
+  if (!account || account.guest) throw fail('server');
   return account;
 }
 
@@ -125,16 +127,15 @@ export async function signOut(): Promise<void> {
   if (!response.ok && response.status !== 401) throw await failure(response);
 }
 
-/** Who is signed in, or null for a guest. */
+/** Who this browser is: an account or its guest, or null from a server that can't say. */
 export async function me(): Promise<Me | null> {
   const response = await request('/me');
   if (response.status === 401) return null;
   if (!response.ok) throw await failure(response);
   const body = (await response.json().catch(() => undefined)) as Partial<Me> | null | undefined;
-  // A guest: nobody to be.
   if (body === null) return null;
   if (typeof body?.name !== 'string' || !isOutfit(body.outfit)) throw fail('server', body);
-  return { name: body.name, outfit: body.outfit, at: body.at ?? null };
+  return { guest: body.guest === true, name: body.name, outfit: body.outfit, at: body.at ?? null };
 }
 
 /** Keeps the avatar's colours; everyone online sees them change. */

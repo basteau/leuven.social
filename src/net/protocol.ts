@@ -9,12 +9,16 @@
  *   client → server  state    x f32, z f32, heading u16, speed u8, mode u8, floor i8, place
  *                    view     x f32, z f32 (what the map looks at, which decides who it hears of)
  *                    dots     on u8 (the full map is open: send everyone's dots)
+ *                    drive    (this tab is in use: it moves the figure from now on)
  *   server → client  welcome  you
+ *                    identity flags u8 (1 a guest, 2 unseen), name, outfit (who this connection is, whenever that changes)
+ *                    renamed  id, name, outfit (a figure became someone else: signed in or out)
+ *                    driving  on u8 (whether this tab is the one that moves the figure)
  *                    joins    count, then (id, name, outfit, state) × count
  *                    leaves   count, then id × count
  *                    moves    cell x i16, cell z i16, count, then entries, each id×2 (+1 for a delta), then
  *                               x u16, z u16, heading u16, speed+mode u8, or dx i8, dz i8, what changed u8, then that
- *                    placed   id, state
+ *                    placed   id, state (your own id: your figure, moved from another tab)
  *                    outfit   id, outfit
  *                    online   count
  *                    dots     count, then (id, x u16, z u16, colour u24) × count
@@ -114,11 +118,19 @@ export type ClientMessage =
   /** Where the map looks: the players round it are the ones this client hears of. */
   | { type: 'view'; x: number; z: number }
   /** Whether the full map is open, and wants a dot for everyone online. */
-  | { type: 'dots'; on: boolean };
+  | { type: 'dots'; on: boolean }
+  /** The tab in use: one figure a person, moved from whichever tab said this last. */
+  | { type: 'drive' };
 
 export type ServerMessage =
-  /** Sent first on every connection: your id, or 0 for a guest who only watches. */
+  /** Sent first on every connection: your figure's id. Every tab of a person has the same one. */
   | { type: 'welcome'; you: number }
+  /** Who this connection speaks for; again whenever that changes under it (signing in or out). */
+  | { type: 'identity'; guest: boolean; unseen: boolean; name: string; outfit: Outfit }
+  /** A figure someone can see is someone else now, in place: same id, a new name and look. */
+  | { type: 'renamed'; id: number; name: string; outfit: Outfit }
+  /** Whether this tab moves the figure; the others only watch it go. */
+  | { type: 'driving'; on: boolean }
   /** Players now within what this client hears of: arrivals, and those it came near. */
   | { type: 'joins'; players: JoinedPlayer[] }
   /** Players no longer within it (gone, or just further off). */
@@ -132,7 +144,10 @@ export type ServerMessage =
       players: readonly (MoveEntry | { id: number; state: Move })[];
       bases?: readonly (MoveBaseline | undefined)[];
     }
-  /** A figure that went into a room or out, or changed floor. */
+  /**
+   * A figure that went into a room or out, or changed floor. With your own id: where your figure
+   * is, moved from another of your tabs.
+   */
   | { type: 'placed'; id: number; state: PlayerState }
   | { type: 'outfit'; id: number; outfit: Outfit }
   /** How many players are on the map. */
@@ -140,16 +155,11 @@ export type ServerMessage =
   /** Everyone on the map, for the full map's dots. */
   | { type: 'dots'; players: Dot[] };
 
-/**
- * The close code for a connection that the same account replaced by signing in elsewhere. It
- * is final: the old tab must not reconnect and push the new one out in turn.
- */
-export const CLOSE_REPLACED = 4001;
-
 const TAG = {
   state: 1,
   view: 2,
   dots: 3,
+  drive: 4,
   welcome: 10,
   // 11 to 13 were single joins, leaves and full states: an old tab reads the new ones as nothing.
   outfit: 14,
@@ -159,7 +169,12 @@ const TAG = {
   placed: 18,
   online: 19,
   dotsAll: 20,
+  identity: 21,
+  renamed: 22,
+  driving: 23,
 } as const;
+const GUEST = 1;
+const UNSEEN = 2;
 const MODES: readonly Mode[] = ['foot', 'bike'];
 const TURN = Math.PI * 2;
 const HEADINGS = 65536;
@@ -348,6 +363,8 @@ export function encodeClientMessage(message: ClientMessage): Uint8Array<ArrayBuf
     case 'dots':
       w.uint8(message.on ? 1 : 0);
       break;
+    case 'drive':
+      break;
   }
   return w.toBytes();
 }
@@ -364,6 +381,8 @@ export function decodeClientMessage(bytes: Uint8Array): ClientMessage | null {
       }
       case TAG.dots:
         return { type: 'dots', on: r.uint8() === 1 };
+      case TAG.drive:
+        return { type: 'drive' };
       default:
         return null;
     }
@@ -387,6 +406,19 @@ export function encodeServerMessage(message: ServerMessage): Uint8Array<ArrayBuf
   switch (message.type) {
     case 'welcome':
       id(message.you);
+      break;
+    case 'identity':
+      w.uint8((message.guest ? GUEST : 0) | (message.unseen ? UNSEEN : 0));
+      writeString(w, message.name, MAX_NAME_BYTES);
+      writeOutfit(w, message.outfit);
+      break;
+    case 'renamed':
+      id(message.id);
+      writeString(w, message.name, MAX_NAME_BYTES);
+      writeOutfit(w, message.outfit);
+      break;
+    case 'driving':
+      w.uint8(message.on ? 1 : 0);
       break;
     case 'joins':
       w.varint(message.players.length);
@@ -443,6 +475,26 @@ export function decodeServerMessage(bytes: Uint8Array): ServerMessage | null {
     switch (tag) {
       case TAG.welcome:
         return { type: 'welcome', you: readId(r) };
+      case TAG.identity: {
+        const flags = r.uint8();
+        if (flags > (GUEST | UNSEEN)) throw new MalformedFrame();
+        return {
+          type: 'identity',
+          guest: (flags & GUEST) !== 0,
+          unseen: (flags & UNSEEN) !== 0,
+          name: readString(r, MAX_NAME_BYTES),
+          outfit: readOutfit(r),
+        };
+      }
+      case TAG.renamed:
+        return {
+          type: 'renamed',
+          id: readId(r),
+          name: readString(r, MAX_NAME_BYTES),
+          outfit: readOutfit(r),
+        };
+      case TAG.driving:
+        return { type: 'driving', on: r.uint8() === 1 };
       case TAG.joins: {
         const count = r.varint();
         if (count * MIN_JOIN > r.remaining) throw new MalformedFrame();
