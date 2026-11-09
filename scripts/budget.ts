@@ -71,7 +71,8 @@ const BUDGETS: {
   // the corner (0.4 KB). The account sheet's own styles load with it, below.
   // 4.1: the rail of view controls, the minimap's tab and the Go to pill (0.3 KB), asked for so
   // the map can be learnt without knowing the menu's keys.
-  { label: 'CSS', pattern: 'assets/index-*.css', limit: 4.1 * KB, gzip: true },
+  // 4.125: one selector, so the Map pill sits on the Menu's row on a phone with the minimap hidden.
+  { label: 'CSS', pattern: 'assets/index-*.css', limit: 4.125 * KB, gzip: true },
   // 1.6: the search field and its results on the full map (0.1 KB), asked for so a street can be
   // found from there.
   { label: 'Map CSS (with the map)', pattern: 'assets/map-*.css', limit: 1.6 * KB, gzip: true },

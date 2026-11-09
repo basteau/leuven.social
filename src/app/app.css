@@ -556,6 +556,7 @@ kbd {
   }
 
   .minimap,
+  .map-trigger,
   .hud-end {
     grid-row: 2;
   }
