@@ -825,7 +825,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       return;
     }
     if (away(...at) > ROUTE_REACH) refuse(...at, 'far');
-    else if (room) leaveFor(at);
+    else if (room) leaveFor(at, room);
     else routeOrRefuse(...at);
   }
 
@@ -869,9 +869,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
   }
 
   /** In a room: out through its door, and on to `at` once outside. */
-  function leaveFor(at: [number, number]): void {
-    if (!room) return;
-    const { door } = room;
+  function leaveFor(at: [number, number], { door }: { door: Room['door'] }): void {
     const out = [door.x - Math.sin(door.facing) * 0.8, door.z - Math.cos(door.facing) * 0.8];
     if (walkTo(out[0]!, out[1]!, TAP_REACH)) onward = at;
     else refuse(...at, 'closed');
@@ -1203,7 +1201,7 @@ export function createAvatarLayer(host: AvatarHost): AvatarLayer {
       // A mark can sit inside a block: the street nearest it is where to go.
       const at = grid.nearest(x, z, NAVIGATE_SNAP, true) ?? [x, z];
       trip = null;
-      if (room) leaveFor(at);
+      if (room) leaveFor(at, room);
       else if (!headFor(...at)) return;
       pinCamera();
     },
