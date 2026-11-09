@@ -86,11 +86,11 @@ const WINDOWS = `float sA = fract(seed * 17.13 + 0.29);
   window *= step(1.0, p.y) * step(p.y, top - 0.7);
   float average = 2.0 * halfWidth * 0.48 * step(1.0, p.y);
   float apex = top - 2.0;
+  float fromMiddle = abs(g.x - 0.5) * size.x;
   float lancet = step(3.0, p.y) * step(p.y, apex) *
-    step(abs(g.x - 0.5) * size.x, 0.75 * sqrt(clamp((apex - p.y) / 1.6, 0.0, 1.0)));
+    step(fromMiddle, 0.75 * sqrt(clamp((apex - p.y) / 1.6, 0.0, 1.0)));
   window = mix(window, lancet, church);
   average = mix(average, 2.0 * halfWidth * step(3.0, p.y) * step(p.y, apex), church);
-  float fromMiddle = abs(g.x - 0.5) * size.x;
   window *= 1.0 - church * max(step(fromMiddle, 0.06), step(fract(p.y / 2.4), 0.05));
   window *= 1.0 - ornate;
   average *= 1.0 - ornate;`;
@@ -103,7 +103,7 @@ const DOOR = `float bay4 = floor(cell.x / 4.0);
   float doorBay = house * (1.0 - shop) * step(hash2(vec2(bay4, seed * 100.0)), 0.7) *
     step(abs(mod(cell.x, 4.0) - floor(hash2(vec2(seed * 50.0, bay4)) * 4.0)), 0.5) *
     step(cell.y, 0.5) * step(4.0, top);
-  float door = doorBay * step(abs(g.x - 0.5) * size.x, 0.55) * step(0.0, p.y) * step(p.y, 2.3);
+  float door = doorBay * step(fromMiddle, 0.55) * step(0.0, p.y) * step(p.y, 2.3);
   float fanlight = door * step(1.95, p.y);
   window *= 1.0 - doorBay;`;
 
@@ -121,7 +121,7 @@ const SHOP_GROUND = `vec3 glass = uGlass;
   float doorAt = 0.5 * size.x - 0.6;
   float shopDoor = ground * step(mod(mod(cell.x, ${f(BAYS_PER_PAGE)}), 3.0), 0.5) * step(abs(doorU - doorAt), 0.5) *
     step(0.1, p.y) * step(p.y, storey * 0.72);
-  float mullion = step(0.6, fract(seed * 9.1)) * step(abs(g.x - 0.5) * size.x, 0.05) * (1.0 - shopDoor);
+  float mullion = step(0.6, fract(seed * 9.1)) * step(fromMiddle, 0.05) * (1.0 - shopDoor);
   float pane = step(0.08, g.x) * step(g.x, 0.92) * step(0.1, p.y) * step(p.y, storey * 0.72) * (1.0 - mullion);
   window = mix(window, pane, ground);
   average = mix(average, 0.6, ground);`;
