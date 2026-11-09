@@ -9,6 +9,7 @@ import {
   MAX_BIKES,
   MAX_STANDS,
   ROW,
+  onDrawnRoad,
   RingIndex,
   Shapes,
   directionFromOsm,
@@ -19,6 +20,7 @@ import {
   propFootprint,
   propFromOsm,
   rackFill,
+  rackLayouts,
   segmentInFootprint,
   standsAlong,
 } from './props.ts';
@@ -439,4 +441,97 @@ test('props claim ground by priority, then id; one standing on its twin is a sec
   expect(placeProps([point(0, -4, LAMP), point(0, -4, BENCH)], s)).toEqual(
     placeProps([point(0, -4, BENCH), point(0, -4, LAMP)], s),
   );
+});
+
+const RACK = { amenity: 'bicycle_parking' };
+
+test('a footprint is on the road only where the road shows: a square lies over it', () => {
+  const roads = new Shapes();
+  roads.ring([0, 0, 40, 0, 40, 10, 0, 10]);
+  const squares = new RingIndex();
+  squares.add([10, 0, 30, 0, 30, 10, 10, 10]); // a square drawn over the middle of the road
+  const onRoad = (x: number, z: number) =>
+    onDrawnRoad(propFootprint({ kind: 'bikes', x, z, angle: 0, size: 2 }), roads, squares);
+  expect(onRoad(5, 5)).toBe(true); // the road, in the open
+  expect(onRoad(20, 5)).toBe(false); // the square over it
+  expect(onRoad(9.5, 5)).toBe(true); // over the square's edge, half on the road
+  expect(onRoad(50, 5)).toBe(false); // nowhere near
+});
+
+test('a rack mapped on the road goes to the pavement and lines up with the kerb', () => {
+  const s = street();
+  const { props, racksMoved } = placeProps(
+    [
+      point(5, 3.5, { ...RACK, capacity: '4' }), // on the carriageway, by the south pavement
+      point(-20, -1.8, { ...RACK, capacity: '4' }), // straddling the north kerb
+    ],
+    s,
+  );
+  expect(racksMoved).toBe(2);
+  for (const p of props) {
+    expect(onDrawnRoad(propFootprint(p), s.roads, s.squares)).toBe(false);
+    expect(Math.abs(Math.sin(p.angle))).toBeCloseTo(1); // its row along the kerb
+  }
+  expect(props.find((p) => p.x > 0)!.z).toBeGreaterThan(4);
+  expect(props.find((p) => p.x < 0)!.z).toBeLessThan(-2);
+});
+
+test('a rack on a square over a road stays where it was mapped', () => {
+  const s = street();
+  s.squares.add([-5, -2, 5, -2, 5, 4, -5, 4]); // a square laid over the carriageway
+  const { props, racksMoved } = placeProps([point(0, 1, { ...RACK, capacity: '2' })], s);
+  expect(racksMoved).toBe(0);
+  expect([props[0]!.x, props[0]!.z]).toEqual([0, 1]);
+});
+
+/** Houses on both sides of `street`: the only pavement is the north one, `width` metres wide. */
+function pavement(width: number): Surroundings {
+  const solid = new Shapes();
+  solid.ring([-100, -2 - width - 20, 100, -2 - width - 20, 100, -2 - width, -100, -2 - width]);
+  solid.ring([-100, 4, 100, 4, 100, 30, -100, 30]);
+  return { ...street(), solid };
+}
+
+test('a rack with too little room is shortened, turned, or as a last resort dropped', () => {
+  // Two rows don't fit a pavement 3.5 m wide: one row of twelve does.
+  const wide = placeProps([point(0, -3, { ...RACK, capacity: '24' })], pavement(3.5));
+  expect(wide.props[0]!.size).toBe(ROW);
+  expect(wide.resized).toBe(1);
+  // A pavement narrower than a bike is long takes a short row standing across it.
+  const narrow = placeProps([point(0, -3, { ...RACK, capacity: '12' })], pavement(2.2));
+  expect(narrow.props[0]!.size).toBeLessThanOrEqual(4);
+  expect(Math.abs(Math.cos(narrow.props[0]!.angle))).toBeCloseTo(1);
+  // No pavement to speak of: it goes, rather than stand on the road.
+  const none = placeProps([point(0, -2.4, { ...RACK, capacity: '6' })], pavement(1.2));
+  expect(none.props).toEqual([]);
+  expect(none.racksDropped).toBe(1);
+  // The shortest order first (longest rows), across last.
+  expect(rackLayouts(20)).toEqual([
+    { stands: 12, across: false },
+    { stands: 8, across: false },
+    { stands: 6, across: false },
+    { stands: 4, across: false },
+    { stands: 4, across: true },
+    { stands: 3, across: true },
+    { stands: 2, across: true },
+  ]);
+  expect(rackLayouts(3)).toEqual([
+    { stands: 3, across: true },
+    { stands: 2, across: true },
+  ]);
+});
+
+test('a rack does not go through a house to the garden behind', () => {
+  const s = street();
+  // No pavement: the road reaches the houses, the only free ground is a garden behind them.
+  s.roads.ring([-100, -6, 100, -6, 100, 4, -100, 4]);
+  s.solid.ring([-100, 4, 100, 4, 100, 30, -100, 30]);
+  s.edges.add([-100, -22, 100, -22], false);
+  const { props, racksDropped } = placeProps([point(0, -4, { ...RACK, capacity: '4' })], s);
+  expect(props).toEqual([]);
+  expect(racksDropped).toBe(1);
+  // Mapped inside the house itself, its one way out is through the wall.
+  const open = street();
+  const inside = placeProps([point(0, -6.5, { ...RACK, capacity: '2' })], open);
+  expect(inside.props[0]!.z).toBeGreaterThan(-6);
 });

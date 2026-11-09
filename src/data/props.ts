@@ -303,14 +303,14 @@ const corners = (f: Footprint): [number, number][] =>
     [f.u0, f.v1],
   ].map(([u, v]) => [f.x - f.fz * u! + f.fx * v!, f.z + f.fx * u! + f.fz * v!]);
 
-/** Whether a line segment crosses or lies in a footprint (Liang–Barsky clipping). */
-export function segmentInFootprint(
+/** The part of a segment inside a footprint, as [t0, t1] along it, or null (Liang–Barsky). */
+function clipToFootprint(
   f: Footprint,
   ax: number,
   az: number,
   bx: number,
   bz: number,
-): boolean {
+): [number, number] | null {
   const [ua, va] = local(f, ax, az);
   const [ub, vb] = local(f, bx, bz);
   let [t0, t1] = [0, 1];
@@ -321,15 +321,26 @@ export function segmentInFootprint(
     [vb - va, f.v1 - va],
   ] as const) {
     if (p === 0) {
-      if (q < 0) return false;
+      if (q < 0) return null;
       continue;
     }
     const t = q / p;
     if (p < 0) t0 = Math.max(t0, t);
     else t1 = Math.min(t1, t);
-    if (t0 > t1) return false;
+    if (t0 > t1) return null;
   }
-  return true;
+  return [t0, t1];
+}
+
+/** Whether a line segment crosses or lies in a footprint. */
+export function segmentInFootprint(
+  f: Footprint,
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+): boolean {
+  return clipToFootprint(f, ax, az, bx, bz) !== null;
 }
 
 /** Whether two footprints overlap: no gap along any of their four sides (separating axes). */
@@ -354,6 +365,35 @@ export function discInFootprint(f: Footprint, x: number, z: number, radius: numb
   const du = u - Math.min(Math.max(u, f.u0), f.u1);
   const dv = v - Math.min(Math.max(v, f.v0), f.v1);
   return du * du + dv * dv < radius * radius || (du === 0 && dv === 0);
+}
+
+/** Whether a wall or parapet lies between two points. */
+function wallBetween(solid: Shapes, ax: number, az: number, bx: number, bz: number): boolean {
+  const reach = Math.hypot(bx - ax, bz - az) / 2 + 0.1;
+  return solid.edges.some((ax + bx) / 2, (az + bz) / 2, reach, (cx, cz, dx, dz) =>
+    crosses(ax, az, bx, bz, cx, cz, dx, dz),
+  );
+}
+
+/** Which side of the line pq a point r lies. */
+const side = (px: number, pz: number, qx: number, qz: number, rx: number, rz: number) =>
+  Math.sign((qx - px) * (rz - pz) - (qz - pz) * (rx - px));
+
+/** Whether segment ab crosses segment cd. */
+function crosses(
+  ax: number,
+  az: number,
+  bx: number,
+  bz: number,
+  cx: number,
+  cz: number,
+  dx: number,
+  dz: number,
+): boolean {
+  return (
+    side(ax, az, bx, bz, cx, cz) !== side(ax, az, bx, bz, dx, dz) &&
+    side(cx, cz, dx, dz, ax, az) !== side(cx, cz, dx, dz, bx, bz)
+  );
 }
 
 /** Bucket keys for a grid cell; coordinates within ±32,768 cells. */
@@ -504,12 +544,32 @@ export class Shapes {
   /** Whether a footprint reaches into an area or across a line. */
   touches(f: Footprint): boolean {
     if (this.contains(f.x, f.z)) return true;
-    // A segment crossing the footprint has a point within its half diagonal of the centre.
-    const reach = Math.hypot(Math.max(-f.u0, f.u1), Math.max(-f.v0, f.v1));
-    return this.edges.some(f.x, f.z, reach, (ax, az, bx, bz) =>
+    return this.edges.some(f.x, f.z, radius(f), (ax, az, bx, bz) =>
       segmentInFootprint(f, ax, az, bx, bz),
     );
   }
+}
+
+/** The furthest a footprint reaches from its centre: a corner. */
+const radius = (f: Footprint) => Math.hypot(Math.max(-f.u0, f.u1), Math.max(-f.v0, f.v1));
+
+/**
+ * Whether a footprint stands on the road as the map draws it, over a carriageway or cycle track.
+ * Roads are drawn under squares, so a stretch of road under a square is no road to stand clear of,
+ * and a rack on the square over it keeps its place: only what shows counts.
+ */
+export function onDrawnRoad(f: Footprint, roads: Shapes, squares: RingIndex): boolean {
+  const shows = (x: number, z: number) => roads.contains(x, z) && !squares.contains(x, z);
+  if (shows(f.x, f.z) || corners(f).some(([x, z]) => shows(x, z))) return true;
+  return roads.edges.some(f.x, f.z, radius(f), (ax, az, bx, bz) => {
+    const inside = clipToFootprint(f, ax, az, bx, bz);
+    if (!inside) return false;
+    // The edge shows if any of the stretch inside the footprint lies outside a square.
+    const [t0, t1] = inside;
+    return [t0, (t0 + t1) / 2, t1].some(
+      (t) => !squares.contains(ax + (bx - ax) * t, az + (bz - az) * t),
+    );
+  });
 }
 
 /** What the bake knows about the ground round a prop. */
@@ -546,6 +606,13 @@ const PRIORITY: readonly PropKind[] = [
   'bikes',
 ];
 /**
+ * How far a rack may go to get off the road (m): across a parking lane to its pavement, as a
+ * rack mapped in the road is meant to be seen standing by it, not in the traffic.
+ */
+const RACK_NUDGE = 12;
+/** Room a rack keeps from the road's edge (m): less than from a wall, or few pavements would do. */
+const KERB_ROOM = 0.08;
+/**
  * How far a mapped prop may be moved off something it collides with (m); further, it goes. A
  * monument moves a metre at most (the needle half that).
  */
@@ -555,7 +622,7 @@ const NUDGE: Partial<Record<PropKind, number>> = {
   busstop: 1.5,
   lamp: 1.5,
   bench: 1.5,
-  bikes: 2.5,
+  bikes: RACK_NUDGE,
 };
 /** Free ground kept round each footprint, so props stand apart and off walls and kerbs (m). */
 export const CLEARANCE = 0.25;
@@ -585,6 +652,12 @@ export interface PlacedProps {
   nudged: number;
   /** Props with no room within their nudge: a second mapping of one prop, or walled in. */
   dropped: number;
+  /** Bike racks moved (they are in `nudged`), those with nowhere to go, and those mapped twice. */
+  racksMoved: number;
+  racksDropped: number;
+  racksTwin: number;
+  /** Racks with no room as mapped drawn shorter, or across the pavement, in their stead. */
+  resized: number;
 }
 
 /** The OSM node id (`_osm: node/123`), so props settle in the same order on every bake. */
@@ -600,9 +673,10 @@ const osmId = (tags: Tags): number => Number(/(\d+)$/.exec(tags['_osm'] ?? '')?.
  *   picks; a bench line's `side`, or a tagged `direction`, wins.
  * - Placed in priority order (monuments, shelters, bus stops, lamps, benches, racks), then by OSM
  *   id: each keeps clear of buildings, water, tanks, parapets, mapped trunks and the props placed
- *   before it, and of the carriageway unless it was mapped there (medians, racks in a parking
- *   lane). A prop that collides is moved to the nearest free spot within its nudge, or dropped:
- *   one of the same kind standing on it is the same prop mapped twice.
+ *   before it, and of the carriageway unless it was mapped there (a median); never a bike rack,
+ *   which goes to the pavement beside it, shorter or across if that's what fits there. A prop
+ *   that collides is moved to the nearest free spot within its nudge, or dropped: one of the same
+ *   kind standing on it is the same prop mapped twice.
  */
 export function placeProps(points: readonly PropPoint[], around: Surroundings): PlacedProps {
   const candidates = points
@@ -627,9 +701,17 @@ export function placeProps(points: readonly PropPoint[], around: Surroundings): 
   const near = function* <T>(grid: Map<number, T[]>, size: number, f: Footprint, reach: number) {
     for (const k of cellsAround(size, f.x, f.z, reach)) yield* grid.get(k) ?? [];
   };
-  const radius = (f: Footprint) => Math.hypot(Math.max(-f.u0, f.u1), Math.max(-f.v0, f.v1));
 
-  const result: PlacedProps = { props: [], tags: [], nudged: 0, dropped: 0 };
+  const result: PlacedProps = {
+    props: [],
+    tags: [],
+    nudged: 0,
+    dropped: 0,
+    racksMoved: 0,
+    racksDropped: 0,
+    racksTwin: 0,
+    resized: 0,
+  };
   for (const c of candidates) {
     const angle = c.facing ?? turnOf(c.kind, c.x, c.z, around, c.axis);
     const prop: Prop = { kind: c.kind, x: c.x, z: c.z, angle, size: c.size };
@@ -646,10 +728,20 @@ export function placeProps(points: readonly PropPoint[], around: Surroundings): 
     );
     if (twin) {
       result.dropped++;
+      if (c.kind === 'bikes') result.racksTwin++;
       continue;
     }
     const onRoad = around.roads.contains(c.x, c.z);
+    // Mapped inside a footprint, its one way out is through the wall.
+    const walledIn = around.solid.contains(c.x, c.z);
     const clear = (f: Footprint, strict: boolean) => {
+      // A rack is never left on the road, wherever it was mapped: it goes to the pavement, the
+      // kerb itself all the room it needs from the road (a pavement is narrow enough), along the
+      // street, never through a house to the garden behind it.
+      if (c.kind === 'bikes') {
+        if (!strict || onDrawnRoad(grow(f, KERB_ROOM), around.roads, around.squares)) return false;
+        if (!walledIn && wallBetween(around.solid, c.x, c.z, f.x, f.z)) return false;
+      }
       const room = grow(f, CLEARANCE);
       const reach = radius(room);
       if (
@@ -663,17 +755,43 @@ export function placeProps(points: readonly PropPoint[], around: Surroundings): 
         }
         if (around.water.touches(room)) return false;
       }
+      if (c.kind === 'bikes') return true;
       if (strict) return !around.roads.touches(room);
       return onRoad || !around.roads.contains(f.x, f.z);
     };
-    const spot = settle(body.f, NUDGE[c.kind] ?? 1, clear);
+    let [shape, spot] = [body.f, settle(body.f, NUDGE[c.kind] ?? 1, clear)];
+    if (!spot && c.kind === 'bikes') {
+      // No room as mapped: a shorter rack, or one standing across the pavement, before none.
+      for (const { stands, across } of rackLayouts(c.size)) {
+        const fitted = { ...prop, size: stands, angle: angle + (across ? Math.PI / 2 : 0) };
+        const f = propFootprint(fitted);
+        spot = settle(f, NUDGE.bikes!, clear);
+        if (!spot) continue;
+        Object.assign(prop, { size: stands, angle: fitted.angle });
+        shape = f;
+        result.resized++;
+        break;
+      }
+    }
     if (!spot) {
       result.dropped++;
+      if (c.kind === 'bikes') result.racksDropped++;
       continue;
     }
-    if (spot.x !== c.x || spot.z !== c.z) result.nudged++;
+    if (spot.x !== c.x || spot.z !== c.z) {
+      result.nudged++;
+      if (c.kind === 'bikes') {
+        result.racksMoved++;
+        // Where it landed it lines up with the kerb there, if that still fits.
+        if (c.facing === null && c.axis === null) {
+          const aligned = { ...prop, ...spot, angle: turnOf(c.kind, spot.x, spot.z, around) };
+          const f = propFootprint(aligned);
+          if (clear(f, true)) [prop.angle, shape] = [aligned.angle, f];
+        }
+      }
+    }
     Object.assign(prop, { x: spot.x, z: spot.z });
-    const f = { ...body.f, x: spot.x, z: spot.z };
+    const f = { ...shape, x: spot.x, z: spot.z };
     const k = key(Math.floor(f.x / PROP_CELL), Math.floor(f.z / PROP_CELL));
     placed.set(k, [...(placed.get(k) ?? []), { kind: c.kind, f }]);
     widest = Math.max(widest, radius(f));
@@ -681,6 +799,19 @@ export function placeProps(points: readonly PropPoint[], around: Surroundings): 
     result.tags.push(c.tags);
   }
   return result;
+}
+
+/** Fewer stands for a rack that doesn't fit as mapped, the longest row first. */
+const SHORTER = [ROW, 8, 6, 4] as const;
+/** Stands in a row that stands across the pavement: it takes up its width. */
+const ACROSS = [4, 3, 2] as const;
+
+/** What to try for a rack of `stands` with no room as mapped, in order: shorter rows, then across. */
+export function rackLayouts(stands: number): { stands: number; across: boolean }[] {
+  return [
+    ...SHORTER.filter((n) => n < stands).map((n) => ({ stands: n, across: false })),
+    ...ACROSS.filter((n) => n <= stands).map((n) => ({ stands: n, across: true })),
+  ];
 }
 
 /** Offsets to try, nearest first: rings of STEP, each in DIRECTIONS directions. */

@@ -489,7 +489,7 @@ const parapets = knw.structures
   .map((line) => new Float32Array(line));
 
 // Street furniture by rule (src/data/props.ts): turned to its kerb, kept off walls, water, tanks,
-// trunks and each other, and off the carriageway unless mapped there.
+// trunks and each other, and off the carriageway unless mapped there (never a rack).
 const kerbs = new Shapes();
 for (const { role, ring } of zones.faces) {
   if (role === 'pedestrian') continue;
@@ -763,6 +763,7 @@ console.log(
     )
       .map(([kind, list]) => `${list!.length} ${kind}`)
       .join(', ')}`,
+    `racks ${racks.length} off the roads: ${placed.racksMoved} moved, ${placed.resized} shortened or turned to fit, ${placed.racksDropped} with nowhere to go, ${placed.racksTwin} mapped twice`,
     `bikes ${fills.reduce((sum, f) => sum + f.bikes, 0)} in ${racks.length} racks: ${[...byFill]
       .map(([kind, n]) => `${kind} ${n.bikes} of ${n.stands} stands in ${n.racks} racks`)
       .join(', ')}`,
