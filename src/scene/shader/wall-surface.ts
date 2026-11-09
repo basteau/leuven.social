@@ -65,7 +65,7 @@ void wallSurface(inout vec3 albedo, vec3 base, inout vec3 glowEmit) {
   // bays actually drawn are a whole number fitted along the wall (vBay).
   float aim = mix(mix(${f(BAY_MIN)}, ${f(BAY_MAX)}, fract(top * ${f(BAY_SPREAD)})), ${f(LANCET_BAY)}, church);
   vec2 size = vec2(aim, storey);
-  float halfWidth = mix(mix(0.17, 0.25, seed2), 0.75 / ${f(LANCET_BAY)}, church);
+  float halfWidth = mix(mix(0.13, 0.19, seed2), 0.75 / ${f(LANCET_BAY)}, church);
   // Storeys count from the foot of the house, wherever the ground lifted it.
   vec2 p = vec2(dot(vWorld.xz, vec2(-vWallNormal.y, vWallNormal.x)), vWorld.y - vLift);
   // Across a wall, its fitted bays; up it, the storeys.

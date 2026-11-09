@@ -11,9 +11,12 @@
  * against a neighbour: the shader reads it where the wall starts and draws the join there.
  */
 
-/** The bay widths a house's own rhythm aims for (m), seeded by its wall top. */
-export const BAY_MIN = 2.2;
-export const BAY_MAX = 3.4;
+/**
+ * The bay widths a house's own rhythm aims for (m), seeded by its wall top. Wide enough that a
+ * front reads as a few windows with wall between them, at this zoom, rather than a grid of them.
+ */
+export const BAY_MIN = 3.2;
+export const BAY_MAX = 4.6;
 /** How fast the wall top turns the width (a mix of the top's centimetres, the same in the shader). */
 export const BAY_SPREAD = 7.3;
 /** A church's lancets, a civic hall's niches: their own bays (m). */
@@ -23,7 +26,7 @@ export const NICHE_BAY = 1.6;
 const MOST_BAYS = 127;
 export const BAYS_PER_PAGE = 8;
 /** A wall shorter than this share of its bay gets none: a window would be a sliver. */
-const SHORT_WALL = 0.55;
+const SHORT_WALL = 0.42;
 /** Nor is a pier of any kind this short (m) worth a window. */
 const SHORTEST_WALL = 1.6;
 

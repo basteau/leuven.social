@@ -37,7 +37,7 @@ test('a wall takes the whole number of bays nearest its aim, none if it is too s
   expect(fitBays(1.2, 2.2)).toBe(0);
   expect(fitBays(1.7, 2.2)).toBe(1);
   // A church's bays are wider, so a short stretch of its wall has no lancet.
-  expect(fitBays(2.5, LANCET_BAY)).toBe(0);
+  expect(fitBays(2.2, LANCET_BAY)).toBe(0);
   expect(fitBays(3.2, LANCET_BAY)).toBe(1);
   // The byte has only so much room.
   expect(fitBays(1000, 2.2)).toBe(127);
