@@ -201,7 +201,9 @@ const BUDGETS: {
     // 15.75: contact bands mitred round corners and tapered at their ends, in place of a square
     // block at every building corner, and the lamps' light summed before it is flattened, asked
     // for (0.4 KB, after trimming).
-    limit: 15.75 * KB,
+    // 16: signs moved along their wall clear of each other and of awnings, a closed menu board and
+    // the second round of the lamps' light (0.1 KB together), asked for.
+    limit: 16 * KB,
     gzip: true,
   },
   // The rooms inside the landmarks, authored by hand, fetched near one.
