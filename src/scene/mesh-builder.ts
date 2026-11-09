@@ -40,6 +40,9 @@ export function linearVertexColors(vertexShader: string): string {
   );
 }
 
+const NO_BAYS: V3 = [0, 0, 0];
+const NO_QUAD_BAYS = [0, 0, 0, 0] as const;
+
 /** Lets the garbage collector take an attribute's array once the GPU has its copy. */
 function release(this: { array: unknown }): void {
   this.array = null;
@@ -253,7 +256,7 @@ export class MeshBuilder {
   }
 
   /** Writes a vertex with the current face's normal and colour, and returns its index. */
-  #vertex(v: V3, facade: number): number {
+  #vertex(v: V3, facade: number, bay = 0): number {
     if (this.#count === this.#capacity) this.#grow();
     const i = this.#count * 3;
     this.#positions[i] = v[0];
@@ -270,6 +273,7 @@ export class MeshBuilder {
     this.#colors[j] = color >> 16;
     this.#colors[j + 1] = (color >> 8) & 255;
     this.#colors[j + 2] = color & 255;
+    this.#colors[j + 3] = bay;
     this.#facades[this.#count] = facade;
     return this.#count++;
   }
@@ -282,9 +286,18 @@ export class MeshBuilder {
 
   /**
    * `facade` is the wall-top height the window shader reads, or on the ground a negative surface
-   * or paint code (see paint.ts); paint gives each vertex its own.
+   * or paint code (see paint.ts); paint gives each vertex its own. `bays` are a wall's corner
+   * bytes (facade-bays.ts), 0 for anything else.
    */
-  triangle(a: V3, b: V3, c: V3, color: number, hint: V3, facade: number | V3 = 0): void {
+  triangle(
+    a: V3,
+    b: V3,
+    c: V3,
+    color: number,
+    hint: V3,
+    facade: number | V3 = 0,
+    bays: V3 = NO_BAYS,
+  ): void {
     const [fa, fb, fc] = typeof facade === 'number' ? [facade, facade, facade] : facade;
     if (this.drape) {
       const ring = [
@@ -298,7 +311,8 @@ export class MeshBuilder {
     const flip = this.#face(a, b, c, hint);
     if (!flip) return;
     this.#color = color;
-    this.#triangle(this.#vertex(a, fa), this.#vertex(b, fb), this.#vertex(c, fc), flip);
+    const [ba, bb, bc] = bays;
+    this.#triangle(this.#vertex(a, fa, ba), this.#vertex(b, fb, bb), this.#vertex(c, fc, bc), flip);
   }
 
   /**
@@ -313,6 +327,7 @@ export class MeshBuilder {
     color: number,
     hint: V3,
     facade: number | readonly [number, number, number, number] = 0,
+    bays: readonly [number, number, number, number] = NO_QUAD_BAYS,
   ): void {
     const [fa, fb, fc, fd] = typeof facade === 'number' ? [facade, facade, facade, facade] : facade;
     if (this.drape) {
@@ -331,15 +346,17 @@ export class MeshBuilder {
     const nz = this.#nz;
     const second = this.#face(a, c, d, hint);
     if (!first || !second || nx !== this.#nx || ny !== this.#ny || nz !== this.#nz) {
-      this.triangle(a, b, c, color, hint, [fa, fb, fc]);
-      this.triangle(a, c, d, color, hint, [fa, fc, fd]);
+      const [ba, bb, bc, bd] = bays;
+      this.triangle(a, b, c, color, hint, [fa, fb, fc], [ba, bb, bc]);
+      this.triangle(a, c, d, color, hint, [fa, fc, fd], [ba, bc, bd]);
       return;
     }
     this.#color = color;
-    const i = this.#vertex(a, fa);
-    const j = this.#vertex(b, fb);
-    const k = this.#vertex(c, fc);
-    const l = this.#vertex(d, fd);
+    const [ba, bb, bc, bd] = bays;
+    const i = this.#vertex(a, fa, ba);
+    const j = this.#vertex(b, fb, bb);
+    const k = this.#vertex(c, fc, bc);
+    const l = this.#vertex(d, fd, bd);
     this.#triangle(i, j, k, first);
     this.#triangle(i, k, l, second);
   }
@@ -443,8 +460,9 @@ export class MeshBuilder {
     if (facade) {
       const value = new BufferAttribute(this.#facades.slice(0, n), 1);
       geometry.setAttribute('facade', value.onUpload(release));
-      // The normal's spare byte: no more memory, on the GPU or off it.
+      // The normal's spare byte, and the colour's: no more memory, on the GPU or off it.
       geometry.setAttribute('lift', new InterleavedBufferAttribute(normal.data, 1, 3, false));
+      geometry.setAttribute('bay', new InterleavedBufferAttribute(color.data, 1, 3, false));
     }
     geometry.setIndex(indexAttribute(this.#indices.array, this.#indices.count, n));
     this.#bounds.applyTo(geometry);
