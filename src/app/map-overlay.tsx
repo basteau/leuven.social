@@ -200,6 +200,11 @@ export function MapOverlay(props: Props) {
           const [x, y] = at(p.x, p.z);
           taken.push([x - 14, y - 14, x + 14, y + 14]);
         }
+        // A spot just picked keeps its pin clear too, or its own name would run under it.
+        if (state.selection?.kind === 'spot') {
+          const [x, y] = at(state.selection.x, state.selection.z);
+          taken.push([x - 10, y - 10, x + 10, y + 10]);
+        }
         ctx.fillStyle = '#2b2420';
         for (const place of state.labels) {
           if (place.kind === 'street' && frame.scale < STREETS_FROM) break;
