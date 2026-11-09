@@ -950,6 +950,30 @@ describe('createWorld', () => {
     expect(ofType(c.connection.take(), 'joins')[0]?.players[0]?.outfit).toEqual(red);
   });
 
+  test('a new name is heard by whoever can see them, and by their own tabs', async () => {
+    const { join, move, world } = setup();
+    const a = join('a');
+    await move(a.id);
+    const b = join('b');
+    world.tick();
+    world.tick();
+    a.connection.take();
+    b.connection.take();
+    world.setName('a', 'Anna');
+    world.setName('nobody', 'Anna');
+    expect(ofType(b.connection.take(), 'renamed')).toEqual([
+      { type: 'renamed', id: a.you, name: 'Anna', outfit },
+    ]);
+    expect(ofType(a.connection.messages, 'identity')).toEqual([
+      { type: 'identity', guest: false, unseen: false, name: 'Anna', outfit },
+    ]);
+    expect(world.who('a')?.name).toBe('Anna');
+    const c = join('c');
+    world.tick();
+    world.tick();
+    expect(ofType(c.connection.take(), 'joins')[0]?.players[0]?.name).toBe('Anna');
+  });
+
   test('a connection that throws on send does not stop the others', async () => {
     const { join, move, world } = setup();
     const broken = join('broken');
