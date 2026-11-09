@@ -44,7 +44,7 @@ const NIGHT = { moon: 0.55, sky: 1 } as const;
  * one uniform (`LightShadow.intensity`), and the toon ramp still shades faces by the sun's angle.
  */
 export const SHADOW_FULL = 1.7;
-export const SHADOW_GONE = 0.2;
+export const SHADOW_GONE = 0.3;
 export const shadowWeight = (sunIntensity: number): number =>
   Math.min(1, Math.max(0, (sunIntensity - SHADOW_GONE) / (SHADOW_FULL - SHADOW_GONE)));
 
@@ -147,7 +147,8 @@ const KEYFRAMES: readonly Keyframe[] = [
     hour: 21.25,
     sunDirection: [-0.2, 0.6, 0.4],
     sun: 0x9d9ccc,
-    sunIntensity: 0.25,
+    // Too faint to cast, strong enough for the toon ramp to keep the roofs' slopes apart.
+    sunIntensity: 0.42,
     sky: 0x6a74a8,
     skyIntensity: 1.05,
     bounce: 0x3a3648,
