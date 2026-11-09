@@ -244,6 +244,18 @@
         font: 600 0.6875rem / 1.4 var(--font-mono);
       }
 
+      /* A phone on its side: the town, the name, and the bar or the error, nothing cut off. */
+      @media (max-height: 30rem) {
+        .intro-art {
+          inline-size: min(10rem, 34dvh);
+        }
+
+        .intro-lede,
+        .intro-hints {
+          display: none;
+        }
+      }
+
       /* Keys where there's likely a keyboard; thumbs everywhere else. */
       .intro-touch {
         display: none;
@@ -654,7 +666,7 @@
           <p class="intro-keys">
             Zoom down to the street to find yourself on Grote Markt. <kbd data-code="KeyW">W</kbd>
             <kbd data-code="KeyA">A</kbd> <kbd data-code="KeyS">S</kbd>
-            <kbd data-code="KeyD">D</kbd> walk, a click goes somewhere, <kbd data-mod>Ctrl</kbd>
+            <kbd data-code="KeyD">D</kbd> walk, click a street to go there, <kbd data-mod>Ctrl</kbd>
             <kbd>K</kbd> for everything else.
           </p>
           <p class="intro-touch">
