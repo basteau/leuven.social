@@ -150,7 +150,7 @@ describe('account', () => {
     };
     expect(await say(503, 'MAIL_OFF')).toMatchObject({
       code: 'mail-off',
-      message: 'Email sign-in isn’t switched on yet. You can keep exploring as a guest.',
+      message: 'Joining isn’t switched on yet. Keep exploring as you are.',
     });
     expect(await say(502, 'MAIL_FAILED')).toMatchObject({ code: 'mail-failed' });
     expect(await say(400, 'EMAIL_UNDELIVERABLE')).toMatchObject({ code: 'undeliverable' });

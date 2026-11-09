@@ -718,10 +718,11 @@ export function App() {
       passing,
       minimap,
       signedIn: account.signedIn,
+      mailOff: !account.signedIn && account.mailOff === true,
       keys,
       mod,
     }),
-    [ride, door, running, routing, soundOn, time, passing, minimap, account.signedIn, keys, mod],
+    [ride, door, running, routing, soundOn, time, passing, minimap, account, keys, mod],
   );
   // Places by name: choosing one takes the view there, down to the street; you walk there.
   const places = useMemo(
@@ -808,7 +809,7 @@ export function App() {
         {ready && (
           <button
             type="button"
-            className={account.signedIn ? 'you' : 'you primary'}
+            className={account.signedIn || account.mailOff ? 'you' : 'you primary'}
             aria-haspopup="dialog"
             aria-keyshortcuts="L"
             onClick={() => {
@@ -826,7 +827,7 @@ export function App() {
                   <span className="sr-only">You: </span>
                   {account.name}
                 </span>
-                {!account.signedIn && <span className="you-join">Join</span>}
+                {!account.signedIn && !account.mailOff && <span className="you-join">Join</span>}
               </>
             ) : (
               'Join'
@@ -1049,7 +1050,7 @@ export function App() {
               signOut={() =>
                 multiplayer()
                   .signOut()
-                  .then(() => say('Signed out: a guest again'))
+                  .then(() => say('Signed out'))
               }
               dress={(outfit) => multiplayerRef.current?.dress(outfit)}
             />

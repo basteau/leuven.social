@@ -258,7 +258,7 @@ export async function startServer(config: ServerConfig): Promise<RunningServer> 
    * a mail that didn't go must say so, so the code is made here and sent here.
    */
   async function sendCode(request: Request): Promise<Response> {
-    if (!mailer.ready) return problem(503, 'MAIL_OFF', 'Email sign-in isn’t switched on yet.');
+    if (!mailer.ready) return problem(503, 'MAIL_OFF', 'Joining isn’t switched on yet.');
     const body = await readJson(request);
     const email = typeof body?.email === 'string' ? normaliseEmail(body.email) : '';
     if (!isEmail(email)) return problem(400, 'INVALID_EMAIL', 'Enter an email address.');

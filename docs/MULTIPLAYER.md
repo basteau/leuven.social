@@ -54,10 +54,10 @@ better-auth (`server/auth.ts`) does the security work: one-time codes (hashed at
 
 `server/mail.ts` posts to Resend's HTTP API (no SDK) with a timeout and an idempotency key. `main.ts` picks what to do from the environment:
 
-|                       | No `RESEND_API_KEY` and `MAIL_FROM`                                                                                                                                                                                                         | With both |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
-| Outside production    | The code is printed on the server's console (`leuven:mail`), so signing in works locally with no account at a provider                                                                                                                      | Sent      |
-| `NODE_ENV=production` | The server starts and guests play. A warning is logged at start, `/api/me` says `mail: false` so the sheet says so up front ("Email sign-in isn't switched on yet. You can keep exploring as Breezy Kite."), and sending a code answers 503 | Sent      |
+|                       | No `RESEND_API_KEY` and `MAIL_FROM`                                                                                                                                                                                           | With both |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------- |
+| Outside production    | The code is printed on the server's console (`leuven:mail`), so signing in works locally with no account at a provider                                                                                                        | Sent      |
+| `NODE_ENV=production` | The server starts and guests play. A warning is logged at start, `/api/me` says `mail: false` so the sheet says so up front ("Joining isn't switched on yet. Keep exploring as Breezy Kite."), and sending a code answers 503 | Sent      |
 
 When Resend refuses (a bad key, an unverified domain, 429) the person reads a sentence (502, `MAIL_FAILED`) and the log gets a line with the provider's reason, never the key; a send that failed doesn't count against the address's limits.
 

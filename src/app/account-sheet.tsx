@@ -11,6 +11,7 @@ import {
   isUsername,
 } from '../net/rules.ts';
 import type { Outfit } from '../scene/viewer.ts';
+import { CloseIcon } from './menu-icons.tsx';
 import { PARTS, css, surprise } from './outfits.ts';
 import './account-sheet.css';
 
@@ -68,7 +69,7 @@ function Preview({ outfit }: { outfit: Outfit }) {
   );
 }
 
-const nameRules = `${MIN_NAME} to ${MAX_NAME} letters, digits, dots, dashes or underscores; no spaces.`;
+const nameRules = `${MIN_NAME} to ${MAX_NAME} letters, digits, dots, dashes or underscores.`;
 
 interface NameFormProps {
   /** The name on the account now, which the field starts with. */
@@ -243,15 +244,15 @@ export function AccountSheet(props: AccountSheetProps) {
     if (fieldRef.current) {
       fieldRef.current.focus();
       fieldRef.current.select();
-    } else titleRef.current?.focus({ focusVisible: true } as FocusOptions);
+    } else titleRef.current?.focus();
   });
   // The wait before another code, in seconds, while it can be seen.
   useEffect(() => {
     if (!open || step !== 'code') return;
-    const timer = setInterval(
-      () => setLeft(Math.max(0, Math.ceil((waitUntil.current - Date.now()) / 1000))),
-      1000,
-    );
+    // Reopened mid-wait, the count is right at once, not a second later.
+    const tick = () => setLeft(Math.max(0, Math.ceil((waitUntil.current - Date.now()) / 1000)));
+    tick();
+    const timer = setInterval(tick, 1000);
     return () => clearInterval(timer);
   }, [open, step]);
 
@@ -286,7 +287,7 @@ export function AccountSheet(props: AccountSheetProps) {
     runningOut.current = setTimeout(() => {
       setStep('email');
       setCode('');
-      setError('That code ran out. Send a new one.');
+      setError('That code has expired. Send a new one.');
     }, CODE_MINUTES * 60_000);
   }
 
@@ -320,25 +321,16 @@ export function AccountSheet(props: AccountSheetProps) {
     }
   }
 
-  // Everyone else: the count includes you, guest or not.
-  const others = online === null ? null : online - 1;
-  const here =
-    others === null
-      ? 'Offline: others can’t see you right now.'
-      : others <= 0
-        ? 'Nobody else is in Leuven right now.'
-        : others === 1
-          ? 'One other person is in Leuven right now.'
-          : `${others} others are in Leuven right now.`;
-
   const fresh = account.signedIn && account.fresh;
   const title = account.signedIn
     ? fresh
       ? 'Pick your name'
       : account.name
-    : step === 'code'
-      ? 'Check your email'
-      : 'Join Leuven';
+    : account.mailOff
+      ? (account.name ?? 'Join Leuven')
+      : step === 'code'
+        ? 'Check your email'
+        : 'Join Leuven';
 
   return (
     <dialog ref={dialogRef} className="menu account" aria-labelledby={`${uid}-title`}>
@@ -348,18 +340,7 @@ export function AccountSheet(props: AccountSheetProps) {
             {title}
           </h2>
           <button type="button" className="menu-close" aria-label="Close" onClick={close}>
-            <svg
-              viewBox="0 0 24 24"
-              width="20"
-              height="20"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.5"
-              strokeLinecap="round"
-              aria-hidden="true"
-            >
-              <path d="M6 6l12 12M18 6 6 18" />
-            </svg>
+            <CloseIcon />
             <kbd aria-hidden="true">Esc</kbd>
           </button>
         </header>
@@ -387,7 +368,8 @@ export function AccountSheet(props: AccountSheetProps) {
               <div className="account-you">
                 <Preview outfit={account.outfit} />
                 <p className="menu-lede">
-                  This is you on the map. Pick your colours: everyone sees them at once. {here}
+                  This is you on the map. Pick your colours: everyone sees them at once.
+                  {online === null && ' You’re offline: nobody else can see you right now.'}
                 </p>
               </div>
               <NameForm
@@ -446,8 +428,14 @@ export function AccountSheet(props: AccountSheetProps) {
           )}
           {!account.signedIn && account.mailOff && (
             <p className="menu-lede">
-              Email sign-in isn’t switched on yet. You can keep exploring as{' '}
-              {account.name ? <strong>{account.name}</strong> : 'a guest'}.
+              Joining isn’t switched on yet. Keep exploring
+              {account.name && (
+                <>
+                  {' '}
+                  as <strong>{account.name}</strong>
+                </>
+              )}
+              .
             </p>
           )}
           {!account.signedIn && !account.mailOff && step === 'email' && (
@@ -464,12 +452,12 @@ export function AccountSheet(props: AccountSheetProps) {
                     {account.unseen ? 'For now you’d be ' : 'For now you’re '}
                     <strong>{account.name}</strong>
                     {account.unseen
-                      ? ', but so many guests have come from your connection that others can’t see you. '
+                      ? ', but too many people on your connection are on the map for others to see you. '
                       : '. '}
                   </>
                 )}
-                Join to keep a name and colours of your own, and carry on from here. No password: we
-                email you a code.
+                Use your email to keep a name and colours of your own, or to come back to them.
+                We’ll send a code; no password.
               </p>
               <label className="field">
                 <span>Email</span>
