@@ -1,3 +1,11 @@
+import {
+  BAYS_PER_PAGE,
+  BAY_MAX,
+  BAY_MIN,
+  BAY_SPREAD,
+  LANCET_BAY,
+  NICHE_BAY,
+} from '../facade-bays.ts';
 import { LANCETS, ORNATE, SHOP_FRONT } from '../facade-codes.ts';
 import { f } from './glsl.ts';
 
@@ -47,13 +55,16 @@ void wallSurface(inout vec3 albedo, vec3 base, inout vec3 glowEmit) {
   float seed = fract(sin(top * 91.345) * 43758.5453);
   float seed2 = fract(seed * 13.17 + 0.37);
   float storey = clamp(top / max(1.0, floor(top / 3.2 + 0.5)), 2.8, 4.0);
-  // A church: a lancet 1.5 m wide every 5.5 m.
-  vec2 size = vec2(mix(mix(2.2, 3.4, seed), 5.5, church), storey);
-  float halfWidth = mix(mix(0.17, 0.25, seed2), 0.75 / 5.5, church);
+  // The width a bay is meant to be (facade-bays.ts): what doors and frames are sized by. The
+  // bays actually drawn are a whole number fitted along the wall (vBay).
+  float aim = mix(mix(${f(BAY_MIN)}, ${f(BAY_MAX)}, fract(top * ${f(BAY_SPREAD)})), ${f(LANCET_BAY)}, church);
+  vec2 size = vec2(aim, storey);
+  float halfWidth = mix(mix(0.17, 0.25, seed2), 0.75 / ${f(LANCET_BAY)}, church);
   // Storeys count from the foot of the house, wherever the ground lifted it.
   vec2 p = vec2(dot(vWorld.xz, vec2(-vWallNormal.y, vWallNormal.x)), vWorld.y - vLift);
-  vec2 cell = floor(p / size);
-  vec2 g = fract(p / size);
+  // Across a wall, its fitted bays; up it, the storeys.
+  vec2 cell = vec2(floor(vBay), floor(p.y / storey));
+  vec2 g = vec2(fract(vBay), fract(p.y / storey));
   float house = (1.0 - church) * (1.0 - ornate);
   // Each building's own style (DESIGN.md, "Facades"): arched windows on a quarter of
   // the houses, tall ones with a balcony rail on another quarter, the rest plain; and
@@ -102,7 +113,9 @@ void wallSurface(inout vec3 albedo, vec3 base, inout vec3 glowEmit) {
   float doorSide = step(0.5, fract(seed * 5.17)) * 2.0 - 1.0;
   float doorU = (g.x - 0.5) * size.x * doorSide;
   float doorAt = 0.5 * size.x - 0.6;
-  float shopDoor = ground * step(abs(mod(cell.x, 3.0) - 1.0), 0.5) * step(abs(doorU - doorAt), 0.5) *
+  // A wall's bay numbers run on from a page (facade-bays.ts), so count from its first bay: the
+  // door goes in the first of every three, and even a one-bay shop gets one.
+  float shopDoor = ground * step(mod(mod(cell.x, ${f(BAYS_PER_PAGE)}), 3.0), 0.5) * step(abs(doorU - doorAt), 0.5) *
     step(0.1, p.y) * step(p.y, storey * 0.72);
   float mullion = step(0.6, fract(seed * 9.1)) * step(abs(g.x - 0.5) * size.x, 0.05) * (1.0 - shopDoor);
   float pane = step(0.08, g.x) * step(g.x, 0.92) * step(0.1, p.y) * step(p.y, storey * 0.72) * (1.0 - mullion);
@@ -121,10 +134,13 @@ void wallSurface(inout vec3 albedo, vec3 base, inout vec3 glowEmit) {
   float item = hash2(floor(vec2(p.x / 0.32, p.y / 0.28)));
   float goods = ground * second.w * step(0.15, p.y) * step(p.y, storey * 0.3) * step(0.45, item);
   glass = mix(glass, mix(front.rgb, vec3(0.93, 0.89, 0.8), item), goods);
-  float span = 2.0 * halfWidth * size.x;
-  float detail = 1.0 - smoothstep(span / 3.0, span / 2.0, pixel);
+  // How much of a window a pixel spans, in the bays actually fitted to this wall (the width in
+  // metres would miss how much narrower or wider a wall's fit makes them).
+  float pixelBays = max(fwidth(vBay), fwidth(p.y) / size.y);
+  float span = 2.0 * halfWidth;
+  float detail = 1.0 - smoothstep(span / 3.0, span / 2.0, pixelBays);
   float coverage = mix(average, window, detail);
-  float litHash = fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453);
+  float litHash = fract(sin(dot(cell + vec2(seed * 13.0, seed * 7.0), vec2(12.9898, 78.233))) * 43758.5453);
   float glow = step(0.93, litHash) * (1.0 - ground - church);
   // At night (uNight), a share of the windows light up, most of them warm, a few cool,
   // and three shop fronts in four, a café's warm: they glow whatever the light on them.
@@ -162,8 +178,8 @@ void wallSurface(inout vec3 albedo, vec3 base, inout vec3 glowEmit) {
   // Civic Gothic, as on the Stadhuis: tiers 3.6 m tall of pointed niches 1.6 m apart, each
   // with a statue on its plinth, over a moulded band, from the first tier to the eaves.
   if (ornate > 0.5) {
-    vec2 bay = vec2(1.6, 3.6);
-    float nx = abs(fract(p.x / bay.x) - 0.5) * bay.x;
+    vec2 bay = vec2(${f(NICHE_BAY)}, 3.6);
+    float nx = abs(g.x - 0.5) * bay.x;
     float ny = fract((p.y - 1.0) / bay.y) * bay.y;
     float arch = 2.6 + 0.45 * sqrt(clamp(1.0 - nx / 0.42, 0.0, 1.0));
     float niche = step(nx, 0.42) * step(0.5, ny) * step(ny, arch);
@@ -187,7 +203,7 @@ void wallSurface(inout vec3 albedo, vec3 base, inout vec3 glowEmit) {
   float frame = inX * step(sillY - rim.y, g.y) * step(g.y, head + rim.y) * (1.0 - window);
   float sill = step(0.5 - halfWidth - 2.0 * rim.x, g.x) * step(g.x, 0.5 + halfWidth + 2.0 * rim.x) *
     step(sillY - 2.0 * rim.y, g.y) * step(g.y, sillY - rim.y);
-  float bloom = step(0.8, hash2(cell + vec2(3.7, 1.3))) * (1.0 - tall);
+  float bloom = step(0.8, hash2(cell + vec2(3.7 + seed * 31.0, 1.3))) * (1.0 - tall);
   float flowerBox = bloom * inX * step(sillY - 5.0 * rim.y, g.y) * step(g.y, sillY - 2.0 * rim.y);
   float fine = plain * (1.0 - smoothstep(0.05, 0.12, pixel));
   float luma = dot(base, vec3(0.2126, 0.7152, 0.0722));
@@ -206,7 +222,7 @@ void wallSurface(inout vec3 albedo, vec3 base, inout vec3 glowEmit) {
   float shutter = step(0.8, sC) * step(0.4, luma) * plain * step(halfWidth + rim.x, side) *
     step(side, halfWidth + rim.x + 0.6 * halfWidth) * step(sillY, g.y) * step(g.y, headY);
   albedo = mix(albedo, wood * 1.6, shutter * (1.0 - smoothstep(0.1, 0.2, pixel)));
-  float hue = hash2(cell + vec2(9.1, 4.2));
+  float hue = hash2(cell + vec2(9.1 + seed * 11.0, 4.2));
   vec3 petals = hue < 0.4 ? vec3(0.72, 0.07, 0.05) : hue < 0.65 ? vec3(0.86, 0.33, 0.45)
     : hue < 0.85 ? vec3(0.9, 0.87, 0.8) : vec3(0.9, 0.68, 0.1);
   float petal = step(0.5, hash2(floor(p / 0.1)));
@@ -230,6 +246,16 @@ void wallSurface(inout vec3 albedo, vec3 base, inout vec3 glowEmit) {
   albedo *= 1.0 - 0.18 * smoothstep(top - 1.4, top - 0.1, p.y) * (1.0 - cornice);
   float stain = plain * inX * smoothstep(sillY - 0.2, sillY - 2.0 * rim.y, g.y) * step(g.y, sillY - 2.0 * rim.y);
   albedo *= 1.0 - 0.09 * stain * fine;
+  // Where this house starts against the one next door: a zinc downpipe down the join, strapped
+  // to the wall every 2.4 m, and a line of its shade beside it, so the change of house reads as
+  // something built, not a seam in the paint. Gone before it is thinner than a pixel.
+  float fromJoin = mod(vBay, ${f(BAYS_PER_PAGE)}) * size.x;
+  float pipe = step(0.5, vJoin) * step(0.0, p.y);
+  float pipeFine = 1.0 - smoothstep(0.045, 0.08, pixel);
+  albedo *= 1.0 - 0.22 * pipe * step(0.09, fromJoin) * step(fromJoin, 0.16) * pipeFine;
+  float strap = step(fract(p.y / 2.4), 0.06 / 2.4);
+  float pipeBody = pipe * step(fromJoin, 0.09 + 0.05 * strap);
+  albedo = mix(albedo, vec3(0.39, 0.42, 0.45) * mix(1.0, 0.85, strap), pipeBody * pipeFine);
   // At night a church and a hall are floodlit from below, stronger at the foot.
   float flood = max(church, ornate) * step(0.0, p.y);
   glowEmit += albedo * vec3(0.95, 0.68, 0.38) * flood * uNight * mix(0.48, 0.14, smoothstep(0.0, top, p.y)) * (1.0 - coverage);

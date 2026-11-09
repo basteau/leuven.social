@@ -60,7 +60,9 @@ const BUDGETS: {
     // 179.5: puffs at every zoom in place of the faceted crowns, shapes of tree, shrubs and flower
     // beds, brick and stone in the walls, roof furniture (1.6 KB), asked for.
     // 180: the puffs' own shadow material (0.1 KB).
-    limit: 180 * KB,
+    // 181.25: windows fitted whole to each wall and the downpipe at a join (facade-bays.ts and
+    // the wall shader, 1.3 KB), so no window is cut by a corner or the house next door.
+    limit: 181.25 * KB,
     gzip: true,
   },
   // 3.5: just above 3.1 KB. 3.75: the minimap, the other players' name tags and who you are in
@@ -223,7 +225,8 @@ const BUDGETS: {
     // the shell (1.7 KB), asked for so the map can be learnt without knowing its keys.
     // 269.75: those 20 kinds' names and colours, which the facade shader needs from the first
     // frame (0.1 KB).
-    limit: 269.75 * KB,
+    // 271.25: windows fitted whole to each wall (the engine's note above says what, 1.3 KB).
+    limit: 271.25 * KB,
     gzip: true,
     closure: true,
   },

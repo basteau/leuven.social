@@ -118,9 +118,12 @@ export function createFacadeMaterial(
         `#include <common>
         attribute float facade;
         attribute float lift;
+        attribute float bay;
         uniform float uPixel;
         varying float vFacade;
         varying float vLift;
+        varying float vBay;
+        varying float vJoin;
         varying vec3 vWorld;
         varying vec2 vWallNormal;
         varying float vUp;`,
@@ -161,6 +164,9 @@ export function createFacadeMaterial(
         `#include <worldpos_vertex>
         vFacade = facade;
         vLift = lift * ${f(LIFT_UNIT)};
+        // facade-bays.ts: a corner's byte is 2 · its bay number + whether it starts a join.
+        vBay = floor(bay / 2.0);
+        vJoin = bay - 2.0 * vBay;
         vWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;
         vWallNormal = normalize((modelMatrix * vec4(objectNormal, 0.0)).xz + 1e-5);
         vUp = (modelMatrix * vec4(objectNormal, 0.0)).y;`,
@@ -176,6 +182,8 @@ export function createFacadeMaterial(
         uniform vec4 uFront[${fronts.length}];
         varying float vFacade;
         varying float vLift;
+        varying float vBay;
+        varying float vJoin;
         varying vec3 vWorld;
         varying vec2 vWallNormal;
         varying float vUp;
@@ -207,7 +215,7 @@ export function createFacadeMaterial(
         #include <opaque_fragment>`,
       );
   };
-  material.customProgramCacheKey = () => 'facade-v13';
+  material.customProgramCacheKey = () => 'facade-v14';
   return material;
 }
 

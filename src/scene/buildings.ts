@@ -18,6 +18,7 @@ import {
   shopFront,
 } from './facade-codes.ts';
 import { addLandmark, addTower } from './landmarks.ts';
+import { bayBytes, bayPage, bayTargetFor, fitRun } from './facade-bays.ts';
 import type { Terrain } from '../data/terrain.ts';
 import { LIFT_UNIT, LineBuilder, MeshBuilder } from './mesh-builder.ts';
 import type { V3 } from './mesh-builder.ts';
@@ -437,6 +438,50 @@ export function partyWalls(
 
 const NO_WALLS: PartyWalls = { corners: new Map(), edges: new Map(), top: () => 0 };
 
+/** The bay width a wall aims for and what seeds its pages (facade-bays.ts). */
+interface BayFit {
+  target: number;
+  seed: number;
+}
+
+/**
+ * Bay bytes for each wall of a ring. Walls that bend gently into each other (a curved corner, a
+ * facade drawn in short pieces) are laid out as one run, so windows keep one rhythm round the
+ * bend; a real corner, or a wall a neighbour hides, ends a run.
+ */
+function wallBayCodes(
+  ring: ArrayLike<number>,
+  n: number,
+  covered: (i: number) => boolean,
+  joins: (i: number) => boolean,
+  { target, seed }: BayFit,
+): (readonly [number, number])[] {
+  const lengths: number[] = [];
+  const headings: [number, number][] = [];
+  for (let i = 0; i < n; i++) {
+    const dx = ring[((i + 1) % n) * 2]! - ring[i * 2]!;
+    const dz = ring[((i + 1) % n) * 2 + 1]! - ring[i * 2 + 1]!;
+    const length = Math.hypot(dx, dz) || 1;
+    lengths.push(length);
+    headings.push([dx / length, dz / length]);
+  }
+  const bends = (i: number) => {
+    const [a, b] = [headings[(i + n - 1) % n]!, headings[i]!];
+    return a[0] * b[0] + a[1] * b[1] <= CREASE;
+  };
+  const codes = Array.from({ length: n }, (): readonly [number, number] => [0, 0]);
+  for (let start = 0; start < n;) {
+    let end = start + 1;
+    while (end < n && !covered(end) && !covered(end - 1) && !bends(end)) end++;
+    const fit = fitRun(lengths.slice(start, end), target);
+    for (let i = start; i < end; i++) {
+      codes[i] = bayBytes(fit[i - start]!, bayPage(seed, i), i === start && joins(i));
+    }
+    start = end;
+  }
+  return codes;
+}
+
 /**
  * Walls along one ring: outer rings counter-clockwise, courtyards clockwise, so both face out.
  * `base` is where the building stands, so its neighbours' wall tops can be read in its own frame.
@@ -450,6 +495,7 @@ function addWalls(
   facade: number | ((nx: number, nz: number) => number),
   walls: PartyWalls,
   base: number,
+  bays: BayFit,
 ): void {
   const n = ring.length / 2;
   const ids = cornerIds(ring, walls.corners);
@@ -457,6 +503,19 @@ function addWalls(
     const other = a === undefined || b === undefined ? undefined : walls.edges.get(edgeKey(a, b));
     return other && walls.top(other) - base;
   };
+  const coveredAt = (i: number) => {
+    const neighbour = against(ids[(i + 1) % n], ids[i]);
+    return neighbour !== undefined && neighbour > top - PARTY_TOLERANCE;
+  };
+  const bayCodes = wallBayCodes(
+    ring,
+    n,
+    coveredAt,
+    (i) => {
+      return against(ids[i], ids[(i + n - 1) % n]) !== undefined;
+    },
+    bays,
+  );
   for (let i = 0; i < n; i++) {
     const ax = ring[i * 2]!;
     const az = ring[i * 2 + 1]!;
@@ -470,6 +529,7 @@ function addWalls(
     const covered = neighbour !== undefined && neighbour > top - PARTY_TOLERANCE;
     const bottom = covered ? top : Math.max(0, Math.min(neighbour ?? 0, top));
     if (bottom < top) {
+      const [start, end] = bayCodes[i]!;
       mesh.quad(
         [ax, bottom, az],
         [bx, bottom, bz],
@@ -478,6 +538,7 @@ function addWalls(
         wall,
         hint,
         typeof facade === 'number' ? facade : facade(hint[0], hint[2]),
+        [start, end, end, start],
       );
     }
 
@@ -553,8 +614,10 @@ export function addBuilding(
         : windows
           ? top
           : WALL_PLAIN;
-  addWalls(mesh, ink, ring, top, wall, windows === true ? frontWalls(b, top) : facade, walls, base);
-  for (const r of holes) addWalls(mesh, ink, r, top, wall, facade, walls, base);
+  const bays: BayFit = { target: bayTargetFor(windows, top), seed: b.id };
+  const front = windows === true ? frontWalls(b, top) : facade;
+  addWalls(mesh, ink, ring, top, wall, front, walls, base, bays);
+  for (const r of holes) addWalls(mesh, ink, r, top, wall, facade, walls, base, bays);
   if (cut !== undefined) return;
   if (b.tower && !landmark) addTower(mesh, ink, ring, b.tower, wall, LANDMARK.spire);
 

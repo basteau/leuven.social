@@ -9,6 +9,7 @@ import {
   partyWalls,
   planRoof,
 } from './buildings.ts';
+import { LANCET_BAY, bayTarget, fitBays, fitRun } from './facade-bays.ts';
 import { LANDMARK_MODELS } from './landmark-models.ts';
 import { LANCETS, ORNATE, shopFront, ROOF_FLAT, WALL_PLAIN, pitchedRoof } from './facade-codes.ts';
 import { Terrain } from '../data/terrain.ts';
@@ -344,6 +345,88 @@ describe('landmarks', () => {
     expect(ups.every((y) => Math.abs(y) < 0.01)).toBe(true); // walls only
     // Four walls, facing out.
     expect(mesh.indices).toBe(4 * 6);
+  });
+});
+
+/** The bay byte of the walls at a footprint corner, as the geometry drew it. */
+function baysAt(b: Building[], x: number, z: number): number[] {
+  const g = buildingsGeometry(b).surfaces;
+  const [p, bay] = [g.getAttribute('position'), g.getAttribute('bay')];
+  const out: number[] = [];
+  for (let i = 0; i < p.count; i++) {
+    if (Math.abs(p.getX(i) - x) + Math.abs(p.getZ(i) - z) < 1e-3 && p.getY(i) === 0) {
+      out.push(bay.getX(i));
+    }
+  }
+  return out;
+}
+
+describe('windows are laid in whole bays along each wall', () => {
+  test('a wall runs from a whole bay to a whole bay, a number that fits it', () => {
+    // 12 m along x = its first wall, from (0, 0) to (12, 0).
+    const b = building({ roof: 'flat', ring: box(12, 6) });
+    const start = baysAt([b], 0, 0).find((v) => v % 2 === 0)!;
+    const end = baysAt([b], 12, 0).find((v) => (v - start) / 2 === fitBays(12, bayTarget(10)));
+    expect(end).toBeDefined();
+  });
+
+  test('a wall too short for a window has no bays', () => {
+    const narrow = building({ roof: 'flat', ring: box(1.2, 12) });
+    const at0 = new Set(baysAt([narrow], 0, 0));
+    const at1 = new Set(baysAt([narrow], 1.2, 0));
+    // Its short sides (z = 0 here) start and end on the same number.
+    expect([...at0].some((v) => at1.has(v))).toBe(true);
+  });
+
+  test('a church fits its lancets to its wall, not a house’s bays', () => {
+    const church = building({ kind: 'church', roof: 'flat', ring: box(22, 8) });
+    const bays = baysAt([church], 22, 0);
+    expect(bays.some((v, _, all) => all.includes(v + 2 * fitBays(22, LANCET_BAY)))).toBe(false);
+    const start = baysAt([church], 0, 0);
+    expect(start.some((s) => bays.includes(s + 2 * fitBays(22, LANCET_BAY)))).toBe(true);
+  });
+
+  test('a wall starting against a neighbour is marked as a join, the wall ending there isn’t', () => {
+    const left = building({ id: 1, roof: 'flat', ring: box(6, 12) });
+    const right = building({
+      id: 2,
+      roof: 'flat',
+      ring: new Float32Array([6, 0, 12, 0, 12, 12, 6, 12]),
+    });
+    // The right house's first wall starts at the shared corner (6, 0): marked; the left house's
+    // first wall ends there, so its own start, at (0, 0), is not.
+    expect(baysAt([left, right], 6, 0).some((v) => v % 2 === 1)).toBe(true);
+    expect(baysAt([left, right], 0, 0).every((v) => v % 2 === 0)).toBe(true);
+    // The houses alone have no joins at all.
+    expect(baysAt([right], 6, 0).every((v) => v % 2 === 0)).toBe(true);
+  });
+
+  test('a gently curved wall is laid out as one run, a corner ends it', () => {
+    // Half a 10 m circle drawn as 8 facets, each too short alone for its share, then two walls.
+    const curve = Array.from({ length: 9 }, (_, i) => {
+      const a = (i / 8) * Math.PI;
+      return [Math.cos(a) * -10, Math.sin(a) * 10];
+    }).flat();
+    const ring = new Float32Array([...curve, 10, 30, -10, 30]);
+    const b = building({ roof: 'flat', ring, height: 12 });
+    const g = buildingsGeometry([b]).surfaces;
+    const [p, bay] = [g.getAttribute('position'), g.getAttribute('bay')];
+    // Each wall's two triangles start at its first corner and give its bays from there.
+    let total = 0;
+    for (let i = 0; i + 2 < p.count; i += 6) {
+      if (p.getY(i) === 0) total += (bay.getX(i + 1) - bay.getX(i)) / 2;
+    }
+    const facet = Math.hypot(curve[2]! - curve[0]!, curve[3]! - curve[1]!);
+    const target = bayTarget(12);
+    const expected =
+      fitRun(
+        Array.from({ length: 8 }, () => facet),
+        target,
+      ).reduce((a, n) => a + n, 0) +
+      fitBays(Math.hypot(curve[16]! - 10, curve[17]! - 30), target) +
+      fitBays(20, target) +
+      fitBays(Math.hypot(-10 - curve[0]!, 30 - curve[1]!), target);
+    expect(total).toBe(expected);
   });
 });
 

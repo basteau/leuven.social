@@ -1,5 +1,6 @@
 import type { Tower } from '../data/city.ts';
 import { orientedRect } from '../data/geometry.ts';
+import { bayBytes, bayPage, bayTargetFor, fitBays } from './facade-bays.ts';
 import { LANCETS, ORNATE, PANE, ROOF_FLAT, WALL_PLAIN, pitchedRoof } from './facade-codes.ts';
 import type { LineBuilder, MeshBuilder, V3 } from './mesh-builder.ts';
 import { WINDOW } from './palette.ts';
@@ -96,6 +97,7 @@ function addHall(mesh: MeshBuilder, lines: LineBuilder, f: Frame, h: Hall, m: La
         : h.windows && m.windows
           ? eave
           : WALL_PLAIN;
+  const target = bayTargetFor(m.windows, eave);
   const corners = [
     [-L, -W],
     [L, -W],
@@ -106,6 +108,8 @@ function addHall(mesh: MeshBuilder, lines: LineBuilder, f: Frame, h: Hall, m: La
     const [ap, aq] = corners[i]!;
     const [bp, bq] = corners[(i + 1) % 4]!;
     const hint = out((ap + bp) / 2, (aq + bq) / 2);
+    const bays = fitBays(Math.hypot(bp - ap, bq - aq), target);
+    const [start, end] = bayBytes(bays, bayPage(i * 41 + h.u * 17, i), false);
     mesh.quad(
       at(ap, aq, from),
       at(bp, bq, from),
@@ -114,6 +118,7 @@ function addHall(mesh: MeshBuilder, lines: LineBuilder, f: Frame, h: Hall, m: La
       wall,
       hint,
       facade,
+      [start, end, end, start],
     );
     lines.segment(at(ap, aq, eave), at(bp, bq, eave));
     lines.segment(at(ap, aq, from), at(ap, aq, eave));
