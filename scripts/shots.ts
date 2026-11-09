@@ -7,6 +7,7 @@
  *   bun scripts/shots.ts grote night      # only the views with these in their name
  *   bun scripts/shots.ts --dir before     # into .artifacts/before/, to compare
  *   bun scripts/shots.ts --scale 2        # at twice the density, as a Retina screen draws it
+ *   bun scripts/shots.ts --at 236,-214,40,19.5   # a view of your own, at a preset or an hour
  */
 
 type Time = 'morning' | 'midday' | 'golden' | 'dusk' | 'night';
@@ -17,7 +18,8 @@ interface Shot {
   at?: [number, number];
   /** The zoom, from 8 (a block) to 40 (the closest). */
   zoom?: number;
-  time: Time;
+  /** A preset, or an hour of the day. */
+  time: Time | number;
   /** Quarter turns. */
   turn?: number;
 }
@@ -71,6 +73,7 @@ function flag(name: string, fallback: string): string {
 const dir = flag('dir', 'shots');
 const scale = flag('scale', '1');
 // `--at x,z,zoom,time[,turn]`, as often as you like: a view of your own, named by where it is.
+// The time is a preset or an hour of the day.
 const spots: Shot[] = [];
 for (let i = args.indexOf('--at'); i >= 0; i = args.indexOf('--at')) {
   const [x, z, zoom, time, turn] = args.splice(i, 2)[1]!.split(',');
@@ -78,7 +81,7 @@ for (let i = args.indexOf('--at'); i >= 0; i = args.indexOf('--at')) {
     name: `at-${x}_${z}_${zoom}_${time}${turn ? `_${turn}` : ''}`,
     at: [Number(x), Number(z)],
     zoom: Number(zoom),
-    time: time as Time,
+    time: Number.isNaN(Number(time)) ? (time as Time) : Number(time),
     turn: Number(turn ?? 0),
   });
 }
@@ -145,9 +148,13 @@ try {
       await browser('eval', 'leuvenViewer.rotate(1); 1');
       await browser('wait', '400');
     }
-    for (let i = 0; i < 6 && (await time()) !== shot.time; i++) {
-      await browser('press', 't');
-      await browser('wait', '150');
+    if (typeof shot.time === 'number') {
+      await browser('eval', `leuvenViewer.setHour(${shot.time}); 1`);
+    } else {
+      for (let i = 0; i < 6 && (await time()) !== shot.time; i++) {
+        await browser('press', 't');
+        await browser('wait', '150');
+      }
     }
     await browser('wait', '1800'); // the camera settles, the furniture and the shadows are drawn
     await browser('screenshot', `${OUT}${shot.name}.png`);

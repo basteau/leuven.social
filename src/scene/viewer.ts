@@ -194,6 +194,8 @@ export interface Viewer {
   nextTimeOfDay(): PresetId;
   /** Lets the day pass, an hour every few seconds, or holds it where it is. */
   passTime(on: boolean): void;
+  /** Sets the clock to an hour of the day, for tools that look at one (`scripts/shots.ts`). */
+  setHour(hour: number): void;
   /** Walks (or rides) to a spot along a route, as a tap does, from anywhere in reach. */
   navigateTo(x: number, z: number): void;
   /** Lets go of the route being walked to a picked spot, if any. */
@@ -1534,6 +1536,10 @@ export function createViewer(options: ViewerOptions): Viewer {
     timeOfDay: () => ({ preset: presetAt(hour), passing }),
     nextTimeOfDay,
     passTime,
+    setHour(next) {
+      hour = wrapHour(next);
+      applyDaylight();
+    },
     stats: () => ({
       drawCalls: renderer.info.render.calls,
       triangles: renderer.info.render.triangles,
