@@ -226,6 +226,110 @@ async function expectBareMap(): Promise<void> {
   );
 }
 
+/**
+ * What's on the map must never sit on what else is on it: every control and panel on screen,
+ * pairwise, and all of them inside the window. Run at each size that matters.
+ */
+async function expectNoCovering(where: string): Promise<void> {
+  const found = await evalJson<{ covering: string[]; outside: string[] }>(`JSON.stringify((() => {
+    const name = (e) => e.getAttribute('aria-label') || e.textContent.trim().slice(0, 24) || e.className;
+    const parts = [...document.querySelectorAll('.you, .credits, .sign, .hint:not(:empty), .minimap, .action, .rail-group, .menu-trigger')]
+      .filter((e) => e.checkVisibility() && !e.closest('dialog'))
+      .map((e) => [name(e), e.getBoundingClientRect()]);
+    const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+    const covering = [];
+    parts.forEach(([a, ra], i) => parts.slice(i + 1).forEach(([b, rb]) => { if (hit(ra, rb)) covering.push(a + ' on ' + b); }));
+    const outside = parts.filter(([, r]) => r.left < 0 || r.top < 0 || r.right > innerWidth || r.bottom > innerHeight).map(([a]) => a);
+    return { covering, outside };
+  })())`);
+  if (found.covering.length || found.outside.length) {
+    throw new Error(
+      `${where}: ${[...found.covering, ...found.outside.map((a) => `${a} off screen`)].join('; ')}`,
+    );
+  }
+  console.log(`ok  ${where}: nothing on the map covers anything else`);
+}
+
+/** The first minute: the coach starts by asking you down to the street, and its ring is on +. */
+async function expectFirstMinute(): Promise<void> {
+  const said = await evalJson<string>(
+    `JSON.stringify(document.querySelector('.hint')?.textContent ?? '')`,
+  );
+  if (!said.includes('coral arrow')) throw new Error(`the first coach line says "${said}"`);
+  const ringed = await evalJson<boolean>(
+    `JSON.stringify(!!document.querySelector('.rail-zoom[data-coach]'))`,
+  );
+  if (!ringed) throw new Error('the coach is not pointing at the zoom buttons');
+  console.log('ok  first minute: the coach asks you down to the street, ringing + and −');
+}
+
+/**
+ * The view's controls: + and − zoom, a drag lets the view go and Back to you says so and brings it
+ * back, the compass names north up, and focus goes back to the map after a press with a pointer.
+ */
+async function expectViewControls(): Promise<void> {
+  const before = await canvasNumber('zoom');
+  await browser('click', 'button[aria-label="Zoom in"]');
+  await browser('wait', '400');
+  if (!((await canvasNumber('zoom')) > before)) throw new Error('the + button did not zoom in');
+  await browser('click', 'button[aria-label="Zoom out"]');
+  await browser('wait', '400');
+  if (!(Math.abs((await canvasNumber('zoom')) - before) < 0.05))
+    throw new Error('− did not undo +');
+  await browser('wait', '--fn', `document.activeElement === document.querySelector('.map')`);
+  const away = `!!document.querySelector('.rail-find[data-away]')`;
+  await drag(60, 40);
+  await browser('wait', '--fn', away);
+  await browser('click', '.rail-find .rail-btn');
+  await browser('wait', '--fn', `!(${away})`);
+  await browser('click', 'button[aria-label="North up"]');
+  await browser('wait', '300');
+  console.log('ok  view controls: zoom, away and back to you, north up');
+}
+
+/**
+ * Finding a place: the search on the full map, its sheet leading with Go here; See it takes the
+ * view there and the Go to pill offers the walk; Esc lets go of it again. And a mark across town
+ * is one Go here away.
+ */
+async function expectFinding(): Promise<void> {
+  const stop = `[...document.querySelectorAll('button')].some((b) => b.textContent.includes('Stop'))`;
+  await browser('press', 'm');
+  await browser('wait', '--fn', `!!document.querySelector('dialog.bigmap')?.open`);
+  await browser('fill', '.map-search-box input', 'oude markt');
+  await browser('wait', '--fn', `!!document.querySelector('.map-results button')`);
+  await browser('screenshot', `${ARTIFACTS}smoke-map-search.png`);
+  await browser('click', '.map-results li:first-child button');
+  await browser(
+    'wait',
+    '--fn',
+    `document.querySelector('.sheet-title')?.textContent === 'Oude Markt'`,
+  );
+  await browser('find', 'role', 'button', 'click', '--name', 'See it');
+  const pill = `[...document.querySelectorAll('.action')].find((b) => b.textContent.includes('Go to Oude Markt'))`;
+  await browser('wait', '--fn', `!document.querySelector('dialog.bigmap') && !!${pill}`);
+  await expectNoCovering('desktop 1280×800 with the Go to pill');
+  await browser('eval', `${pill}.click()`);
+  await browser('wait', '--fn', stop);
+  await holdKeys(['Escape'], 0);
+  await browser('wait', '--fn', `!(${stop})`);
+  console.log('ok  found a square on the full map, saw it, walked there, let go of the walk');
+
+  // A mark further off than one route reaches.
+  await browser('press', 'm');
+  await browser('wait', '--fn', `!!document.querySelector('dialog.bigmap')?.open`);
+  await browser('click', 'dialog.bigmap .rail-btn[aria-label^="Marks"]');
+  await browser('click', '[aria-label="Go to Far"]');
+  await browser('wait', '--fn', `!document.querySelector('dialog.bigmap') && ${stop}`);
+  const hint = await evalJson<string>(
+    `JSON.stringify(document.querySelector('.hint')?.textContent)`,
+  );
+  if (hint.includes('Too far')) throw new Error(`Go here to a far mark said "${hint}"`);
+  await holdKeys(['Escape'], 0);
+  await browser('wait', '--fn', `!(${stop})`);
+  console.log('ok  Go here to a mark across town sets off, in legs');
+}
+
 const menu = {
   open: `!!document.querySelector('dialog.menu:not(.account)')?.open`,
   closed: `!document.querySelector('dialog.menu:not(.account)')?.open && document.activeElement === document.querySelector('.map')`,
@@ -420,7 +524,7 @@ async function expectPlayers(): Promise<void> {
 async function expectMap(): Promise<void> {
   await browser(
     'eval',
-    `localStorage.setItem('leuven-waypoints', '[{"id":"smoke","x":64,"z":50,"name":"Smoke","colour":"#d2553f"}]')`,
+    `localStorage.setItem('leuven-waypoints', '[{"id":"smoke","x":64,"z":50,"name":"Smoke","colour":"#d2553f"},{"id":"far","x":700,"z":-500,"name":"Far","colour":"#4a77a8"}]')`,
   );
   await browser('press', 'm');
   await browser('wait', '--fn', `!!document.querySelector('dialog.bigmap')?.open`);
@@ -814,8 +918,11 @@ try {
   await expectShortTasks('desktop 1280×800');
   await expectCreditsShown();
   await expectBareMap();
+  await expectFirstMinute();
+  await expectNoCovering('desktop 1280×800');
   await expectMenu();
   await expectMap();
+  await expectViewControls();
   // Exercise every control once, then check nothing broke.
   await browser('press', 'e');
   await browser('press', 'r');
@@ -860,11 +967,15 @@ try {
   await expectRiding();
   await expectRoom();
   await expectPlayers();
+  // Last on the desktop: a look at Oude Markt builds what's round it, which would count against
+  // the whole-city geometry the checks above measure along their own walk.
+  await expectFinding();
 
   await browser('set', 'viewport', '390', '844');
   await openFresh(BASE);
   await expectHealthyPage('phone 390×844');
   await expectShortTasks('phone 390×844');
+  await expectNoCovering('phone 390×844');
   await browser('screenshot', `${ARTIFACTS}smoke-phone.png`);
   // On a phone the menu button opens the menu as a sheet; its close button shuts it.
   await browser('click', 'button[aria-label=Menu]');
@@ -874,6 +985,12 @@ try {
   await browser('click', 'dialog.menu:not(.account) button.menu-close');
   await browser('wait', '--fn', menu.closed);
   console.log('ok  phone: the menu button opens the menu; its close button shuts it, to the map');
+  await browser('set', 'viewport', '320', '568');
+  await browser('wait', '600');
+  await expectNoCovering('phone 320×568');
+  await browser('set', 'viewport', '844', '390');
+  await browser('wait', '600');
+  await expectNoCovering('landscape 844×390');
   console.log(`screenshots in .artifacts/`);
 } catch (error) {
   console.error(`\nSMOKE FAILED  ${error instanceof Error ? error.message : String(error)}`);

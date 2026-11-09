@@ -315,7 +315,12 @@ kbd {
 
 .compass-needle {
   display: block;
-  transition: rotate 280ms var(--ease-out);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .compass-needle {
+    transition: rotate 280ms var(--ease-out);
+  }
 }
 
 /* The view is on someone else's street: the way back says so, in words too (its tip and label). */
@@ -548,7 +553,7 @@ kbd {
   .bar {
     grid-column: 1 / -1;
     grid-row: 1;
-    justify-self: center;
+    inline-size: 100%;
     padding-inline: calc(var(--control) + 4px + var(--space-m));
   }
 
@@ -884,6 +889,10 @@ kbd {
   color: inherit;
   font: 600 1.125rem / 1.2 var(--font-ui);
   outline: none;
+}
+
+.menu-search:placeholder-shown {
+  text-overflow: ellipsis;
 }
 
 .menu-search::placeholder {

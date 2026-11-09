@@ -334,7 +334,7 @@ export function CommandMenu(props: MenuProps) {
                 aria-autocomplete="list"
                 aria-activedescendant={current ? optionId(current) : undefined}
                 // Short enough for a 320px phone; the label says what's searched.
-                placeholder="Find a street or command"
+                placeholder="Find a street or place"
                 autoComplete="off"
                 autoCorrect="off"
                 autoCapitalize="none"

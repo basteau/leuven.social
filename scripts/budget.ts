@@ -62,8 +62,12 @@ const BUDGETS: {
   },
   // 3.5: just above 3.1 KB. 3.75: the minimap, the other players' name tags and who you are in
   // the corner (0.4 KB). The account sheet's own styles load with it, below.
-  { label: 'CSS', pattern: 'assets/index-*.css', limit: 3.75 * KB, gzip: true },
-  { label: 'Map CSS (with the map)', pattern: 'assets/map-*.css', limit: 1.5 * KB, gzip: true },
+  // 4.1: the rail of view controls, the minimap's tab and the Go to pill (0.3 KB), asked for so
+  // the map can be learnt without knowing the menu's keys.
+  { label: 'CSS', pattern: 'assets/index-*.css', limit: 4.1 * KB, gzip: true },
+  // 1.6: the search field and its results on the full map (0.1 KB), asked for so a street can be
+  // found from there.
+  { label: 'Map CSS (with the map)', pattern: 'assets/map-*.css', limit: 1.6 * KB, gzip: true },
   {
     label: 'Account sheet CSS (when opened)',
     pattern: 'assets/account-sheet-*.css',
@@ -206,7 +210,9 @@ const BUDGETS: {
     pattern: 'assets/{index,viewer}-*.js',
     // 260: the engine's and the shell's additions above (1 KB). 260.5: dynamic resolution (0.4 KB).
     // 264.75: the look of the city (3.9 KB), asked for; the engine's own note says what.
-    limit: 264.75 * KB,
+    // 266.75: the view's controls on the map, the first minute's coaching and the Go to pill in
+    // the shell (1.7 KB), asked for so the map can be learnt without knowing its keys.
+    limit: 266.75 * KB,
     gzip: true,
     closure: true,
   },
