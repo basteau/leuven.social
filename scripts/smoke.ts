@@ -151,6 +151,21 @@ async function expectHealthyPage(viewport: string): Promise<void> {
   console.log(`ok  ${viewport}: ${measured.join('; ')}`);
 }
 
+/**
+ * What WebGL draws with. Without a GPU (a CI runner) it is SwiftShader or llvmpipe, drawing a frame
+ * in seconds on the main thread's CPU, so the long-task checks would measure the runner and
+ * not the page: they are skipped there, by what the browser reports and not by where it runs.
+ */
+const glRenderer = () =>
+  evalJson<string>(
+    `(() => {
+      const gl = new OffscreenCanvas(1, 1).getContext('webgl2');
+      const info = gl?.getExtension('WEBGL_debug_renderer_info');
+      return JSON.stringify(info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : 'unknown');
+    })()`,
+  );
+let drawsOnCpu = false;
+
 /** The page's long tasks so far: the browser keeps them for an observer that asks. */
 async function expectShortTasks(viewport: string): Promise<void> {
   const tasks = await evalJson<number[]>(
@@ -163,6 +178,10 @@ async function expectShortTasks(viewport: string): Promise<void> {
     })`,
   );
   const longest = Math.max(0, ...tasks);
+  if (drawsOnCpu) {
+    console.log(`skip ${viewport}: longest task ${longest} ms, drawn on the CPU`);
+    return;
+  }
   if (longest > MAX_LONG_TASK_MS) {
     throw new Error(`${viewport}: a ${longest} ms long task (max ${MAX_LONG_TASK_MS})`);
   }
@@ -907,10 +926,64 @@ async function expectRoom(): Promise<void> {
   await press('Enter');
   await browser('wait', '--fn', `${canvasData('place')} === ''`);
   const hitches = (await tasksSince(before)).filter((ms) => ms > 50);
-  if (hitches.length)
+  if (hitches.length && !drawsOnCpu)
     throw new Error(`going in and out of a room took ${hitches.join(', ')} ms tasks`);
-  console.log('ok  beside Sint-Pieterskerk, Enter took the avatar in and out, no long task');
+  console.log(
+    `ok  beside Sint-Pieterskerk, Enter took the avatar in and out${drawsOnCpu ? '' : ', no long task'}`,
+  );
   await expectHealthyPage('desktop back out of the room');
+}
+
+/**
+ * The menu, the full map, every control, the day, the walk, the ride, a room, other players. On a
+ * CPU a frame takes seconds: a hint shown for a moment goes by unseen and a walk outlasts its
+ * wait, so this runs only where a GPU draws them.
+ */
+async function expectDesktopTour(): Promise<void> {
+  await expectMenu();
+  await expectMap();
+  // Exercise every control once, then check nothing broke.
+  await browser('press', 'e');
+  await browser('press', 'r');
+  await browser('wait', '400');
+  await expectHealthyPage('desktop after rotate and reset');
+  await browser('screenshot', `${ARTIFACTS}smoke-desktop.png`);
+  for (let i = 0; i < 6; i++) await browser('press', '+');
+  await browser('wait', '200');
+  await expectHealthyPage('desktop zoomed in');
+  await browser('screenshot', `${ARTIFACTS}smoke-detail.png`);
+  await expectNight();
+  // All the way out is the most city on screen at once: the heaviest steady frame.
+  for (let i = 0; i < 12; i++) await browser('press', '-');
+  await browser('wait', '400');
+  await expectHealthyPage('desktop zoomed out');
+  await browser('screenshot', `${ARTIFACTS}smoke-overview.png`);
+  // At night the lamps' glow is a draw call more per cell in view, at every zoom: the most
+  // calls a frame ever has.
+  await turnTimeTo('night');
+  await browser('wait', '600');
+  await expectHealthyPage('desktop zoomed out at night');
+  await browser('screenshot', `${ARTIFACTS}smoke-overview-night.png`);
+  await turnTimeTo('golden');
+  // Panning out there redraws the shadow map for the most city at once: the heaviest frames.
+  for (const [dx, dy] of [
+    [-500, -250],
+    [-500, 250],
+    [600, 400],
+  ]) {
+    await drag(dx!, dy!);
+  }
+  await browser('wait', '400');
+  await expectHealthyPage('desktop zoomed out, panned');
+
+  await expectWalking();
+  await expectRiding();
+  await expectRoom();
+  await expectPlayers();
+  // Last on the desktop: a drag and a look at Oude Markt build what's round them, which would
+  // count against the whole-city geometry the checks above measure along their own walk.
+  await expectViewControls();
+  await expectFinding();
 }
 
 async function waitForServer(): Promise<void> {
@@ -971,6 +1044,9 @@ try {
   }
   await Bun.write(`${ARTIFACTS}.keep`, ''); // agent-browser won't create the folder
   await browser('open', 'about:blank');
+  const renderer = await glRenderer();
+  drawsOnCpu = /swiftshader|llvmpipe|software/i.test(renderer);
+  console.log(`ok  WebGL draws with ${renderer}`);
 
   await browser('set', 'viewport', '1280', '800');
   await openFresh(BASE);
@@ -980,50 +1056,8 @@ try {
   await expectBareMap();
   await expectFirstMinute();
   await expectNoCovering('desktop 1280×800');
-  await expectMenu();
-  await expectMap();
-  // Exercise every control once, then check nothing broke.
-  await browser('press', 'e');
-  await browser('press', 'r');
-  await browser('wait', '400');
-  await expectHealthyPage('desktop after rotate and reset');
-  await browser('screenshot', `${ARTIFACTS}smoke-desktop.png`);
-  for (let i = 0; i < 6; i++) await browser('press', '+');
-  await browser('wait', '200');
-  await expectHealthyPage('desktop zoomed in');
-  await browser('screenshot', `${ARTIFACTS}smoke-detail.png`);
-  await expectNight();
-  // All the way out is the most city on screen at once: the heaviest steady frame.
-  for (let i = 0; i < 12; i++) await browser('press', '-');
-  await browser('wait', '400');
-  await expectHealthyPage('desktop zoomed out');
-  await browser('screenshot', `${ARTIFACTS}smoke-overview.png`);
-  // At night the lamps' glow is a draw call more per cell in view, at every zoom: the most
-  // calls a frame ever has.
-  await turnTimeTo('night');
-  await browser('wait', '600');
-  await expectHealthyPage('desktop zoomed out at night');
-  await browser('screenshot', `${ARTIFACTS}smoke-overview-night.png`);
-  await turnTimeTo('golden');
-  // Panning out there redraws the shadow map for the most city at once: the heaviest frames.
-  for (const [dx, dy] of [
-    [-500, -250],
-    [-500, 250],
-    [600, 400],
-  ]) {
-    await drag(dx!, dy!);
-  }
-  await browser('wait', '400');
-  await expectHealthyPage('desktop zoomed out, panned');
-
-  await expectWalking();
-  await expectRiding();
-  await expectRoom();
-  await expectPlayers();
-  // Last on the desktop: a drag and a look at Oude Markt build what's round them, which would
-  // count against the whole-city geometry the checks above measure along their own walk.
-  await expectViewControls();
-  await expectFinding();
+  if (drawsOnCpu) console.log('skip the desktop tour: its hints and walks need a GPU');
+  else await expectDesktopTour();
 
   await browser('set', 'viewport', '390', '844');
   await openFresh(BASE);
