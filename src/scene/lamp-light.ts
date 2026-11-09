@@ -71,12 +71,7 @@ export function bakeLight(
   const light = new Float32Array(width * height * 3);
   const [low, high] = [terrain.lowest - 1, terrain.highest + 1];
 
-  const splat = (
-    x: number,
-    z: number,
-    radius: number,
-    [r, g, b]: readonly [number, number, number] | readonly number[],
-  ) => {
+  const splat = (x: number, z: number, radius: number, [r, g, b]: readonly number[]) => {
     const ground = Math.max(1, Math.round(((terrain.height(x, z) - low) / (high - low)) * 255));
     // The ground's height a little past the light, so the filter never mixes it with nothing.
     const reach = Math.ceil(radius / LIGHT_TEXEL) + 2;
@@ -99,10 +94,10 @@ export function bakeLight(
         const d2 = u * u + v * v;
         if (d2 >= 1) continue;
         const fall = (1 - d2) * (1 - d2);
-        const at = i + j * width;
-        light[at * 3] = light[at * 3]! + r! * fall;
-        light[at * 3 + 1] = light[at * 3 + 1]! + g! * fall;
-        light[at * 3 + 2] = light[at * 3 + 2]! + b! * fall;
+        const at = (i + j * width) * 3;
+        light[at] = light[at]! + r! * fall;
+        light[at + 1] = light[at + 1]! + g! * fall;
+        light[at + 2] = light[at + 2]! + b! * fall;
       }
     }
   };
@@ -119,9 +114,9 @@ export function bakeLight(
       const [bx, bz] = [ring[j]!, ring[j + 1]!];
       const length = Math.hypot(bx - ax, bz - az);
       const steps = Math.floor(length / FLOOD.every);
+      const [nx, nz] = [(bz - az) / (length || 1), (ax - bx) / (length || 1)];
       for (let k = 0; k <= steps; k++) {
         const t = steps ? k / steps : 0.5;
-        const [nx, nz] = [(bz - az) / (length || 1), (ax - bx) / (length || 1)];
         splat(
           ax + (bx - ax) * t + nx * FLOOD.out,
           az + (bz - az) * t + nz * FLOOD.out,
