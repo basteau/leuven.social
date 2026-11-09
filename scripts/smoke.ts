@@ -6,7 +6,9 @@
  *   bun run build && bun run smoke
  */
 
+import type { City } from '../src/data/city.ts';
 import { unpackCity } from '../src/data/format.ts';
+import { pointInRing } from '../src/data/geometry.ts';
 import { bikesIn } from '../src/data/props.ts';
 import { startBot } from './smoke-bot.ts';
 
@@ -729,12 +731,29 @@ async function expectWalking(): Promise<void> {
   await expectHealthyPage('desktop zoomed back out');
 }
 
-/** The rack with bikes nearest the middle of the map, from the city file the page loads. */
-async function nearestRack(): Promise<[number, number]> {
+/** Whether a house stands between a spot on the ground and the north-up camera, 35.26° up. */
+function hiddenFromCamera(city: City, x: number, z: number): boolean {
+  const near = city.buildings.filter(({ ring }) => Math.hypot(ring[0]! - x, ring[1]! - z) < 200);
+  for (let along = 1; along < 100; along++) {
+    const [px, pz] = [x + along * Math.SQRT1_2, z + along * Math.SQRT1_2];
+    const ray = along * Math.tan((35.26 * Math.PI) / 180);
+    if (near.some((b) => b.height >= ray && pointInRing(b.ring, px, pz))) return true;
+  }
+  return false;
+}
+
+/**
+ * The nearest rack with bikes that shows from the camera, so a tap on it lands on the ground: on a
+ * rack behind a house it lands on the roof, and that sends the avatar to the street beside the
+ * house instead.
+ */
+async function openRack(): Promise<[number, number]> {
   const bytes = await Bun.file(new URL('../public/data/city.bin', import.meta.url)).bytes();
   const city = await unpackCity(bytes);
-  const racks = city.props.filter((p) => p.kind === 'bikes' && bikesIn(p) > 0);
-  const rack = racks.toSorted((a, b) => Math.hypot(a.x, a.z) - Math.hypot(b.x, b.z))[0]!;
+  const rack = city.props
+    .filter((p) => p.kind === 'bikes' && bikesIn(p) > 0)
+    .toSorted((a, b) => Math.hypot(a.x, a.z) - Math.hypot(b.x, b.z))
+    .find((p) => !hiddenFromCamera(city, p.x, p.z))!;
   return [rack.x, rack.z];
 }
 
@@ -744,12 +763,34 @@ const canvasNumber = async (name: string) =>
   Number(await evalJson<string>(`JSON.stringify(${canvasData(name)} ?? '')`));
 
 /**
- * Riding: drag the map so the rack nearest the middle is in the middle of the view and tap it,
+ * Walks to within F's reach of a spot, a tap at a time: the first tap is aimed from afar and a tall
+ * house in front can catch it, sending the avatar to the street beside that house instead. From
+ * wherever that was, the view back on the avatar, the next tap is shorter and truer.
+ */
+async function walkUpTo(x: number, z: number): Promise<void> {
+  const REACH = 26;
+  for (let hop = 0; hop < 6; hop++) {
+    await browser('wait', '1000');
+    await browser('wait', '--timeout', '60000', '--fn', `${canvasData('speed')} === '0.0'`);
+    const [ax, az] = (await walker()).split(' ').map(Number) as [number, number];
+    if (Math.hypot(ax - x, az - z) < REACH) return;
+    await browser('press', 'Space');
+    await browser('wait', '1200');
+    const k = (800 * (await canvasNumber('zoom'))) / 560;
+    const [rx, rz] = [(x - ax) * Math.SQRT1_2, (z - az) * Math.SQRT1_2];
+    const [sx, sy] = [(rx - rz) * k, (rx + rz) * k * Math.sqrt(1 / 3)];
+    await tapAt(Math.round(640 + sx), Math.round(400 + sy));
+  }
+  throw new Error(`the avatar never got within ${REACH} m of the rack at ${x} ${z}`);
+}
+
+/**
+ * Riding: drag the map so a rack in the open is in the middle of the view and tap it,
  * which sends the avatar there; F walks to its nearest bike and gets on, W rides and D turns,
  * F gets off and leaves the bike standing there.
  */
 async function expectRiding(): Promise<void> {
-  const [x, z] = await nearestRack();
+  const [x, z] = await openRack();
   // North up and the view back on the avatar, at a zoom that shows a few streets.
   await browser('press', 'r');
   for (let i = 0; i < 4; i++) await browser('press', '+');
@@ -788,14 +829,8 @@ async function expectRiding(): Promise<void> {
     '--fn',
     `${canvasData('walker')} !== ${JSON.stringify(before)} && !${canvasData('walker')}.includes('NaN')`,
   );
+  await walkUpTo(x, z);
   await zoomToStreet();
-  await browser(
-    'wait',
-    '--timeout',
-    '30000',
-    '--fn',
-    `(() => { const [a, b] = ${canvasData('walker')}.split(' ').map(Number); return Math.hypot(a - ${x}, b - ${z}) < 28; })()`,
-  );
   await browser('eval', key('keydown', 'KeyF'));
   await browser('eval', key('keyup', 'KeyF'));
   await browser('wait', '--timeout', '20000', '--fn', `${canvasData('ride')} === 'riding'`);
