@@ -1462,8 +1462,12 @@ export function createViewer(options: ViewerOptions): Viewer {
   const standIn = new Mesh(sample.build({ facade: true }), material);
   standIn.receiveShadow = true;
   standIns.add(standIn, new LineSegments(ruler.build(), ink));
-  renderer
-    .compileAsync(standIns, camera, scene)
+  // A GPU without the extension compiles on the main thread either way; compileAsync would only
+  // add a console warning for it.
+  const compiled = renderer.extensions.has('KHR_parallel_shader_compile')
+    ? renderer.compileAsync(standIns, camera, scene)
+    : Promise.resolve(renderer.compile(standIns, camera, scene));
+  compiled
     .catch(() => {}) // the first frame compiles anyway
     .finally(() => {
       // Their programs stay with the shared materials; the two stand-in shapes can go.
