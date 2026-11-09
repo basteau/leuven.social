@@ -6,6 +6,7 @@
  * cell's furniture like the awnings (storefronts.ts). Part of the furniture chunk.
  */
 
+import { PLACES } from '../data/shop-kinds.ts';
 import type { ShopKind } from '../data/shop-kinds.ts';
 import type { MeshBuilder, V3 } from './mesh-builder.ts';
 import { FRONTS, PROPS } from './palette.ts';
@@ -144,44 +145,18 @@ export function addSign(mesh: MeshBuilder, f: Frame, kind: ShopKind, middle: num
   const [g, y] = [{ ...f, scale: SIGN_SCALE }, middle / SIGN_SCALE];
   bracket(mesh, g, y + BOARD.half);
   const { canvas, stripe = canvas, board: boardColor = canvas } = FRONTS[kind];
-  if (BOARDED.has(kind)) board(mesh, g, y, boardColor);
+  if (!BARE.has(kind) && !PLACES.has(kind)) board(mesh, g, y, boardColor);
   symbol(mesh, g, y, canvas, stripe);
   return true;
 }
 
 type Symbol = (mesh: MeshBuilder, f: Frame, y: number, canvas: number, stripe: number) => void;
 
-/** Kinds whose symbol stands on a board in their colour. */
-const BOARDED = new Set<ShopKind>([
-  'cafe',
-  'bar',
-  'bakery',
-  'bank',
-  'books',
-  'fashion',
-  'food',
-  'restaurant',
-  'shop',
-  'service',
-  'library',
-  'hospital',
-  'gift',
-  'art',
-  'home',
-  'beauty',
-  'optician',
-  'laundry',
-  'phone',
-  'electronics',
-  'travel',
-  'hardware',
-  'copyshop',
-  'music',
-  'toys',
-  'sportshop',
-  'drugstore',
-  'kiosk',
-]);
+/**
+ * The shops whose symbol hangs on its own, every other on a board in its colour. A public place
+ * hangs a medallion (`addMedallion`) instead of a board.
+ */
+const BARE = new Set<ShopKind>(['frituur', 'icecream', 'pharmacy', 'bicycle', 'snack']);
 
 /** A book lying open, its pages over its cover, in the sign's plane. 96 vertices. */
 const openBook: Symbol = (mesh, f, y) => {

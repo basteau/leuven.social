@@ -167,19 +167,17 @@ export function addBoard(mesh: MeshBuilder, f: Frame): void {
       away(f, s, 0, 0),
     );
   }
-  // A few pale chalk lines of menu, no readable words.
-  for (const y of [0.45]) {
-    panel(
-      mesh,
-      [
-        frameAt(f, -0.18, 0.15 * (1 - y / 0.95) + 0.015, y),
-        frameAt(f, 0.18, 0.15 * (1 - y / 0.95) + 0.015, y),
-        frameAt(f, 0.18, 0.15 * (1 - y / 0.95) + 0.015, y + 0.035),
-        frameAt(f, -0.18, 0.15 * (1 - y / 0.95) + 0.015, y + 0.035),
-      ],
-      PAPER,
-    );
-  }
+  // A pale chalk line of menu, no readable words.
+  panel(
+    mesh,
+    [
+      frameAt(f, -0.18, 0.094, 0.45),
+      frameAt(f, 0.18, 0.094, 0.45),
+      frameAt(f, 0.18, 0.088, 0.485),
+      frameAt(f, -0.18, 0.088, 0.485),
+    ],
+    PAPER,
+  );
 }
 
 /** Pots in terracotta or anthracite, and the bay's two greens. */
@@ -265,13 +263,6 @@ const SIGN_APART = 2.2;
 const SIGN_APART_ANY = 1.5;
 /** Room a sign keeps from the ends of an awning (m), along the wall and out of it. */
 const SIGN_CLEAR = 0.15;
-/** A sign's spot, tried in turn along its wall from the end of its awning (m). */
-const SIGN_SLIDES = [0, 0.7, 1.4] as const;
-/**
- * How far out a sign reaches, and its halfway, as drawn at their scale (m): a shop's board or a
- * public place's medallion.
- */
-const SIGN_REACH = { shop: [0.35, 0.98, 1.61], place: [0.35, 1.5, 2.65] } as const;
 
 /** A front as `signSpots` weighs it: where it stands, how far its awning reaches, what kind. */
 export interface SignSite {
@@ -285,37 +276,47 @@ export interface SignSite {
  * Where each front's sign hangs, as the offset along its wall from the front's middle, or
  * undefined for a front with none: beside its awning at the end with room, moved along the wall
  * if that would cut through an awning (any front's, in `sites`) or come within reach of another
- * sign; gone if no spot along it is clear. Signs that fit stand first come, first served, so the
- * main fronts (`sites` are in the cell's order, each building's main front first) get theirs.
+ * sign; gone if no spot along it is clear. First come, first served, so the main fronts (each
+ * building's comes first in its cell's order) get theirs.
  */
 export function signSpots(sites: readonly SignSite[]): (number | undefined)[] {
   const placed: { building: Building; x: number; z: number }[] = [];
-  const awnings = sites.filter(({ front }) => FRONTS[front.kind].awning);
-  const inAwning = (site: SignSite, x: number, z: number) => {
-    const { p, room } = site;
-    const [ox, oz] = [x - p.x, z - p.z];
-    const [u, v] = [ox * p.ux + oz * p.uz, ox * p.nx + oz * p.nz];
-    return Math.abs(u) < room + SIGN_CLEAR && v > -SIGN_CLEAR && v < REACH + SIGN_CLEAR;
-  };
-  return sites.map(({ building, front, p, room }) => {
-    const reach = SIGN_REACH[PLACES.has(front.kind) ? 'place' : 'shop'];
-    const spots = SIGN_SLIDES.flatMap((d) => [room + 0.3 + d, -room - 0.3 - d]).filter(
-      (t) => front.along + t >= END_GAP && front.along + t <= p.length - END_GAP,
-    );
-    return spots.find((t) => {
-      const point = (out: number): [number, number] => [
-        p.x + p.ux * t + p.nx * out,
-        p.z + p.uz * t + p.nz * out,
-      ];
-      if (reach.some((out) => awnings.some((a) => inAwning(a, ...point(out))))) return false;
-      const [x, z] = point(reach[1]);
-      const clear = placed.every(
-        (o) =>
-          Math.hypot(o.x - x, o.z - z) >= (o.building === building ? SIGN_APART : SIGN_APART_ANY),
+  const clearOfAwnings = (x: number, z: number) =>
+    !sites.some(({ front, p, room }) => {
+      const [ox, oz] = [x - p.x, z - p.z];
+      const v = ox * p.nx + oz * p.nz;
+      return (
+        FRONTS[front.kind].awning &&
+        Math.abs(ox * p.ux + oz * p.uz) < room + SIGN_CLEAR &&
+        v > -SIGN_CLEAR &&
+        v < REACH + SIGN_CLEAR
       );
-      if (clear) placed.push({ building, x, z });
-      return clear;
     });
+  return sites.map(({ building, front, p, room }) => {
+    // How far the sign reaches, as drawn: a shop's board, or a public place's medallion.
+    const reach = PLACES.has(front.kind) ? 2.65 : 1.61;
+    return [0.3, -0.3, 1, -1, 1.7, -1.7]
+      .map((d) => (d < 0 ? d - room : d + room))
+      .find((t) => {
+        if (front.along + t < END_GAP || front.along + t > p.length - END_GAP) return false;
+        const at = (out: number): [number, number] => [
+          p.x + p.ux * t + p.nx * out,
+          p.z + p.uz * t + p.nz * out,
+        ];
+        if (![0.35, reach / 2, reach].every((out) => clearOfAwnings(...at(out)))) return false;
+        const [x, z] = at(reach / 2);
+        if (
+          placed.some(
+            (o) =>
+              Math.hypot(o.x - x, o.z - z) <
+              (o.building === building ? SIGN_APART : SIGN_APART_ANY),
+          )
+        ) {
+          return false;
+        }
+        placed.push({ building, x, z });
+        return true;
+      });
   });
 }
 
