@@ -341,8 +341,10 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
     // carry on as they are, and every tab of this browser hears it over its socket.
     sendCode: Accounts.sendCode,
     async verifyCode(email, code) {
+      const me = await Accounts.verifyCode(email, code);
+      // Only now: a wrong code must leave the first answer standing, or the tab never connects.
       asked++;
-      apply(await Accounts.verifyCode(email, code));
+      apply(me);
       expectIdentity(false);
     },
     async rename(name) {
