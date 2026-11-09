@@ -6,19 +6,13 @@
  */
 .menu.account {
   block-size: fit-content;
-  max-block-size: min(40rem, 100dvh - 2rem);
+  max-block-size: calc(100dvh - 2rem);
 }
 
 /* A centred card on a wide screen; on a narrow one the menu's full-width sheet, nearly as tall as the screen. */
 @media (min-width: 40rem) {
   .menu.account {
     inline-size: min(28rem, 100% - 2 * var(--gutter));
-  }
-}
-
-@media (max-width: 40rem) {
-  .menu.account {
-    max-block-size: calc(100dvh - 2rem);
   }
 }
 
@@ -231,6 +225,8 @@
 .account-actions {
   display: flex;
   flex-wrap: wrap;
+  /* Sign out apart from what you came for. */
+  justify-content: space-between;
   gap: var(--space-s);
 }
 
