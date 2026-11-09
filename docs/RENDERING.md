@@ -125,7 +125,7 @@ The size and render budgets are enforced by `bun run verify`; if one is exceeded
 | ------------------------------------------------------------------------------- | ---------------- | ------------------- |
 | App shell JS (React + the shell), gzipped                                       | 88 KB            | `scripts/budget.ts` |
 | 3D engine JS (three.js chunk, palette), gzipped                                 | 181.25 KB        | `scripts/budget.ts` |
-| Furniture JS (after the first frame)                                            | 15.75 KB         | `scripts/budget.ts` |
+| Furniture JS (after the first frame)                                            | 16 KB            | `scripts/budget.ts` |
 | Avatar JS, with its rooms, figure and the other players (after the first frame) | 26 KB            | `scripts/budget.ts` |
 | Street names JS (with the avatar)                                               | 1.5 KB           | `scripts/budget.ts` |
 | Bikes JS (near a rack)                                                          | 3 KB             | `scripts/budget.ts` |
