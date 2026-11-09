@@ -707,8 +707,9 @@ const SKYLIGHT = { halfU: 0.45, halfV: 0.5, lift: 0.04 } as const;
 /**
  * What makes a roof a house's own, on the gables of the centre's houses: chimney stacks on the
  * ridge near the party walls (one on most, two on some), a dormer poking out of one slope of a
- * third of them, a roof window in another fifth. In brick a shade darker than the wall, or the
- * wall's own colour for a dormer; about 30 triangles a house at most. Shadows and ink cost
+ * third of them, a roof window in another fifth. In brick a shade darker than the wall; a
+ * dormer's front in the wall's colour, its cheeks and lid in the roof's; about 30 triangles a
+ * house at most. Shadows and ink cost
  * nothing more: a stack is too small for a line, a dormer gets its front's edges.
  */
 function roofDetails(
@@ -783,8 +784,10 @@ function roofDetails(
       out,
       PANE,
     );
-    mesh.triangle(at(u1, vf, y0), at(u1, vb, y1 + 0.3), at(u1, vf, y1), wall, [ux, 0, uz]);
-    mesh.triangle(at(u0, vf, y0), at(u0, vf, y1), at(u0, vb, y1 + 0.3), wall, [-ux, 0, -uz]);
+    // Its cheeks are clad like the roof, in slate or tile: in the wall's colour they read, seen
+    // from the side, as a wedge of brick poking through the slope.
+    mesh.triangle(at(u1, vf, y0), at(u1, vb, y1 + 0.3), at(u1, vf, y1), roof, [ux, 0, uz]);
+    mesh.triangle(at(u0, vf, y0), at(u0, vf, y1), at(u0, vb, y1 + 0.3), roof, [-ux, 0, -uz]);
     mesh.quad(
       at(u0, vf, y1),
       at(u1, vf, y1),
