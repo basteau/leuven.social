@@ -6,7 +6,6 @@ import type {
   Deck,
   Path,
   Prop,
-  Ramp,
   ShopFront,
   Tank,
   Tunnel,
@@ -15,8 +14,9 @@ import { areaOutline, clipLine, clipRing } from '../data/geometry.ts';
 import type { Field } from '../data/pitches.ts';
 import { CELL_SIZE } from '../data/grid.ts';
 import { TREE_STRIDE } from '../data/trees.ts';
-import { FLAT } from '../data/terrain.ts';
-import type { Terrain } from '../data/terrain.ts';
+import { pointInRing } from '../data/geometry.ts';
+import { FLAT, clipStep } from '../data/terrain.ts';
+import type { GroundStep, Terrain } from '../data/terrain.ts';
 import { addBuilding, footing } from './buildings.ts';
 import type { PartyWalls } from './buildings.ts';
 import { LANDMARK_MODELS } from './landmark-models.ts';
@@ -43,7 +43,7 @@ import {
   addDeckSurface,
   addParapet,
   addPortals,
-  addRampWalls,
+  addGroundStep,
   addTank,
 } from './structures.ts';
 import { addParasol } from './terraces.ts';
@@ -56,6 +56,9 @@ import { addTree } from './trees.ts';
  * enough that zoomed in most of the city is culled.
  */
 export { CELL_SIZE };
+
+/** A step in the ground casts a shadow from this high (m); a thinner line breaks up in the map. */
+const CASTS_FROM = 0.6;
 
 export interface Cell {
   bounds: Bounds;
@@ -79,13 +82,10 @@ export interface Cell {
   fronts: { building: Building; front: ShopFront }[];
   tanks: Tank[];
   parapets: Float32Array[];
-  /** Every ramp on the map: a wall stops where it meets another's roadway. */
-  allRamps: readonly Ramp[];
   /** Every carriageway on the map: a deck's road is the colour of the road it comes from. */
   allCarriageways: readonly Carriageway[];
   /** Held-up decks, whole, in the cell of their first point. */
   decks: Deck[];
-  ramps: Ramp[];
   tunnels: Tunnel[];
   /** Every deck over this cell: what stands on one is lifted to it. */
   nearDecks: Deck[];
@@ -161,9 +161,7 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
           tanks: [],
           parapets: [],
           decks: [],
-          allRamps: city.ramps,
           allCarriageways: city.carriageways,
-          ramps: [],
           tunnels: [],
           nearDecks: [],
           rails: [],
@@ -191,7 +189,6 @@ export function partition(city: City, parasols: readonly Parasol[] = []): Cell[]
   // Like buildings, tanks and parapets go whole to the cell of their first point.
   for (const t of city.tanks) at(t.ring[0]!, t.ring[1]!)?.tanks.push(t);
   for (const line of city.parapets) at(line[0]!, line[1]!)?.parapets.push(line);
-  for (const r of city.ramps) at(r.line[0]!, r.line[1]!)?.ramps.push(r);
   for (const t of city.tunnels) at(t.line[0]!, t.line[1]!)?.tunnels.push(t);
   const railway = planRailway(city.rails);
   for (const m of railway.masts) at(m.x, m.z)?.masts.push(m);
@@ -357,6 +354,19 @@ export function buildCell(
   mesh.drape = terrain.rails;
   onTheSlab(mesh, area, cell.bounds, () => addTracks(mesh, cell.rails));
   mesh.drape = null;
+  // The steps in the ground, each in the cell of its middle. Where one's too low to cast a shadow
+  // the map could hold, it joins the ground, which casts none: past that it would break up.
+  const { minX, minZ, maxX, maxZ } = cell.bounds;
+  const steps = terrain.steps().filter(({ ax, az, bx, bz }) => {
+    const [x, z] = [(ax + bx) / 2, (az + bz) / 2];
+    return x >= minX && x < maxX && z >= minZ && z < maxZ;
+  });
+  const open = ({ ax, az, bx, bz }: GroundStep) =>
+    !cell.nearDecks.some((d) => pointInRing(d.ring, (ax + bx) / 2, (az + bz) / 2));
+  for (const step of steps) {
+    const low = clipStep(step, 0, CASTS_FROM);
+    if (low) addGroundStep(mesh, lines, low, terrain, open(step));
+  }
   const trunksFrom = mesh.indices;
   for (let i = 0; i < trees.length; i += TREE_STRIDE) tree(i, ['trunk']);
   mesh.lift = lines.lift = 0;
@@ -380,7 +390,10 @@ export function buildCell(
     addDeckSurface(mesh, d, cell.allCarriageways);
     mesh.drape = terrain;
   }
-  for (const r of cell.ramps) addRampWalls(mesh, lines, r, terrain, cell.allRamps);
+  for (const step of steps) {
+    const tall = clipStep(step, CASTS_FROM);
+    if (tall) addGroundStep(mesh, lines, tall, terrain, open(step));
+  }
   for (const t of cell.tunnels) addPortals(mesh, lines, t, terrain);
   mesh.drape = lines.drape = null;
   for (const bay of cell.canopies) {

@@ -458,6 +458,34 @@ test('a cell guesses its height from its own ground, down to the slab at the edg
   expect(groundRange(west!, city.area, slope, 0)).toEqual([slabBottom(slope), 10]);
 });
 
+test('the steps in the ground are built by the cell of their middle, low ones with the ground', () => {
+  const [west] = partition(city);
+  const { minX, minZ } = west!.bounds;
+  const strip = {
+    line: Float32Array.of(minX + 5, minZ + 5, minX + 45, minZ + 5),
+    rise: Float32Array.of(3, 0.3),
+    half: 2,
+  };
+  const terrain = landform(FLAT_GRID, [strip], []);
+  const walls = partyWalls(city.buildings);
+  const plain = buildCell(west!, city.area, walls);
+  const stepped = buildCell(west!, city.area, walls, terrain);
+  expect(stepped.mesh.indices).toBeGreaterThan(plain.mesh.indices);
+  // The low end of it is in with the ground, so it lies before where the shadows start.
+  expect(stepped.trunksFrom).toBeGreaterThan(plain.trunksFrom);
+  // The cell keeps its decks: under one a step's railing would come through it.
+  const deck = {
+    carries: 'road' as const,
+    ring: Float32Array.of(minX, minZ, minX + 50, minZ, minX + 50, minZ + 10, minX, minZ + 10),
+    axis: Float32Array.of(minX - 2, minZ + 5, minX + 52, minZ + 5),
+    rise: Float32Array.of(6, 6),
+    piers: new Float32Array(0),
+    lanes: [],
+  };
+  const under = buildCell({ ...west!, nearDecks: [deck] }, city.area, walls, terrain);
+  expect(under.lines.segments).toBeLessThan(stepped.lines.segments);
+});
+
 test("a bike rack inside a deck's outline stands under it, a lamp on it", () => {
   const [west] = partition(city);
   const deck = {

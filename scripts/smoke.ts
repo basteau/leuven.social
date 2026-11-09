@@ -70,8 +70,10 @@ const MAX_TRIANGLES = 1_150_000;
 // a quarter more for the forest, the abbey's fields and the campuses, which cost little per km².
 // 5M: the decks, ramps and tunnels drape each ground layer over their steps, less what paths and
 // hedges gave back by losing the points that drew nothing: measured 4.97M and 126.8 MB.
-const MAX_VERTICES = 5_000_000;
-const MAX_GEOMETRY_MB = 127;
+// 5.1M and 130 MB: every ramp cut into flat triangles, so the ground's layers can't cut through
+// each other, and a step wherever the ground jumps, asked for: measured 5.04M and 128.5 MB.
+const MAX_VERTICES = 5_100_000;
+const MAX_GEOMETRY_MB = 130;
 /**
  * The longest the main thread may be busy at once while the page loads (ms). About 60 on a
  * laptop since the roofs are planned lazily and the cells casting into the first frame are built

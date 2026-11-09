@@ -19,7 +19,7 @@ const house = (ring: Float32Array): Building => ({
 });
 import { landform, FLAT_GRID } from './terrain.ts';
 import { deckStrip } from './structures.ts';
-import { WalkGrid, rampEdges } from './walkable.ts';
+import { WalkGrid } from './walkable.ts';
 
 describe('WalkGrid', () => {
   const grid = new WalkGrid(town);
@@ -351,14 +351,6 @@ describe('levels', () => {
   test('a tunnel can be stepped out of at its mouth', () => {
     expect(grid.upper!.closed(97.6, 80)).toBeLessThan(0.5);
     expect(grid.levelAt(1, 97.6, 80)).toBe(0);
-  });
-
-  test('a ramp is walled along the whole of its height, between its points', () => {
-    const ramp = { line: Float32Array.of(0, 0, 100, 0), rise: Float32Array.of(5, 0), half: 4 };
-    const [edge] = rampEdges(ramp);
-    expect(edge![0]).toBe(0);
-    // A rise of 5 falls to the step at 92% of the way along.
-    expect(edge![2]).toBeCloseTo(92, 3);
   });
 
   test('a ramp that starts high is closed across its tip, under the deck', () => {

@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 
 import { LineBuilder, MeshBuilder, unindexed } from './mesh-builder.ts';
-import { FLAT_GRID, landform } from '../data/terrain.ts';
+import { FLAT, FLAT_GRID, landform } from '../data/terrain.ts';
+import type { GroundStep } from '../data/terrain.ts';
 import { deckStrip } from '../data/structures.ts';
 import {
   addDeckFrame,
@@ -9,7 +10,7 @@ import {
   addDeckSurface,
   addParapet,
   addPortals,
-  addRampWalls,
+  addGroundStep,
   addTank,
 } from './structures.ts';
 
@@ -46,6 +47,27 @@ test('a parapet is a low wall under a capstone along its line, closed at both en
   expect(unindexed(lines.build()).getAttribute('position').count).toBe(2 * 2 * 2);
 });
 
+const stepOf = (over: Partial<GroundStep> = {}): GroundStep => ({
+  ax: 0,
+  az: 0,
+  bx: 40,
+  bz: 0,
+  high: [3, 3],
+  low: [0, 0],
+  ...over,
+});
+const faces = (step: GroundStep) => {
+  const [mesh, lines] = [new MeshBuilder(), new LineBuilder()];
+  addGroundStep(mesh, lines, step, FLAT);
+  return { indices: mesh.indices, segments: lines.segments, box: measure(mesh).box };
+};
+
+const colourOf = (step: GroundStep) => {
+  const mesh = new MeshBuilder();
+  addGroundStep(mesh, new LineBuilder(), step, FLAT);
+  return unindexed(mesh.build()).getAttribute('color').getX(0);
+};
+
 describe('bridges and tunnels', () => {
   const deck = {
     carries: 'road' as const,
@@ -72,104 +94,41 @@ describe('bridges and tunnels', () => {
     expect(lines.segments).toBeGreaterThan(0);
   });
 
-  test('a ramp is walled while it stands clear of the ground', () => {
-    const ramp = {
-      line: Float32Array.of(0, 0, 20, 0, 40, 0),
-      rise: Float32Array.of(4, 2, 0),
-      half: 4,
-      rail: false,
-    };
-    const mesh = new MeshBuilder();
-    const lines = new LineBuilder();
-    addRampWalls(mesh, lines, ramp, landform(FLAT_GRID, [ramp], []));
-    expect(mesh.indices).toBeGreaterThan(0);
-    const cutting = { ...ramp, rise: Float32Array.of(-4, -2, 0) };
-    const low = new MeshBuilder();
-    addRampWalls(low, new LineBuilder(), cutting, landform(FLAT_GRID, [cutting], []));
-    expect(low.indices).toBeGreaterThan(0);
+  test('a step is one wall up past the road layers, with a railing over a ramp', () => {
+    const { indices, segments, box } = faces(stepOf());
+    expect(indices).toBe(6 * 3);
+    expect(segments).toBe(1);
+    expect(box.min.y).toBe(0);
+    expect(box.max.y).toBeCloseTo(3 + 0.156 + 1.05, 3);
   });
 
-  test("a ramp's wall stops at another's roadway: it would stand in the road", () => {
-    const ramp = {
-      line: Float32Array.of(0, 0, 40, 0),
-      rise: Float32Array.of(3, 3),
-      half: 3,
-      rail: false,
-    };
-    const beside = { ...ramp, line: Float32Array.of(0, 4, 40, 4) };
-    const far = { ...ramp, line: Float32Array.of(0, 400, 40, 400) };
-    const carved = landform(FLAT_GRID, [ramp, beside], []);
-    const count = (others: (typeof ramp)[]) => {
-      const mesh = new MeshBuilder();
-      addRampWalls(mesh, new LineBuilder(), ramp, carved, others);
-      return mesh.indices;
-    };
-    // The tip's two faces stand whatever the walls do.
-    const tip = 12;
-    const alone = count([ramp, far]);
-    expect(alone).toBe(count([]));
-    // Near enough to look at the walls length by length, too far to cover either: both stand whole.
-    expect(count([{ ...ramp, line: Float32Array.of(0, 5.8, 40, 5.8) }])).toBe(alone);
-    // Over the one on the side it lies: that side goes.
-    expect(count([ramp, beside])).toBe(tip + (alone - tip) / 2);
-    // At another height it's a step, and the wall stays.
-    expect(count([ramp, { ...beside, rise: Float32Array.of(-3, -3) }])).toBe(alone);
-    // Partly along it: the wall stops where it starts, one length either side.
-    expect(count([{ ...beside, line: Float32Array.of(10, 4, 20, 4) }])).toBe(
-      tip + ((alone - tip) * 3) / 2,
-    );
+  test("a cutting's high side is the street: a kerb, not a railing", () => {
+    const { box } = faces(stepOf({ high: [0, 0], low: [-4, -4] }));
+    expect(box.min.y).toBe(-4);
+    expect(box.max.y).toBeCloseTo(0.156 + 0.5, 3);
   });
 
-  test("a ramp's high end is faced both ways: seen from under its deck it was a hole", () => {
-    const up = {
-      line: Float32Array.of(0, 0, 40, 0),
-      rise: Float32Array.of(3, 0),
-      half: 3,
-      rail: false,
-    };
-    const down = { ...up, rise: Float32Array.of(-3, 0) };
-    const carved = landform(FLAT_GRID, [up, down], []);
-    const faces = (ramp: typeof up) => {
-      const mesh = new MeshBuilder();
-      addRampWalls(mesh, new LineBuilder(), ramp, carved);
-      return mesh.indices;
-    };
-    const flat = { ...up, rise: Float32Array.of(0, 0) };
-    expect(faces(flat)).toBe(0);
-    // A cutting has its floor at the tip, so no face; the rising one has its two more.
-    expect(faces(up)).toBeGreaterThan(0);
-    expect(faces(down)).toBeGreaterThan(0);
+  test('a low step has its one face and no railing or ink', () => {
+    const { indices, segments, box } = faces(stepOf({ high: [0.3, 0.3] }));
+    expect(indices).toBe(6);
+    expect(segments).toBe(0);
+    expect(box.max.y).toBeCloseTo(0.3 + 0.156, 3);
   });
 
-  test('even a step too low to wall is faced, or the ground under the road shows in it', () => {
-    const low = {
-      line: Float32Array.of(0, 0, 40, 0),
-      rise: Float32Array.of(0.1, 0.1),
-      half: 3,
-      rail: false,
-    };
-    const mesh = new MeshBuilder();
-    addRampWalls(mesh, new LineBuilder(), low, landform(FLAT_GRID, [low], []));
-    expect(mesh.indices).toBeGreaterThan(12);
-  });
-
-  test("a cutting's wall reaches past the road layers, its kerb only once it is deep", () => {
-    const cut = {
-      line: Float32Array.of(0, 0, 40, 0),
-      rise: Float32Array.of(-0.5, -0.5),
-      half: 3,
-      rail: false,
-    };
-    const carved = landform(FLAT_GRID, [cut], []);
+  test('under a deck a step has no railing to come through it', () => {
     const [mesh, lines] = [new MeshBuilder(), new LineBuilder()];
-    addRampWalls(mesh, lines, cut, carved);
-    const { box } = measure(mesh);
-    expect(box.max.y).toBeCloseTo(0.156, 3);
-    expect(lines.segments).toBe(0);
-    const deep = { ...cut, rise: Float32Array.of(-4, -4) };
-    const inked = new LineBuilder();
-    addRampWalls(new MeshBuilder(), inked, deep, landform(FLAT_GRID, [deep], []));
-    expect(inked.segments).toBeGreaterThan(0);
+    addGroundStep(mesh, lines, stepOf(), FLAT, false);
+    expect(measure(mesh).box.max.y).toBeCloseTo(3 + 0.156, 3);
+  });
+
+  test("a seam of a few centimetres takes the road's colour", () => {
+    expect(colourOf(stepOf({ high: [0.1, 0.1] }))).not.toBe(colourOf(stepOf({ high: [0.5, 0.5] })));
+  });
+
+  test('a step of no length is nothing', () => {
+    const [mesh, lines] = [new MeshBuilder(), new LineBuilder()];
+    addGroundStep(mesh, lines, stepOf({ bx: 0 }), FLAT);
+    expect(mesh.indices).toBe(0);
   });
 
   test("a deck's road is the colour of the road it comes from, and dashed down the middle", () => {

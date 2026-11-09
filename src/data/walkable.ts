@@ -11,10 +11,10 @@
 
 import { CellGrid, TILE, inRing, ringBox, wallPush } from './cell-grid.ts';
 import type { Wall } from './cell-grid.ts';
-import type { Bounds, City, Deck, Ramp, Tunnel } from './city.ts';
+import type { Bounds, City, Deck, Tunnel } from './city.ts';
 import { areaIndex } from './geometry.ts';
 import { deckEnds, deckSides } from './structures.ts';
-import { FLAT, mitres } from './terrain.ts';
+import { FLAT, clipStep, stripRings } from './terrain.ts';
 import type { Terrain } from './terrain.ts';
 
 /** How many cells out from a building's walls the places beside it reach. */
@@ -68,11 +68,9 @@ const RAILING = 0.22;
  * to, but not an edge to be held back at either, so a walker can step off onto the ground.
  */
 const EXIT = 2;
-/** A ramp's tip is walled in this many pieces, so a neighbouring roadway can leave out its part. */
-const TIP_PIECES = 6;
 /** How far a deck's end opens the ground either side of it (m). */
 const END_PAD = 1.2;
-/** A step this high at the edge of a ramp is walked over; a higher one is walled (m). */
+/** A step this high in the ground is walked over; a higher one is walled (m). */
 const STEP_UP = 0.4;
 /** Two levels this close (m) meet: a walker passes between them at no step. */
 const SAME_HEIGHT = 0.6;
@@ -115,56 +113,6 @@ function nearLine(line: ArrayLike<number>, x: number, z: number, half: number): 
   return false;
 }
 
-/**
- * The edges of a ramp that are walls (a step past `STEP_UP`), as open lines with the drop on their
- * right, as `Ribbon.rightOnly` closes.
- */
-export function rampEdges({ line, rise, half }: Pick<Ramp, 'line' | 'rise' | 'half'>): number[][] {
-  const n = line.length / 2;
-  const across = mitres(line, half);
-  const runs: number[][] = [];
-  for (const side of [1, -1]) {
-    let run: number[] = [];
-    const flush = () => {
-      if (run.length >= 4) runs.push(side > 0 ? run : reverseLine(run));
-      run = [];
-    };
-    const edge = (i: number) =>
-      [line[i * 2]! + across[i * 2]! * side, line[i * 2 + 1]! + across[i * 2 + 1]! * side] as const;
-    for (let i = 0; i < n; i++) {
-      const high = Math.abs(rise[i]!) >= STEP_UP;
-      if (high) run.push(...edge(i));
-      const next = i + 1 < n ? Math.abs(rise[i + 1]!) >= STEP_UP : high;
-      if (high === next) {
-        if (!high) flush();
-        continue;
-      }
-      // The rise is linear between points: the wall starts or stops where it passes a step.
-      const [a, b] = [Math.abs(rise[i]!), Math.abs(rise[i + 1]!)];
-      const t = (STEP_UP - a) / (b - a);
-      const [ax, az] = edge(i);
-      const [bx, bz] = edge(i + 1);
-      run.push(ax + (bx - ax) * t, az + (bz - az) * t);
-      if (high) flush();
-    }
-    flush();
-  }
-  return runs;
-}
-
-/** Across the high end of a ramp, as an open line with the way past its tip on its right. */
-function rampTip({ line, rise, half }: Pick<Ramp, 'line' | 'rise' | 'half'>): number[] | null {
-  if (Math.abs(rise[0]!) < STEP_UP) return null;
-  const across = mitres(line, half);
-  const [x, z, nx, nz] = [line[0]!, line[1]!, across[0]!, across[1]!];
-  const out: number[] = [];
-  for (let k = 0; k <= TIP_PIECES; k++) {
-    const t = (2 * k) / TIP_PIECES - 1;
-    out.push(x + nx * t, z + nz * t);
-  }
-  return out;
-}
-
 /** The short lines just past a tunnel's open mouths, along it. */
 function tunnelExits({ line, mouths }: Tunnel): number[][] {
   const out: number[][] = [];
@@ -179,49 +127,6 @@ function tunnelExits({ line, mouths }: Tunnel): number[][] {
     const length = Math.hypot(dx, dz) || 1;
     out.push([x, z, x + (dx / length) * END_PAD, z + (dz / length) * END_PAD]);
   }
-  return out;
-}
-
-/** A ramp and the box round its roadway, worked out once. */
-interface RampBox {
-  ramp: Ramp;
-  box: Bounds;
-}
-
-/** The pieces of an edge line (flat [x, z, …]) that don't lie on another ramp's roadway. */
-function outsideOthers(line: readonly number[], own: Ramp, ramps: readonly RampBox[]): number[][] {
-  const box = ringBox(line);
-  const others = ramps.filter(({ ramp, box: b }) => {
-    return (
-      ramp !== own &&
-      b.minX <= box.maxX &&
-      b.maxX >= box.minX &&
-      b.minZ <= box.maxZ &&
-      b.maxZ >= box.minZ
-    );
-  });
-  if (!others.length) return [Array.from(line)];
-  const pieces: number[][] = [];
-  let run: number[] = [];
-  const onOther = (x: number, z: number) =>
-    others.some(({ ramp: r }) => nearLine(r.line, x, z, r.half - 0.3));
-  for (let i = 0; i + 3 < line.length; i += 2) {
-    const [ax, az, bx, bz] = [line[i]!, line[i + 1]!, line[i + 2]!, line[i + 3]!];
-    if (onOther((ax + bx) / 2, (az + bz) / 2)) {
-      if (run.length >= 4) pieces.push(run);
-      run = [];
-      continue;
-    }
-    if (!run.length) run.push(ax, az);
-    run.push(bx, bz);
-  }
-  if (run.length >= 4) pieces.push(run);
-  return pieces;
-}
-
-function reverseLine(line: readonly number[]): number[] {
-  const out: number[] = [];
-  for (let i = line.length - 2; i >= 0; i -= 2) out.push(line[i]!, line[i + 1]!);
   return out;
 }
 
@@ -356,36 +261,27 @@ export class WalkGrid {
     for (const ring of [...city.roads, ...city.plazas, ...(city.bridges ?? [])]) {
       each(ringBox(ring), (t) => this.#shapes[t]!.push({ ring, value: STREET }));
     }
-    // A ramp opens its top, over water or tracks too, and walls off its sides once they are
-    // high enough to be a drop (`rampWalls`).
-    const roadRamps = (city.ramps ?? [])
-      .filter((ramp) => !ramp.rail)
-      .map((ramp) => ({ ramp, box: ringBox(ramp.line, ramp.half) }));
-    for (const { ramp } of roadRamps) {
-      const { line, half } = ramp;
-      each(ringBox(line, half), (t) => this.#ribbons[t]!.push({ line, half, value: STREET }));
-      const tip = rampTip(ramp);
-      for (const whole of tip ? [...rampEdges(ramp), tip] : rampEdges(ramp)) {
-        // A wall inside another ramp's roadway (two carriageways, a cycle track beside a road)
-        // divides nothing: the walled drop is the outer edge of the two.
-        for (const edge of outsideOthers(whole, ramp, roadRamps)) {
-          const ribbon = {
-            line: edge,
-            half: PARAPET_BAND,
-            value: heightCode(PARAPET_HEIGHT),
-            rightOnly: true,
-          };
-          each(ringBox(edge, PARAPET_BAND), (t) => this.#ribbons[t]!.push(ribbon));
-          const wall = {
-            line: edge,
-            ring: false,
-            half: RAILING,
-            box: ringBox(edge, RAILING),
-            seen: 0,
-          };
-          each(wall.box, (t) => this.#walls[t]!.push(wall));
-        }
+    // A ramp opens its top, over water or tracks too.
+    for (const ramp of (city.ramps ?? []).filter(({ rail }) => !rail)) {
+      for (const ring of stripRings(ramp)) {
+        each(ringBox(ring), (t) => this.#shapes[t]!.push({ ring, value: STREET }));
       }
+    }
+    // What's walked into at a height is what's drawn there: the steps in the ground itself.
+    for (const step of terrain.steps()) {
+      const part = clipStep(step, STEP_UP);
+      if (!part) continue;
+      // The drop lies to its right, which is the side a `rightOnly` ribbon closes.
+      const line = [part.ax, part.az, part.bx, part.bz];
+      const ribbon = {
+        line,
+        half: PARAPET_BAND,
+        value: heightCode(PARAPET_HEIGHT),
+        rightOnly: true,
+      };
+      each(ringBox(line, PARAPET_BAND), (t) => this.#ribbons[t]!.push(ribbon));
+      const wall = { line, ring: false, half: RAILING, box: ringBox(line, RAILING), seen: 0 };
+      each(wall.box, (t) => this.#walls[t]!.push(wall));
     }
     for (const { line, width } of city.paths) {
       const half = Math.max(width / 2, MIN_HALF_WIDTH);

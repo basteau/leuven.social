@@ -41,6 +41,7 @@ const BUDGETS: {
   {
     label: '3D engine JS (three.js)',
     pattern: 'assets/{viewer,palette}-*.js',
+    // 184.5: the ground's steps read off the ground itself, asked for (0.2 KB).
     // 184: every step round a ramp faced, and a deck's road matching the road it comes from (0.3 KB).
     // 183.5: retaining walls that stop at another ramp's roadway, as walking does (0.3 KB).
     // 179.5: turning by hand, asked for (0.9 KB): a twist, a turning drag, a sideways scroll,
@@ -73,7 +74,7 @@ const BUDGETS: {
     // approaches and the decks, their walls and portals, in the engine as every ground layer
     // needs them to draw.
     // 183: everyone's level of detail worked out from a figure's pixels (lod.ts, 0.1 KB).
-    limit: 184 * KB,
+    limit: 184.5 * KB,
     gzip: true,
   },
   // 3.5: just above 3.1 KB. 3.75: the minimap, the other players' name tags and who you are in
@@ -257,6 +258,7 @@ const BUDGETS: {
   {
     label: 'First-load JS',
     pattern: 'assets/{index,viewer}-*.js',
+    // 275.75: the engine's ground steps above (0.2 KB).
     // 275.25: the engine's ramps and decks above (0.35 KB).
     // 274.75: the shell's street plate, on the lines it chooses (0.1 KB).
     // 274.5: the engine's retaining walls above (0.2 KB).
@@ -275,7 +277,7 @@ const BUDGETS: {
     // 273.5: the 3 KB of bridges and tunnels in the engine.
     // 273.75: the engine's share of working out everyone's level of detail (lod.ts, 0.1 KB).
     // 274.25: that pin in the shell and its place from the engine (0.5 KB), asked for.
-    limit: 275.25 * KB,
+    limit: 275.75 * KB,
     gzip: true,
     closure: true,
   },

@@ -1,7 +1,15 @@
 import { describe, expect, test } from 'bun:test';
 
-import { FLAT, FLAT_GRID, Terrain, clipPolygon, landform } from './terrain.ts';
-import type { Corner } from './terrain.ts';
+import {
+  FLAT,
+  FLAT_GRID,
+  Terrain,
+  clipPolygon,
+  clipStep,
+  landform,
+  stripRings,
+} from './terrain.ts';
+import type { Corner, GroundStep } from './terrain.ts';
 
 // A 3 × 3 grid of 10 m squares anchored at (-10, -10): a slope up to the east and a bump at
 // node (1, 1), which sits on the origin.
@@ -226,15 +234,19 @@ describe('landform', () => {
     expect(Math.min(...pieces.flat().map((p) => p[1]!))).toBe(0);
   });
 
-  test('a piece wholly on the strip comes back in one, lifted', () => {
+  test('a piece wholly on the strip comes back lifted', () => {
     const pieces = ground.clip([
       [18, 0, -1],
       [22, 0, -1],
       [22, 0, 1],
       [18, 0, 1],
     ]);
-    expect(pieces).toHaveLength(1);
+    // Two, as a piece of a strip is two flat triangles, each corner at the strip's height there.
+    expect(pieces).toHaveLength(2);
     expect(pieces[0]![0]![1]).toBeCloseTo(2.4, 4);
+    for (const piece of pieces) {
+      for (const p of piece) expect(p[1]).toBeCloseTo(ground.height(p[0]!, p[2]!), 4);
+    }
   });
 
   test('a line across a strip stops at its edges', () => {
@@ -291,5 +303,178 @@ describe('landform', () => {
     const raised = landform(FLAT_GRID, [], [deck]);
     expect(raised.decks.height(10, 0)).toBeCloseTo(5, 5);
     expect(raised.height(10, 0)).toBe(0);
+  });
+});
+
+const dropsRight = ({ ax, az, bx, bz, high, low }: GroundStep, ground: Terrain) => {
+  const length = Math.hypot(bx - ax, bz - az);
+  const [mx, mz] = [(ax + bx) / 2, (az + bz) / 2];
+  const [rx, rz] = [((bz - az) / length) * 0.2, (-(bx - ax) / length) * 0.2];
+  const [right, left] = [ground.height(mx + rx, mz + rz), ground.height(mx - rx, mz - rz)];
+  expect(left).toBeCloseTo((high[0] + high[1]) / 2, 1);
+  expect(right).toBeCloseTo((low[0] + low[1]) / 2, 1);
+};
+
+const heightsAt = (pieces: readonly (readonly Corner[])[]) => {
+  for (const piece of pieces) {
+    const corner = piece.find((p) => Math.hypot(p[0]! - 10, p[2]!) < 1e-6);
+    if (corner) return corner[1]!;
+  }
+  return Number.NaN;
+};
+
+describe('the steps in the ground', () => {
+  const up = {
+    line: Float32Array.of(0, 0, 40, 0),
+    rise: Float32Array.of(3, 3),
+    half: 3,
+  };
+  test('plain ground has none', () => {
+    expect(FLAT.steps()).toEqual([]);
+  });
+
+  test('a lifted strip has a step all the way round it, the drop to the right', () => {
+    const ground = landform(FLAT_GRID, [up], []);
+    const steps = ground.steps();
+    expect(steps).toHaveLength(4);
+    for (const step of steps) dropsRight(step, ground);
+    expect(ground.steps()).toBe(steps);
+  });
+
+  test('a sunk one too: its walls face in', () => {
+    const ground = landform(FLAT_GRID, [{ ...up, rise: Float32Array.of(-3, -3) }], []);
+    expect(ground.steps()).toHaveLength(4);
+    for (const step of ground.steps()) dropsRight(step, ground);
+  });
+
+  test('two strips at one level overlapping are one road: nothing down the middle', () => {
+    const beside = { ...up, line: Float32Array.of(0, 4, 40, 4) };
+    const ground = landform(FLAT_GRID, [up, beside], []);
+    for (const { az, bz } of ground.steps()) {
+      const z = (az + bz) / 2;
+      expect(z > 0.5 && z < 3.5).toBe(false);
+    }
+  });
+
+  test('two at different levels meet in one step, at the height between them', () => {
+    const higher = { ...up, line: Float32Array.of(0, 4, 40, 4), rise: Float32Array.of(5, 5) };
+    const ground = landform(FLAT_GRID, [up, higher], []);
+    const between = ground.steps().filter((s) => Math.abs(s.az - 1) < 1e-3 && s.ax !== s.bx);
+    let length = 0;
+    for (const step of between) {
+      expect(step.high).toEqual([5, 5]);
+      expect(step.low).toEqual([3, 3]);
+      length += Math.abs(step.bx - step.ax);
+    }
+    expect(length).toBeCloseTo(40, 3);
+  });
+
+  test('neighbouring pieces of a strip that meet at one height have no step between them', () => {
+    const bent = {
+      ...up,
+      line: Float32Array.of(0, 0, 20, 0, 40, 0),
+      rise: Float32Array.of(3, 2, 1),
+    };
+    const ground = landform(FLAT_GRID, [bent], []);
+    expect(ground.steps().filter((s) => s.ax === 20 && s.bx === 20)).toEqual([]);
+  });
+
+  test('a strip that comes down to the ground stops having one there', () => {
+    const fall = { ...up, rise: Float32Array.of(3, 0) };
+    const ground = landform(FLAT_GRID, [fall], []);
+    for (const step of ground.steps()) dropsRight(step, ground);
+    expect(ground.steps().every((s) => Math.max(s.ax, s.bx) <= 40)).toBe(true);
+  });
+
+  test('every jump in the ground has a step on it', () => {
+    const strips = [
+      up,
+      { ...up, line: Float32Array.of(10, -6, 30, 8), rise: Float32Array.of(-4, 1), half: 2 },
+      { ...up, line: Float32Array.of(-5, 3, 50, 5), rise: Float32Array.of(0.5, 6), half: 2.5 },
+    ];
+    const ground = landform(FLAT_GRID, strips, []);
+    const near = (x: number, z: number) =>
+      ground.steps().some(({ ax, az, bx, bz }) => {
+        const [dx, dz] = [bx - ax, bz - az];
+        const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz)));
+        return Math.hypot(ax + dx * t - x, az + dz * t - z) < 0.06;
+      });
+    let jumps = 0;
+    for (let z = -9; z < 11; z += 0.73) {
+      for (let x = -8; x < 54; x += 0.02) {
+        const [a, b] = [ground.height(x, z), ground.height(x + 0.02, z)];
+        if (Math.abs(a - b) < 0.05) continue;
+        jumps++;
+        expect(near(x + 0.01, z)).toBe(true);
+      }
+    }
+    expect(jumps).toBeGreaterThan(20);
+  });
+
+  test('a strip can reach further to one side than the other', () => {
+    const wide = { ...up, left: Float32Array.of(6, 2), right: Float32Array.of(1, 1) };
+    const ground = landform(FLAT_GRID, [wide], []);
+    const rings = stripRings(wide);
+    expect(rings).toHaveLength(2);
+    expect(ground.height(1, -5)).toBe(3);
+    expect(ground.height(1, 2)).toBe(0);
+  });
+
+  test('a piece is flat: however the ground over it is cut, one height at a point', () => {
+    // Ends far from parallel, the case that used to have no one height.
+    const flared = {
+      line: Float32Array.of(0, 0, 20, 0, 30, 15),
+      rise: Float32Array.of(4, 2, 0),
+      half: 3,
+      left: Float32Array.of(2, 6, 3),
+      right: Float32Array.of(5, 2, 4),
+    };
+    const ground = landform(FLAT_GRID, [flared], []);
+    const [a, b, c] = [
+      [6, 0, 1],
+      [14, 0, 2],
+      [9, 0, -2],
+    ].map(([x, y, z]) => [x!, y!, z!] as Corner);
+    const whole = ground.clip([a!, b!, c!]);
+    const inside = [10, 0, 0] as const;
+    expect(whole.length).toBeGreaterThan(0);
+    // Cut across a second way first: the same height comes out at the same point.
+    const m = [10, 0, 0] as Corner;
+    const parts = [
+      [a!, m, c!],
+      [m, b!, c!],
+    ].flatMap((p) => ground.clip(p));
+    expect(heightsAt(parts)).toBeCloseTo(ground.height(...([inside[0], inside[2]] as const)), 6);
+  });
+
+  test('a strip that folds over itself leaves that length out, not a tangle', () => {
+    const fold = {
+      line: Float32Array.of(0, 0, 0.01, 0, 0.02, 0),
+      rise: Float32Array.of(3, 3, 3),
+      half: 3,
+    };
+    expect(stripRings({ ...fold, line: Float32Array.of(5, 5, 5, 5) })).toEqual([]);
+    expect(stripRings(fold).length).toBeLessThanOrEqual(4);
+  });
+
+  test('a piece whose first diagonal lies outside it splits along the other', () => {
+    const kite = {
+      line: Float32Array.of(0, 0, 10, 0),
+      rise: Float32Array.of(2, 2),
+      half: 3,
+      left: Float32Array.of(0.01, 8),
+      right: Float32Array.of(8, 0.01),
+    };
+    expect(stripRings(kite)).toHaveLength(2);
+  });
+
+  test('a step can be cut to the part of a height', () => {
+    const step = { ax: 0, az: 0, bx: 10, bz: 0, high: [4, 0], low: [0, 0] } as const;
+    expect(clipStep(step, 0)).toBe(step);
+    expect(clipStep(step, 2)).toMatchObject({ ax: 0, bx: 5, high: [4, 2] });
+    expect(clipStep(step, 0, 2)).toMatchObject({ ax: 5, bx: 10, high: [2, 0] });
+    expect(clipStep(step, 5)).toBeNull();
+    expect(clipStep({ ...step, high: [1, 1] }, 0, 0.5)).toBeNull();
+    expect(clipStep({ ...step, high: [1, 3] }, 2)).toMatchObject({ ax: 5, bx: 10 });
   });
 });

@@ -1,11 +1,10 @@
 import { ShapeUtils, Vector2 } from 'three';
 
 import { CYCLE_LANE } from '../data/city.ts';
-import type { Carriageway, Deck, Ramp, Tank, Tunnel } from '../data/city.ts';
+import type { Carriageway, Deck, Tank, Tunnel } from '../data/city.ts';
 import { pointInRing } from '../data/geometry.ts';
 import { deckEnds, deckSides } from '../data/structures.ts';
-import { mitres } from '../data/terrain.ts';
-import type { Terrain } from '../data/terrain.ts';
+import type { GroundStep, Terrain } from '../data/terrain.ts';
 import { LAYER_Y } from './ground.ts';
 import type { LineBuilder, MeshBuilder, V3 } from './mesh-builder.ts';
 import { SURFACE, SURFACE_OF } from './paint.ts';
@@ -111,48 +110,16 @@ export function addParapet(mesh: MeshBuilder, lines: LineBuilder, line: ArrayLik
 const FASCIA = 0.9;
 /** How wide a pier is (m). */
 const PIER = 1.1;
+/** A step this high starts a railing, which grows this much a metre, and is inked from this. */
+const GUARD_FROM = 0.7;
+const GUARD_GROWS = 1.5;
+const INK_FROM = 0.8;
+/** A step lower than this is a seam in the road (m). */
+const IN_THE_ROAD = 0.3;
 /** A railing or low wall along a ramp's top (m). */
 const RAMP_WALL = 1.05;
-/** A retaining wall stands this far above the top of a cutting (m): a kerb round the drop. */
+/** How far a kerb stands over a drop on its street side (m), at most. */
 const KERB_TOP = 0.5;
-
-/** A ramp's wall is cut into lengths of this beside another ramp (m), to stop at its roadway. */
-const WALL_PIECE = 2;
-/** How far inside a roadway a wall has to be not to stand (m): what walkable.ts walks through. */
-const WALL_INSIDE = 0.3;
-/** Two ramps within this of each other's height are one roadway there (m). */
-const WALL_STEP = 0.75;
-
-/**
- * Whether (x, z) lies on a ramp's roadway at about the height `lift`, so a wall there holds nothing
- * back and stands in the road. Walls between a higher ramp and a lower one stay: they're the step.
- */
-function sameRoadway({ line, rise, half }: Ramp, x: number, z: number, lift: number): boolean {
-  for (let i = 0; i + 3 < line.length; i += 2) {
-    const [ax, az, bx, bz] = [line[i]!, line[i + 1]!, line[i + 2]!, line[i + 3]!];
-    const [dx, dz] = [bx - ax, bz - az];
-    const t = Math.min(1, Math.max(0, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz || 1)));
-    if (Math.hypot(ax + dx * t - x, az + dz * t - z) > half - WALL_INSIDE) continue;
-    const r = rise[i / 2]! + (rise[i / 2 + 1]! - rise[i / 2]!) * t;
-    if (Math.abs(r - lift) < WALL_STEP) return true;
-  }
-  return false;
-}
-
-function rampBox({ line, half }: Ramp): readonly [number, number, number, number] {
-  let [x0, z0, x1, z1] = [Infinity, Infinity, -Infinity, -Infinity];
-  for (let i = 0; i + 1 < line.length; i += 2) {
-    [x0, z0] = [Math.min(x0, line[i]! - half), Math.min(z0, line[i + 1]! - half)];
-    [x1, z1] = [Math.max(x1, line[i]! + half), Math.max(z1, line[i + 1]! + half)];
-  }
-  return [x0, z0, x1, z1];
-}
-
-/** Whether two ramps' boxes meet, walls and all. */
-function touches(a: Ramp, b: Ramp): boolean {
-  const [p, q] = [rampBox(a), rampBox(b)];
-  return p[0] <= q[2] && q[0] <= p[2] && p[1] <= q[3] && q[1] <= p[3];
-}
 
 /** How far past a lane's end to look for the road it's part of (m). */
 const PAST_END = 3;
@@ -161,13 +128,6 @@ const DASHED_FROM = 6;
 const DASH = 2.5;
 const DASH_EVERY = 7.5;
 const DASH_WIDE = 0.14;
-/** A rise too small to wall still leaves a step in the ground: faces down to this (m). */
-const STEP_MIN = 0.02;
-/** A cutting's kerb starts this deep (m), and grows with it: thinner, it can't cast a shadow. */
-const KERB_FROM = 1.2;
-const KERB_GROWS = 0.4;
-
-const cuttingFloor = (g: number, r: number) => g + Math.min(r, 0) + LAYER_Y.roads;
 
 const pointAt = (ring: ArrayLike<number>, i: number): [number, number] => [
   ring[i * 2]!,
@@ -335,137 +295,52 @@ export function addDeckFrame(
   [mesh.drape, lines.drape] = [drape, lineDrape];
 }
 
-/** The retaining walls along a ramp: from the ground to its top, or down into its cutting. */
-export function addRampWalls(
+/**
+ * A ground step as a wall: one face from the low side up past the street's own layers, facing the
+ * low side. Over a drop worth falling down, a railing along the top where a ramp is the high side,
+ * a kerb where the street is. It stands where the heights say and nowhere else (`GroundStep`).
+ */
+export function addGroundStep(
   mesh: MeshBuilder,
   lines: LineBuilder,
-  ramp: Ramp,
+  { ax, az, bx, bz, high, low }: GroundStep,
   terrain: Terrain,
-  ramps: readonly Ramp[] = [],
+  guarded = true,
 ): void {
-  const { line, rise, half } = ramp;
-  // A wall inside another ramp's roadway stands in the road (two carriageways, a cycle track
-  // beside a road): walkable.ts walks through it, so it isn't drawn either.
-  const others = ramps.filter((other) => other !== ramp && !other.rail && touches(ramp, other));
-  const across = mitres(line, half);
-  const edges = Array.from({ length: line.length / 2 }, (_, i) => {
-    const [x, z, nx, nz] = [line[i * 2]!, line[i * 2 + 1]!, across[i * 2]!, across[i * 2 + 1]!];
-    return [x + nx, z + nz, x - nx, z - nz] as const;
-  });
+  const length = Math.hypot(bx - ax, bz - az);
+  if (length < 1e-6) return;
+  const [ox, oz] = [(bz - az) / length, -(bx - ax) / length];
+  const [ga, gb] = [terrain.plain(ax, az), terrain.plain(bx, bz)];
+  const [ta, tb] = [ga + high[0] + LAYER_Y.carriageways, gb + high[1] + LAYER_Y.carriageways];
+  const [drap, drbp] = [high[0] - low[0], high[1] - low[1]];
   const [drape, lineDrape] = [mesh.drape, lines.drape];
   mesh.drape = lines.drape = null;
-  for (let i = 0; i + 1 < edges.length; i++) {
-    if (Math.abs(rise[i]!) < STEP_MIN && Math.abs(rise[i + 1]!) < STEP_MIN) continue;
-    for (const side of [0, 2] as const) {
-      const [x0, z0] = [edges[i]![side], edges[i]![side + 1]!];
-      const [x1, z1] = [edges[i + 1]![side], edges[i + 1]![side + 1]!];
-      const length = Math.hypot(x1 - x0, z1 - z0);
-      const parts = others.length ? Math.max(1, Math.ceil(length / WALL_PIECE)) : 1;
-      const lift = (t: number) => rise[i]! + (rise[i + 1]! - rise[i]!) * t;
-      const stands = (k: number) => {
-        const t = (k + 0.5) / parts;
-        return !others.some((other) =>
-          sameRoadway(other, x0 + (x1 - x0) * t, z0 + (z1 - z0) * t, lift(t)),
-        );
-      };
-      // Whole lengths, from one place where it stops to the next: a wall costs what it did.
-      for (let k = 0; k < parts; k++) {
-        if (!stands(k)) continue;
-        const from = k;
-        while (k + 1 < parts && stands(k + 1)) k++;
-        const [t0, t1] = [from / parts, (k + 1) / parts];
-        wallPiece(
-          x0 + (x1 - x0) * t0,
-          z0 + (z1 - z0) * t0,
-          x0 + (x1 - x0) * t1,
-          z0 + (z1 - z0) * t1,
-          lift(t0),
-          lift(t1),
-          side,
-        );
-      }
-    }
-  }
-  function wallPiece(
-    ax: number,
-    az: number,
-    bx: number,
-    bz: number,
-    ra: number,
-    rb: number,
-    side: 0 | 2,
-  ): void {
-    const len = Math.hypot(bx - ax, bz - az);
-    if (len < 1e-6) return;
-    // Left of the heading for edge 0, right for edge 2: outward.
-    const sign = side === 0 ? 1 : -1;
-    const [ox, oz] = [((bz - az) / len) * sign, (-(bx - ax) / len) * sign];
-    const up = ra > 0 || rb > 0;
-    const [ga, gb] = [terrain.plain(ax, az), terrain.plain(bx, bz)];
-    if (up) {
-      // A wall from the ground up to the ramp's top, its low parapet carried along it.
-      const wall = (level: (g: number, r: number) => number): [V3, V3] => [
-        [ax, level(ga, ra), az],
-        [bx, level(gb, rb), bz],
-      ];
-      const [wa, wb] = wall((g) => g);
-      const [ta, tb] = wall((g, r) => g + Math.max(r, 0) + LAYER_Y.roads);
-      const high = Math.max(ra, rb) > 1;
-      const [pa, pb] = wall((g, r) => g + Math.max(r, 0) + LAYER_Y.roads + (high ? RAMP_WALL : 0));
-      mesh.quad(wa, wb, tb, ta, STRUCTURES.retaining, [ox, 0, oz]);
-      if (high) {
-        mesh.quad(ta, tb, pb, pa, STRUCTURES.retaining, [ox, 0, oz]);
-        mesh.quad(ta, tb, pb, pa, STRUCTURES.coping, [-ox, 0, -oz]);
-        lines.segment(pa, pb);
-      }
-    } else {
-      // A cutting's wall: from its floor up past the ground, facing in.
-      // The lip fades as the cutting comes up to the ground, so a ramp ends level with the road.
-      const lip = (g: number, r: number) =>
-        g + Math.min(KERB_TOP, Math.max(0, -Math.min(r, 0) - KERB_FROM) * KERB_GROWS);
-      // Up past the street's own layers, or what lies under them shows over the top of it.
-      const wallTop = (g: number, r: number) => Math.max(lip(g, r), g + LAYER_Y.carriageways);
-      mesh.quad(
-        [ax, cuttingFloor(ga, ra), az],
-        [bx, cuttingFloor(gb, rb), bz],
-        [bx, wallTop(gb, rb), bz],
-        [ax, wallTop(ga, ra), az],
-        STRUCTURES.retaining,
-        [-ox, 0, -oz],
-      );
-      // Its outside and its ink only where there's a kerb to have them.
-      if (lip(ga, ra) > ga || lip(gb, rb) > gb) {
-        mesh.quad(
-          [ax, ga, az],
-          [bx, gb, bz],
-          [bx, lip(gb, rb), bz],
-          [ax, lip(ga, ra), az],
-          STRUCTURES.retaining,
-          [ox, 0, oz],
-        );
-        lines.segment([ax, lip(ga, ra), az], [bx, lip(gb, rb), bz]);
-      }
-    }
-  }
-  addRampTip();
-  /**
-   * The high end of a ramp, faced on both sides: it stops under its deck, in a step up from the
-   * ground there, and seen from the far side of the deck there was only the sky behind it.
-   */
-  function addRampTip(): void {
-    const top = rise[0]!;
-    if (top <= STEP_MIN) return;
-    const [lx, lz, rx, rz] = edges[0]!;
-    const [gl, gr] = [terrain.plain(lx, lz), terrain.plain(rx, rz)];
-    const face: [V3, V3, V3, V3] = [
-      [lx, gl, lz],
-      [rx, gr, rz],
-      [rx, gr + top + LAYER_Y.roads, rz],
-      [lx, gl + top + LAYER_Y.roads, lz],
+  mesh.quad(
+    [ax, ga + low[0], az],
+    [bx, gb + low[1], bz],
+    [bx, tb, bz],
+    [ax, ta, az],
+    // A few centimetres between two ramps at a road's width is the road's own, not a wall.
+    Math.max(drap, drbp) < IN_THE_ROAD ? SURFACE_COLOURS.asphalt : STRUCTURES.retaining,
+    [ox, 0, oz],
+  );
+  const ramp = high[0] + high[1] > 0;
+  const most = ramp ? RAMP_WALL : KERB_TOP;
+  // Under a deck there's nothing to fall off, and the deck is where a railing would come through.
+  const guard = (drop: number) =>
+    guarded ? Math.min(most, Math.max(0, drop - GUARD_FROM) * GUARD_GROWS) : 0;
+  const [ua, ub] = [ta + guard(drap), tb + guard(drbp)];
+  if (ua > ta || ub > tb) {
+    const [p, q, r, s]: [V3, V3, V3, V3] = [
+      [ax, ta, az],
+      [bx, tb, bz],
+      [bx, ub, bz],
+      [ax, ua, az],
     ];
-    const [ux, uz] = [line[2]! - line[0]!, line[3]! - line[1]!];
-    for (const side of [1, -1]) mesh.quad(...face, STRUCTURES.retaining, [ux * side, 0, uz * side]);
+    mesh.quad(p, q, r, s, STRUCTURES.retaining, [ox, 0, oz]);
+    mesh.quad(p, q, r, s, ramp ? STRUCTURES.coping : STRUCTURES.retaining, [-ox, 0, -oz]);
   }
+  if (guarded && Math.max(drap, drbp) > INK_FROM) lines.segment([ax, ua, az], [bx, ub, bz]);
   [mesh.drape, lines.drape] = [drape, lineDrape];
 }
 

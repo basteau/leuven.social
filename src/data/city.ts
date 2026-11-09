@@ -158,6 +158,9 @@ export interface Ramp {
   rise: Float32Array;
   /** Half its width (m). */
   half: number;
+  /** How far it reaches to each side of `line` at each point, where a road's width varies (m). */
+  left?: Float32Array;
+  right?: Float32Array;
   /** Tracks run on it: only these move the railway. */
   rail: boolean;
 }

@@ -31,6 +31,11 @@ export class Terrain {
   readonly highest: number;
   /** All one height: nothing to cut. */
   readonly #flat: boolean;
+  /** Where the ground jumps from one height to another (`GroundStep`). Plain ground has none. */
+  steps(): readonly GroundStep[] {
+    return [];
+  }
+
   /** The ground tracks lie on: only their own ramps move them (`landform`). */
   rails: Terrain = this;
   /** The surface of the decks, held up over this ground (`landform`). */
@@ -254,24 +259,92 @@ export interface Strip {
   line: ArrayLike<number>;
   rise: ArrayLike<number>;
   half: number;
+  /** How far it reaches to each side of its line at each point, where that isn't `half`. */
+  left?: ArrayLike<number>;
+  right?: ArrayLike<number>;
 }
 
-/** A piece of a strip between two of its points: a convex quad, its corners counter-clockwise. */
+/**
+ * A place the ground jumps in height: the one thing a retaining wall is. Found from the height the
+ * ground resolves to, so a step exists exactly where the heights differ: never down the middle of
+ * two strips at one level, and never missing where they don't meet. Drawing and walking both read
+ * these (`addGroundSteps` in scene/structures.ts, `WalkGrid`).
+ */
+export interface GroundStep {
+  /** Its ends. The low side lies to the right of a to b, as the outside of a ring does. */
+  ax: number;
+  az: number;
+  bx: number;
+  bz: number;
+  /** How far the strips move the ground on each side, at a and at b. */
+  high: readonly [number, number];
+  low: readonly [number, number];
+}
+
+const mix = (a: number, b: number, t: number) => a + (b - a) * t;
+
+/** The part of a step where it's at least `from` high and under `to`, if any: it's linear. */
+export function clipStep(step: GroundStep, from: number, to = Infinity): GroundStep | null {
+  const drop = [step.high[0] - step.low[0], step.high[1] - step.low[1]] as const;
+  const delta = drop[1] - drop[0];
+  let [t0, t1] = [0, 1];
+  for (const [bound, keepAbove] of [
+    [from, true],
+    [to, false],
+  ] as const) {
+    if (!Number.isFinite(bound)) continue;
+    const above0 = drop[0] >= bound;
+    const above1 = drop[1] >= bound;
+    if (above0 === above1) {
+      if (above0 !== keepAbove) return null;
+      continue;
+    }
+    const t = (bound - drop[0]) / delta;
+    if (above0 === keepAbove) t1 = Math.min(t1, t);
+    else t0 = Math.max(t0, t);
+  }
+  if (t1 - t0 < 1e-6) return null;
+  if (t0 === 0 && t1 === 1) return step;
+  return {
+    ax: mix(step.ax, step.bx, t0),
+    az: mix(step.az, step.bz, t0),
+    bx: mix(step.ax, step.bx, t1),
+    bz: mix(step.az, step.bz, t1),
+    high: [mix(step.high[0], step.high[1], t0), mix(step.high[0], step.high[1], t1)],
+    low: [mix(step.low[0], step.low[1], t0), mix(step.low[0], step.low[1], t1)],
+  };
+}
+
+/**
+ * A piece of a strip: a triangle, its corners counter-clockwise, flat. It has to be flat: a piece
+ * whose ends aren't parallel has no one height at a point, and layers of ground stacked millimetres
+ * apart, each cut into pieces of its own, come out at different ones and cut through each other.
+ */
 interface Quad {
-  x: readonly [number, number, number, number];
-  z: readonly [number, number, number, number];
-  /** Which corners (a, b) make each end's cross-section: 0–3 at the start, 1–2 at the end. */
-  rises: readonly [number, number];
+  x: readonly [number, number, number];
+  z: readonly [number, number, number];
+  /** How far it moves the ground at each corner. */
+  rises: readonly [number, number, number];
   minX: number;
   minZ: number;
   maxX: number;
   maxZ: number;
   /** How far it moves the ground at most: the strongest wins where strips overlap. */
   strength: number;
-  /** The last piece of ground asked about, so a quad in two buckets is cut once. */
+  /** The last piece of ground asked about, so one in two buckets is cut once. */
   seen: number;
 }
 
+/** A strip's pieces are triangles. */
+const CORNERS = 3;
+/** A sliver thinner than this (m², doubled) is no piece of ground. */
+const MIN_AREA = 1e-4;
+/** How long a length of a strip's edge is looked at, at a time (m). */
+const STEP_PIECE = 1;
+/** How far either side of an edge the ground is read (m). */
+const PROBE = 0.03;
+/** Heights this close meet: no step (m). */
+const STEP_MIN = 0.02;
 /** How far a piece of a line may be mitred past its width at a bend. */
 const MITRE = 1.6;
 /** Buckets of quads (m). */
@@ -305,11 +378,14 @@ export function mitres(line: ArrayLike<number>, half: number): Float32Array {
   return out;
 }
 
-/** The quads of a strip, one per segment. */
-function stripQuads({ line, rise, half }: Strip): Quad[] {
+/** A segment's two ends as flat triangles, split along whichever diagonal lies inside it. */
+function stripQuads(strip: Strip): Quad[] {
+  const { line, rise } = strip;
   const n = line.length / 2;
-  const across = mitres(line, half);
+  const across = mitres(line, 1);
   const quads: Quad[] = [];
+  const left = (i: number) => strip.left?.[i] ?? strip.half;
+  const right = (i: number) => strip.right?.[i] ?? strip.half;
   for (let i = 0; i + 1 < n; i++) {
     const [ox, oz, px, pz] = [
       across[i * 2]!,
@@ -318,28 +394,43 @@ function stripQuads({ line, rise, half }: Strip): Quad[] {
       across[i * 2 + 3]!,
     ];
     const [ax, az, bx, bz] = [line[i * 2]!, line[i * 2 + 1]!, line[i * 2 + 2]!, line[i * 2 + 3]!];
-    let x = [ax + ox, bx + px, bx - px, ax - ox] as const;
-    let z = [az + oz, bz + pz, bz - pz, az - oz] as const;
-    let rises: [number, number] = [rise[i]!, rise[i + 1]!];
-    const area = (x[1] - x[0]) * (z[2] - z[0]) - (x[2] - x[0]) * (z[1] - z[0]);
-    if (Math.abs(area) < 1e-6) continue;
-    if (area < 0) {
-      x = [x[3], x[2], x[1], x[0]];
-      z = [z[3], z[2], z[1], z[0]];
-      rises = [rises[1], rises[0]];
+    const [la, lb, ra, rb] = [left(i), left(i + 1), right(i), right(i + 1)];
+    const x = [ax + ox * la, bx + px * lb, bx - px * rb, ax - ox * ra];
+    const z = [az + oz * la, bz + pz * lb, bz - pz * rb, az - oz * ra];
+    const r = [rise[i]!, rise[i + 1]!, rise[i + 1]!, rise[i]!];
+    const strength = Math.max(Math.abs(rise[i]!), Math.abs(rise[i + 1]!));
+    const twice = (a: number, b: number, c: number) =>
+      (x[b]! - x[a]!) * (z[c]! - z[a]!) - (x[c]! - x[a]!) * (z[b]! - z[a]!);
+    // The corners go round one way or the other, as a segment can run either way across the map.
+    const facing = twice(0, 1, 2) + twice(0, 2, 3) < 0 ? -1 : 1;
+    const sound = (a: number, b: number, c: number) => twice(a, b, c) * facing > MIN_AREA;
+    const halves = [
+      [
+        [0, 1, 2],
+        [0, 2, 3],
+      ],
+      [
+        [0, 1, 3],
+        [1, 2, 3],
+      ],
+    ].find((pair) => pair.every(([a, b, c]) => sound(a!, b!, c!)));
+    for (const [a0, b0, c0] of halves ?? []) {
+      // Stored counter-clockwise, whichever way the segment ran.
+      const [a, b, c] = facing < 0 ? [c0!, b0!, a0!] : [a0!, b0!, c0!];
+      const xs = [x[a]!, x[b]!, x[c]!] as const;
+      const zs = [z[a]!, z[b]!, z[c]!] as const;
+      quads.push({
+        x: xs,
+        z: zs,
+        rises: [r[a]!, r[b]!, r[c]!],
+        minX: Math.min(...xs),
+        minZ: Math.min(...zs),
+        maxX: Math.max(...xs),
+        maxZ: Math.max(...zs),
+        strength,
+        seen: 0,
+      });
     }
-    if (!convex(x, z)) continue;
-    quads.push({
-      x,
-      z,
-      rises,
-      minX: Math.min(...x),
-      minZ: Math.min(...z),
-      maxX: Math.max(...x),
-      maxZ: Math.max(...z),
-      strength: Math.max(Math.abs(rise[i]!), Math.abs(rise[i + 1]!)),
-      seen: 0,
-    });
   }
   return quads;
 }
@@ -351,34 +442,24 @@ const unit = (dx: number, dz: number, fx: number, fz: number): [number, number] 
   return [fx / other, fz / other];
 };
 
-function convex(x: readonly number[], z: readonly number[]): boolean {
-  for (let i = 0; i < 4; i++) {
-    const [a, b, c] = [i, (i + 1) % 4, (i + 2) % 4];
-    if ((x[b]! - x[a]!) * (z[c]! - z[a]!) - (x[c]! - x[a]!) * (z[b]! - z[a]!) <= 0) return false;
-  }
-  return true;
-}
-
-/** How far past the line from corner a to corner b (x, z) lies, to its left: inside a quad. */
+/** How far past the line from corner a to the next (x, z) lies, to its left: inside a piece. */
 const leftOf = (q: Quad, a: number, x: number, z: number) => {
-  const b = (a + 1) % 4;
+  const b = (a + 1) % CORNERS;
   return (q.x[b]! - q.x[a]!) * (z - q.z[a]!) - (q.z[b]! - q.z[a]!) * (x - q.x[a]!);
 };
 
-/** The rise of a quad at a point in it: as far between its two ends as the point lies. */
+/** The rise of a piece at a point: flat across it, so it's the same however it's cut. */
 function riseIn(q: Quad, x: number, z: number): number {
-  const [rise0, rise1] = q.rises;
-  if (rise0 === rise1) return rise0;
-  // Corners 3 and 0 are the first end's cross-section, 1 and 2 the last's, and each is shared
-  // with the quad next along, so two quads meet at the same height there.
-  const from = Math.abs(leftOf(q, 3, x, z));
-  const to = Math.abs(leftOf(q, 1, x, z));
-  return rise0 + (rise1 - rise0) * (from / (from + to || 1));
+  const [a, b, c] = q.rises;
+  if (a === b && b === c) return a;
+  const area = leftOf(q, 0, q.x[2], q.z[2]) || 1;
+  // Each corner weighs as much as the triangle the point makes with the edge across from it.
+  return (a * leftOf(q, 1, x, z) + b * leftOf(q, 2, x, z) + c * leftOf(q, 0, x, z)) / area;
 }
 
 /** Whether every corner of `piece` lies outside one of a quad's edges: it can't touch the quad. */
 function whollyOutside(piece: Polygon, q: Quad): boolean {
-  for (let a = 0; a < 4; a++) {
+  for (let a = 0; a < CORNERS; a++) {
     if (piece.every((p) => leftOf(q, a, p[0]!, p[2]!) <= ON_EDGE)) return true;
   }
   return false;
@@ -413,11 +494,14 @@ function splitAt(piece: Polygon, q: Quad, a: number): [Polygon, Polygon] {
 class Carved extends Terrain {
   /** Each bucket's quads, strongest first. */
   readonly #buckets = new Map<number, Quad[]>();
+  readonly #quads: readonly Quad[];
+  #steps: readonly GroundStep[] | undefined;
   #cuts = 0;
 
   constructor(grid: TerrainGrid, strips: readonly Strip[]) {
     super(grid);
     const quads = strips.flatMap(stripQuads).toSorted((a, b) => b.strength - a.strength);
+    this.#quads = quads;
     for (const q of quads) {
       for (let i = bucketOf(q.minX); i <= bucketOf(q.maxX); i++) {
         for (let j = bucketOf(q.minZ); j <= bucketOf(q.maxZ); j++) {
@@ -458,8 +542,7 @@ class Carved extends Terrain {
         (q) =>
           leftOf(q, 0, x, z) >= -ON_EDGE &&
           leftOf(q, 1, x, z) >= -ON_EDGE &&
-          leftOf(q, 2, x, z) >= -ON_EDGE &&
-          leftOf(q, 3, x, z) >= -ON_EDGE,
+          leftOf(q, 2, x, z) >= -ON_EDGE,
       );
   }
 
@@ -471,6 +554,68 @@ class Carved extends Terrain {
 
   override height(x: number, z: number): number {
     return this.plain(x, z) + this.rise(x, z);
+  }
+
+  override steps(): readonly GroundStep[] {
+    this.#steps ??= this.#quads.flatMap((q) => this.#stepsAlong(q));
+    return this.#steps;
+  }
+
+  /**
+   * The steps along a quad's edges, read from the ground as resolved. A length of edge belongs to
+   * the quad only where that quad is what the ground follows just inside it (else something
+   * stronger lies over it, and that has the edge); and it's a step only where the ground just
+   * outside lies at another height. Lengths with the same two sides make one step.
+   */
+  #stepsAlong(q: Quad): GroundStep[] {
+    const found: GroundStep[] = [];
+    for (let e = 0; e < CORNERS; e++) {
+      const f = (e + 1) % CORNERS;
+      const [ax, az, bx, bz] = [q.x[e]!, q.z[e]!, q.x[f]!, q.z[f]!];
+      const length = Math.hypot(bx - ax, bz - az);
+      if (length < 1e-6) continue;
+      const parts = Math.max(1, Math.ceil(length / STEP_PIECE));
+      // Corners run counter-clockwise, the quad on the left: outward is to the right.
+      const [nx, nz] = [((bz - az) / length) * PROBE, (-(bx - ax) / length) * PROBE];
+      const point = (t: number) => [ax + (bx - ax) * t, az + (bz - az) * t] as const;
+      let open: { from: number; to: number; out: Quad | undefined; higher: boolean } | undefined;
+      const close = () => {
+        if (!open) return;
+        const { from, to, out, higher } = open;
+        const [p0, p1] = [point(from), point(to)];
+        const own = [riseIn(q, ...p0), riseIn(q, ...p1)] as const;
+        const other = [out ? riseIn(out, ...p0) : 0, out ? riseIn(out, ...p1) : 0] as const;
+        found.push(
+          higher
+            ? { ax: p0[0], az: p0[1], bx: p1[0], bz: p1[1], high: own, low: other }
+            : {
+                ax: p1[0],
+                az: p1[1],
+                bx: p0[0],
+                bz: p0[1],
+                high: [other[1], other[0]],
+                low: [own[1], own[0]],
+              },
+        );
+        open = undefined;
+      };
+      for (let k = 0; k < parts; k++) {
+        const [mx, mz] = point((k + 0.5) / parts);
+        const out = this.#quadAt(mx + nx, mz + nz);
+        const own = this.#quadAt(mx - nx, mz - nz) === q ? riseIn(q, mx, mz) : Number.NaN;
+        const beyond = out ? riseIn(out, mx, mz) : 0;
+        if (Number.isNaN(own) || Math.abs(own - beyond) < STEP_MIN) {
+          close();
+          continue;
+        }
+        const higher = own > beyond;
+        if (open && (open.out !== out || open.higher !== higher)) close();
+        if (open) open.to = (k + 1) / parts;
+        else open = { from: k / parts, to: (k + 1) / parts, out, higher };
+      }
+      close();
+    }
+    return found;
   }
 
   override clip(polygon: Polygon): Polygon[] {
@@ -493,7 +638,7 @@ class Carved extends Terrain {
           next.push(part);
           continue;
         }
-        for (let a = 0; a < 4 && part.length >= 3; a++) {
+        for (let a = 0; a < CORNERS && part.length >= 3; a++) {
           const [inside, outside] = splitAt(part, q, a);
           if (outside.length >= 3) next.push(outside);
           part = inside;
@@ -525,7 +670,7 @@ class Carved extends Terrain {
       if (!q) continue;
       const at: number[] = [];
       for (const quad of quads) {
-        for (let e = 0; e < 4; e++) {
+        for (let e = 0; e < CORNERS; e++) {
           const [sp, sq] = [leftOf(quad, e, p[0]!, p[2]!), leftOf(quad, e, q[0]!, q[2]!)];
           if (sp * sq < 0) at.push(sp / (sp - sq));
         }
@@ -572,3 +717,8 @@ export const FLAT_GRID: TerrainGrid = {
   heights: new Float32Array(4),
 };
 export const FLAT = new Terrain(FLAT_GRID);
+
+/** Each triangle of a strip, as a flat [x, z, …] ring. */
+export function stripRings(strip: Strip): number[][] {
+  return stripQuads(strip).map((q) => q.x.flatMap((x, i) => [x, q.z[i]!]));
+}
