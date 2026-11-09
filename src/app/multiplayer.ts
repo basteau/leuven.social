@@ -269,7 +269,8 @@ export function startMultiplayer(viewer: Viewer, hooks: MultiplayerHooks): Multi
 
   /** Draws our figure where another tab took it; while this tab is hidden, only when shown again. */
   function followAvatar(): void {
-    if (!ownAt || document.visibilityState !== 'visible') return;
+    // In a room there's no drawing it here: the street has no such spot, only a wall.
+    if (!ownAt || ownAt.place || document.visibilityState !== 'visible') return;
     const now = performance.now();
     if (now - followedAt < FOLLOW_MS) return;
     followedAt = now;
