@@ -48,11 +48,14 @@ export function walkSolids(city: City): Solids {
       box(ax, az, (bx - ax) / length, (bz - az) / length, [-HEDGE, HEDGE, 0, length]);
     }
   }
+  // The fronts sharing a wall, found once: asked for each front, that was 2.9M comparisons.
+  const onWall = Map.groupBy(city.fronts, (f) => `${f.building}:${f.edge}`);
   for (const front of city.fronts) {
     const p = frontPoint(city.buildings[front.building]!.ring, front);
     // The bay trees by a café's door (storefronts.ts), met as posts.
-    const others = city.fronts
-      .filter((o) => o.building === front.building && o.edge === front.edge && o !== front)
+    const others = onWall
+      .get(`${front.building}:${front.edge}`)!
+      .filter((o) => o !== front)
       .map((o) => o.along);
     const plants = doorPlants(p, front, awningRoom(front.along, p.length, others));
     for (let i = 0; i < plants.length; i += 2)
