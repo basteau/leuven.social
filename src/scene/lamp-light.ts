@@ -93,9 +93,12 @@ export function bakeLight(
       for (let i = i0; i <= i1; i++) {
         const k = (i + j * width) * 4;
         data[k + 3] = Math.max(data[k + 3]!, ground);
-        const d = (Math.hypot(i - cx, j - cz) * LIGHT_TEXEL) / radius;
-        if (d >= 1) continue;
-        const fall = (1 - d * d) * (1 - d * d);
+        // Squared: the falloff needs no root, and the bake is one uninterrupted task on a phone.
+        const u = ((i - cx) * LIGHT_TEXEL) / radius;
+        const v = ((j - cz) * LIGHT_TEXEL) / radius;
+        const d2 = u * u + v * v;
+        if (d2 >= 1) continue;
+        const fall = (1 - d2) * (1 - d2);
         const at = i + j * width;
         light[at * 3] = light[at * 3]! + r! * fall;
         light[at * 3 + 1] = light[at * 3 + 1]! + g! * fall;
