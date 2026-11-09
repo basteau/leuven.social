@@ -27,6 +27,9 @@ export function ActionButton(props: {
       className={props.primary ? 'action primary' : 'action'}
       aria-keyshortcuts={props.keys ?? props.shortcut}
       disabled={props.disabled}
+      // A mouse press leaves focus on the map: focused, a pill that relabels (Ride, then Get off)
+      // would take the Space meant to bring the view back.
+      onMouseDown={(event) => event.preventDefault()}
       onClick={(event) => {
         if (strayPress(event.detail, performance.now() - mountedAt)) return;
         props.onPress();
