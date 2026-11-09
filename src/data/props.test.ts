@@ -540,3 +540,15 @@ test('a rack does not go through a house to the garden behind', () => {
   const inside = placeProps([point(0, -6.5, { ...RACK, capacity: '2' })], open);
   expect(inside.props[0]!.z).toBeGreaterThan(-6);
 });
+
+test('a rack mapped off the road never crosses it to the far pavement', () => {
+  const s = street();
+  // No room on its own side: a house 0.6 m behind the kerb, the wide south pavement across the road.
+  s.solid.ring([-100, -20, 100, -20, 100, -2.6, -100, -2.6]);
+  const { props, racksDropped } = placeProps([point(0, -2.3, { ...RACK, capacity: '2' })], s);
+  expect(props).toEqual([]);
+  expect(racksDropped).toBe(1);
+  // Mapped on the carriageway, it still may go to either pavement.
+  const mapped = placeProps([point(5, 3.5, { ...RACK, capacity: '2' })], street());
+  expect(mapped.props[0]!.z).toBeGreaterThan(4);
+});

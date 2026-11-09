@@ -367,10 +367,10 @@ export function discInFootprint(f: Footprint, x: number, z: number, radius: numb
   return du * du + dv * dv < radius * radius || (du === 0 && dv === 0);
 }
 
-/** Whether a wall or parapet lies between two points. */
-function wallBetween(solid: Shapes, ax: number, az: number, bx: number, bz: number): boolean {
+/** Whether an edge of these shapes (a wall, a kerb) lies between two points. */
+function edgeBetween(shapes: Shapes, ax: number, az: number, bx: number, bz: number): boolean {
   const reach = Math.hypot(bx - ax, bz - az) / 2 + 0.1;
-  return solid.edges.some((ax + bx) / 2, (az + bz) / 2, reach, (cx, cz, dx, dz) =>
+  return shapes.edges.some((ax + bx) / 2, (az + bz) / 2, reach, (cx, cz, dx, dz) =>
     crosses(ax, az, bx, bz, cx, cz, dx, dz),
   );
 }
@@ -740,7 +740,10 @@ export function placeProps(points: readonly PropPoint[], around: Surroundings): 
       // street, never through a house to the garden behind it.
       if (c.kind === 'bikes') {
         if (!strict || onDrawnRoad(grow(f, KERB_ROOM), around.roads, around.squares)) return false;
-        if (!walledIn && wallBetween(around.solid, c.x, c.z, f.x, f.z)) return false;
+        if (!walledIn && edgeBetween(around.solid, c.x, c.z, f.x, f.z)) return false;
+        // Mapped off the road it stays on its own side of it: the pavement across a carriageway
+        // is someone else's rack.
+        if (!onRoad && edgeBetween(around.roads, c.x, c.z, f.x, f.z)) return false;
       }
       const room = grow(f, CLEARANCE);
       const reach = radius(room);
